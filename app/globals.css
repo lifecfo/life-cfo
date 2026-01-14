@@ -1,0 +1,24 @@
+@import "tailwindcss";
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+}
+
+/* Optional: make form elements feel consistent */
+input,
+textarea,
+select,
+button {
+  font: inherit;
+}
+
+body {
+  margin: 0;
+  background: rgb(250 250 250);
+  color: rgb(24 24 27);
+}
