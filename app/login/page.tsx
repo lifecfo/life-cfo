@@ -1,9 +1,13 @@
 "use client";
 
 import { useState } from "react";
-import { supabase } from "../../lib/supabaseClient";
+import { useRouter, useSearchParams } from "next/navigation";
+import { supabase } from "@/lib/supabaseClient";
 
 export default function LoginPage() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [status, setStatus] = useState<string>("");
@@ -23,8 +27,16 @@ export default function LoginPage() {
     }
 
     setStatus(`Signed in ✅ ${data.user?.email ?? ""}`);
-    // Send them somewhere useful
-    window.location.href = "/inbox";
+
+    // ✅ Compute next at the moment we redirect (more reliable than top-level const)
+    const next = searchParams.get("next") || "/inbox";
+
+    // ✅ Ensure session is fully persisted before navigating (avoids redirect loops)
+    await supabase.auth.getSession();
+
+    // ✅ Navigate + refresh so server/proxy re-evaluates auth immediately
+    router.replace(next);
+    router.refresh();
   };
 
   const sendReset = async () => {
@@ -32,10 +44,11 @@ export default function LoginPage() {
       setStatus("Type your email first, then click Reset.");
       return;
     }
+
     setStatus("Sending reset email...");
 
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: "http://localhost:3000/auth/reset",
+      redirectTo: `${window.location.origin}/auth/reset`,
     });
 
     if (error) {

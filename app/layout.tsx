@@ -1,12 +1,8 @@
 import "./globals.css";
 import type { ReactNode } from "react";
-import { ClientProviders } from "../components/ClientProviders";
+import { ClientProviders } from "@/components/ClientProviders";
 
-type RootLayoutProps = Readonly<{
-  children: ReactNode;
-}>;
-
-export default function RootLayout({ children }: RootLayoutProps) {
+export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en">
       <body>

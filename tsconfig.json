@@ -15,8 +15,6 @@
     "jsx": "react-jsx",
     "plugins": [{ "name": "next" }],
 
-    "forceConsistentCasingInFileNames": true,
-
     "baseUrl": ".",
     "paths": {
       "@/*": ["./*"]
@@ -28,6 +26,7 @@
     }
   },
   "include": [
+    "next-env.d.ts",
     "app/**/*.ts",
     "app/**/*.tsx",
     "components/**/*.ts",

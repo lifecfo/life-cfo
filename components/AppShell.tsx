@@ -3,7 +3,7 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { supabase } from "../lib/supabaseClient";
+import { supabase } from "@/lib/supabaseClient";
 import { Button, Chip } from "./ui";
 
 type AppShellProps = {
@@ -25,7 +25,7 @@ export function AppShell({ children }: AppShellProps) {
 
   const signOut = async () => {
     await supabase.auth.signOut();
-    router.push("/auth/login");
+    router.push("/login");
     router.refresh();
   };
 
