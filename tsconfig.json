@@ -34,10 +34,12 @@
     "lib/**/*.ts",
     "lib/**/*.tsx",
     "src/**/*.ts",
-    "src/**/*.tsx",
-    "run-engine.ts",
-    ".next/types/**/*.ts",
-    ".next/dev/types/**/*.ts"
+    "src/**/*.tsx"
   ],
-  "exclude": ["node_modules"]
+  "exclude": [
+    "node_modules",
+    ".next",
+    "run-engine.ts",
+    "inbox-actions-demo.ts"
+  ]
 }
