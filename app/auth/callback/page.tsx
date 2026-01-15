@@ -1,32 +1,73 @@
-"use client";
+// app/auth/callback/page.tsx
+import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
+import { createServerClient } from "@supabase/ssr";
 
-import { useEffect } from "react";
-import { useRouter } from "next/navigation";
-import { supabase } from "@/lib/supabaseClient";
+function safeNext(input: unknown) {
+  if (typeof input !== "string") return "/inbox";
+  if (!input.startsWith("/")) return "/inbox";
+  if (input.startsWith("//")) return "/inbox";
+  if (input.includes("http://") || input.includes("https://")) return "/inbox";
+  return input;
+}
 
-export default function AuthCallbackPage() {
-  const router = useRouter();
+export default async function AuthCallbackPage({
+  searchParams,
+}: {
+  searchParams: Record<string, string | string[] | undefined>;
+}) {
+  const cookieStore = await cookies();
 
-  useEffect(() => {
-    const run = async () => {
-      // For OAuth / PKCE flows, Supabase can exchange the code for a session.
-      // If there is no code in the URL, this won't crash; it will just no-op.
-      try {
-        await supabase.auth.exchangeCodeForSession(window.location.href);
-      } catch (e) {
-        // ignore – we’ll still route onward
-        console.error(e);
-      } finally {
-        router.replace("/inbox");
-      }
-    };
+  const code =
+    typeof searchParams.code === "string"
+      ? searchParams.code
+      : Array.isArray(searchParams.code)
+      ? searchParams.code[0]
+      : undefined;
 
-    run();
-  }, [router]);
+  const type =
+    typeof searchParams.type === "string"
+      ? searchParams.type
+      : Array.isArray(searchParams.type)
+      ? searchParams.type[0]
+      : undefined;
 
-  return (
-    <div style={{ padding: 24 }}>
-      Finishing sign-in…
-    </div>
+  const nextParam =
+    typeof searchParams.next === "string"
+      ? searchParams.next
+      : Array.isArray(searchParams.next)
+      ? searchParams.next[0]
+      : undefined;
+
+  // If this is a recovery link, ALWAYS go to /reset
+  const nextPath = type === "recovery" ? "/reset" : safeNext(nextParam);
+
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        get(name: string) {
+          return cookieStore.get(name)?.value;
+        },
+        set(name: string, value: string, options: any) {
+          cookieStore.set({ name, value, ...options });
+        },
+        remove(name: string, options: any) {
+          cookieStore.set({ name, value: "", ...options });
+        },
+      },
+    }
   );
+
+  if (code) {
+    const { error } = await supabase.auth.exchangeCodeForSession(code);
+    if (error) {
+      redirect(
+        `/login?next=${encodeURIComponent(nextPath)}&err=${encodeURIComponent(error.message)}`
+      );
+    }
+  }
+
+  redirect(nextPath);
 }
