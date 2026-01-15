@@ -40,9 +40,9 @@ export default function LoginClient({ nextPath }: { nextPath: string }) {
     setStatus("Sending reset email...");
 
     // IMPORTANT:
-    // Use the current origin so dev uses localhost and prod uses your Vercel domain automatically.
-    // Route through /auth/callback so the code is exchanged safely, then land on /reset.
-    const redirectTo = `${window.location.origin}/auth/callback?next=/reset`;
+    // Use current origin so dev uses localhost and prod uses Vercel automatically.
+    // Use a dedicated reset callback route so we ALWAYS end up at /reset (no guessing).
+    const redirectTo = `${window.location.origin}/auth/reset`;
 
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
       redirectTo,
