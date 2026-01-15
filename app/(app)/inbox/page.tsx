@@ -587,6 +587,107 @@ export default function InboxPage() {
     }
   };
 
+  // ✅ NEW: Promote (Inbox → Decisions) without deciding yet
+  const promoteInboxItemToDecision = async (item: InboxItem) => {
+    if (!userId) return;
+
+    try {
+      setStatusLine("Promoting to Decisions...");
+      setAffirmation(null);
+
+      // 1) Create a draft decision linked to the inbox item
+      const { data: inserted, error: insertError } = await supabase
+        .from("decisions")
+        .insert({
+          user_id: userId,
+          inbox_item_id: item.id,
+          title: item.title,
+          context: item.body ?? null,
+
+          // Draft: not yet decided
+          status: "draft",
+          decided_at: null,
+
+          // Keep these clean for later
+          user_reasoning: null,
+          confidence_level: null,
+          ai_summary: null,
+          ai_json: null,
+          review_notes: null,
+          review_history: [],
+        })
+        .select("id")
+        .single();
+
+      if (insertError) {
+        setStatusLine(`Promote failed: ${insertError.message}`);
+        return;
+      }
+
+      const decisionId = inserted?.id as string | undefined;
+      if (!decisionId) {
+        setStatusLine("Promoted, but missing decision id (unexpected).");
+        return;
+      }
+
+      // 2) Close inbox item (so it disappears from Visible)
+      const { error: closeError } = await supabase
+        .from("decision_inbox")
+        .update({ status: "done", snoozed_until: null })
+        .eq("id", item.id)
+        .eq("user_id", userId);
+
+      if (closeError) {
+        setStatusLine(`Promoted, but couldn't close inbox item: ${closeError.message}`);
+        return;
+      }
+
+      setItems((prev) =>
+        prev.map((it) => (it.id === item.id ? { ...it, status: "done", snoozed_until: null } : it))
+      );
+      clearPerItemInputs(item.id);
+
+      setStatusLine("Promoted ✅");
+
+      showToast(
+        {
+          message: "Promoted to Decisions ✅",
+          undoLabel: "Undo",
+          onUndo: async () => {
+            setStatusLine("Undoing promotion...");
+
+            const { error: delErr } = await supabase
+              .from("decisions")
+              .delete()
+              .eq("id", decisionId)
+              .eq("user_id", userId);
+
+            if (delErr) {
+              setStatusLine(`Undo failed (delete): ${delErr.message}`);
+              return;
+            }
+
+            const { error: reopenErr } = await supabase
+              .from("decision_inbox")
+              .update({ status: "open", snoozed_until: null })
+              .eq("id", item.id)
+              .eq("user_id", userId);
+
+            if (reopenErr) {
+              setStatusLine(`Undo partial (reopen failed): ${reopenErr.message}`);
+              return;
+            }
+
+            setStatusLine("Undone ✅");
+          },
+        },
+        8000
+      );
+    } catch (e: any) {
+      setStatusLine(e?.message ?? "Promote failed");
+    }
+  };
+
   const minutesAgo = lastLoadedAt ? Math.floor((Date.now() - lastLoadedAt.getTime() + tick * 0) / 60000) : null;
 
   const liveBadge = () => {
@@ -786,6 +887,11 @@ export default function InboxPage() {
 
                     <div className="flex flex-wrap gap-2">
                       <Button onClick={() => decideNowAndCloseInboxItem(it)}>Decide Now ✅</Button>
+
+                      {/* ✅ NEW BUTTON */}
+                      <Button variant="secondary" onClick={() => promoteInboxItemToDecision(it)}>
+                        Promote → Decisions
+                      </Button>
 
                       <Button variant="secondary" onClick={() => doneItem(it.id)}>
                         Done
