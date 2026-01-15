@@ -107,7 +107,8 @@ function normalizeHistory(input: any): ReviewEntry[] {
 type TypeFilter = "all" | "spending" | "time" | "relationship" | "health" | "other";
 type StakesFilter = "all" | "high";
 type SuggestedFilter = "all" | "decide_now" | "delay" | "gather_info";
-type TabMode = "all" | "review";
+
+type TabMode = "all" | "review" | "drafts";
 
 export default function DecisionsPage() {
   const { showToast } = useToast();
@@ -135,6 +136,13 @@ export default function DecisionsPage() {
 
   // review drafts
   const [reviewDraft, setReviewDraft] = useState<Record<string, string>>({});
+
+  // draft finishing inputs
+  const [draftReason, setDraftReason] = useState<Record<string, string>>({});
+  const [draftConfidence, setDraftConfidence] = useState<Record<string, number>>({});
+  const [draftSaving, setDraftSaving] = useState<Record<string, boolean>>({});
+  const [draftAiLoading, setDraftAiLoading] = useState<Record<string, boolean>>({});
+  const [draftAiError, setDraftAiError] = useState<Record<string, string>>({});
 
   const load = async () => {
     setStatusLine("Loading...");
@@ -181,6 +189,9 @@ export default function DecisionsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const decidedCount = useMemo(() => rows.filter((d) => d.status === "decided").length, [rows]);
+  const draftCount = useMemo(() => rows.filter((d) => d.status === "draft").length, [rows]);
+
   const toggleOne = (id: string) => setExpanded((prev) => ({ ...prev, [id]: !prev[id] }));
   const expandAll = (list: Decision[]) => {
     const next: Record<string, boolean> = {};
@@ -223,7 +234,7 @@ export default function DecisionsPage() {
 
   const dueForReviewCount = useMemo(() => rows.filter(isDueForReview).length, [rows]);
 
-  const reviewList = useMemo(() => rows.filter((d) => d.review_at != null && d.status !== "draft"), [rows]);
+  const reviewList = useMemo(() => rows.filter((d) => d.review_at != null), [rows]);
 
   const reviewSorted = useMemo(() => {
     const copy = [...reviewList];
@@ -430,45 +441,113 @@ export default function DecisionsPage() {
     clearSelection();
   };
 
-  // ✅ NEW: mark draft as decided
-  const markDraftDecided = async (d: Decision) => {
+  // ---------- draft finish logic ----------
+  const runAiForDraft = async (d: Decision) => {
+    setDraftAiError((prev) => ({ ...prev, [d.id]: "" }));
+    setDraftAiLoading((prev) => ({ ...prev, [d.id]: true }));
+
+    try {
+      const res = await fetch("/api/analyze-decision", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: d.title,
+          body: d.context,
+          type: "draft",
+          severity: 2,
+        }),
+      });
+
+      const json = await res.json();
+      if (!res.ok) throw new Error(json?.error || "AI analysis failed");
+
+      const analysis = json.analysis;
+
+      const { error: upErr } = await supabase
+        .from("decisions")
+        .update({
+          ai_summary: analysis?.reasoning ?? null,
+          ai_json: analysis ?? null,
+        })
+        .eq("id", d.id);
+
+      if (upErr) {
+        setDraftAiError((prev) => ({ ...prev, [d.id]: upErr.message }));
+        return;
+      }
+
+      setRows((prev) =>
+        prev.map((x) => (x.id === d.id ? { ...x, ai_summary: analysis?.reasoning ?? null, ai_json: analysis ?? null } : x))
+      );
+    } catch (e: any) {
+      setDraftAiError((prev) => ({ ...prev, [d.id]: e?.message ?? "AI analysis failed" }));
+    } finally {
+      setDraftAiLoading((prev) => ({ ...prev, [d.id]: false }));
+    }
+  };
+
+  const finishDraftDecision = async (d: Decision) => {
+    setDraftSaving((prev) => ({ ...prev, [d.id]: true }));
+    setStatusLine("Saving decision...");
+
+    const reason = (draftReason[d.id] ?? "").trim() || null;
+    const conf = draftConfidence[d.id] ?? null;
     const nowIso = new Date().toISOString();
-    setStatusLine("Marking decided...");
 
     const { error } = await supabase
       .from("decisions")
-      .update({ status: "decided", decided_at: nowIso })
+      .update({
+        status: "decided",
+        decided_at: nowIso,
+        user_reasoning: reason,
+        confidence_level: conf,
+      })
       .eq("id", d.id);
 
     if (error) {
-      setStatusLine(`Mark decided failed: ${error.message}`);
+      setStatusLine(`Finish failed: ${error.message}`);
+      setDraftSaving((prev) => ({ ...prev, [d.id]: false }));
       return;
     }
 
-    setRows((prev) => prev.map((x) => (x.id === d.id ? { ...x, status: "decided", decided_at: nowIso } : x)));
+    setRows((prev) =>
+      prev.map((x) =>
+        x.id === d.id
+          ? {
+              ...x,
+              status: "decided",
+              decided_at: nowIso,
+              user_reasoning: reason,
+              confidence_level: conf,
+            }
+          : x
+      )
+    );
+
     setStatusLine("Decided ✅");
 
     showToast(
       {
-        message: "Marked decided ✅",
+        message: "Decided ✅",
         undoLabel: "Undo",
         onUndo: async () => {
+          setStatusLine("Undoing...");
           const { error: undoErr } = await supabase
             .from("decisions")
             .update({ status: "draft", decided_at: null })
             .eq("id", d.id);
-
           if (undoErr) {
             setStatusLine(`Undo failed: ${undoErr.message}`);
             return;
           }
-
           setRows((prev) => prev.map((x) => (x.id === d.id ? { ...x, status: "draft", decided_at: null } : x)));
           setStatusLine("Undone ✅");
         },
       },
       8000
     );
+
+    setDraftSaving((prev) => ({ ...prev, [d.id]: false }));
   };
 
   // ---------- filtering ----------
@@ -476,10 +555,11 @@ export default function DecisionsPage() {
     const q = query.trim().toLowerCase();
 
     return rows.filter((d) => {
-      // keep drafts out of the Review tab (review tab = decisions due)
       if (tab === "review") {
-        if (d.status === "draft") return false;
         if (!isDueForReview(d)) return false;
+      }
+      if (tab === "drafts") {
+        if (d.status !== "draft") return false;
       }
 
       const ai = getAI(d.ai_json);
@@ -516,25 +596,6 @@ export default function DecisionsPage() {
     });
   }, [rows, query, onlyWithAI, typeFilter, stakesFilter, suggestedFilter, needsAttention, tab]);
 
-  const drafts = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return rows
-      .filter((d) => d.status === "draft")
-      .filter((d) => {
-        if (!q) return true;
-        const hay = [d.title, d.context ?? ""].join("\n").toLowerCase();
-        return hay.includes(q);
-      })
-      .sort((a, b) => {
-        if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
-        const ta = a.created_at ? Date.parse(a.created_at) : 0;
-        const tb = b.created_at ? Date.parse(b.created_at) : 0;
-        return tb - ta;
-      });
-  }, [rows, query]);
-
-  const decidedCount = useMemo(() => rows.filter((d) => d.status === "decided").length, [rows]);
-
   const activeFiltersCount = useMemo(() => {
     let n = 0;
     if (typeFilter !== "all") n++;
@@ -549,11 +610,17 @@ export default function DecisionsPage() {
     <div className="space-y-1">
       {email && <div>Signed in as: {email}</div>}
       <div className="text-zinc-700">
-        <strong>{decidedCount}</strong> decided • <strong>{drafts.length}</strong> draft • {statusLine}
+        <strong>{decidedCount}</strong> handled • <strong>{draftCount}</strong> drafts • {statusLine}
       </div>
       <div>You’re building a trail of clarity — one decision at a time.</div>
     </div>
   );
+
+  const statusDotColor = (s: string) => {
+    if (s === "decided") return "green";
+    if (s === "draft") return "#71717a"; // zinc-500-ish
+    return "gray";
+  };
 
   // ---------- UI ----------
   return (
@@ -577,65 +644,14 @@ export default function DecisionsPage() {
         </div>
       }
     >
-      {/* Drafts */}
-      <div className="space-y-3">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="m-0 text-lg font-semibold tracking-tight">Drafts</h2>
-          <div className="text-sm text-zinc-600">{drafts.length} waiting</div>
-        </div>
-
-        {drafts.length === 0 ? (
-          <Card className="bg-zinc-50">
-            <CardContent>
-              <div className="space-y-2">
-                <strong>No drafts right now.</strong>
-                <div className="text-sm text-zinc-600">Use “Promote → Decisions” from Inbox to park something here.</div>
-              </div>
-            </CardContent>
-          </Card>
-        ) : (
-          <div className="grid gap-3">
-            {drafts.map((d) => (
-              <Card key={`draft-${d.id}`} className="border-zinc-200 bg-white">
-                <CardContent>
-                  <div className="space-y-3">
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <div className="flex flex-wrap items-center gap-2">
-                          <strong className="text-base">{d.pinned ? "⭐ " : ""}{d.title}</strong>
-                          <Badge variant="muted">Draft</Badge>
-                        </div>
-                        <div className="mt-1 text-xs text-zinc-500">Created: {formatLocal(d.created_at)}</div>
-                      </div>
-
-                      <div className="flex flex-wrap gap-2">
-                        <Button variant="secondary" onClick={() => togglePinned(d.id, !d.pinned)}>
-                          {d.pinned ? "⭐ Pinned" : "☆ Pin"}
-                        </Button>
-                        <Button onClick={() => markDraftDecided(d)}>Mark Decided ✅</Button>
-                      </div>
-                    </div>
-
-                    {d.context && (
-                      <div className="whitespace-pre-wrap text-sm text-zinc-800">{d.context}</div>
-                    )}
-
-                    <div className="text-xs text-zinc-500">status: {d.status}</div>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* Divider */}
-      <div className="my-2 h-px w-full bg-zinc-200" />
-
       {/* Tabs */}
       <div className="flex flex-wrap gap-2">
         <Chip active={tab === "all"} onClick={() => setTab("all")}>
           All
+        </Chip>
+
+        <Chip active={tab === "drafts"} onClick={() => setTab("drafts")} title="Promoted items waiting to be decided">
+          Drafts {draftCount > 0 ? `(${draftCount})` : ""}
         </Chip>
 
         <Chip active={tab === "review"} onClick={() => setTab("review")} title="Decisions due for review">
@@ -645,9 +661,13 @@ export default function DecisionsPage() {
         {tab === "review" && dueForReviewCount === 0 && (
           <div className="self-center text-sm text-zinc-600">Nothing is due right now 🎉</div>
         )}
+
+        {tab === "drafts" && draftCount === 0 && (
+          <div className="self-center text-sm text-zinc-600">No drafts right now 🎉</div>
+        )}
       </div>
 
-      {/* Review summary + bulk controls */}
+      {/* Review summary + bulk controls (only useful on Review tab) */}
       <Card className="bg-zinc-50">
         <CardContent>
           <div className="space-y-3">
@@ -656,59 +676,63 @@ export default function DecisionsPage() {
                 <Badge variant="muted">Scheduled: {scheduledCount}</Badge>
                 <Badge variant="warning">Overdue: {overdueCount}</Badge>
                 <Badge variant="muted">Due soon: {dueSoonCount}</Badge>
-                {selectedIds.length > 0 && <Badge variant="muted">Selected: {selectedIds.length}</Badge>}
+                {tab === "review" && selectedIds.length > 0 && <Badge variant="muted">Selected: {selectedIds.length}</Badge>}
               </div>
 
+              {tab === "review" && (
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    variant="secondary"
+                    onClick={() => {
+                      const next: Record<string, boolean> = {};
+                      for (const d of filtered) next[d.id] = true;
+                      setSelected(next);
+                    }}
+                  >
+                    Select all (filtered)
+                  </Button>
+                  <Button variant="secondary" onClick={clearSelection} disabled={selectedIds.length === 0}>
+                    Clear selection
+                  </Button>
+                </div>
+              )}
+            </div>
+
+            {tab === "review" && (
               <div className="flex flex-wrap gap-2">
+                <Button onClick={bulkMarkReviewed} disabled={selectedIds.length === 0}>
+                  ✅ Mark reviewed
+                </Button>
+
                 <Button
                   variant="secondary"
-                  onClick={() => {
-                    const next: Record<string, boolean> = {};
-                    for (const d of filtered) next[d.id] = true;
-                    setSelected(next);
-                  }}
+                  onClick={() => bulkScheduleMinutes(60 * 24 * 3)}
+                  disabled={selectedIds.length === 0}
                 >
-                  Select all (filtered)
+                  ⏳ Review in 3 days
                 </Button>
-                <Button variant="secondary" onClick={clearSelection} disabled={selectedIds.length === 0}>
-                  Clear selection
+
+                <Button
+                  variant="secondary"
+                  onClick={() => bulkScheduleMinutes(60 * 24 * 7)}
+                  disabled={selectedIds.length === 0}
+                >
+                  ⏳ Review in 7 days
+                </Button>
+
+                <Button
+                  variant="secondary"
+                  onClick={() => bulkScheduleMinutes(60 * 24 * 30)}
+                  disabled={selectedIds.length === 0}
+                >
+                  ⏳ Review in 30 days
+                </Button>
+
+                <Button variant="secondary" onClick={bulkClearReviewAt} disabled={selectedIds.length === 0}>
+                  🧹 Clear review date
                 </Button>
               </div>
-            </div>
-
-            <div className="flex flex-wrap gap-2">
-              <Button onClick={bulkMarkReviewed} disabled={selectedIds.length === 0}>
-                ✅ Mark reviewed
-              </Button>
-
-              <Button
-                variant="secondary"
-                onClick={() => bulkScheduleMinutes(60 * 24 * 3)}
-                disabled={selectedIds.length === 0}
-              >
-                ⏳ Review in 3 days
-              </Button>
-
-              <Button
-                variant="secondary"
-                onClick={() => bulkScheduleMinutes(60 * 24 * 7)}
-                disabled={selectedIds.length === 0}
-              >
-                ⏳ Review in 7 days
-              </Button>
-
-              <Button
-                variant="secondary"
-                onClick={() => bulkScheduleMinutes(60 * 24 * 30)}
-                disabled={selectedIds.length === 0}
-              >
-                ⏳ Review in 30 days
-              </Button>
-
-              <Button variant="secondary" onClick={bulkClearReviewAt} disabled={selectedIds.length === 0}>
-                🧹 Clear review date
-              </Button>
-            </div>
+            )}
           </div>
         </CardContent>
       </Card>
@@ -718,7 +742,7 @@ export default function DecisionsPage() {
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder={tab === "review" ? "Search reviews..." : "Search decisions..."}
+          placeholder={tab === "review" ? "Search reviews..." : tab === "drafts" ? "Search drafts..." : "Search decisions..."}
           className="min-w-[260px] flex-1 rounded-xl border border-zinc-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200"
         />
       </div>
@@ -798,245 +822,337 @@ export default function DecisionsPage() {
 
       {/* List */}
       <div className="grid gap-3">
-        {filtered
-          .filter((d) => d.status !== "draft")
-          .map((d) => {
-            const isOpen = !!expanded[d.id];
-            const conf = confidenceLabel(d.confidence_level);
+        {filtered.map((d) => {
+          const isOpen = !!expanded[d.id];
+          const conf = confidenceLabel(d.confidence_level);
 
-            const ai = getAI(d.ai_json);
-            const suggested = suggestedLabel(ai?.suggested_default ?? null);
-            const type = typeLabel(ai?.decision_type ?? null);
-            const stakes = stakesLabel(ai?.stakes ?? null);
-            const horizon = horizonLabel(ai?.time_horizon ?? null);
-            const reversible = reversibleLabel(typeof ai?.reversible === "boolean" ? ai.reversible : null);
+          const ai = getAI(d.ai_json);
+          const suggested = suggestedLabel(ai?.suggested_default ?? null);
+          const type = typeLabel(ai?.decision_type ?? null);
+          const stakes = stakesLabel(ai?.stakes ?? null);
+          const horizon = horizonLabel(ai?.time_horizon ?? null);
+          const reversible = reversibleLabel(typeof ai?.reversible === "boolean" ? ai.reversible : null);
 
-            const keyQuestions: string[] = Array.isArray(ai?.key_questions) ? ai.key_questions : [];
+          const keyQuestions: string[] = Array.isArray(ai?.key_questions) ? ai.key_questions : [];
 
-            const due = isDueForReview(d);
-            const dueSoon = !due && isDueSoon(d);
+          const due = isDueForReview(d);
+          const dueSoon = !due && isDueSoon(d);
 
-            const history = normalizeHistory(d.review_history);
+          const history = normalizeHistory(d.review_history);
 
-            return (
-              <Card
-                key={d.id}
-                className={due ? "border-amber-200 bg-amber-50" : dueSoon ? "border-yellow-200 bg-yellow-50" : "bg-white"}
-              >
-                <CardContent>
-                  {tab === "review" && (
-                    <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                      <label className="flex items-center gap-2 text-sm text-zinc-700">
-                        <input checked={!!selected[d.id]} onChange={() => toggleSelected(d.id)} type="checkbox" />
-                        Select
-                      </label>
+          const isDraft = d.status === "draft";
+          const saving = !!draftSaving[d.id];
+          const aiLoad = !!draftAiLoading[d.id];
+          const aiErr = draftAiError[d.id];
 
-                      <div className="text-xs text-zinc-500">
-                        review_at: {formatLocal(d.review_at)} • reviewed_at: {formatLocal(d.reviewed_at)}
-                      </div>
+          return (
+            <Card
+              key={d.id}
+              className={
+                isDraft
+                  ? "border-zinc-200 bg-zinc-50"
+                  : due
+                  ? "border-amber-200 bg-amber-50"
+                  : dueSoon
+                  ? "border-yellow-200 bg-yellow-50"
+                  : "bg-white"
+              }
+            >
+              <CardContent>
+                {tab === "review" && (
+                  <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                    <label className="flex items-center gap-2 text-sm text-zinc-700">
+                      <input checked={!!selected[d.id]} onChange={() => toggleSelected(d.id)} type="checkbox" />
+                      Select
+                    </label>
+
+                    <div className="text-xs text-zinc-500">
+                      review_at: {formatLocal(d.review_at)} • reviewed_at: {formatLocal(d.reviewed_at)}
                     </div>
-                  )}
+                  </div>
+                )}
 
-                  <button
-                    onClick={() => toggleOne(d.id)}
-                    className="w-full cursor-pointer bg-transparent p-0 text-left"
-                    title={isOpen ? "Collapse" : "Expand"}
-                    style={{ border: "none" }}
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="flex items-start gap-3">
-                        <span
-                          title={d.status}
-                          className="mt-2 inline-block h-2.5 w-2.5 rounded-full"
-                          style={{
-                            background: d.status === "decided" ? "green" : "gray",
-                            opacity: 0.75,
-                          }}
-                        />
+                <button
+                  onClick={() => toggleOne(d.id)}
+                  className="w-full cursor-pointer bg-transparent p-0 text-left"
+                  title={isOpen ? "Collapse" : "Expand"}
+                  style={{ border: "none" }}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-start gap-3">
+                      <span
+                        title={d.status}
+                        className="mt-2 inline-block h-2.5 w-2.5 rounded-full"
+                        style={{
+                          background: statusDotColor(d.status),
+                          opacity: 0.75,
+                        }}
+                      />
 
-                        <div>
-                          <div className="flex flex-wrap items-center gap-2">
-                            <strong className="text-base">
-                              {d.pinned ? "⭐ " : ""}
-                              {d.title}
-                            </strong>
+                      <div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <strong className="text-base">
+                            {d.pinned ? "⭐ " : ""}
+                            {d.title}
+                          </strong>
 
-                            {due && <Badge variant="warning">Due for review</Badge>}
-                            {dueSoon && <Badge variant="muted">Due soon</Badge>}
-                            {conf && <Badge variant="muted">Confidence: {conf}</Badge>}
-                            {suggested && <Badge variant="muted">AI: {suggested}</Badge>}
-                          </div>
+                          {isDraft && <Badge variant="muted">Draft</Badge>}
+                          {due && <Badge variant="warning">Due for review</Badge>}
+                          {dueSoon && <Badge variant="muted">Due soon</Badge>}
+                          {conf && <Badge variant="muted">Confidence: {conf}</Badge>}
+                          {suggested && <Badge variant="muted">AI: {suggested}</Badge>}
+                        </div>
 
-                          <div className="mt-1 text-xs text-zinc-500">
-                            Decided: {formatLocal(d.decided_at)} • Created: {formatLocal(d.created_at)}
-                          </div>
+                        <div className="mt-1 text-xs text-zinc-500">
+                          Decided: {formatLocal(d.decided_at)} • Created: {formatLocal(d.created_at)}
                         </div>
                       </div>
-
-                      <div className="text-xs text-zinc-500">{isOpen ? "▾" : "▸"}</div>
                     </div>
-                  </button>
 
-                  {isOpen && (
-                    <div className="mt-4 grid gap-3">
+                    <div className="text-xs text-zinc-500">{isOpen ? "▾" : "▸"}</div>
+                  </div>
+                </button>
+
+                {isOpen && (
+                  <div className="mt-4 grid gap-3">
+                    <div className="flex flex-wrap gap-2">
+                      <Button variant="secondary" onClick={() => togglePinned(d.id, !d.pinned)}>
+                        {d.pinned ? "⭐ Pinned" : "☆ Pin"}
+                      </Button>
+
+                      {!isDraft && <Button onClick={() => markReviewedNow(d.id)}>✅ Reviewed</Button>}
+
+                      <Button variant="secondary" onClick={() => reviewIn1Day(d.id)}>
+                        ⏳ Review in 1 day
+                      </Button>
+                      <Button variant="secondary" onClick={() => reviewIn3Days(d.id)}>
+                        ⏳ Review in 3 days
+                      </Button>
+                      <Button variant="secondary" onClick={() => reviewIn7Days(d.id)}>
+                        ⏳ Review in 7 days
+                      </Button>
+                      <Button variant="secondary" onClick={() => reviewIn30Days(d.id)}>
+                        ⏳ Review in 30 days
+                      </Button>
+
+                      <Button variant="secondary" onClick={() => clearReviewAt(d.id)}>
+                        🧹 Clear review
+                      </Button>
+                    </div>
+
+                    <div className="text-xs text-zinc-500">
+                      review_at: {formatLocal(d.review_at)} • reviewed_at: {formatLocal(d.reviewed_at)}
+                    </div>
+
+                    {(type || stakes || horizon || reversible) && (
                       <div className="flex flex-wrap gap-2">
-                        <Button variant="secondary" onClick={() => togglePinned(d.id, !d.pinned)}>
-                          {d.pinned ? "⭐ Pinned" : "☆ Pin"}
-                        </Button>
-
-                        <Button onClick={() => markReviewedNow(d.id)}>✅ Reviewed</Button>
-
-                        <Button variant="secondary" onClick={() => reviewIn1Day(d.id)}>
-                          ⏳ Review in 1 day
-                        </Button>
-                        <Button variant="secondary" onClick={() => reviewIn3Days(d.id)}>
-                          ⏳ Review in 3 days
-                        </Button>
-                        <Button variant="secondary" onClick={() => reviewIn7Days(d.id)}>
-                          ⏳ Review in 7 days
-                        </Button>
-                        <Button variant="secondary" onClick={() => reviewIn30Days(d.id)}>
-                          ⏳ Review in 30 days
-                        </Button>
-
-                        <Button variant="secondary" onClick={() => clearReviewAt(d.id)}>
-                          🧹 Clear review
-                        </Button>
+                        {type && <Badge variant="muted">Type: {type}</Badge>}
+                        {stakes && <Badge variant="muted">{stakes}</Badge>}
+                        {horizon && <Badge variant="muted">Horizon: {horizon}</Badge>}
+                        {reversible && <Badge variant="muted">{reversible}</Badge>}
                       </div>
+                    )}
 
-                      <div className="text-xs text-zinc-500">
-                        review_at: {formatLocal(d.review_at)} • reviewed_at: {formatLocal(d.reviewed_at)}
-                      </div>
-
-                      {(type || stakes || horizon || reversible) && (
-                        <div className="flex flex-wrap gap-2">
-                          {type && <Badge variant="muted">Type: {type}</Badge>}
-                          {stakes && <Badge variant="muted">{stakes}</Badge>}
-                          {horizon && <Badge variant="muted">Horizon: {horizon}</Badge>}
-                          {reversible && <Badge variant="muted">{reversible}</Badge>}
-                        </div>
-                      )}
-
-                      {d.context && (
-                        <Card className="bg-zinc-50">
-                          <CardContent>
-                            <div className="mb-2 text-xs text-zinc-500">Context</div>
-                            <div className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-800">{d.context}</div>
-                          </CardContent>
-                        </Card>
-                      )}
-
-                      {d.user_reasoning && (
-                        <Card className="bg-zinc-50">
-                          <CardContent>
-                            <div className="mb-2 text-xs text-zinc-500">Your reasoning</div>
-                            <div className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-800">{d.user_reasoning}</div>
-                          </CardContent>
-                        </Card>
-                      )}
-
-                      {d.ai_summary && (
-                        <Card className="border-sky-200 bg-sky-50">
-                          <CardContent>
-                            <div className="mb-2 text-xs text-zinc-500">AI analysis</div>
-                            <div className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-800">{d.ai_summary}</div>
-                          </CardContent>
-                        </Card>
-                      )}
-
-                      {keyQuestions.length > 0 && (
-                        <Card className="bg-white">
-                          <CardContent>
-                            <div className="mb-2 text-xs text-zinc-500">Key questions to sanity-check</div>
-                            <ul className="list-disc pl-5 text-sm text-zinc-800">
-                              {keyQuestions.map((q, idx) => (
-                                <li key={`${d.id}-kq-${idx}`} className="mb-1">
-                                  {q}
-                                </li>
-                              ))}
-                            </ul>
-                          </CardContent>
-                        </Card>
-                      )}
-
-                      <Card className="bg-zinc-50">
+                    {d.context && (
+                      <Card className="bg-white">
                         <CardContent>
-                          <div className="mb-2 text-xs text-zinc-500">Review notes</div>
+                          <div className="mb-2 text-xs text-zinc-500">Context</div>
+                          <div className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-800">{d.context}</div>
+                        </CardContent>
+                      </Card>
+                    )}
 
-                          {d.review_notes ? (
-                            <div className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-800">{d.review_notes}</div>
-                          ) : (
-                            <div className="text-sm text-zinc-500">No review notes yet.</div>
-                          )}
+                    {/* Draft finish UI */}
+                    {isDraft && (
+                      <Card className="border-zinc-200 bg-white">
+                        <CardContent>
+                          <div className="space-y-3">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <div>
+                                <div className="text-sm font-semibold">Finish this decision</div>
+                                <div className="text-xs text-zinc-500">
+                                  Add your reasoning + confidence, optionally run AI, then mark decided.
+                                </div>
+                              </div>
 
-                          <div className="mt-3 text-xs text-zinc-500">
-                            Add a new note (saved into history + marks reviewed)
-                          </div>
+                              <div className="flex flex-wrap gap-2">
+                                <Button
+                                  variant="secondary"
+                                  onClick={() => runAiForDraft(d)}
+                                  disabled={aiLoad}
+                                  title="Runs /api/analyze-decision and stores ai_summary + ai_json"
+                                >
+                                  {aiLoad ? "Analyzing..." : d.ai_json ? "Re-analyze with AI" : "Analyze with AI"}
+                                </Button>
 
-                          <textarea
-                            value={reviewDraft[d.id] ?? ""}
-                            onChange={(e) => setReviewDraft((prev) => ({ ...prev, [d.id]: e.target.value }))}
-                            placeholder="e.g. New info: vet quote came in lower, okay to proceed."
-                            className="mt-2 w-full min-h-[70px] rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200"
-                          />
+                                <Button
+                                  onClick={() => finishDraftDecision(d)}
+                                  disabled={saving}
+                                  title="Sets status=decided + decided_at"
+                                >
+                                  {saving ? "Saving..." : "Decide Now ✅"}
+                                </Button>
+                              </div>
+                            </div>
 
-                          <div className="mt-3 flex flex-wrap gap-2">
-                            <Button onClick={() => saveReviewNote(d)} disabled={!(reviewDraft[d.id] ?? "").trim()}>
-                              💾 Save review note
-                            </Button>
+                            {aiErr && <div className="text-xs text-red-700">AI error: {aiErr}</div>}
 
-                            <Button
-                              variant="secondary"
-                              onClick={() =>
-                                setReviewDraft((prev) => {
-                                  const copy = { ...prev };
-                                  delete copy[d.id];
-                                  return copy;
-                                })
-                              }
-                              disabled={!(reviewDraft[d.id] ?? "").trim()}
-                            >
-                              Clear draft
-                            </Button>
+                            <div className="space-y-2">
+                              <div className="text-xs text-zinc-500">How confident do you feel?</div>
+
+                              <div className="flex flex-wrap gap-4">
+                                {[1, 2, 3].map((level) => (
+                                  <label
+                                    key={level}
+                                    className={`flex cursor-pointer items-center gap-2 text-sm ${
+                                      draftConfidence[d.id] === level ? "opacity-100" : "opacity-80"
+                                    }`}
+                                  >
+                                    <input
+                                      type="radio"
+                                      name={`draft-confidence-${d.id}`}
+                                      checked={draftConfidence[d.id] === level}
+                                      onChange={() =>
+                                        setDraftConfidence((prev) => ({
+                                          ...prev,
+                                          [d.id]: level,
+                                        }))
+                                      }
+                                    />
+                                    {level === 1 ? "Low" : level === 2 ? "Medium" : "High"}
+                                  </label>
+                                ))}
+                              </div>
+
+                              <textarea
+                                placeholder="Why did you decide this? (optional)"
+                                value={draftReason[d.id] ?? d.user_reasoning ?? ""}
+                                onChange={(e) =>
+                                  setDraftReason((prev) => ({
+                                    ...prev,
+                                    [d.id]: e.target.value,
+                                  }))
+                                }
+                                className="w-full min-h-[70px] rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200"
+                              />
+                            </div>
                           </div>
                         </CardContent>
                       </Card>
+                    )}
 
-                      {history.length > 0 && (
-                        <Card className="bg-white">
-                          <CardContent>
-                            <div className="mb-2 text-xs text-zinc-500">Review history</div>
-                            <div className="grid gap-3">
-                              {history
-                                .slice()
-                                .reverse()
-                                .map((h, idx) => (
-                                  <div key={`${d.id}-rh-${idx}`} className="text-sm">
-                                    <div className="text-xs text-zinc-500">{formatLocal(h.at)}</div>
-                                    <div className="mt-1 whitespace-pre-wrap leading-relaxed text-zinc-800">{h.note}</div>
-                                  </div>
-                                ))}
-                            </div>
-                          </CardContent>
-                        </Card>
-                      )}
+                    {d.user_reasoning && !isDraft && (
+                      <Card className="bg-zinc-50">
+                        <CardContent>
+                          <div className="mb-2 text-xs text-zinc-500">Your reasoning</div>
+                          <div className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-800">{d.user_reasoning}</div>
+                        </CardContent>
+                      </Card>
+                    )}
 
-                      {showAIJson && d.ai_json && (
-                        <pre className="overflow-x-auto rounded-xl bg-zinc-900 p-3 text-xs text-zinc-100">
-                          {JSON.stringify(d.ai_json, null, 2)}
-                        </pre>
-                      )}
+                    {d.ai_summary && (
+                      <Card className="border-sky-200 bg-sky-50">
+                        <CardContent>
+                          <div className="mb-2 text-xs text-zinc-500">AI analysis</div>
+                          <div className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-800">{d.ai_summary}</div>
+                        </CardContent>
+                      </Card>
+                    )}
 
-                      <div className="text-xs text-zinc-500">status: {d.status}</div>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            );
-          })}
+                    {keyQuestions.length > 0 && (
+                      <Card className="bg-white">
+                        <CardContent>
+                          <div className="mb-2 text-xs text-zinc-500">Key questions to sanity-check</div>
+                          <ul className="list-disc pl-5 text-sm text-zinc-800">
+                            {keyQuestions.map((q, idx) => (
+                              <li key={`${d.id}-kq-${idx}`} className="mb-1">
+                                {q}
+                              </li>
+                            ))}
+                          </ul>
+                        </CardContent>
+                      </Card>
+                    )}
 
-        {filtered.filter((d) => d.status !== "draft").length === 0 && (
-          <div className="text-sm text-zinc-600">{tab === "review" ? "No reviews due." : "No decisions found."}</div>
+                    {/* Review notes */}
+                    <Card className="bg-zinc-50">
+                      <CardContent>
+                        <div className="mb-2 text-xs text-zinc-500">Review notes</div>
+
+                        {d.review_notes ? (
+                          <div className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-800">{d.review_notes}</div>
+                        ) : (
+                          <div className="text-sm text-zinc-500">No review notes yet.</div>
+                        )}
+
+                        <div className="mt-3 text-xs text-zinc-500">Add a new note (saved into history + marks reviewed)</div>
+
+                        <textarea
+                          value={reviewDraft[d.id] ?? ""}
+                          onChange={(e) => setReviewDraft((prev) => ({ ...prev, [d.id]: e.target.value }))}
+                          placeholder="e.g. New info: vet quote came in lower, okay to proceed."
+                          className="mt-2 w-full min-h-[70px] rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200"
+                        />
+
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          <Button onClick={() => saveReviewNote(d)} disabled={!(reviewDraft[d.id] ?? "").trim()}>
+                            💾 Save review note
+                          </Button>
+
+                          <Button
+                            variant="secondary"
+                            onClick={() =>
+                              setReviewDraft((prev) => {
+                                const copy = { ...prev };
+                                delete copy[d.id];
+                                return copy;
+                              })
+                            }
+                            disabled={!(reviewDraft[d.id] ?? "").trim()}
+                          >
+                            Clear draft
+                          </Button>
+                        </div>
+                      </CardContent>
+                    </Card>
+
+                    {history.length > 0 && (
+                      <Card className="bg-white">
+                        <CardContent>
+                          <div className="mb-2 text-xs text-zinc-500">Review history</div>
+                          <div className="grid gap-3">
+                            {history
+                              .slice()
+                              .reverse()
+                              .map((h, idx) => (
+                                <div key={`${d.id}-rh-${idx}`} className="text-sm">
+                                  <div className="text-xs text-zinc-500">{formatLocal(h.at)}</div>
+                                  <div className="mt-1 whitespace-pre-wrap leading-relaxed text-zinc-800">{h.note}</div>
+                                </div>
+                              ))}
+                          </div>
+                        </CardContent>
+                      </Card>
+                    )}
+
+                    {showAIJson && d.ai_json && (
+                      <pre className="overflow-x-auto rounded-xl bg-zinc-900 p-3 text-xs text-zinc-100">
+                        {JSON.stringify(d.ai_json, null, 2)}
+                      </pre>
+                    )}
+
+                    <div className="text-xs text-zinc-500">status: {d.status}</div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          );
+        })}
+
+        {filtered.length === 0 && (
+          <div className="text-sm text-zinc-600">
+            {tab === "review" ? "No reviews due." : tab === "drafts" ? "No drafts found." : "No decisions found."}
+          </div>
         )}
       </div>
     </Page>
