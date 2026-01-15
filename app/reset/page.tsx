@@ -58,7 +58,7 @@ export default function ResetPasswordPage() {
         }
 
         setStage("ready");
-        setMessage("Ready ✅ Enter a new password.");
+        setMessage("Enter a new password.");
       } catch (e: any) {
         if (!mounted) return;
         setStage("error");
