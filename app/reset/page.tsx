@@ -15,45 +15,57 @@ export default function ResetPasswordPage() {
 
   useEffect(() => {
     const run = async () => {
-      // Supabase recovery links typically include tokens in the hash:
-      // #access_token=...&refresh_token=...&type=recovery
+      // 1) Try HASH style first: #access_token=...&refresh_token=...&type=recovery
       const hash = window.location.hash || "";
-      if (!hash) {
+      if (hash) {
+        const params = new URLSearchParams(hash.replace("#", ""));
+        const access_token = params.get("access_token");
+        const refresh_token = params.get("refresh_token");
+
+        if (access_token && refresh_token) {
+          setStatus("Setting reset session...");
+          const { error } = await supabase.auth.setSession({
+            access_token,
+            refresh_token,
+          });
+
+          if (error) {
+            setStatus(`Could not set session: ${error.message}`);
+            setReady(false);
+            return;
+          }
+
+          // Clean URL
+          window.history.replaceState(null, "", "/reset");
+          setStatus("Ready ✅ Enter a new password.");
+          setReady(true);
+          return;
+        }
+      }
+
+      // 2) Otherwise, handle CODE style: /reset?code=...
+      const qs = new URLSearchParams(window.location.search);
+      const code = qs.get("code");
+
+      if (!code) {
         setStatus("No reset token found. Please click the newest reset link in your email.");
         setReady(false);
         return;
       }
 
-      const params = new URLSearchParams(hash.replace("#", ""));
-      const access_token = params.get("access_token");
-      const refresh_token = params.get("refresh_token");
-      const type = params.get("type");
+      setStatus("Verifying reset link...");
 
-      if (!access_token || !refresh_token) {
-        setStatus("Reset token missing or expired. Please request a new reset email.");
-        setReady(false);
-        return;
-      }
-
-      setStatus("Setting reset session...");
-
-      const { error } = await supabase.auth.setSession({
-        access_token,
-        refresh_token,
-      });
+      // Exchange code for session (client-side)
+      const { error } = await supabase.auth.exchangeCodeForSession(code);
 
       if (error) {
-        setStatus(`Could not set session: ${error.message}`);
+        setStatus(`Reset link invalid/expired: ${error.message}. Please request a new reset email.`);
         setReady(false);
         return;
       }
 
-      // Optional: clean up the URL so tokens aren't left in the address bar
+      // Clean URL (remove code)
       window.history.replaceState(null, "", "/reset");
-
-      if (type && type !== "recovery") {
-        console.log("Auth type:", type);
-      }
 
       setStatus("Ready ✅ Enter a new password.");
       setReady(true);
