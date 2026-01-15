@@ -1,10 +1,11 @@
+// app/reset/page.tsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { Button, Card, CardContent, useToast } from "@/components/ui";
-import { Page } from "@/components/Page";
 
 type Stage = "checking" | "ready" | "error";
 
@@ -14,6 +15,7 @@ function isPkceError(msg: string) {
 }
 
 export default function ResetPasswordPage() {
+  const router = useRouter();
   const { showToast } = useToast();
 
   const [stage, setStage] = useState<Stage>("checking");
@@ -42,31 +44,35 @@ export default function ResetPasswordPage() {
       setSignedInEmail(null);
 
       try {
-        // /auth/reset exchanges the code and redirects here with a session in cookies.
+        // Coming from email link: /auth/reset exchanges the code into a cookie session, then redirects here.
         const { data, error } = await supabase.auth.getSession();
 
         if (!mounted) return;
 
         if (error) {
           setStage("error");
-          setMessage(error.message);
+          setMessage(
+            isPkceError(error.message)
+              ? "Reset link invalid/expired. Please request a new reset email."
+              : error.message
+          );
           return;
         }
 
         const session = data?.session;
         if (!session) {
           setStage("error");
-          setMessage("No active reset session found. Please request a new reset email from the login page.");
+          setMessage("No active reset session found. Please request a new reset email.");
           return;
         }
 
         setSignedInEmail(session.user?.email ?? null);
         setStage("ready");
-        setMessage("Set a new password below.");
+        setMessage("");
       } catch (e: any) {
         if (!mounted) return;
         setStage("error");
-        setMessage(e?.message ?? "Something went wrong checking the reset session.");
+        setMessage(e?.message ?? "Something went wrong. Please request a new reset email.");
       }
     };
 
@@ -81,7 +87,6 @@ export default function ResetPasswordPage() {
     if (!canSubmit) return;
 
     setSaving(true);
-
     try {
       const { error } = await supabase.auth.updateUser({ password: newPassword });
 
@@ -89,59 +94,56 @@ export default function ResetPasswordPage() {
         setStage("error");
         setMessage(
           isPkceError(error.message)
-            ? "This reset link is invalid or expired. Please request a new reset email from the login page."
+            ? "Reset link invalid/expired. Please request a new reset email."
             : error.message
         );
         return;
       }
 
-      showToast({ message: "Password updated ✅ Please sign in." }, 6000);
+      showToast({ message: "Password updated ✅" }, 5000);
 
-      // After password update, require a fresh login.
-      window.location.href = "/login";
+      // Keep it simple: return them to the app.
+      router.replace("/inbox");
+      router.refresh();
     } finally {
       setSaving(false);
     }
   };
 
-  const subtitle =
-    stage === "ready" ? (
-      <div className="space-y-2">
-        <div className="text-zinc-700">{message}</div>
-        <div className="text-sm text-zinc-600">
-          {signedInEmail ? (
-            <>
-              You’re signed in as <strong>{signedInEmail}</strong>.{" "}
-            </>
-          ) : (
-            <>You’re signed in. </>
-          )}
-          If you don’t want to change your password, you can safely return to the app —{" "}
-          <strong>nothing will change unless you set a new password</strong>.
-        </div>
-      </div>
-    ) : (
-      <div className="text-zinc-700">{message}</div>
-    );
-
   return (
-    <Page title="Reset password" subtitle={subtitle}>
-      <div className="mx-auto w-full max-w-xl space-y-3">
-        {/* Brand label/icon */}
-        <div className="flex items-center justify-center">
-          <Link
-            href="/inbox"
-            className="inline-flex items-center gap-2 rounded-2xl px-3 py-2 text-zinc-900 hover:bg-zinc-50"
-            title="Back to Keystone"
-          >
-            <div className="flex h-9 w-9 items-center justify-center rounded-2xl bg-zinc-900 text-sm font-semibold text-white">
-              K
-            </div>
-            <div className="text-sm font-semibold tracking-tight">Keystone</div>
-          </Link>
-        </div>
+    <main className="min-h-screen bg-white px-4 py-10">
+      {/* Brand (top, immediate reassurance) */}
+      <div className="mx-auto flex w-full max-w-xl items-center justify-between">
+        <Link href="/inbox" className="flex items-center gap-3 no-underline">
+          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-zinc-900 text-sm font-semibold text-white">
+            K
+          </div>
+          <div className="text-base font-semibold text-zinc-900">Keystone</div>
+        </Link>
 
-        <Card>
+        <Link href="/inbox">
+          <Button variant="secondary">Back to the app</Button>
+        </Link>
+      </div>
+
+      <div className="mx-auto mt-8 w-full max-w-xl">
+        <h1 className="text-3xl font-semibold tracking-tight text-zinc-900">Reset password</h1>
+
+        {stage === "checking" && (
+          <div className="mt-2 text-sm text-zinc-600">Checking reset session…</div>
+        )}
+
+        {stage === "error" && (
+          <div className="mt-2 text-sm text-zinc-700">{message}</div>
+        )}
+
+        {stage === "ready" && signedInEmail && (
+          <div className="mt-2 text-sm text-zinc-600">
+            Signed in as <strong className="text-zinc-900">{signedInEmail}</strong>
+          </div>
+        )}
+
+        <Card className="mt-6">
           <CardContent>
             {stage !== "ready" ? (
               <div className="space-y-3">
@@ -149,30 +151,28 @@ export default function ResetPasswordPage() {
 
                 <div className="flex flex-wrap gap-2">
                   <Link href="/login">
-                    <Button>Go to login</Button>
+                    <Button>Go to Login</Button>
                   </Link>
 
-                  <Button variant="secondary" onClick={() => window.location.reload()} title="Re-check session">
+                  <Button
+                    variant="secondary"
+                    onClick={() => window.location.reload()}
+                    title="Re-check session"
+                  >
                     Refresh
                   </Button>
-
-                  <Link href="/inbox">
-                    <Button variant="secondary">Back to the app</Button>
-                  </Link>
                 </div>
 
-                {stage === "error" && (
-                  <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
-                    If you opened the email link on a different device/browser, or cleared storage/cookies, the reset
-                    session won’t be available here. Request a new reset email from the login page.
-                  </div>
-                )}
+                <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+                  If you opened the email link on a different device/browser, or cleared cookies/storage, request a new
+                  reset email from Login.
+                </div>
               </div>
             ) : (
               <div className="space-y-4">
                 <div className="grid gap-3">
                   <div className="space-y-1">
-                    <div className="text-sm font-medium">New password</div>
+                    <div className="text-sm font-medium text-zinc-900">New password</div>
                     <input
                       type="password"
                       value={newPassword}
@@ -187,7 +187,7 @@ export default function ResetPasswordPage() {
                   </div>
 
                   <div className="space-y-1">
-                    <div className="text-sm font-medium">Confirm new password</div>
+                    <div className="text-sm font-medium text-zinc-900">Confirm new password</div>
                     <input
                       type="password"
                       value={confirm}
@@ -214,14 +214,12 @@ export default function ResetPasswordPage() {
                     <Button variant="secondary">Back to the app</Button>
                   </Link>
                 </div>
-
-                <div className="text-xs text-zinc-500">After updating, you’ll be redirected to login.</div>
               </div>
             )}
           </CardContent>
         </Card>
 
-        <div className="text-center text-xs text-zinc-500">
+        <div className="mt-6 text-center text-xs text-zinc-500">
           Having trouble? Request a new reset link from{" "}
           <Link className="underline" href="/login">
             Login
@@ -229,6 +227,6 @@ export default function ResetPasswordPage() {
           .
         </div>
       </div>
-    </Page>
+    </main>
   );
 }
