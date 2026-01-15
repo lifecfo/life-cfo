@@ -596,25 +596,27 @@ export default function EnginePage() {
   }
 
   async function loadDecisionsForInsights(uid: string) {
-    setInsightsLoading(true);
-    try {
-      const { data, error } = await supabase
-        .from("decisions")
-        .select("id,status,created_at,decided_at,reviewed_at,review_at,confidence_level,review_history,ai_json")
-        .eq("user_id", uid)
-        .order("created_at", { ascending: false });
+  setInsightsLoading(true);
+  try {
+    const { data, error } = await supabase
+      .from("decisions")
+      .select("id,status,created_at,decided_at,reviewed_at,review_at,confidence_level,review_history,ai_json")
+      .eq("user_id", uid)
+      .order("created_at", { ascending: false });
 
-      if (error) {
-        setError(error.message);
-        setDecisions([]);
-        return;
-      }
-
-      setDecisions((data ?? []) as DecisionRow[]);
-    } finally {
-      setInsightsLoading(false);
+    if (error) {
+      setError(error.message);
+      setDecisions([]);
+      return [] as DecisionRow[];
     }
+
+    const rows = (data ?? []) as DecisionRow[];
+    setDecisions(rows);
+    return rows;
+  } finally {
+    setInsightsLoading(false);
   }
+}
 
   const activeBills = useMemo(() => bills.filter((b) => b.active), [bills]);
   const activeIncome = useMemo(() => income.filter((i) => i.active), [income]);
@@ -724,6 +726,34 @@ export default function EnginePage() {
 
     if (upErr) throw upErr;
   }
+
+async function writeInsightsDigest(runId: string, rows: DecisionRow[]) {
+  const pack = buildInsightsV2(rows);
+
+  // Pick the most useful ones for Inbox (keep it short)
+  const top = pack.insights.slice(0, 5);
+
+  const body = [
+    pack.headline,
+    "",
+    ...top.map((x) => `• ${x.title}\n  ${x.body}`),
+    "",
+    `Stats: Decisions ${pack.stats.total} • Reviewed ${pack.stats.reviewed} • Scheduled ${pack.stats.scheduled} • Overdue ${pack.stats.overdueNow}`,
+    "",
+    "Tip: Reviewing (and adding confidence 0–100) makes Keystone’s patterns sharper.",
+  ].join("\n");
+
+  const severity =
+    pack.stats.overdueNow > 0 ? 2 : pack.stats.reviewed === 0 ? 1 : 1;
+
+  await writeSingleReminder({
+    runId,
+    dedupe_key: "engine_insights_v2_digest",
+    title: "Keystone noticed (patterns)",
+    body,
+    severity,
+  });
+}
 
   async function runEngineV1() {
     if (!userId) return;
@@ -877,7 +907,9 @@ export default function EnginePage() {
         .in("dedupe_key", ["engine_missing_bills", "engine_missing_income"]);
 
       // refresh decisions insights too (they may have changed)
-      await loadDecisionsForInsights(userId);
+      const decisionRows = await loadDecisionsForInsights(userId);
+      await writeInsightsDigest(runId, decisionRows);
+
 
       setLastRanAt(new Date().toLocaleString());
       notify({
