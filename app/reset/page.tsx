@@ -22,6 +22,8 @@ export default function ResetPasswordPage() {
   const [confirm, setConfirm] = useState("");
   const [saving, setSaving] = useState(false);
 
+  const [signedInEmail, setSignedInEmail] = useState<string | null>(null);
+
   const canSubmit = useMemo(() => {
     if (stage !== "ready") return false;
     if (!newPassword || !confirm) return false;
@@ -36,6 +38,7 @@ export default function ResetPasswordPage() {
     const check = async () => {
       setStage("checking");
       setMessage("Checking reset session…");
+      setSignedInEmail(null);
 
       try {
         // When coming from the email link, /auth/reset exchanges the code and redirects here.
@@ -57,7 +60,10 @@ export default function ResetPasswordPage() {
           return;
         }
 
+        setSignedInEmail(session.user?.email ?? null);
+
         setStage("ready");
+        // Keep this short so it doesn't feel like a second "Ready" indicator.
         setMessage("Enter a new password.");
       } catch (e: any) {
         if (!mounted) return;
@@ -93,7 +99,7 @@ export default function ResetPasswordPage() {
 
       showToast({ message: "Password updated ✅ Please sign in." }, 6000);
 
-      // After password update, kick them to login
+      // After password update, kick them to login (explicit re-auth feels safest).
       window.location.href = "/login";
     } finally {
       setSaving(false);
@@ -115,6 +121,21 @@ export default function ResetPasswordPage() {
             {statusBadge()}
             <div className="text-zinc-700">{message}</div>
           </div>
+
+          {stage === "ready" && (
+            <div className="text-sm text-zinc-600">
+              {signedInEmail ? (
+                <span>
+                  You’re signed in as <strong>{signedInEmail}</strong>.
+                </span>
+              ) : (
+                <span>You’re signed in.</span>
+              )}{" "}
+              <span className="text-zinc-500">Your password won’t change unless you click</span>{" "}
+              <strong>“Set new password”</strong>.
+            </div>
+          )}
+
           <div className="text-sm text-zinc-600">
             For security, always use the <strong>newest</strong> reset email link.
           </div>
@@ -126,28 +147,22 @@ export default function ResetPasswordPage() {
           <CardContent>
             {stage !== "ready" ? (
               <div className="space-y-3">
-                <div className="text-sm text-zinc-700">
-                  {message}
-                </div>
+                <div className="text-sm text-zinc-700">{message}</div>
 
                 <div className="flex flex-wrap gap-2">
                   <Link href="/login">
                     <Button>Go to login to request a new reset email</Button>
                   </Link>
 
-                  <Button
-                    variant="secondary"
-                    onClick={() => window.location.reload()}
-                    title="Re-check session"
-                  >
+                  <Button variant="secondary" onClick={() => window.location.reload()} title="Re-check session">
                     Refresh
                   </Button>
                 </div>
 
                 {stage === "error" && (
                   <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
-                    If you opened the email link on a different device/browser, or cleared storage/cookies, the reset session
-                    won’t be available here. Request a new reset email from the login page.
+                    If you opened the email link on a different device/browser, or cleared storage/cookies, the reset
+                    session won’t be available here. Request a new reset email from the login page.
                   </div>
                 )}
               </div>
@@ -193,21 +208,23 @@ export default function ResetPasswordPage() {
                     {saving ? "Setting…" : "Set new password"}
                   </Button>
 
-                  <Link href="/login">
-                    <Button variant="secondary">Back to login</Button>
+                  <Link href="/inbox">
+                    <Button variant="secondary">Back to the app</Button>
                   </Link>
                 </div>
 
-                <div className="text-xs text-zinc-500">
-                  Tip: after updating, you’ll be redirected to login.
-                </div>
+                <div className="text-xs text-zinc-500">Tip: after updating, you’ll be redirected to login.</div>
               </div>
             )}
           </CardContent>
         </Card>
 
         <div className="text-center text-xs text-zinc-500">
-          Having trouble? Request a new reset link from <Link className="underline" href="/login">Login</Link>.
+          Having trouble? Request a new reset link from{" "}
+          <Link className="underline" href="/login">
+            Login
+          </Link>
+          .
         </div>
       </div>
     </Page>
