@@ -53,7 +53,7 @@ type DecisionRow = {
   review_at: string | null;
   confidence_level: number | null; // decision-time confidence (1-3)
   review_history: any[] | null; // jsonb array
-  ai_json: any | null; // can be object or stringified JSON
+  ai_json: any | null; // object or string
 };
 
 function formatMoneyFromCents(cents: number, currency = "AUD") {
@@ -164,7 +164,7 @@ function computeTotals(accounts: Account[], bills: RecurringBill[], income: Recu
 }
 
 // ----------------------
-// Insights helpers (v1)
+// Insights helpers (v2)
 // ----------------------
 
 function safeMs(iso: string | null): number | null {
@@ -191,7 +191,7 @@ type ReviewHistoryEntry = {
   reviewed_at?: string;
   notes?: string;
   outcome?: string;
-  confidence_level?: number | null; // review-time confidence (0-100 per RPC; may be null)
+  confidence_level?: number | null; // review-time confidence (0-100)
   at?: string; // legacy
   note?: string; // legacy
 };
@@ -201,13 +201,7 @@ function normalizeReviewHistory(input: any): ReviewHistoryEntry[] {
   return input.filter((x) => x && typeof x === "object");
 }
 
-function daysBetween(aMs: number, bMs: number) {
-  const diff = bMs - aMs;
-  return diff / (1000 * 60 * 60 * 24);
-}
-
 function pickReviewConfidence100(history: ReviewHistoryEntry[]): number | null {
-  // Prefer last entry with confidence_level (0-100), else null
   for (let i = history.length - 1; i >= 0; i--) {
     const v = history[i]?.confidence_level;
     if (typeof v === "number" && Number.isFinite(v)) return v;
@@ -216,11 +210,18 @@ function pickReviewConfidence100(history: ReviewHistoryEntry[]): number | null {
 }
 
 function decisionConfTo100(v: number | null): number | null {
-  // decision confidence is 1-3. Map to 33/67/100.
   if (v === 1) return 33;
   if (v === 2) return 67;
   if (v === 3) return 100;
   return null;
+}
+
+function daysBetween(aMs: number, bMs: number) {
+  return (bMs - aMs) / (1000 * 60 * 60 * 24);
+}
+
+function pct(n: number) {
+  return `${Math.round(n * 100)}%`;
 }
 
 function bucketLabel(type: any) {
@@ -238,186 +239,280 @@ type Insight = {
   tone?: "neutral" | "warning" | "positive";
 };
 
-function buildInsights(decisions: DecisionRow[]): { insights: Insight[]; stats: { reviewedCount: number } } {
+type InsightsPack = {
+  headline: string;
+  insights: Insight[];
+  stats: {
+    total: number;
+    reviewed: number;
+    scheduled: number;
+    overdueNow: number;
+  };
+};
+
+function buildInsightsV2(decisions: DecisionRow[]): InsightsPack {
   const now = Date.now();
 
-  const withReviewAt = decisions.filter((d) => d.review_at != null);
-  const overdue = withReviewAt.filter((d) => {
+  const scheduled = decisions.filter((d) => d.review_at != null);
+  const reviewed = decisions.filter((d) => !!safeMs(d.reviewed_at));
+
+  const overdueNow = scheduled.filter((d) => {
     const ra = safeMs(d.review_at);
     if (!ra) return false;
     if (ra > now) return false;
-
     const rv = safeMs(d.reviewed_at);
-    // overdue if never reviewed OR reviewed before scheduled review date
     if (!rv) return true;
     return rv < ra;
   });
 
-  const reviewed = decisions.filter((d) => !!safeMs(d.reviewed_at));
-  const reviewedCount = reviewed.length;
+  // Lateness among reviewed decisions (where review_at exists)
+  const reviewedWithSchedule = reviewed.filter((d) => safeMs(d.review_at) != null);
+  const latenessDaysAll: number[] = [];
+  const lateReviewedIds = new Set<string>();
 
-  // Review lateness
-  const latenessDays: number[] = [];
-  for (const d of reviewed) {
+  for (const d of reviewedWithSchedule) {
+    const ra = safeMs(d.review_at)!;
+    const rv = safeMs(d.reviewed_at)!;
+    const diff = daysBetween(ra, rv);
+    if (diff > 0.05) {
+      latenessDaysAll.push(diff);
+      lateReviewedIds.add(d.id);
+    }
+  }
+
+  const lateRate = reviewedWithSchedule.length ? lateReviewedIds.size / reviewedWithSchedule.length : 0;
+  const avgLateDays =
+    latenessDaysAll.length > 0 ? latenessDaysAll.reduce((a, b) => a + b, 0) / latenessDaysAll.length : 0;
+
+  // High-stakes avoidance: overdue rate in high vs non-high (scheduled only)
+  const high = scheduled.filter((d) => getAI(d.ai_json)?.stakes === "high");
+  const nonHigh = scheduled.filter((d) => getAI(d.ai_json)?.stakes !== "high");
+
+  const overdueSet = new Set(overdueNow.map((d) => d.id));
+  const highOverdue = high.filter((d) => overdueSet.has(d.id));
+  const nonHighOverdue = nonHigh.filter((d) => overdueSet.has(d.id));
+
+  const highOverdueRate = high.length ? highOverdue.length / high.length : null;
+  const nonHighOverdueRate = nonHigh.length ? nonHighOverdue.length / nonHigh.length : null;
+
+  // Type skew: avg lateness by decision_type (reviewed+scheduled only)
+  // We compute lateness for reviewed decisions that had a review_at date.
+  const latenessByType: Record<string, { total: number; lateCount: number; lateDaysSum: number }> = {};
+  for (const d of reviewedWithSchedule) {
+    const ai = getAI(d.ai_json);
+    const t = ai?.decision_type ?? "unknown";
     const ra = safeMs(d.review_at);
     const rv = safeMs(d.reviewed_at);
-    if (!rv || !ra) continue;
+    if (!ra || !rv) continue;
 
-    const diffDays = daysBetween(ra, rv);
-    if (diffDays > 0.05) latenessDays.push(diffDays); // > ~1.2 hours late counts as late
+    const diff = daysBetween(ra, rv);
+    if (!latenessByType[t]) latenessByType[t] = { total: 0, lateCount: 0, lateDaysSum: 0 };
+    latenessByType[t].total += 1;
+
+    if (diff > 0.05) {
+      latenessByType[t].lateCount += 1;
+      latenessByType[t].lateDaysSum += diff;
+    }
   }
-  const lateCount = latenessDays.length;
-  const latenessRate = reviewedCount > 0 ? lateCount / reviewedCount : 0;
-  const avgLateDays = lateCount > 0 ? latenessDays.reduce((a, b) => a + b, 0) / lateCount : 0;
 
-  // Confidence drift (decision 1-3 -> 33/67/100 vs review history confidence 0-100)
-  const drift: number[] = [];
-  for (const d of reviewed) {
+  const typeStats = Object.entries(latenessByType)
+    .filter(([, v]) => v.total >= 2)
+    .map(([k, v]) => ({
+      type: k,
+      total: v.total,
+      lateRate: v.total ? v.lateCount / v.total : 0,
+      avgLateDays: v.lateCount ? v.lateDaysSum / v.lateCount : 0,
+    }))
+    .sort((a, b) => b.lateRate - a.lateRate);
+
+  const mostLateType = typeStats[0] ?? null;
+  const leastLateType = typeStats[typeStats.length - 1] ?? null;
+
+  // Confidence drift specifically after late reviews
+  const driftAfterLate: number[] = [];
+  for (const d of reviewedWithSchedule) {
+    if (!lateReviewedIds.has(d.id)) continue;
+
     const dec100 = decisionConfTo100(d.confidence_level);
     const history = normalizeReviewHistory(d.review_history);
     const rev100 = pickReviewConfidence100(history);
     if (dec100 == null || rev100 == null) continue;
-    drift.push(rev100 - dec100); // positive means more confident after review
+
+    driftAfterLate.push(rev100 - dec100);
   }
-  const driftAvg = drift.length ? drift.reduce((a, b) => a + b, 0) / drift.length : null;
 
-  // Avoidance by type: compare overdue rate by decision_type (from ai_json)
-  const byType: Record<string, { total: number; overdue: number }> = {};
-  for (const d of withReviewAt) {
-    const ai = getAI(d.ai_json);
-    const t = ai?.decision_type ?? "unknown";
-    if (!byType[t]) byType[t] = { total: 0, overdue: 0 };
-    byType[t].total += 1;
-    if (overdue.some((x) => x.id === d.id)) byType[t].overdue += 1;
-  }
-  const typePairs = Object.entries(byType)
-    .filter(([, v]) => v.total >= 2) // need at least 2 items to claim a pattern
-    .map(([k, v]) => ({ type: k, total: v.total, overdue: v.overdue, rate: v.total ? v.overdue / v.total : 0 }))
-    .sort((a, b) => b.rate - a.rate);
+  const driftLateAvg =
+    driftAfterLate.length >= 3 ? driftAfterLate.reduce((a, b) => a + b, 0) / driftAfterLate.length : null;
 
-  const mostAvoided = typePairs[0] ?? null;
-
-  // Learning velocity: reviews in last 30 days
+  // Learning velocity: reviews in last 30 / 90 days
   const cutoff30 = now - 30 * 24 * 60 * 60 * 1000;
+  const cutoff90 = now - 90 * 24 * 60 * 60 * 1000;
+
   const reviews30 = reviewed.filter((d) => {
     const rv = safeMs(d.reviewed_at);
     return rv != null && rv >= cutoff30;
   }).length;
 
+  const reviews90 = reviewed.filter((d) => {
+    const rv = safeMs(d.reviewed_at);
+    return rv != null && rv >= cutoff90;
+  }).length;
+
+  // Build insights list (prioritized)
   const insights: Insight[] = [];
 
-  // 1) Overdue
-  if (withReviewAt.length > 0) {
-    if (overdue.length > 0) {
-      insights.push({
-        title: "Reviews currently overdue",
-        tone: "warning",
-        body: `You have ${overdue.length} decision(s) past their review date. Clearing even 1 can reduce mental load.`,
-      });
-    } else {
-      insights.push({
-        title: "Review system is on track",
-        tone: "positive",
-        body: "Nothing is overdue right now. Keystone’s feedback loop is staying healthy.",
-      });
-    }
-  } else {
+  // (A) Overdue now
+  if (scheduled.length === 0) {
     insights.push({
       title: "No reviews scheduled yet",
       tone: "neutral",
-      body: "Schedule a review date on a decision to let Keystone learn over time.",
+      body: "Add a review date to any decision to activate Keystone’s learning loop.",
+    });
+  } else if (overdueNow.length > 0) {
+    insights.push({
+      title: "You have reviews overdue right now",
+      tone: "warning",
+      body: `There are ${overdueNow.length} decision(s) past their review date. Clearing even one will reduce mental load and sharpen Keystone’s patterns.`,
+    });
+  } else {
+    insights.push({
+      title: "Your review loop is on track",
+      tone: "positive",
+      body: "Nothing is overdue right now. Keystone’s feedback loop is staying healthy.",
     });
   }
 
-  // 2) Lateness rate
-  if (reviewedCount >= 3) {
-    const pct = Math.round(latenessRate * 100);
-    if (pct >= 50) {
+  // (B) Review timeliness pattern (only if enough data)
+  if (reviewedWithSchedule.length >= 3) {
+    if (lateRate >= 0.3) {
       insights.push({
-        title: "Reviews tend to happen late",
+        title: "You often review after the planned date",
         tone: "warning",
-        body: `${pct}% of reviewed decisions were completed after their planned review date. Average lateness (when late): ${avgLateDays.toFixed(
+        body: `${pct(lateRate)} of reviewed decisions were completed late (avg lateness: ${avgLateDays.toFixed(
           1
-        )} days.`,
+        )} days, when late).`,
       });
-    } else if (pct > 0) {
+    } else if (lateRate > 0) {
       insights.push({
         title: "Review timing is mostly on time",
         tone: "neutral",
-        body: `${pct}% of reviewed decisions were late. When late, average lateness was ${avgLateDays.toFixed(1)} days.`,
+        body: `${pct(lateRate)} of reviewed decisions were late. When late, the average was ${avgLateDays.toFixed(1)} days.`,
       });
     } else {
       insights.push({
         title: "You review on time",
         tone: "positive",
-        body: "So far, your reviewed decisions have been on time vs their scheduled review date.",
+        body: "So far, your reviewed decisions have been on time vs their planned review date.",
       });
     }
   } else {
     insights.push({
-      title: "Not enough review data (yet)",
+      title: "Timing patterns are still forming",
       tone: "neutral",
-      body: "Keystone needs ~3 reviewed decisions to detect timing patterns reliably.",
+      body: "Keystone needs ~3 reviewed decisions with a scheduled review date to detect timing patterns reliably.",
     });
   }
 
-  // 3) Confidence drift
-  if (driftAvg != null && drift.length >= 3) {
-    const direction = driftAvg >= 0 ? "up" : "down";
-    const amt = Math.abs(driftAvg).toFixed(0);
+  // (C) High-stakes avoidance (only if both buckets exist with enough items)
+  if (high.length >= 2 && nonHigh.length >= 2 && highOverdueRate != null && nonHighOverdueRate != null) {
+    const gap = highOverdueRate - nonHighOverdueRate;
+
+    if (gap >= 0.25 && highOverdueRate >= 0.3) {
+      insights.push({
+        title: "High-stakes decisions are harder to revisit",
+        tone: "warning",
+        body: `High-stakes decisions are overdue at ${pct(highOverdueRate)} vs ${pct(nonHighOverdueRate)} for other decisions.`,
+      });
+    } else if (gap <= -0.25 && nonHighOverdueRate >= 0.3) {
+      insights.push({
+        title: "You revisit high-stakes decisions relatively well",
+        tone: "positive",
+        body: `High-stakes overdue rate is ${pct(highOverdueRate)} vs ${pct(nonHighOverdueRate)} for other decisions.`,
+      });
+    } else {
+      insights.push({
+        title: "Stakes vs delay looks mixed (for now)",
+        tone: "neutral",
+        body: `High-stakes overdue: ${pct(highOverdueRate)} • Other overdue: ${pct(nonHighOverdueRate)}.`,
+      });
+    }
+  } else {
     insights.push({
-      title: "Confidence drift after review",
-      tone: direction === "down" ? "warning" : "positive",
-      body: `On average, your confidence shifts ${direction} by ~${amt} points after review (based on ${drift.length} reviews with confidence data).`,
+      title: "High-stakes insight needs more data",
+      tone: "neutral",
+      body: "Keystone needs several scheduled high-stakes decisions (and non-high ones) to compare overdue rates.",
+    });
+  }
+
+  // (D) Type skew (only if we can compare at least 2 types)
+  if (typeStats.length >= 2 && mostLateType && leastLateType) {
+    const gapRate = mostLateType.lateRate - leastLateType.lateRate;
+
+    if (gapRate >= 0.25 && mostLateType.lateRate >= 0.3) {
+      insights.push({
+        title: "Some decision types get delayed more than others",
+        tone: "warning",
+        body: `${bucketLabel(mostLateType.type)} decisions are reviewed late more often (${pct(
+          mostLateType.lateRate
+        )}) vs ${bucketLabel(leastLateType.type)} (${pct(leastLateType.lateRate)}).`,
+      });
+    } else {
+      insights.push({
+        title: "No strong type-delay signal yet",
+        tone: "neutral",
+        body: `Top late bucket: ${bucketLabel(mostLateType.type)} (${pct(mostLateType.lateRate)}).`,
+      });
+    }
+  } else {
+    insights.push({
+      title: "Type-based patterns need more volume",
+      tone: "neutral",
+      body: "Keystone needs multiple reviewed decisions per type (with review dates) to compare delay patterns.",
+    });
+  }
+
+  // (E) Confidence drift after lateness (only when review confidence exists)
+  if (driftLateAvg != null) {
+    const dir = driftLateAvg >= 0 ? "up" : "down";
+    const amt = Math.abs(driftLateAvg).toFixed(0);
+    insights.push({
+      title: "Confidence drift after late reviews",
+      tone: dir === "down" ? "warning" : "positive",
+      body: `When a review is late, your confidence tends to shift ${dir} by ~${amt} points (based on ${driftAfterLate.length} review(s) with confidence data).`,
     });
   } else {
     insights.push({
-      title: "Confidence patterns pending",
+      title: "Confidence drift is locked (for now)",
       tone: "neutral",
-      body: "Add confidence when reviewing decisions (0–100) to unlock confidence drift insights.",
+      body: "Add confidence (0–100) when reviewing decisions to unlock confidence drift insights.",
     });
   }
 
-  // 4) Avoidance by type
-  if (mostAvoided && mostAvoided.rate >= 0.5) {
-    insights.push({
-      title: "Possible avoidance pattern by decision type",
-      tone: "warning",
-      body: `${bucketLabel(mostAvoided.type)} decisions are overdue more often (${Math.round(
-        mostAvoided.rate * 100
-      )}% overdue across ${mostAvoided.total} item(s)).`,
-    });
-  } else if (mostAvoided && mostAvoided.total >= 2) {
-    insights.push({
-      title: "No strong avoidance signal by type",
-      tone: "neutral",
-      body: `By decision type, overdue rates are currently low or mixed. (Top bucket: ${bucketLabel(mostAvoided.type)} at ${Math.round(
-        mostAvoided.rate * 100
-      )}% overdue.)`,
-    });
-  } else {
-    insights.push({
-      title: "Type-based insights need more data",
-      tone: "neutral",
-      body: "Keystone needs multiple reviewed + scheduled decisions per type to spot patterns.",
-    });
-  }
-
-  // 5) Learning velocity
+  // (F) Learning velocity
   insights.push({
     title: "Learning velocity",
     tone: reviews30 >= 5 ? "positive" : "neutral",
-    body: `You reviewed ${reviews30} decision(s) in the last 30 days. Every review compounds Keystone’s usefulness.`,
+    body: `You reviewed ${reviews30} decision(s) in the last 30 days (${reviews90} in the last 90 days). Every review compounds Keystone’s usefulness.`,
   });
 
-  // 6) Small meta insight: how many decisions exist
-  insights.push({
-    title: "Decision trail depth",
-    tone: "neutral",
-    body: `You have ${decisions.length} decision(s) recorded, ${reviewedCount} reviewed, and ${withReviewAt.length} scheduled for review.`,
-  });
+  // Headline (short, human, motivating)
+  const headline =
+    overdueNow.length > 0
+      ? "Keystone is learning — and a few reviews are overdue."
+      : reviews30 > 0
+      ? "Keystone is learning your instincts over time."
+      : "Keystone is ready to learn as you review decisions.";
 
-  return { insights, stats: { reviewedCount } };
+  return {
+    headline,
+    insights,
+    stats: {
+      total: decisions.length,
+      reviewed: reviewed.length,
+      scheduled: scheduled.length,
+      overdueNow: overdueNow.length,
+    },
+  };
 }
 
 export default function EnginePage() {
@@ -526,7 +621,7 @@ export default function EnginePage() {
 
   const totals = useMemo(() => computeTotals(accounts, bills, income), [accounts, bills, income]);
 
-  const insightsPack = useMemo(() => buildInsights(decisions), [decisions]);
+  const insightsPack = useMemo(() => buildInsightsV2(decisions), [decisions]);
 
   function buildUpcomingBillsBody(t: ComputedTotals) {
     if (t.bills14.length === 0) {
@@ -823,15 +918,13 @@ export default function EnginePage() {
           </CardContent>
         </Card>
 
-        {/* ✅ NEW: Keystone Insights v1 */}
+        {/* ✅ Engine v2: What Keystone has noticed */}
         <Card className="bg-zinc-50">
           <CardContent>
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
-                <div className="font-semibold">Keystone Insights (v1)</div>
-                <div className="text-sm opacity-70">
-                  Explainable patterns from your decision + review history. No guessing.
-                </div>
+                <div className="font-semibold">What Keystone has noticed (v2)</div>
+                <div className="text-sm opacity-70">{insightsPack.headline}</div>
               </div>
 
               <div className="flex items-center gap-2">
@@ -846,9 +939,10 @@ export default function EnginePage() {
             </div>
 
             <div className="mt-3 flex flex-wrap gap-2">
-              <Badge>Decisions: {decisions.length}</Badge>
-              <Badge>Reviewed: {insightsPack.stats.reviewedCount}</Badge>
-              <Badge>Scheduled: {decisions.filter((d) => d.review_at != null).length}</Badge>
+              <Badge>Decisions: {insightsPack.stats.total}</Badge>
+              <Badge>Reviewed: {insightsPack.stats.reviewed}</Badge>
+              <Badge>Scheduled: {insightsPack.stats.scheduled}</Badge>
+              <Badge>Overdue now: {insightsPack.stats.overdueNow}</Badge>
             </div>
 
             <div className="mt-4 grid gap-3">
@@ -875,7 +969,7 @@ export default function EnginePage() {
 
             <div className="text-xs opacity-60 mt-3">
               Tip: Add confidence (0–100) when reviewing decisions to unlock richer confidence drift insights.
-(Decision confidence is currently 1–3.)
+              (Decision confidence is currently 1–3.)
             </div>
           </CardContent>
         </Card>
