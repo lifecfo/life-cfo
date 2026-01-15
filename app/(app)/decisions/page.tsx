@@ -7,6 +7,7 @@ import { Page } from "@/components/Page";
 
 type Decision = {
   id: string;
+  inbox_item_id: string | null; // ✅ NEW
   title: string;
   context: string | null;
   status: string;
@@ -164,7 +165,8 @@ export default function DecisionsPage() {
     const { data, error } = await supabase
       .from("decisions")
       .select(
-        "id,title,context,status,decided_at,review_at,created_at,user_reasoning,confidence_level,ai_summary,ai_json,pinned,reviewed_at,review_notes,review_history"
+        // ✅ NEW: inbox_item_id
+        "id,inbox_item_id,title,context,status,decided_at,review_at,created_at,user_reasoning,confidence_level,ai_summary,ai_json,pinned,reviewed_at,review_notes,review_history"
       )
       .order("pinned", { ascending: false })
       .order("created_at", { ascending: false });
@@ -486,6 +488,7 @@ export default function DecisionsPage() {
     }
   };
 
+  // ✅ UPDATED: finishing a draft also closes the linked inbox item (if present)
   const finishDraftDecision = async (d: Decision) => {
     setDraftSaving((prev) => ({ ...prev, [d.id]: true }));
     setStatusLine("Saving decision...");
@@ -493,6 +496,11 @@ export default function DecisionsPage() {
     const reason = (draftReason[d.id] ?? "").trim() || null;
     const conf = draftConfidence[d.id] ?? null;
     const nowIso = new Date().toISOString();
+
+    // Save prior state for undo
+    const prevRow = rows.find((x) => x.id === d.id);
+    const prevStatus = prevRow?.status ?? d.status;
+    const prevDecidedAt = prevRow?.decided_at ?? d.decided_at;
 
     const { error } = await supabase
       .from("decisions")
@@ -510,6 +518,21 @@ export default function DecisionsPage() {
       return;
     }
 
+    // Close the original inbox item if linked
+    let inboxClosedOk = false;
+    if (d.inbox_item_id) {
+      const { error: inboxErr } = await supabase
+        .from("decision_inbox")
+        .update({ status: "done", snoozed_until: null })
+        .eq("id", d.inbox_item_id);
+
+      if (inboxErr) {
+        setStatusLine(`Decided ✅ but couldn't close inbox item: ${inboxErr.message}`);
+      } else {
+        inboxClosedOk = true;
+      }
+    }
+
     setRows((prev) =>
       prev.map((x) =>
         x.id === d.id
@@ -524,23 +547,47 @@ export default function DecisionsPage() {
       )
     );
 
-    setStatusLine("Decided ✅");
+    setStatusLine(inboxClosedOk ? "Decided ✅ (Inbox closed)" : "Decided ✅");
 
     showToast(
       {
-        message: "Decided ✅",
+        message: inboxClosedOk ? "Decided ✅ (Inbox closed)" : "Decided ✅",
         undoLabel: "Undo",
         onUndo: async () => {
           setStatusLine("Undoing...");
+
+          // undo decision status/decided_at
           const { error: undoErr } = await supabase
             .from("decisions")
             .update({ status: "draft", decided_at: null })
             .eq("id", d.id);
+
           if (undoErr) {
             setStatusLine(`Undo failed: ${undoErr.message}`);
             return;
           }
-          setRows((prev) => prev.map((x) => (x.id === d.id ? { ...x, status: "draft", decided_at: null } : x)));
+
+          // reopen inbox item if we closed it
+          if (d.inbox_item_id && inboxClosedOk) {
+            const { error: reopenErr } = await supabase
+              .from("decision_inbox")
+              .update({ status: "open", snoozed_until: null })
+              .eq("id", d.inbox_item_id);
+
+            if (reopenErr) {
+              setStatusLine(`Undo partial (reopen inbox failed): ${reopenErr.message}`);
+              return;
+            }
+          }
+
+          setRows((prev) =>
+            prev.map((x) =>
+              x.id === d.id
+                ? { ...x, status: prevStatus, decided_at: prevDecidedAt ?? null }
+                : x
+            )
+          );
+
           setStatusLine("Undone ✅");
         },
       },
@@ -662,9 +709,7 @@ export default function DecisionsPage() {
           <div className="self-center text-sm text-zinc-600">Nothing is due right now 🎉</div>
         )}
 
-        {tab === "drafts" && draftCount === 0 && (
-          <div className="self-center text-sm text-zinc-600">No drafts right now 🎉</div>
-        )}
+        {tab === "drafts" && draftCount === 0 && <div className="self-center text-sm text-zinc-600">No drafts right now 🎉</div>}
       </div>
 
       {/* Review summary + bulk controls (only useful on Review tab) */}
@@ -704,27 +749,15 @@ export default function DecisionsPage() {
                   ✅ Mark reviewed
                 </Button>
 
-                <Button
-                  variant="secondary"
-                  onClick={() => bulkScheduleMinutes(60 * 24 * 3)}
-                  disabled={selectedIds.length === 0}
-                >
+                <Button variant="secondary" onClick={() => bulkScheduleMinutes(60 * 24 * 3)} disabled={selectedIds.length === 0}>
                   ⏳ Review in 3 days
                 </Button>
 
-                <Button
-                  variant="secondary"
-                  onClick={() => bulkScheduleMinutes(60 * 24 * 7)}
-                  disabled={selectedIds.length === 0}
-                >
+                <Button variant="secondary" onClick={() => bulkScheduleMinutes(60 * 24 * 7)} disabled={selectedIds.length === 0}>
                   ⏳ Review in 7 days
                 </Button>
 
-                <Button
-                  variant="secondary"
-                  onClick={() => bulkScheduleMinutes(60 * 24 * 30)}
-                  disabled={selectedIds.length === 0}
-                >
+                <Button variant="secondary" onClick={() => bulkScheduleMinutes(60 * 24 * 30)} disabled={selectedIds.length === 0}>
                   ⏳ Review in 30 days
                 </Button>
 
@@ -752,9 +785,7 @@ export default function DecisionsPage() {
         <CardContent>
           <div className="space-y-3">
             <div className="flex flex-wrap justify-between gap-3">
-              <div className="text-sm text-zinc-600">
-                Filters {activeFiltersCount > 0 ? `• ${activeFiltersCount} active` : ""}
-              </div>
+              <div className="text-sm text-zinc-600">Filters {activeFiltersCount > 0 ? `• ${activeFiltersCount} active` : ""}</div>
 
               <Button variant="secondary" onClick={clearFilters} disabled={activeFiltersCount === 0}>
                 Clear
@@ -762,11 +793,7 @@ export default function DecisionsPage() {
             </div>
 
             <div className="flex flex-wrap gap-2">
-              <Chip
-                active={needsAttention}
-                onClick={() => setNeedsAttention((v) => !v)}
-                title="High stakes OR gather info OR delay"
-              >
+              <Chip active={needsAttention} onClick={() => setNeedsAttention((v) => !v)} title="High stakes OR gather info OR delay">
                 Needs attention
               </Chip>
 
@@ -901,6 +928,7 @@ export default function DecisionsPage() {
                           {dueSoon && <Badge variant="muted">Due soon</Badge>}
                           {conf && <Badge variant="muted">Confidence: {conf}</Badge>}
                           {suggested && <Badge variant="muted">AI: {suggested}</Badge>}
+                          {isDraft && d.inbox_item_id && <Badge variant="muted">Linked to Inbox</Badge>}
                         </div>
 
                         <div className="mt-1 text-xs text-zinc-500">
@@ -972,6 +1000,7 @@ export default function DecisionsPage() {
                                 <div className="text-sm font-semibold">Finish this decision</div>
                                 <div className="text-xs text-zinc-500">
                                   Add your reasoning + confidence, optionally run AI, then mark decided.
+                                  {d.inbox_item_id ? " This will also close the linked Inbox item." : ""}
                                 </div>
                               </div>
 
@@ -985,11 +1014,7 @@ export default function DecisionsPage() {
                                   {aiLoad ? "Analyzing..." : d.ai_json ? "Re-analyze with AI" : "Analyze with AI"}
                                 </Button>
 
-                                <Button
-                                  onClick={() => finishDraftDecision(d)}
-                                  disabled={saving}
-                                  title="Sets status=decided + decided_at"
-                                >
+                                <Button onClick={() => finishDraftDecision(d)} disabled={saving} title="Sets status=decided + decided_at">
                                   {saving ? "Saving..." : "Decide Now ✅"}
                                 </Button>
                               </div>
@@ -1136,9 +1161,7 @@ export default function DecisionsPage() {
                     )}
 
                     {showAIJson && d.ai_json && (
-                      <pre className="overflow-x-auto rounded-xl bg-zinc-900 p-3 text-xs text-zinc-100">
-                        {JSON.stringify(d.ai_json, null, 2)}
-                      </pre>
+                      <pre className="overflow-x-auto rounded-xl bg-zinc-900 p-3 text-xs text-zinc-100">{JSON.stringify(d.ai_json, null, 2)}</pre>
                     )}
 
                     <div className="text-xs text-zinc-500">status: {d.status}</div>
