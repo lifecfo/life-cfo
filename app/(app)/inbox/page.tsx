@@ -5,6 +5,11 @@ import { supabase } from "@/lib/supabaseClient";
 import { Badge, Button, Card, CardContent, useToast, Chip } from "@/components/ui";
 import { Page } from "@/components/Page";
 
+// ---- CONFIG ----
+// If your Decisions page isn't ready to show "draft" items yet,
+// keep this as "decided" so promoted items appear immediately.
+const PROMOTED_STATUS: "decided" | "draft" = "decided";
+
 type InboxItem = {
   id: string;
   user_id: string;
@@ -158,6 +163,19 @@ export default function InboxPage() {
     return `${base.border} bg-zinc-50 border-l-4 border-l-zinc-400`;
   }
 
+  const prettySupabaseError = (e: any) => {
+    const msg = typeof e?.message === "string" ? e.message : "";
+    // common uniqueness/duplicate messages (varies by platform)
+    if (
+      msg.toLowerCase().includes("duplicate key") ||
+      msg.toLowerCase().includes("unique") ||
+      msg.toLowerCase().includes("already exists")
+    ) {
+      return "Already promoted/decided for this inbox item.";
+    }
+    return msg || "Something went wrong.";
+  };
+
   // ---------- auth + load ----------
   const load = async () => {
     setStatusLine("Loading...");
@@ -270,6 +288,7 @@ export default function InboxPage() {
     });
   }, [items, now]);
 
+  // kept (even if unused right now) — useful for later UI
   const handledTodayCount = useMemo(() => {
     const startOfToday = new Date();
     startOfToday.setHours(0, 0, 0, 0);
@@ -577,6 +596,7 @@ export default function InboxPage() {
               return;
             }
 
+            setItems((prev) => prev.map((it) => (it.id === item.id ? { ...it, status: "open", snoozed_until: null } : it)));
             setStatusLine("Undone ✅");
           },
         },
@@ -587,7 +607,7 @@ export default function InboxPage() {
     }
   };
 
-  // ✅ NEW: Promote (Inbox → Decisions) without deciding yet
+  // ✅ Promote (Inbox → Decisions) without deciding yet
   const promoteInboxItemToDecision = async (item: InboxItem) => {
     if (!userId) return;
 
@@ -595,7 +615,9 @@ export default function InboxPage() {
       setStatusLine("Promoting to Decisions...");
       setAffirmation(null);
 
-      // 1) Create a draft decision linked to the inbox item
+      const status = PROMOTED_STATUS;
+      const decided_at = status === "decided" ? new Date().toISOString() : null;
+
       const { data: inserted, error: insertError } = await supabase
         .from("decisions")
         .insert({
@@ -604,11 +626,9 @@ export default function InboxPage() {
           title: item.title,
           context: item.body ?? null,
 
-          // Draft: not yet decided
-          status: "draft",
-          decided_at: null,
+          status,
+          decided_at,
 
-          // Keep these clean for later
           user_reasoning: null,
           confidence_level: null,
           ai_summary: null,
@@ -620,7 +640,7 @@ export default function InboxPage() {
         .single();
 
       if (insertError) {
-        setStatusLine(`Promote failed: ${insertError.message}`);
+        setStatusLine(`Promote failed: ${prettySupabaseError(insertError)}`);
         return;
       }
 
@@ -630,7 +650,6 @@ export default function InboxPage() {
         return;
       }
 
-      // 2) Close inbox item (so it disappears from Visible)
       const { error: closeError } = await supabase
         .from("decision_inbox")
         .update({ status: "done", snoozed_until: null })
@@ -656,12 +675,7 @@ export default function InboxPage() {
           onUndo: async () => {
             setStatusLine("Undoing promotion...");
 
-            const { error: delErr } = await supabase
-              .from("decisions")
-              .delete()
-              .eq("id", decisionId)
-              .eq("user_id", userId);
-
+            const { error: delErr } = await supabase.from("decisions").delete().eq("id", decisionId).eq("user_id", userId);
             if (delErr) {
               setStatusLine(`Undo failed (delete): ${delErr.message}`);
               return;
@@ -677,6 +691,10 @@ export default function InboxPage() {
               setStatusLine(`Undo partial (reopen failed): ${reopenErr.message}`);
               return;
             }
+
+            setItems((prev) =>
+              prev.map((it) => (it.id === item.id ? { ...it, status: "open", snoozed_until: null } : it))
+            );
 
             setStatusLine("Undone ✅");
           },
@@ -888,7 +906,6 @@ export default function InboxPage() {
                     <div className="flex flex-wrap gap-2">
                       <Button onClick={() => decideNowAndCloseInboxItem(it)}>Decide Now ✅</Button>
 
-                      {/* ✅ NEW BUTTON */}
                       <Button variant="secondary" onClick={() => promoteInboxItemToDecision(it)}>
                         Promote → Decisions
                       </Button>
