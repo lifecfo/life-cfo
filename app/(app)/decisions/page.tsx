@@ -1,14 +1,14 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { Badge, Button, Card, CardContent, Chip, useToast } from "@/components/ui";
 import { Page } from "@/components/Page";
 
 type Decision = {
   id: string;
-  inbox_item_id: string | null; // ✅ NEW
+  inbox_item_id: string | null;
   title: string;
   context: string | null;
   status: string;
@@ -93,30 +93,14 @@ function getAI(ai_json: any | null) {
   return null;
 }
 
-/**
- * ✅ Supports BOTH old + new formats:
- * Old: { at, note }
- * New (RPC): { reviewed_at, notes, outcome, confidence_level }
- */
 function normalizeHistory(input: any): ReviewEntry[] {
   if (!Array.isArray(input)) return [];
   return input
     .map((x) => {
       if (!x || typeof x !== "object") return null;
-
-      // New format (RPC)
-      const reviewedAt = typeof (x as any).reviewed_at === "string" ? (x as any).reviewed_at : null;
-      const notesNew = typeof (x as any).notes === "string" ? (x as any).notes : null;
-
-      if (reviewedAt && notesNew != null) {
-        return { at: reviewedAt, note: notesNew } as ReviewEntry;
-      }
-
-      // Old format
       const at = typeof (x as any).at === "string" ? (x as any).at : null;
       const note = typeof (x as any).note === "string" ? (x as any).note : null;
       if (!at || !note) return null;
-
       return { at, note } as ReviewEntry;
     })
     .filter(Boolean) as ReviewEntry[];
@@ -125,12 +109,12 @@ function normalizeHistory(input: any): ReviewEntry[] {
 type TypeFilter = "all" | "spending" | "time" | "relationship" | "health" | "other";
 type StakesFilter = "all" | "high";
 type SuggestedFilter = "all" | "decide_now" | "delay" | "gather_info";
-
 type TabMode = "all" | "review" | "drafts";
 
 export default function DecisionsPage() {
   const { showToast } = useToast();
   const router = useRouter();
+  const searchParams = useSearchParams();
 
   const [statusLine, setStatusLine] = useState("Loading...");
   const [rows, setRows] = useState<Decision[]>([]);
@@ -153,7 +137,7 @@ export default function DecisionsPage() {
   // bulk selection (Review tab)
   const [selected, setSelected] = useState<Record<string, boolean>>({});
 
-  // review drafts (inline notes box)
+  // review drafts
   const [reviewDraft, setReviewDraft] = useState<Record<string, string>>({});
 
   // draft finishing inputs
@@ -162,6 +146,20 @@ export default function DecisionsPage() {
   const [draftSaving, setDraftSaving] = useState<Record<string, boolean>>({});
   const [draftAiLoading, setDraftAiLoading] = useState<Record<string, boolean>>({});
   const [draftAiError, setDraftAiError] = useState<Record<string, string>>({});
+
+  // --- read tab from URL (first mount + when URL changes) ---
+  useEffect(() => {
+    const t = (searchParams?.get("tab") ?? "").toLowerCase();
+    if (t === "review" || t === "drafts" || t === "all") {
+      setTab(t as TabMode);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
+
+  const setTabAndUrl = (next: TabMode) => {
+    setTab(next);
+    router.replace(`/decisions?tab=${next}`);
+  };
 
   const load = async () => {
     setStatusLine("Loading...");
@@ -252,7 +250,6 @@ export default function DecisionsPage() {
   };
 
   const dueForReviewCount = useMemo(() => rows.filter(isDueForReview).length, [rows]);
-
   const reviewList = useMemo(() => rows.filter((d) => d.review_at != null), [rows]);
 
   const reviewSorted = useMemo(() => {
@@ -344,30 +341,34 @@ export default function DecisionsPage() {
     setStatusLine("Cleared ✅");
   };
 
-  /**
-   * ✅ UPDATED: Save review note now uses the append-only RPC
-   * This keeps your inline UX, but writes into the new review_history format safely.
-   */
   const saveReviewNote = async (d: Decision) => {
     const note = (reviewDraft[d.id] ?? "").trim();
     if (!note) return;
 
-    setStatusLine("Saving review...");
+    const at = new Date().toISOString();
+    const history = normalizeHistory(d.review_history);
+    const nextHistory: ReviewEntry[] = [...history, { at, note }];
+    const nextReviewNotes = note;
 
-    const { error } = await supabase.rpc("append_decision_review", {
-      p_decision_id: d.id,
-      p_outcome: "mixed",
-      p_notes: note,
-      p_confidence_level: null,
-    });
+    const { error } = await supabase
+      .from("decisions")
+      .update({
+        review_history: nextHistory,
+        review_notes: nextReviewNotes,
+        reviewed_at: at,
+      })
+      .eq("id", d.id);
 
     if (error) {
-      setStatusLine(`Save review failed: ${error.message}`);
+      setStatusLine(`Save review note failed: ${error.message}`);
       return;
     }
 
-    // Refresh local row to reflect the appended history + reviewed_at
-    await load();
+    setRows((prev) =>
+      prev.map((x) =>
+        x.id === d.id ? { ...x, review_history: nextHistory, review_notes: nextReviewNotes, reviewed_at: at } : x
+      )
+    );
 
     setReviewDraft((prev) => {
       const copy = { ...prev };
@@ -375,7 +376,7 @@ export default function DecisionsPage() {
       return copy;
     });
 
-    setStatusLine("Review saved ✅");
+    setStatusLine("Review note saved ✅");
   };
 
   const bulkMarkReviewed = async () => {
@@ -501,7 +502,7 @@ export default function DecisionsPage() {
     }
   };
 
-  // ✅ UPDATED: finishing a draft also closes the linked inbox item (if present)
+  // finishing a draft also closes the linked inbox item (if present)
   const finishDraftDecision = async (d: Decision) => {
     setDraftSaving((prev) => ({ ...prev, [d.id]: true }));
     setStatusLine("Saving decision...");
@@ -510,7 +511,6 @@ export default function DecisionsPage() {
     const conf = draftConfidence[d.id] ?? null;
     const nowIso = new Date().toISOString();
 
-    // Save prior state for undo
     const prevRow = rows.find((x) => x.id === d.id);
     const prevStatus = prevRow?.status ?? d.status;
     const prevDecidedAt = prevRow?.decided_at ?? d.decided_at;
@@ -531,7 +531,6 @@ export default function DecisionsPage() {
       return;
     }
 
-    // Close the original inbox item if linked
     let inboxClosedOk = false;
     if (d.inbox_item_id) {
       const { error: inboxErr } = await supabase
@@ -569,18 +568,13 @@ export default function DecisionsPage() {
         onUndo: async () => {
           setStatusLine("Undoing...");
 
-          // undo decision status/decided_at
-          const { error: undoErr } = await supabase
-            .from("decisions")
-            .update({ status: "draft", decided_at: null })
-            .eq("id", d.id);
+          const { error: undoErr } = await supabase.from("decisions").update({ status: "draft", decided_at: null }).eq("id", d.id);
 
           if (undoErr) {
             setStatusLine(`Undo failed: ${undoErr.message}`);
             return;
           }
 
-          // reopen inbox item if we closed it
           if (d.inbox_item_id && inboxClosedOk) {
             const { error: reopenErr } = await supabase
               .from("decision_inbox")
@@ -595,7 +589,7 @@ export default function DecisionsPage() {
 
           setRows((prev) =>
             prev.map((x) =>
-              x.id === d.id ? { ...x, status: prevStatus, decided_at: prevDecidedAt ?? null } : x
+              x.id === d.id ? { ...x, status: prevStatus, decided_at: (prevDecidedAt as any) ?? null } : x
             )
           );
 
@@ -676,7 +670,7 @@ export default function DecisionsPage() {
 
   const statusDotColor = (s: string) => {
     if (s === "decided") return "green";
-    if (s === "draft") return "#71717a"; // zinc-500-ish
+    if (s === "draft") return "#71717a";
     return "gray";
   };
 
@@ -704,15 +698,15 @@ export default function DecisionsPage() {
     >
       {/* Tabs */}
       <div className="flex flex-wrap gap-2">
-        <Chip active={tab === "all"} onClick={() => setTab("all")}>
+        <Chip active={tab === "all"} onClick={() => setTabAndUrl("all")}>
           All
         </Chip>
 
-        <Chip active={tab === "drafts"} onClick={() => setTab("drafts")} title="Promoted items waiting to be decided">
+        <Chip active={tab === "drafts"} onClick={() => setTabAndUrl("drafts")} title="Promoted items waiting to be decided">
           Drafts {draftCount > 0 ? `(${draftCount})` : ""}
         </Chip>
 
-        <Chip active={tab === "review"} onClick={() => setTab("review")} title="Decisions due for review">
+        <Chip active={tab === "review"} onClick={() => setTabAndUrl("review")} title="Decisions due for review">
           Review {dueForReviewCount > 0 ? `(${dueForReviewCount})` : ""}
         </Chip>
 
@@ -723,7 +717,7 @@ export default function DecisionsPage() {
         {tab === "drafts" && draftCount === 0 && <div className="self-center text-sm text-zinc-600">No drafts right now 🎉</div>}
       </div>
 
-      {/* Review summary + bulk controls (only useful on Review tab) */}
+      {/* Review summary + bulk controls */}
       <Card className="bg-zinc-50">
         <CardContent>
           <div className="space-y-3">
@@ -910,20 +904,17 @@ export default function DecisionsPage() {
                   </div>
                 )}
 
+                {/* header is a DIV (not a button) to avoid nested-button hydration issues */}
                 <div
-  role="button"
-  tabIndex={0}
-  onClick={() => toggleOne(d.id)}
-  onKeyDown={(e) => {
-    if (e.key === "Enter" || e.key === " ") {
-      e.preventDefault();
-      toggleOne(d.id);
-    }
-  }}
-  className="w-full cursor-pointer bg-transparent p-0 text-left"
-  title={isOpen ? "Collapse" : "Expand"}
-  style={{ border: "none" }}
->
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => toggleOne(d.id)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") toggleOne(d.id);
+                  }}
+                  className="w-full cursor-pointer select-none"
+                  title={isOpen ? "Collapse" : "Expand"}
+                >
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex items-start gap-3">
                       <span
@@ -938,7 +929,8 @@ export default function DecisionsPage() {
                       <div>
                         <div className="flex flex-wrap items-center gap-2">
                           <strong className="text-base">
-                            {d.pinned ? "⭐ " : ""}{d.title}
+                            {d.pinned ? "⭐ " : ""}
+                            {d.title}
                           </strong>
 
                           {isDraft && <Badge variant="muted">Draft</Badge>}
@@ -947,20 +939,6 @@ export default function DecisionsPage() {
                           {conf && <Badge variant="muted">Confidence: {conf}</Badge>}
                           {suggested && <Badge variant="muted">AI: {suggested}</Badge>}
                           {isDraft && d.inbox_item_id && <Badge variant="muted">Linked to Inbox</Badge>}
-
-                          {/* ✅ NEW: one-click Review page link when due */}
-                          {!isDraft && due && (
-                            <Button
-                              variant="secondary"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                router.push(`/decisions/${d.id}/review`);
-                              }}
-                              title="Open the review form"
-                            >
-                              📝 Review
-                            </Button>
-                          )}
                         </div>
 
                         <div className="mt-1 text-xs text-zinc-500">
@@ -976,36 +954,41 @@ export default function DecisionsPage() {
                 {isOpen && (
                   <div className="mt-4 grid gap-3">
                     <div className="flex flex-wrap gap-2">
-                      <Button variant="secondary" onClick={() => togglePinned(d.id, !d.pinned)}>
+                      <Button
+                        variant="secondary"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          togglePinned(d.id, !d.pinned);
+                        }}
+                      >
                         {d.pinned ? "⭐ Pinned" : "☆ Pin"}
                       </Button>
 
-                      {/* ✅ NEW: review page is always available for decided items */}
                       {!isDraft && (
                         <Button
-                          onClick={() => router.push(`/decisions/${d.id}/review`)}
-                          title="Open the full review form"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            markReviewedNow(d.id);
+                          }}
                         >
-                          📝 Review
+                          ✅ Reviewed
                         </Button>
                       )}
 
-                      {!isDraft && <Button onClick={() => markReviewedNow(d.id)}>✅ Reviewed</Button>}
-
-                      <Button variant="secondary" onClick={() => reviewIn1Day(d.id)}>
+                      <Button variant="secondary" onClick={(e) => { e.stopPropagation(); reviewIn1Day(d.id); }}>
                         ⏳ Review in 1 day
                       </Button>
-                      <Button variant="secondary" onClick={() => reviewIn3Days(d.id)}>
+                      <Button variant="secondary" onClick={(e) => { e.stopPropagation(); reviewIn3Days(d.id); }}>
                         ⏳ Review in 3 days
                       </Button>
-                      <Button variant="secondary" onClick={() => reviewIn7Days(d.id)}>
+                      <Button variant="secondary" onClick={(e) => { e.stopPropagation(); reviewIn7Days(d.id); }}>
                         ⏳ Review in 7 days
                       </Button>
-                      <Button variant="secondary" onClick={() => reviewIn30Days(d.id)}>
+                      <Button variant="secondary" onClick={(e) => { e.stopPropagation(); reviewIn30Days(d.id); }}>
                         ⏳ Review in 30 days
                       </Button>
 
-                      <Button variant="secondary" onClick={() => clearReviewAt(d.id)}>
+                      <Button variant="secondary" onClick={(e) => { e.stopPropagation(); clearReviewAt(d.id); }}>
                         🧹 Clear review
                       </Button>
                     </div>
@@ -1031,8 +1014,6 @@ export default function DecisionsPage() {
                         </CardContent>
                       </Card>
                     )}
-
-                    {/* (rest of your file continues exactly as before) */}
 
                     {/* Draft finish UI */}
                     {isDraft && (
@@ -1154,7 +1135,7 @@ export default function DecisionsPage() {
                           <div className="text-sm text-zinc-500">No review notes yet.</div>
                         )}
 
-                        <div className="mt-3 text-xs text-zinc-500">Add a new note (append-only)</div>
+                        <div className="mt-3 text-xs text-zinc-500">Add a new note (saved into history + marks reviewed)</div>
 
                         <textarea
                           value={reviewDraft[d.id] ?? ""}
