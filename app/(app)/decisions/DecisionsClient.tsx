@@ -332,8 +332,8 @@ export default function DecisionsClient() {
     const nextReviewAt = shouldSetExplicit
       ? isoNowPlusDays(explicitDays!)
       : shouldBumpDefault
-        ? isoNowPlusDays(DEFAULT_REVIEW_BUMP_DAYS)
-        : prevReviewAt;
+      ? isoNowPlusDays(DEFAULT_REVIEW_BUMP_DAYS)
+      : prevReviewAt;
 
     const payload: any = { reviewed_at: nowIso };
     if (shouldSetExplicit || shouldBumpDefault) payload.review_at = nextReviewAt;
@@ -349,8 +349,8 @@ export default function DecisionsClient() {
     const msg = shouldSetExplicit
       ? `Reviewed ✅ (next in ${explicitDays}d)`
       : shouldBumpDefault
-        ? `Reviewed ✅ (next in ${DEFAULT_REVIEW_BUMP_DAYS}d)`
-        : "Reviewed ✅";
+      ? `Reviewed ✅ (next in ${DEFAULT_REVIEW_BUMP_DAYS}d)`
+      : "Reviewed ✅";
 
     setStatusLine(msg);
 
@@ -371,7 +371,9 @@ export default function DecisionsClient() {
             return;
           }
 
-          setRows((prev) => prev.map((d) => (d.id === id ? { ...d, reviewed_at: prevReviewedAt, review_at: prevReviewAt } : d)));
+          setRows((prev) =>
+            prev.map((d) => (d.id === id ? { ...d, reviewed_at: prevReviewedAt, review_at: prevReviewAt } : d))
+          );
           setStatusLine("Undone ✅");
         },
       },
@@ -437,8 +439,8 @@ export default function DecisionsClient() {
     const nextReviewAt = shouldSetExplicit
       ? isoNowPlusDays(explicitDays!)
       : shouldBumpDefault
-        ? isoNowPlusDays(DEFAULT_REVIEW_BUMP_DAYS)
-        : prevReviewAt;
+      ? isoNowPlusDays(DEFAULT_REVIEW_BUMP_DAYS)
+      : prevReviewAt;
 
     const payload: any = {
       review_history: nextHistory,
@@ -484,8 +486,8 @@ export default function DecisionsClient() {
     const msg = shouldSetExplicit
       ? `Review note saved ✅ (next in ${explicitDays}d)`
       : shouldBumpDefault
-        ? `Review note saved ✅ (next in ${DEFAULT_REVIEW_BUMP_DAYS}d)`
-        : "Review note saved ✅";
+      ? `Review note saved ✅ (next in ${DEFAULT_REVIEW_BUMP_DAYS}d)`
+      : "Review note saved ✅";
 
     setStatusLine(msg);
 
@@ -533,7 +535,7 @@ export default function DecisionsClient() {
   };
 
   /**
-   * ✅ Bulk mark reviewed:
+   * ✅ Bulk mark reviewed (default behavior):
    * - Sets reviewed_at=now for all selected
    * - For any that are overdue, also bumps review_at forward by DEFAULT_REVIEW_BUMP_DAYS
    * Undo restores reviewed_at + review_at per-id.
@@ -602,6 +604,86 @@ export default function DecisionsClient() {
               .update({ reviewed_at: prevReviewedMap[id] ?? null, review_at: prevReviewAtMap[id] ?? null })
               .eq("id", id)
           );
+          const results = await Promise.all(tasks);
+          const failed = results.find((r) => r.error);
+          if (failed?.error) {
+            setStatusLine(`Undo failed: ${failed.error.message}`);
+            return;
+          }
+
+          setRows((prev) =>
+            prev.map((d) =>
+              ids.includes(d.id)
+                ? { ...d, reviewed_at: prevReviewedMap[d.id] ?? null, review_at: prevReviewAtMap[d.id] ?? null }
+                : d
+            )
+          );
+
+          setStatusLine("Undone ✅");
+        },
+      },
+      8000
+    );
+
+    clearSelection();
+  };
+
+  /**
+   * ✅ Bulk mark reviewed with explicit cadence:
+   * - Sets reviewed_at=now for all selected
+   * - Sets review_at=now+days for ALL selected (always)
+   * Undo restores reviewed_at + review_at per-id.
+   */
+  const bulkMarkReviewedWithCadence = async (days: number) => {
+    const ids = selectedIds;
+    if (ids.length === 0) return;
+
+    const safeDays = clampInt(days, 1, 3650);
+
+    const prevReviewedMap: Record<string, string | null> = {};
+    const prevReviewAtMap: Record<string, string | null> = {};
+
+    for (const d of rows) {
+      if (!ids.includes(d.id)) continue;
+      prevReviewedMap[d.id] = d.reviewed_at ?? null;
+      prevReviewAtMap[d.id] = d.review_at ?? null;
+    }
+
+    const nowIso = new Date().toISOString();
+    const nextReviewIso = isoNowPlusDays(safeDays);
+
+    setStatusLine(`Marking selected as reviewed (next in ${safeDays}d)...`);
+
+    const { error } = await supabase
+      .from("decisions")
+      .update({ reviewed_at: nowIso, review_at: nextReviewIso })
+      .in("id", ids);
+
+    if (error) {
+      setStatusLine(`Bulk reviewed failed: ${error.message}`);
+      return;
+    }
+
+    setRows((prev) =>
+      prev.map((d) => (ids.includes(d.id) ? { ...d, reviewed_at: nowIso, review_at: nextReviewIso } : d))
+    );
+
+    setStatusLine(`Reviewed ${ids.length} ✅ (next in ${safeDays}d)`);
+
+    showToast(
+      {
+        message: `Reviewed ${ids.length} ✅ (next in ${safeDays}d)`,
+        undoLabel: "Undo",
+        onUndo: async () => {
+          setStatusLine("Undoing bulk review...");
+
+          const tasks = ids.map((id) =>
+            supabase
+              .from("decisions")
+              .update({ reviewed_at: prevReviewedMap[id] ?? null, review_at: prevReviewAtMap[id] ?? null })
+              .eq("id", id)
+          );
+
           const results = await Promise.all(tasks);
           const failed = results.find((r) => r.error);
           if (failed?.error) {
@@ -696,9 +778,7 @@ export default function DecisionsClient() {
       }
 
       setRows((prev) =>
-        prev.map((x) =>
-          x.id === d.id ? { ...x, ai_summary: analysis?.reasoning ?? null, ai_json: analysis ?? null } : x
-        )
+        prev.map((x) => (x.id === d.id ? { ...x, ai_summary: analysis?.reasoning ?? null, ai_json: analysis ?? null } : x))
       );
     } catch (e: any) {
       setDraftAiError((prev) => ({ ...prev, [d.id]: e?.message ?? "AI analysis failed" }));
@@ -1042,6 +1122,18 @@ export default function DecisionsClient() {
                   ✅ Mark reviewed (bump overdue +{DEFAULT_REVIEW_BUMP_DAYS}d)
                 </Button>
 
+                {REVIEW_PRESETS_DAYS.map((days) => (
+                  <Button
+                    key={`bulk-reviewed-${days}`}
+                    variant="secondary"
+                    onClick={() => bulkMarkReviewedWithCadence(days)}
+                    disabled={selectedIds.length === 0}
+                    title={`Marks reviewed now and sets next review to ${days} days for all selected`}
+                  >
+                    ✅ Reviewed +{days}d
+                  </Button>
+                ))}
+
                 <Button variant="secondary" onClick={() => bulkScheduleMinutes(60 * 24 * 3)} disabled={selectedIds.length === 0}>
                   ⏳ Review in 3 days
                 </Button>
@@ -1172,10 +1264,10 @@ export default function DecisionsClient() {
                 isDraft
                   ? "border-zinc-200 bg-zinc-50"
                   : due
-                    ? "border-amber-200 bg-amber-50"
-                    : dueSoon
-                      ? "border-yellow-200 bg-yellow-50"
-                      : "bg-white"
+                  ? "border-amber-200 bg-amber-50"
+                  : dueSoon
+                  ? "border-yellow-200 bg-yellow-50"
+                  : "bg-white"
               }
             >
               <CardContent>
@@ -1500,7 +1592,9 @@ export default function DecisionsClient() {
                                   saveReviewNote(d, days);
                                 }}
                               />
-                              <div className="mt-1 text-xs text-zinc-500">Optional — if not set, overdue bumps +{DEFAULT_REVIEW_BUMP_DAYS}d.</div>
+                              <div className="mt-1 text-xs text-zinc-500">
+                                Optional — if not set, overdue bumps +{DEFAULT_REVIEW_BUMP_DAYS}d.
+                              </div>
                             </div>
                           )}
                         </div>
@@ -1539,7 +1633,9 @@ export default function DecisionsClient() {
         })}
 
         {filtered.length === 0 && (
-          <div className="text-sm text-zinc-600">{tab === "review" ? "No reviews due." : tab === "drafts" ? "No drafts found." : "No decisions found."}</div>
+          <div className="text-sm text-zinc-600">
+            {tab === "review" ? "No reviews due." : tab === "drafts" ? "No drafts found." : "No decisions found."}
+          </div>
         )}
       </div>
     </Page>
