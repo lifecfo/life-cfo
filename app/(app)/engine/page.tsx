@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { Page } from "@/components/Page";
 import { Card, CardContent, Button, Chip, Badge, useToast } from "@/components/ui";
@@ -161,6 +161,11 @@ type EngineInsight = {
 // -------------------- Helper bodies + severities (MODULE SCOPE) --------------------
 // IMPORTANT: keep these OUTSIDE EnginePage so both v1 and v2 code can call them.
 
+const INSIGHTS_DEDUPE_KEY = "engine_insights_v2_digest";
+
+// Single source of truth for "due soon" in signal counts
+const REVIEW_DUE_SOON_HOURS = 48;
+
 function buildUpcomingBillsBody(t: ComputedTotals) {
   if (t.bills14.length === 0) {
     return [
@@ -317,6 +322,53 @@ function severityForAutopayRisk(t: ComputedTotals) {
 }
 // -------------------- End helpers --------------------
 
+type LiveStatus = "connecting" | "live" | "offline";
+
+type EngineSignals = {
+  inboxOpen: number;
+  reviewsDue: number;
+};
+
+function sortByCreatedAtAsc<T extends { created_at?: string }>(rows: T[]) {
+  const copy = [...rows];
+  copy.sort((a, b) => {
+    const ta = a.created_at ? Date.parse(a.created_at) : 0;
+    const tb = b.created_at ? Date.parse(b.created_at) : 0;
+    const va = Number.isNaN(ta) ? 0 : ta;
+    const vb = Number.isNaN(tb) ? 0 : tb;
+    return va - vb;
+  });
+  return copy;
+}
+
+function sortBills(rows: RecurringBill[]) {
+  const copy = [...rows];
+  // match your loadAll ordering: active desc, next_due_at asc
+  copy.sort((a, b) => {
+    if (a.active !== b.active) return a.active ? -1 : 1;
+    const ta = a.next_due_at ? Date.parse(a.next_due_at) : 0;
+    const tb = b.next_due_at ? Date.parse(b.next_due_at) : 0;
+    const va = Number.isNaN(ta) ? 0 : ta;
+    const vb = Number.isNaN(tb) ? 0 : tb;
+    return va - vb;
+  });
+  return copy;
+}
+
+function sortIncome(rows: RecurringIncome[]) {
+  const copy = [...rows];
+  // match your loadAll ordering: active desc, next_pay_at asc
+  copy.sort((a, b) => {
+    if (a.active !== b.active) return a.active ? -1 : 1;
+    const ta = a.next_pay_at ? Date.parse(a.next_pay_at) : 0;
+    const tb = b.next_pay_at ? Date.parse(b.next_pay_at) : 0;
+    const va = Number.isNaN(ta) ? 0 : ta;
+    const vb = Number.isNaN(tb) ? 0 : tb;
+    return va - vb;
+  });
+  return copy;
+}
+
 export default function EnginePage() {
   const { showToast } = useToast();
 
@@ -334,12 +386,28 @@ export default function EnginePage() {
   const [bills, setBills] = useState<RecurringBill[]>([]);
   const [income, setIncome] = useState<RecurringIncome[]>([]);
 
+  // Signals (derived awareness)
+  const [signals, setSignals] = useState<EngineSignals>({ inboxOpen: 0, reviewsDue: 0 });
+
+  // Live indicator
+  const [liveStatus, setLiveStatus] = useState<LiveStatus>("connecting");
+
   // Step 1: last ran indicator (local-only)
   const [lastRanAt, setLastRanAt] = useState<string | null>(null);
 
   // Step 2: cooldown (local-only)
   const COOLDOWN_MS = 10_000;
   const [cooldownUntil, setCooldownUntil] = useState<number | null>(null);
+
+  // Safe reload throttle
+  const reloadTimerRef = useRef<number | null>(null);
+  const loadAllRef = useRef<(uid: string, opts?: { silent?: boolean }) => Promise<any>>(async () => ({}));
+  const loadSignalsRef = useRef<(uid: string, opts?: { silent?: boolean }) => Promise<void>>(async () => {});
+
+  const scheduleReload = (fn: () => void) => {
+    if (reloadTimerRef.current) window.clearTimeout(reloadTimerRef.current);
+    reloadTimerRef.current = window.setTimeout(() => fn(), 250);
+  };
 
   useEffect(() => {
     (async () => {
@@ -350,17 +418,29 @@ export default function EnginePage() {
       if (userErr || !data.user) {
         setError("Not signed in.");
         setLoading(false);
+        setLiveStatus("offline");
         return;
       }
 
       setUserId(data.user.id);
       await loadAll(data.user.id);
+      await loadSignals(data.user.id, { silent: true });
       setLoading(false);
     })();
+
+    return () => {
+      if (reloadTimerRef.current) window.clearTimeout(reloadTimerRef.current);
+      reloadTimerRef.current = null;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  async function loadAll(uid: string) {
+  async function loadAll(uid: string, opts?: { silent?: boolean }) {
+    const silent = !!opts?.silent;
+    if (!silent) {
+      setError(null);
+    }
+
     const [aRes, bRes, iRes] = await Promise.all([
       supabase.from("accounts").select("*").eq("user_id", uid).order("created_at", { ascending: true }),
       supabase
@@ -392,18 +472,231 @@ export default function EnginePage() {
     return { accounts: a, bills: b, income: i };
   }
 
+  async function loadSignals(uid: string, opts?: { silent?: boolean }) {
+    // "Signals" are intentionally lightweight. If anything is missing, we just leave the last known values.
+    const silent = !!opts?.silent;
+
+    try {
+      // Inbox open count (truthy signal, not exact "visible" logic)
+      const inboxCountRes = await supabase
+        .from("decision_inbox")
+        .select("id", { count: "exact", head: true })
+        .eq("user_id", uid)
+        .neq("status", "done");
+
+      // Reviews due count (due soon/overdue window, approximate but useful)
+      const thresholdIso = new Date(Date.now() + REVIEW_DUE_SOON_HOURS * 60 * 60 * 1000).toISOString();
+
+      const reviewsCountRes = await supabase
+        .from("decisions")
+        .select("id", { count: "exact", head: true })
+        .eq("user_id", uid)
+        .eq("status", "decided")
+        .not("review_at", "is", null)
+        .lte("review_at", thresholdIso);
+
+      const inboxOpen = inboxCountRes.count ?? signals.inboxOpen;
+      const reviewsDue = reviewsCountRes.count ?? signals.reviewsDue;
+
+      setSignals({ inboxOpen, reviewsDue });
+    } catch (e) {
+      if (!silent) {
+        // do nothing loud; signals are optional
+      }
+    }
+  }
+
+  useEffect(() => {
+    loadAllRef.current = (uid: string, opts?: { silent?: boolean }) => loadAll(uid, opts);
+    loadSignalsRef.current = (uid: string, opts?: { silent?: boolean }) => loadSignals(uid, opts);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId, signals.inboxOpen, signals.reviewsDue]);
+
+  // Realtime: patch inputs + refresh signals
+  useEffect(() => {
+    if (!userId) return;
+
+    setLiveStatus("connecting");
+
+    const patchAccounts = (payload: any) => {
+      const eventType: string | undefined = payload?.eventType;
+      const newRow = payload?.new as Account | undefined;
+      const oldRow = payload?.old as Partial<Account> | undefined;
+      const id = (newRow as any)?.id || (oldRow as any)?.id;
+
+      if (!eventType || !id) {
+        scheduleReload(() => loadAllRef.current(userId, { silent: true }));
+        return;
+      }
+
+      setAccounts((prev) => {
+        if (eventType === "INSERT") {
+          if (!newRow) {
+            scheduleReload(() => loadAllRef.current(userId, { silent: true }));
+            return prev;
+          }
+          const exists = prev.some((x) => x.id === newRow.id);
+          const merged = exists ? prev.map((x) => (x.id === newRow.id ? { ...x, ...newRow } : x)) : [...prev, newRow];
+          return sortByCreatedAtAsc(merged);
+        }
+        if (eventType === "UPDATE") {
+          if (!newRow) {
+            scheduleReload(() => loadAllRef.current(userId, { silent: true }));
+            return prev;
+          }
+          const merged = prev.map((x) => (x.id === newRow.id ? { ...x, ...newRow } : x));
+          return sortByCreatedAtAsc(merged);
+        }
+        if (eventType === "DELETE") {
+          return prev.filter((x) => x.id !== id);
+        }
+        scheduleReload(() => loadAllRef.current(userId, { silent: true }));
+        return prev;
+      });
+    };
+
+    const patchBills = (payload: any) => {
+      const eventType: string | undefined = payload?.eventType;
+      const newRow = payload?.new as RecurringBill | undefined;
+      const oldRow = payload?.old as Partial<RecurringBill> | undefined;
+      const id = (newRow as any)?.id || (oldRow as any)?.id;
+
+      if (!eventType || !id) {
+        scheduleReload(() => loadAllRef.current(userId, { silent: true }));
+        return;
+      }
+
+      setBills((prev) => {
+        if (eventType === "INSERT") {
+          if (!newRow) {
+            scheduleReload(() => loadAllRef.current(userId, { silent: true }));
+            return prev;
+          }
+          const exists = prev.some((x) => x.id === newRow.id);
+          const merged = exists ? prev.map((x) => (x.id === newRow.id ? { ...x, ...newRow } : x)) : [...prev, newRow];
+          return sortBills(merged);
+        }
+        if (eventType === "UPDATE") {
+          if (!newRow) {
+            scheduleReload(() => loadAllRef.current(userId, { silent: true }));
+            return prev;
+          }
+          const merged = prev.map((x) => (x.id === newRow.id ? { ...x, ...newRow } : x));
+          return sortBills(merged);
+        }
+        if (eventType === "DELETE") {
+          return prev.filter((x) => x.id !== id);
+        }
+        scheduleReload(() => loadAllRef.current(userId, { silent: true }));
+        return prev;
+      });
+    };
+
+    const patchIncome = (payload: any) => {
+      const eventType: string | undefined = payload?.eventType;
+      const newRow = payload?.new as RecurringIncome | undefined;
+      const oldRow = payload?.old as Partial<RecurringIncome> | undefined;
+      const id = (newRow as any)?.id || (oldRow as any)?.id;
+
+      if (!eventType || !id) {
+        scheduleReload(() => loadAllRef.current(userId, { silent: true }));
+        return;
+      }
+
+      setIncome((prev) => {
+        if (eventType === "INSERT") {
+          if (!newRow) {
+            scheduleReload(() => loadAllRef.current(userId, { silent: true }));
+            return prev;
+          }
+          const exists = prev.some((x) => x.id === newRow.id);
+          const merged = exists ? prev.map((x) => (x.id === newRow.id ? { ...x, ...newRow } : x)) : [...prev, newRow];
+          return sortIncome(merged);
+        }
+        if (eventType === "UPDATE") {
+          if (!newRow) {
+            scheduleReload(() => loadAllRef.current(userId, { silent: true }));
+            return prev;
+          }
+          const merged = prev.map((x) => (x.id === newRow.id ? { ...x, ...newRow } : x));
+          return sortIncome(merged);
+        }
+        if (eventType === "DELETE") {
+          return prev.filter((x) => x.id !== id);
+        }
+        scheduleReload(() => loadAllRef.current(userId, { silent: true }));
+        return prev;
+      });
+    };
+
+    // Signals refresh (throttled)
+    const bumpSignals = () => scheduleReload(() => loadSignalsRef.current(userId, { silent: true }));
+
+    const channel = supabase
+      .channel(`engine-realtime-${userId}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "accounts", filter: `user_id=eq.${userId}` },
+        (p) => {
+          patchAccounts(p);
+        }
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "recurring_bills", filter: `user_id=eq.${userId}` },
+        (p) => {
+          patchBills(p);
+        }
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "recurring_income", filter: `user_id=eq.${userId}` },
+        (p) => {
+          patchIncome(p);
+        }
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "decision_inbox", filter: `user_id=eq.${userId}` },
+        () => bumpSignals()
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "decisions", filter: `user_id=eq.${userId}` },
+        () => bumpSignals()
+      )
+      .subscribe((status) => {
+        if (status === "SUBSCRIBED") setLiveStatus("live");
+        else if (status === "CLOSED" || status === "CHANNEL_ERROR") setLiveStatus("offline");
+      });
+
+    return () => {
+      supabase.removeChannel(channel);
+      setLiveStatus("offline");
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId]);
+
+  // Focus refresh (silent)
+  useEffect(() => {
+    const onFocus = () => {
+      if (!userId) return;
+      loadAllRef.current(userId, { silent: true });
+      loadSignalsRef.current(userId, { silent: true });
+    };
+    window.addEventListener("focus", onFocus);
+
+    return () => {
+      window.removeEventListener("focus", onFocus);
+    };
+  }, [userId]);
+
   const activeBills = useMemo(() => bills.filter((b) => b.active), [bills]);
   const activeIncome = useMemo(() => income.filter((i) => i.active), [income]);
 
   const totals = useMemo(() => computeTotals(accounts, bills, income), [accounts, bills, income]);
 
-  async function writeSingleReminder(opts: {
-    runId: string;
-    dedupe_key: string;
-    title: string;
-    body: string;
-    severity: number;
-  }) {
+  async function writeSingleReminder(opts: { runId: string; dedupe_key: string; title: string; body: string; severity: number }) {
     if (!userId) return;
 
     const { error: upErr } = await supabase.from("decision_inbox").upsert(
@@ -441,19 +734,15 @@ export default function EnginePage() {
       dedupe_key: x.key,
     }));
 
-    const { error: upErr } = await supabase.from("decision_inbox").upsert(payload, {
-      onConflict: "user_id,dedupe_key",
-    });
+    const { error: upErr } = await supabase.from("decision_inbox").upsert(payload, { onConflict: "user_id,dedupe_key" });
 
     if (upErr) throw upErr;
   }
 
-  function computeInsights(
-    t: ComputedTotals,
-    freshBills: RecurringBill[],
-    freshIncome: RecurringIncome[],
-    freshAccounts: Account[]
-  ) {
+  // Engine v2: digest helper
+  const isInsightsDigest = (key: string) => key === INSIGHTS_DEDUPE_KEY;
+
+  function computeInsights(t: ComputedTotals, freshBills: RecurringBill[], freshIncome: RecurringIncome[], freshAccounts: Account[]) {
     const list: EngineInsight[] = [];
 
     // Missing inputs: we keep these as insights too (in addition to v1 reminders)
@@ -462,12 +751,9 @@ export default function EnginePage() {
         key: "engine_v2_missing_accounts",
         title: "Insight: Add accounts to compute safe-to-spend",
         severity: 2,
-        body: [
-          "Keystone can’t compute safe-to-spend yet because there are no accounts.",
-          "",
-          "Next step:",
-          "Go to Accounts and add at least one account balance.",
-        ].join("\n"),
+        body: ["Keystone can’t compute safe-to-spend yet because there are no accounts.", "", "Next step:", "Go to Accounts and add at least one account balance."].join(
+          "\n"
+        ),
       });
       return list; // if no accounts, other insights are meaningless
     }
@@ -566,6 +852,21 @@ export default function EnginePage() {
       });
     }
 
+    // Digest (optional single item to point user back to Engine)
+    if (list.length > 0 && !list.some((x) => isInsightsDigest(x.key))) {
+      list.unshift({
+        key: INSIGHTS_DEDUPE_KEY,
+        title: "Insights digest",
+        severity: 2,
+        body: [
+          "You have new Engine insights.",
+          "",
+          "Next step:",
+          "Open Inbox → Insights section and clear as you act.",
+        ].join("\n"),
+      });
+    }
+
     return list;
   }
 
@@ -645,11 +946,7 @@ export default function EnginePage() {
       }
 
       // Clear missing-accounts reminder if it exists and we now have accounts
-      await supabase
-        .from("decision_inbox")
-        .update({ status: "done", snoozed_until: null })
-        .eq("user_id", userId)
-        .eq("dedupe_key", "engine_missing_accounts");
+      await supabase.from("decision_inbox").update({ status: "done", snoozed_until: null }).eq("user_id", userId).eq("dedupe_key", "engine_missing_accounts");
 
       const safeTitle = "Safe to spend this week";
       const billsTitle = "Upcoming bills (next 14 days)";
@@ -738,10 +1035,7 @@ export default function EnginePage() {
         },
       ];
 
-      const { error: upErr } = await supabase.from("decision_inbox").upsert(upsertRows, {
-        onConflict: "user_id,dedupe_key",
-      });
-
+      const { error: upErr } = await supabase.from("decision_inbox").upsert(upsertRows, { onConflict: "user_id,dedupe_key" });
       if (upErr) throw upErr;
 
       // If income/bills now exist, close the "missing" reminders if they exist
@@ -754,9 +1048,11 @@ export default function EnginePage() {
       setLastRanAt(new Date().toLocaleString());
       notify({
         title: "Engine v1 ran",
-        description:
-          "Wrote Safe-to-spend + Upcoming bills + Upcoming income + 30d outlook + Largest bill + Autopay risks into Inbox (dedupe-safe).",
+        description: "Wrote baseline reminders into Inbox (dedupe-safe).",
       });
+
+      // refresh signals after writes
+      loadSignalsRef.current(userId, { silent: true });
     } catch (e: any) {
       notify({ title: "Engine error", description: e?.message ?? "Failed to run engine." });
     } finally {
@@ -785,7 +1081,6 @@ export default function EnginePage() {
       const insights = computeInsights(freshTotals, fresh.bills, fresh.income, fresh.accounts);
 
       if (insights.length === 0) {
-        // optional: you can choose to write a "no issues" insight, but we’ll keep it quiet for now
         setLastRanAt(new Date().toLocaleString());
         notify({ title: "Engine v2 ran", description: "No new insights (nice!)." });
         return;
@@ -795,6 +1090,9 @@ export default function EnginePage() {
 
       setLastRanAt(new Date().toLocaleString());
       notify({ title: "Engine v2 ran", description: `Wrote ${insights.length} insight(s) into Inbox (deduped).` });
+
+      // refresh signals after writes
+      loadSignalsRef.current(userId, { silent: true });
     } catch (e: any) {
       notify({ title: "Engine v2 error", description: e?.message ?? "Failed to run Engine v2." });
     } finally {
@@ -811,27 +1109,52 @@ export default function EnginePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [totals, bills, income, accounts]);
 
+  const liveBadge = () => {
+    if (liveStatus === "live") return { text: "Live", variant: "success" as const };
+    if (liveStatus === "connecting") return { text: "Connecting…", variant: "warning" as const };
+    return { text: "Offline", variant: "danger" as const };
+  };
+
+  const badge = liveBadge();
+
   return (
     <Page title="Engine" subtitle="Manual simulation harness. Engine reads your truths and writes reminders/insights to Inbox.">
       <div className="grid gap-4">
         <Card>
           <CardContent>
             <div className="flex items-center justify-between gap-3 flex-wrap">
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
+                <Badge variant={badge.variant}>● {badge.text}</Badge>
                 {loading ? <Chip>Loading…</Chip> : <Chip>Ready</Chip>}
                 {error ? <Chip>{error}</Chip> : null}
                 {lastRanAt ? <Chip>Last ran: {lastRanAt}</Chip> : <Chip>Last ran: —</Chip>}
                 {cooldownSeconds > 0 ? <Chip>Cooldown: {cooldownSeconds}s</Chip> : null}
+
+                {/* Signals */}
+                <Chip>Inbox open: {signals.inboxOpen}</Chip>
+                <Chip>Reviews due ≤{REVIEW_DUE_SOON_HOURS}h: {signals.reviewsDue}</Chip>
               </div>
 
               <div className="flex items-center gap-2">
-                <Button onClick={() => userId && loadAll(userId)} disabled={!userId || loading || running}>
+                <Button
+                  onClick={() => userId && loadAllRef.current(userId, { silent: true })}
+                  disabled={!userId || loading || running}
+                  title="Refresh Engine inputs"
+                >
                   Refresh inputs
                 </Button>
 
-                {/* NOTE: kept your labels exactly as you pasted (Run Engine v2 is actually v1) */}
+                <Button
+                  onClick={() => userId && loadSignalsRef.current(userId, { silent: true })}
+                  disabled={!userId || loading || running}
+                  title="Refresh signal counts"
+                  variant="secondary"
+                >
+                  Refresh signals
+                </Button>
+
                 <Button onClick={runEngineV1} disabled={!userId || loading || running || cooldownSeconds > 0}>
-                  {running ? "Running…" : "Run Engine v2"}
+                  {running ? "Running…" : "Run Engine v1 (Baseline)"}
                 </Button>
 
                 <Button variant="secondary" onClick={runEngineV2} disabled={!userId || loading || running || cooldownSeconds > 0}>
@@ -875,7 +1198,7 @@ export default function EnginePage() {
             )}
 
             <div className="text-sm opacity-70 mt-3">
-              Preview is computed locally from current inputs. Clicking “Run Engine v2” writes these as deduped Inbox items.
+              Preview is computed locally from current inputs. Clicking “Run Engine v2 (Insights)” writes these as deduped Inbox items.
             </div>
           </CardContent>
         </Card>
