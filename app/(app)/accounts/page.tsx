@@ -1,9 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
-import { Button, Card, CardContent, Badge } from "@/components/ui";
+import { Button, Card, CardContent, Badge, Chip, useToast } from "@/components/ui";
 import { Page } from "@/components/Page";
+
+type LiveState = "connecting" | "live" | "offline";
 
 type Account = {
   id: string;
@@ -11,6 +13,7 @@ type Account = {
   name: string;
   current_balance_cents: number;
   currency: string;
+  archived?: boolean;
   created_at: string;
   updated_at: string;
 };
@@ -26,16 +29,32 @@ function formatMoney(cents: number, currency = "AUD") {
   try {
     return new Intl.NumberFormat(undefined, { style: "currency", currency }).format(value);
   } catch {
-    // fallback if currency code is weird
     return `${currency} ${value.toFixed(2)}`;
   }
 }
 
+const LOAD_THROTTLE_MS = 1500;
+
 export default function AccountsPage() {
+  const toastApi: any = useToast();
+  const showToast =
+    toastApi?.showToast ??
+    ((args: any) => {
+      if (toastApi?.toast) {
+        toastApi.toast({
+          title: args?.title ?? "Done",
+          description: args?.description ?? args?.message ?? "",
+          variant: args?.variant,
+          action: args?.action,
+        });
+      }
+    });
+
   const [statusLine, setStatusLine] = useState("Loading...");
   const [email, setEmail] = useState("");
   const [userId, setUserId] = useState<string | null>(null);
 
+  const [live, setLive] = useState<LiveState>("connecting");
   const [rows, setRows] = useState<Account[]>([]);
 
   // create
@@ -49,19 +68,38 @@ export default function AccountsPage() {
   const [savingRow, setSavingRow] = useState<Record<string, boolean>>({});
   const [deletingRow, setDeletingRow] = useState<Record<string, boolean>>({});
 
-  const load = async () => {
-    setStatusLine("Loading...");
+  // Silent reload throttle
+  const lastLoadAtRef = useRef<number>(0);
+  const pendingSilentReloadRef = useRef<number | null>(null);
+
+  const load = async (opts?: { silent?: boolean }) => {
+    const silent = !!opts?.silent;
+
+    const now = Date.now();
+    if (silent) {
+      if (now - lastLoadAtRef.current < LOAD_THROTTLE_MS) {
+        if (pendingSilentReloadRef.current) window.clearTimeout(pendingSilentReloadRef.current);
+        pendingSilentReloadRef.current = window.setTimeout(() => {
+          pendingSilentReloadRef.current = null;
+          load({ silent: true });
+        }, LOAD_THROTTLE_MS);
+        return;
+      }
+    }
+
+    if (!silent) setStatusLine("Loading...");
+    lastLoadAtRef.current = now;
 
     const { data: auth, error: authError } = await supabase.auth.getUser();
     if (authError) {
-      setStatusLine(`Auth error: ${authError.message}`);
+      if (!silent) setStatusLine(`Auth error: ${authError.message}`);
       setUserId(null);
       return;
     }
 
     const user = auth.user;
     if (!user) {
-      setStatusLine("Not signed in. Go to /auth/login");
+      if (!silent) setStatusLine("Not signed in. Go to /auth/login");
       setUserId(null);
       return;
     }
@@ -71,28 +109,29 @@ export default function AccountsPage() {
 
     const { data, error } = await supabase
       .from("accounts")
-      .select("id,user_id,name,current_balance_cents,currency,created_at,updated_at")
+      .select("id,user_id,name,current_balance_cents,currency,archived,created_at,updated_at")
       .eq("user_id", user.id)
       .order("created_at", { ascending: false });
 
     if (error) {
-      setStatusLine(`Error: ${error.message}`);
+      if (!silent) setStatusLine(`Error: ${error.message}`);
       return;
     }
 
-    setRows((data ?? []) as Account[]);
-    setStatusLine(`Loaded ${data?.length ?? 0} account(s).`);
+    const list = (data ?? []) as Account[];
+    setRows(list);
+    if (!silent) setStatusLine(`Loaded ${list.length} account(s).`);
 
     // seed edit drafts (only if not already set)
     setEditName((prev) => {
       const next = { ...prev };
-      for (const a of (data ?? []) as any[]) if (next[a.id] == null) next[a.id] = a.name ?? "";
+      for (const a of list) if (next[a.id] == null) next[a.id] = a.name ?? "";
       return next;
     });
 
     setEditBalance((prev) => {
       const next = { ...prev };
-      for (const a of (data ?? []) as any[]) {
+      for (const a of list) {
         if (next[a.id] == null) next[a.id] = ((a.current_balance_cents ?? 0) / 100).toFixed(2);
       }
       return next;
@@ -103,6 +142,65 @@ export default function AccountsPage() {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Realtime patching (user-scoped)
+  useEffect(() => {
+    if (!userId) return;
+
+    setLive("connecting");
+
+    const channel = supabase
+      .channel(`accounts:${userId}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "accounts", filter: `user_id=eq.${userId}` },
+        (payload) => {
+          try {
+            const evt = payload.eventType;
+
+            if (evt === "INSERT") {
+              const row = payload.new as Account;
+              setRows((prev) => {
+                if (prev.some((x) => x.id === row.id)) return prev;
+                return [row, ...prev];
+              });
+              setEditName((prev) => (prev[row.id] == null ? { ...prev, [row.id]: row.name ?? "" } : prev));
+              setEditBalance((prev) =>
+                prev[row.id] == null
+                  ? { ...prev, [row.id]: ((row.current_balance_cents ?? 0) / 100).toFixed(2) }
+                  : prev
+              );
+              return;
+            }
+
+            if (evt === "UPDATE") {
+              const row = payload.new as Account;
+              setRows((prev) => prev.map((x) => (x.id === row.id ? { ...x, ...row } : x)));
+              return;
+            }
+
+            if (evt === "DELETE") {
+              const oldRow = payload.old as { id: string };
+              setRows((prev) => prev.filter((x) => x.id !== oldRow.id));
+              return;
+            }
+
+            load({ silent: true });
+          } catch {
+            load({ silent: true });
+          }
+        }
+      )
+      .subscribe((status) => {
+        if (status === "SUBSCRIBED") setLive("live");
+        else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") setLive("offline");
+        else setLive("connecting");
+      });
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [userId]);
 
   const totalBalanceCents = useMemo(() => rows.reduce((sum, a) => sum + (a.current_balance_cents ?? 0), 0), [rows]);
 
@@ -132,7 +230,7 @@ export default function AccountsPage() {
         current_balance_cents: cents,
         currency: "AUD",
       })
-      .select("id,user_id,name,current_balance_cents,currency,created_at,updated_at")
+      .select("id,user_id,name,current_balance_cents,currency,archived,created_at,updated_at")
       .single();
 
     setCreating(false);
@@ -194,21 +292,66 @@ export default function AccountsPage() {
   const deleteAccount = async (a: Account) => {
     if (!userId) return;
 
+    const snapshot = rows;
     setDeletingRow((prev) => ({ ...prev, [a.id]: true }));
     setStatusLine("Deleting...");
+
+    // Optimistic UI remove
+    setRows((prev) => prev.filter((x) => x.id !== a.id));
+
+    showToast({
+      message: `"${a.name}" deleted.`,
+      undoLabel: "Undo",
+      onUndo: async () => {
+        // Restore UI immediately
+        setRows(snapshot);
+
+        // Restore DB (try same id)
+        try {
+          const { error: insErr } = await supabase.from("accounts").insert({
+            id: a.id,
+            user_id: a.user_id,
+            name: a.name,
+            current_balance_cents: a.current_balance_cents ?? 0,
+            currency: a.currency ?? "AUD",
+            archived: (a as any).archived ?? false,
+          } as any);
+
+          if (insErr) throw insErr;
+
+          await load({ silent: true });
+          showToast({ message: "Restored." });
+        } catch (e: any) {
+          showToast({ message: e?.message ?? "Failed to restore." });
+        }
+      },
+    });
 
     const { error } = await supabase.from("accounts").delete().eq("id", a.id).eq("user_id", userId);
 
     setDeletingRow((prev) => ({ ...prev, [a.id]: false }));
 
     if (error) {
+      // revert UI
+      setRows(snapshot);
       setStatusLine(`Delete failed: ${error.message}`);
+      showToast({ message: error.message });
       return;
     }
 
-    setRows((prev) => prev.filter((x) => x.id !== a.id));
     setStatusLine("Deleted ✅");
   };
+
+  const liveChipClass =
+    live === "live"
+      ? "border border-emerald-200 bg-emerald-50 text-emerald-700"
+      : live === "offline"
+      ? "border border-rose-200 bg-rose-50 text-rose-700"
+      : "border border-zinc-200 bg-zinc-50 text-zinc-700";
+
+  const liveChip = (
+    <Chip className={`ml-2 ${liveChipClass}`}>{live === "live" ? "Live" : live === "offline" ? "Offline" : "Connecting"}</Chip>
+  );
 
   return (
     <Page
@@ -220,7 +363,14 @@ export default function AccountsPage() {
       ]
         .filter(Boolean)
         .join(" • ")}
-      right={<Button onClick={load}>Refresh</Button>}
+      right={
+        <div className="flex items-center gap-2">
+          {liveChip}
+          <Button onClick={() => load()} variant="secondary">
+            Refresh
+          </Button>
+        </div>
+      }
     >
       <div className="space-y-6">
         {/* Create */}
@@ -272,7 +422,9 @@ export default function AccountsPage() {
                       <div className="space-y-1">
                         <div className="flex flex-wrap items-center gap-2">
                           <strong className="text-base">{a.name}</strong>
-                          <Badge variant="muted">{formatMoney(a.current_balance_cents ?? 0, a.currency ?? "AUD")}</Badge>
+                          <Badge variant="muted">
+                            {formatMoney(a.current_balance_cents ?? 0, a.currency ?? "AUD")}
+                          </Badge>
                           {changed && <Badge variant="warning">Unsaved</Badge>}
                         </div>
                         <div className="text-xs text-zinc-500">id: {a.id}</div>
@@ -319,7 +471,9 @@ export default function AccountsPage() {
               <CardContent>
                 <div className="space-y-2">
                   <strong>No accounts yet.</strong>
-                  <div className="text-sm text-zinc-600">Add at least one account to start calculating safe-to-spend.</div>
+                  <div className="text-sm text-zinc-600">
+                    Add at least one account to start calculating safe-to-spend.
+                  </div>
                 </div>
               </CardContent>
             </Card>

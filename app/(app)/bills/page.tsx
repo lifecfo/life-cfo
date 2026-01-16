@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { Page } from "@/components/Page";
 import { Card, CardContent, Button, Chip, Badge, useToast } from "@/components/ui";
 
+type LiveState = "connecting" | "live" | "offline";
 type Cadence = "weekly" | "fortnightly" | "monthly" | "yearly";
 
 type RecurringBill = {
@@ -40,7 +41,6 @@ function formatMoneyFromCents(cents: number, currency = "AUD") {
 }
 
 function centsFromInput(input: string): number {
-  // Accepts: "12", "12.3", "12.30", "$12.30"
   const cleaned = input.replace(/[^\d.]/g, "");
   if (!cleaned) return 0;
 
@@ -54,7 +54,6 @@ function centsFromInput(input: string): number {
 }
 
 function toLocalInputValue(iso: string) {
-  // ISO -> "YYYY-MM-DDTHH:mm" in local time (for <input type="datetime-local" />)
   const d = new Date(iso);
   const pad = (n: number) => String(n).padStart(2, "0");
   const yyyy = d.getFullYear();
@@ -66,13 +65,26 @@ function toLocalInputValue(iso: string) {
 }
 
 function fromLocalInputValue(localValue: string) {
-  // "YYYY-MM-DDTHH:mm" (local) -> ISO
   const d = new Date(localValue);
   return d.toISOString();
 }
 
+const LOAD_THROTTLE_MS = 1500;
+
 export default function BillsPage() {
-  const { showToast } = useToast();
+  const toastApi: any = useToast();
+  const showToast =
+    toastApi?.showToast ??
+    ((args: any) => {
+      if (toastApi?.toast) {
+        toastApi.toast({
+          title: args?.title ?? "Done",
+          description: args?.description ?? args?.message ?? "",
+          variant: args?.variant,
+          action: args?.action,
+        });
+      }
+    });
 
   const notify = (opts: { title?: string; description?: string }) => {
     const msg = [opts.title, opts.description].filter(Boolean).join(" — ");
@@ -83,15 +95,20 @@ export default function BillsPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
+  const [live, setLive] = useState<LiveState>("connecting");
+
   const [bills, setBills] = useState<RecurringBill[]>([]);
   const [error, setError] = useState<string | null>(null);
+
+  // Silent reload throttle
+  const lastLoadAtRef = useRef<number>(0);
+  const pendingSilentReloadRef = useRef<number | null>(null);
 
   // Add form
   const [name, setName] = useState("");
   const [amount, setAmount] = useState("");
   const [cadence, setCadence] = useState<Cadence>("monthly");
   const [nextDueLocal, setNextDueLocal] = useState(() => {
-    // default: tomorrow 9am local
     const d = new Date();
     d.setDate(d.getDate() + 1);
     d.setHours(9, 0, 0, 0);
@@ -100,10 +117,40 @@ export default function BillsPage() {
   const [autopay, setAutopay] = useState(false);
   const [active, setActive] = useState(true);
 
-  // Inline edit drafts: id -> partial draft
+  // Inline edit drafts
   const [drafts, setDrafts] = useState<
     Record<string, Partial<RecurringBill> & { amount_input?: string; next_due_local?: string }>
   >({});
+
+  async function loadBills(uid: string, opts?: { silent?: boolean }) {
+    const silent = !!opts?.silent;
+
+    const now = Date.now();
+    if (silent) {
+      if (now - lastLoadAtRef.current < LOAD_THROTTLE_MS) {
+        if (pendingSilentReloadRef.current) window.clearTimeout(pendingSilentReloadRef.current);
+        pendingSilentReloadRef.current = window.setTimeout(() => {
+          pendingSilentReloadRef.current = null;
+          loadBills(uid, { silent: true });
+        }, LOAD_THROTTLE_MS);
+        return;
+      }
+    }
+    lastLoadAtRef.current = now;
+
+    const { data, error } = await supabase
+      .from("recurring_bills")
+      .select("*")
+      .eq("user_id", uid)
+      .order("active", { ascending: false })
+      .order("next_due_at", { ascending: true });
+
+    if (error) {
+      if (!silent) setError(error.message);
+      return;
+    }
+    setBills((data || []) as RecurringBill[]);
+  }
 
   useEffect(() => {
     (async () => {
@@ -124,20 +171,58 @@ export default function BillsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  async function loadBills(uid: string) {
-    const { data, error } = await supabase
-      .from("recurring_bills")
-      .select("*")
-      .eq("user_id", uid)
-      .order("active", { ascending: false })
-      .order("next_due_at", { ascending: true });
+  // Realtime patching (user-scoped)
+  useEffect(() => {
+    if (!userId) return;
 
-    if (error) {
-      setError(error.message);
-      return;
-    }
-    setBills((data || []) as RecurringBill[]);
-  }
+    setLive("connecting");
+
+    const channel = supabase
+      .channel(`recurring_bills:${userId}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "recurring_bills", filter: `user_id=eq.${userId}` },
+        (payload) => {
+          try {
+            const evt = payload.eventType;
+
+            if (evt === "INSERT") {
+              const row = payload.new as RecurringBill;
+              setBills((prev) => {
+                if (prev.some((x) => x.id === row.id)) return prev;
+                return [row, ...prev];
+              });
+              return;
+            }
+
+            if (evt === "UPDATE") {
+              const row = payload.new as RecurringBill;
+              setBills((prev) => prev.map((x) => (x.id === row.id ? { ...x, ...row } : x)));
+              return;
+            }
+
+            if (evt === "DELETE") {
+              const oldRow = payload.old as { id: string };
+              setBills((prev) => prev.filter((x) => x.id !== oldRow.id));
+              return;
+            }
+
+            loadBills(userId, { silent: true });
+          } catch {
+            loadBills(userId, { silent: true });
+          }
+        }
+      )
+      .subscribe((status) => {
+        if (status === "SUBSCRIBED") setLive("live");
+        else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") setLive("offline");
+        else setLive("connecting");
+      });
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [userId]);
 
   const activeBills = useMemo(() => bills.filter((b) => b.active), [bills]);
 
@@ -182,7 +267,7 @@ export default function BillsPage() {
       setActive(true);
 
       notify({ title: "Saved", description: "Recurring bill added." });
-      await loadBills(userId);
+      await loadBills(userId, { silent: true });
     } catch (e: any) {
       notify({ title: "Error", description: e?.message ?? "Failed to add bill." });
     } finally {
@@ -229,15 +314,10 @@ export default function BillsPage() {
         return;
       }
 
-      if (typeof d.amount_input === "string") {
-        updatePayload.amount_cents = centsFromInput(d.amount_input);
-      } else if (typeof d.amount_cents === "number") {
-        updatePayload.amount_cents = d.amount_cents;
-      }
+      if (typeof d.amount_input === "string") updatePayload.amount_cents = centsFromInput(d.amount_input);
+      else if (typeof d.amount_cents === "number") updatePayload.amount_cents = d.amount_cents;
 
-      if (typeof d.next_due_local === "string") {
-        updatePayload.next_due_at = fromLocalInputValue(d.next_due_local);
-      }
+      if (typeof d.next_due_local === "string") updatePayload.next_due_at = fromLocalInputValue(d.next_due_local);
 
       const { error } = await supabase
         .from("recurring_bills")
@@ -249,7 +329,7 @@ export default function BillsPage() {
 
       notify({ title: "Saved", description: "Bill updated." });
       cancelEdit(id);
-      await loadBills(userId);
+      await loadBills(userId, { silent: true });
     } catch (e: any) {
       notify({ title: "Error", description: e?.message ?? "Failed to update bill." });
     } finally {
@@ -263,7 +343,6 @@ export default function BillsPage() {
     const newValue = !b.active;
     const previous = b.active;
 
-    // optimistic
     setBills((prev) => prev.map((x) => (x.id === b.id ? { ...x, active: newValue } : x)));
 
     try {
@@ -280,7 +359,6 @@ export default function BillsPage() {
         description: `"${b.name}" is now ${newValue ? "active" : "paused"}.`,
       });
     } catch (e: any) {
-      // revert
       setBills((prev) => prev.map((x) => (x.id === b.id ? { ...x, active: previous } : x)));
       notify({ title: "Error", description: e?.message ?? "Failed to toggle." });
     }
@@ -296,12 +374,10 @@ export default function BillsPage() {
       message: `"${b.name}" removed.`,
       undoLabel: "Undo",
       onUndo: async () => {
-        // restore UI immediately
         setBills(snapshot);
-
-        // best-effort re-insert (new id will be created)
         try {
           const payload = {
+            id: b.id,
             user_id: userId,
             name: b.name,
             amount_cents: b.amount_cents,
@@ -312,10 +388,10 @@ export default function BillsPage() {
             active: b.active,
           };
 
-          const { error } = await supabase.from("recurring_bills").insert(payload);
+          const { error } = await supabase.from("recurring_bills").insert(payload as any);
           if (error) throw error;
 
-          await loadBills(userId);
+          await loadBills(userId, { silent: true });
           showToast({ message: "Restored." });
         } catch (e: any) {
           showToast({ message: e?.message ?? "Failed to restore." });
@@ -335,6 +411,17 @@ export default function BillsPage() {
     }
   }
 
+  const liveChipClass =
+    live === "live"
+      ? "border border-emerald-200 bg-emerald-50 text-emerald-700"
+      : live === "offline"
+      ? "border border-rose-200 bg-rose-50 text-rose-700"
+      : "border border-zinc-200 bg-zinc-50 text-zinc-700";
+
+  const liveChip = (
+    <Chip className={liveChipClass}>{live === "live" ? "Live" : live === "offline" ? "Offline" : "Connecting"}</Chip>
+  );
+
   return (
     <Page title="Bills" subtitle="Recurring bills you’ve told Keystone are true. Used by the Engine later.">
       <div className="grid gap-4">
@@ -346,8 +433,14 @@ export default function BillsPage() {
                 <Badge>Due in 14d: {nextDueSoon.length}</Badge>
               </div>
               <div className="flex items-center gap-2">
+                {liveChip}
                 {loading ? <Chip>Loading…</Chip> : <Chip>{bills.length} total</Chip>}
                 {error ? <Chip>{error}</Chip> : null}
+                {userId ? (
+                  <Button variant="secondary" onClick={() => loadBills(userId)}>
+                    Refresh
+                  </Button>
+                ) : null}
               </div>
             </div>
           </CardContent>
