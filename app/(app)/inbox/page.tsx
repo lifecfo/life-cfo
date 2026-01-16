@@ -163,7 +163,11 @@ export default function InboxPage() {
   };
 
   const isEngineItem = (it: InboxItem) => it.type === "engine";
+
+  // Engine v2: digest + (optional) other v2 items (safe heuristic)
   const isInsightsDigest = (it: InboxItem) => isEngineItem(it) && (it.dedupe_key ?? "") === INSIGHTS_DEDUPE_KEY;
+  const isEngineV2Insight = (it: InboxItem) => isInsightsDigest(it) || (isEngineItem(it) && String(it.dedupe_key ?? "").includes("engine_insights_v2"));
+  const isEngineV1Reminder = (it: InboxItem) => isEngineItem(it) && !isEngineV2Insight(it);
 
   function engineCardClasses(base: { border: string; bg: string }, isEngine: boolean) {
     if (!isEngine) return `${base.border} ${base.bg}`;
@@ -292,6 +296,22 @@ export default function InboxPage() {
       return Number.isNaN(snoozeMs) ? true : snoozeMs <= now;
     });
   }, [items, now]);
+
+  // Buckets (UI only)
+  const buckets = useMemo(() => {
+    const v2: InboxItem[] = [];
+    const v1: InboxItem[] = [];
+    const manual: InboxItem[] = [];
+
+    for (const it of visibleItems) {
+      if (isEngineV2Insight(it)) v2.push(it);
+      else if (isEngineV1Reminder(it)) v1.push(it);
+      else manual.push(it);
+    }
+
+    return { v2, v1, manual };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visibleItems]);
 
   // ---------- manual add ----------
   const addManualInboxItem = async () => {
@@ -683,6 +703,273 @@ export default function InboxPage() {
     </div>
   );
 
+  // ---------- UI helpers ----------
+  const SectionHeader = ({
+    title,
+    count,
+    description,
+    tone = "zinc",
+  }: {
+    title: string;
+    count: number;
+    description?: string;
+    tone?: "zinc" | "sky" | "amber";
+  }) => {
+    const toneClasses =
+      tone === "sky"
+        ? "border-sky-200 bg-sky-50"
+        : tone === "amber"
+          ? "border-amber-200 bg-amber-50"
+          : "border-zinc-200 bg-zinc-50";
+
+    return (
+      <Card className={toneClasses}>
+        <CardContent>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <h2 className="m-0 text-base font-semibold tracking-tight">{title}</h2>
+              <Badge variant="muted">{count}</Badge>
+            </div>
+            {description && <div className="text-xs text-zinc-600">{description}</div>}
+          </div>
+        </CardContent>
+      </Card>
+    );
+  };
+
+  const renderItemCard = (it: InboxItem) => {
+    const b = severityBadge(it.severity);
+    const s = severityStyle(it.severity);
+    const engine = isEngineItem(it);
+    const insights = isInsightsDigest(it);
+
+    const analysis = aiPreview[it.id];
+    const loading = !!aiLoading[it.id];
+    const err = aiError[it.id];
+
+    return (
+      <Card key={it.id} className={engineCardClasses(s, engine)}>
+        <CardContent>
+          <div className="space-y-3">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <strong className="text-base">{it.title}</strong>
+                <Badge variant={b.variant}>{b.label}</Badge>
+                {engine && <Chip>Engine</Chip>}
+
+                {/* ✅ clickable Insights chip (only for digest) */}
+                {insights && (
+                  <Chip
+                    active={false}
+                    onClick={() => {
+                      router.push("/engine");
+                    }}
+                    title="Open Engine (insights are generated there)"
+                  >
+                    Insights
+                  </Chip>
+                )}
+              </div>
+
+              <div className="text-xs text-zinc-500">
+                {it.status}
+                {it.snoozed_until ? ` (until ${it.snoozed_until})` : ""}
+              </div>
+            </div>
+
+            {engine && <div className="text-xs text-zinc-500">Truth reminder from Engine</div>}
+
+            {it.body && <div className="whitespace-pre-wrap text-sm text-zinc-800">{it.body}</div>}
+
+            {/* ✅ Shortcut panel for insights digest */}
+            {insights && (
+              <Card className="bg-white">
+                <CardContent>
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="text-sm text-zinc-600">Shortcut actions — use the insight, then come back.</div>
+
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        onClick={() => {
+                          router.push("/decisions?tab=review");
+                        }}
+                      >
+                        Review now
+                      </Button>
+
+                      <Button
+                        variant="secondary"
+                        onClick={() => {
+                          router.push("/engine");
+                        }}
+                      >
+                        Open Engine
+                      </Button>
+
+                      <Button variant="secondary" onClick={() => snoozeItemMinutes(it.id, 60 * 24)}>
+                        Snooze 24h
+                      </Button>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* ✅ FIX: this block must use `it`, not `item` */}
+            {it.action_href && (
+              <Button
+                variant="secondary"
+                onClick={async (e) => {
+                  e.stopPropagation?.();
+
+                  // Auto-resolve the insight/reminder when using the action
+                  await supabase.from("decision_inbox").update({ status: "done", snoozed_until: null }).eq("id", it.id);
+
+                  router.push(it.action_href!);
+                }}
+                title="Use this insight and jump to the right place"
+              >
+                {it.action_label ?? "Open"}
+              </Button>
+            )}
+
+            <div className="space-y-2">
+              <Button variant="secondary" onClick={() => analyzeItem(it)} disabled={loading}>
+                {loading ? "Analyzing..." : analysis ? "Re-analyze with AI" : "Analyze with AI"}
+              </Button>
+
+              {err && <div className="text-xs text-red-700">AI error: {err}</div>}
+
+              {analysis && (
+                <Card className="border-sky-200 bg-sky-50">
+                  <CardContent>
+                    <div className="space-y-3">
+                      <div className="text-xs text-zinc-500">AI analysis</div>
+
+                      <div className="flex flex-wrap gap-2 text-xs text-zinc-600">
+                        {analysis.decision_type && <span>Type: {analysis.decision_type}</span>}
+                        {analysis.stakes && <span>• Stakes: {analysis.stakes}</span>}
+                        {analysis.reversible != null && <span>• Reversible: {analysis.reversible ? "Yes" : "No"}</span>}
+                        {analysis.time_horizon && <span>• Horizon: {analysis.time_horizon}</span>}
+                      </div>
+
+                      {analysis.suggested_default && (
+                        <div className="text-sm">
+                          <strong>Suggested default:</strong> {analysis.suggested_default}
+                        </div>
+                      )}
+
+                      {analysis.reasoning && <div className="whitespace-pre-wrap text-sm leading-relaxed">{analysis.reasoning}</div>}
+
+                      {Array.isArray(analysis.key_questions) && analysis.key_questions.length > 0 && (
+                        <div className="text-sm">
+                          <strong>Key questions</strong>
+                          <ul className="mt-2 list-disc pl-5">
+                            {analysis.key_questions.map((q: string, idx: number) => (
+                              <li key={idx} className="mb-1">
+                                {q}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <div className="text-xs text-zinc-500">How confident do you feel about this?</div>
+
+              <div className="flex flex-wrap gap-4">
+                {[1, 2, 3].map((level) => (
+                  <label
+                    key={level}
+                    className={`flex cursor-pointer items-center gap-2 text-sm ${
+                      decisionConfidence[it.id] === level ? "opacity-100" : "opacity-80"
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name={`confidence-${it.id}`}
+                      checked={decisionConfidence[it.id] === level}
+                      onChange={() =>
+                        setDecisionConfidence((prev) => ({
+                          ...prev,
+                          [it.id]: level,
+                        }))
+                      }
+                    />
+                    {level === 1 ? "Low" : level === 2 ? "Medium" : "High"}
+                  </label>
+                ))}
+              </div>
+
+              <textarea
+                placeholder="Why did you decide this? (optional)"
+                value={decisionReason[it.id] ?? ""}
+                onChange={(e) =>
+                  setDecisionReason((prev) => ({
+                    ...prev,
+                    [it.id]: e.target.value,
+                  }))
+                }
+                className="w-full min-h-[70px] rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200"
+              />
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <Button onClick={() => decideNowAndCloseInboxItem(it)}>Decide Now ✅</Button>
+
+              <Button variant="secondary" onClick={() => promoteInboxItemToDecision(it)}>
+                Promote → Decisions
+              </Button>
+
+              <Button variant="secondary" onClick={() => doneItem(it.id)}>
+                Done
+              </Button>
+
+              <Button variant="secondary" onClick={() => snoozeItemMinutes(it.id, 1)}>
+                Snooze 1 min
+              </Button>
+
+              <Button variant="secondary" onClick={() => snoozeItemMinutes(it.id, 10)}>
+                Snooze 10 min
+              </Button>
+
+              {(it.status === "done" || it.status === "snoozed") && (
+                <Button variant="secondary" onClick={() => undoToOpen(it.id)}>
+                  Undo → Open
+                </Button>
+              )}
+
+              <Button
+                variant="secondary"
+                onClick={() => updateSeverity(it.id, (it.severity ?? 2) - 1)}
+                title="Raise priority (towards 1)"
+              >
+                ↑ Priority
+              </Button>
+
+              <Button
+                variant="secondary"
+                onClick={() => updateSeverity(it.id, (it.severity ?? 2) + 1)}
+                title="Lower priority (towards 3)"
+              >
+                ↓ Priority
+              </Button>
+            </div>
+
+            <div className="text-xs text-zinc-500">
+              type: {it.type} • severity: {it.severity ?? 2} • id: {it.id}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  };
+
   // ---------- UI ----------
   return (
     <Page
@@ -743,246 +1030,40 @@ export default function InboxPage() {
 
       {/* Visible */}
       <div className="space-y-3">
-        <h2 className="m-0 text-lg font-semibold tracking-tight">Visible</h2>
+        <div className="flex items-end justify-between gap-3">
+          <h2 className="m-0 text-lg font-semibold tracking-tight">Visible</h2>
+          <div className="text-xs text-zinc-500">
+            Insights are generated from your inputs — no forecasting. You can snooze or ignore anything.
+          </div>
+        </div>
 
         <div className="grid gap-3">
-          {visibleItems.map((it) => {
-            const b = severityBadge(it.severity);
-            const s = severityStyle(it.severity);
-            const engine = isEngineItem(it);
-            const insights = isInsightsDigest(it);
+          {/* Engine v2 */}
+          <SectionHeader
+            title="Insights (Engine v2)"
+            count={buckets.v2.length}
+            description="Higher-signal nudges & patterns — based on current truth, not prediction."
+            tone="sky"
+          />
+          {buckets.v2.map(renderItemCard)}
 
-            const analysis = aiPreview[it.id];
-            const loading = !!aiLoading[it.id];
-            const err = aiError[it.id];
+          {/* Engine v1 */}
+          <SectionHeader
+            title="Reminders (Engine v1)"
+            count={buckets.v1.length}
+            description="Housekeeping prompts — helpful, but not urgent unless marked Top."
+            tone="amber"
+          />
+          {buckets.v1.map(renderItemCard)}
 
-            return (
-              <Card key={it.id} className={engineCardClasses(s, engine)}>
-                <CardContent>
-                  <div className="space-y-3">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <strong className="text-base">{it.title}</strong>
-                        <Badge variant={b.variant}>{b.label}</Badge>
-                        {engine && <Chip>Engine</Chip>}
-
-                        {/* ✅ clickable Insights chip (only for digest) */}
-                        {insights && (
-                          <Chip
-                            active={false}
-                            onClick={() => {
-                              router.push("/engine");
-                            }}
-                            title="Open Engine (insights are generated there)"
-                          >
-                            Insights
-                          </Chip>
-                        )}
-                      </div>
-
-                      <div className="text-xs text-zinc-500">
-                        {it.status}
-                        {it.snoozed_until ? ` (until ${it.snoozed_until})` : ""}
-                      </div>
-                    </div>
-
-                    {engine && <div className="text-xs text-zinc-500">Truth reminder from Engine</div>}
-
-                    {it.body && <div className="whitespace-pre-wrap text-sm text-zinc-800">{it.body}</div>}
-
-                    {/* ✅ Shortcut panel for insights digest */}
-                    {insights && (
-                      <Card className="bg-white">
-                        <CardContent>
-                          <div className="flex flex-wrap items-center justify-between gap-3">
-                            <div className="text-sm text-zinc-600">Shortcut actions — use the insight, then come back.</div>
-
-                            <div className="flex flex-wrap gap-2">
-                              <Button
-                                onClick={() => {
-                                  router.push("/decisions?tab=review");
-                                }}
-                              >
-                                Review now
-                              </Button>
-
-                              <Button
-                                variant="secondary"
-                                onClick={() => {
-                                  router.push("/engine");
-                                }}
-                              >
-                                Open Engine
-                              </Button>
-
-                              <Button variant="secondary" onClick={() => snoozeItemMinutes(it.id, 60 * 24)}>
-                                Snooze 24h
-                              </Button>
-                            </div>
-                          </div>
-                        </CardContent>
-                      </Card>
-                    )}
-
-                    {/* ✅ FIX: this block must use `it`, not `item` */}
-                    {it.action_href && (
-                      <Button
-                        variant="secondary"
-                        onClick={async (e) => {
-                          e.stopPropagation?.();
-
-                          // Auto-resolve the insight/reminder when using the action
-                          await supabase
-                            .from("decision_inbox")
-                            .update({ status: "done", snoozed_until: null })
-                            .eq("id", it.id);
-
-                          router.push(it.action_href!);
-                        }}
-                        title="Use this insight and jump to the right place"
-                      >
-                        {it.action_label ?? "Open"}
-                      </Button>
-                    )}
-
-                    <div className="space-y-2">
-                      <Button variant="secondary" onClick={() => analyzeItem(it)} disabled={loading}>
-                        {loading ? "Analyzing..." : analysis ? "Re-analyze with AI" : "Analyze with AI"}
-                      </Button>
-
-                      {err && <div className="text-xs text-red-700">AI error: {err}</div>}
-
-                      {analysis && (
-                        <Card className="border-sky-200 bg-sky-50">
-                          <CardContent>
-                            <div className="space-y-3">
-                              <div className="text-xs text-zinc-500">AI analysis</div>
-
-                              <div className="flex flex-wrap gap-2 text-xs text-zinc-600">
-                                {analysis.decision_type && <span>Type: {analysis.decision_type}</span>}
-                                {analysis.stakes && <span>• Stakes: {analysis.stakes}</span>}
-                                {analysis.reversible != null && <span>• Reversible: {analysis.reversible ? "Yes" : "No"}</span>}
-                                {analysis.time_horizon && <span>• Horizon: {analysis.time_horizon}</span>}
-                              </div>
-
-                              {analysis.suggested_default && (
-                                <div className="text-sm">
-                                  <strong>Suggested default:</strong> {analysis.suggested_default}
-                                </div>
-                              )}
-
-                              {analysis.reasoning && (
-                                <div className="whitespace-pre-wrap text-sm leading-relaxed">{analysis.reasoning}</div>
-                              )}
-
-                              {Array.isArray(analysis.key_questions) && analysis.key_questions.length > 0 && (
-                                <div className="text-sm">
-                                  <strong>Key questions</strong>
-                                  <ul className="mt-2 list-disc pl-5">
-                                    {analysis.key_questions.map((q: string, idx: number) => (
-                                      <li key={idx} className="mb-1">
-                                        {q}
-                                      </li>
-                                    ))}
-                                  </ul>
-                                </div>
-                              )}
-                            </div>
-                          </CardContent>
-                        </Card>
-                      )}
-                    </div>
-
-                    <div className="space-y-2">
-                      <div className="text-xs text-zinc-500">How confident do you feel about this?</div>
-
-                      <div className="flex flex-wrap gap-4">
-                        {[1, 2, 3].map((level) => (
-                          <label
-                            key={level}
-                            className={`flex cursor-pointer items-center gap-2 text-sm ${
-                              decisionConfidence[it.id] === level ? "opacity-100" : "opacity-80"
-                            }`}
-                          >
-                            <input
-                              type="radio"
-                              name={`confidence-${it.id}`}
-                              checked={decisionConfidence[it.id] === level}
-                              onChange={() =>
-                                setDecisionConfidence((prev) => ({
-                                  ...prev,
-                                  [it.id]: level,
-                                }))
-                              }
-                            />
-                            {level === 1 ? "Low" : level === 2 ? "Medium" : "High"}
-                          </label>
-                        ))}
-                      </div>
-
-                      <textarea
-                        placeholder="Why did you decide this? (optional)"
-                        value={decisionReason[it.id] ?? ""}
-                        onChange={(e) =>
-                          setDecisionReason((prev) => ({
-                            ...prev,
-                            [it.id]: e.target.value,
-                          }))
-                        }
-                        className="w-full min-h-[70px] rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200"
-                      />
-                    </div>
-
-                    <div className="flex flex-wrap gap-2">
-                      <Button onClick={() => decideNowAndCloseInboxItem(it)}>Decide Now ✅</Button>
-
-                      <Button variant="secondary" onClick={() => promoteInboxItemToDecision(it)}>
-                        Promote → Decisions
-                      </Button>
-
-                      <Button variant="secondary" onClick={() => doneItem(it.id)}>
-                        Done
-                      </Button>
-
-                      <Button variant="secondary" onClick={() => snoozeItemMinutes(it.id, 1)}>
-                        Snooze 1 min
-                      </Button>
-
-                      <Button variant="secondary" onClick={() => snoozeItemMinutes(it.id, 10)}>
-                        Snooze 10 min
-                      </Button>
-
-                      {(it.status === "done" || it.status === "snoozed") && (
-                        <Button variant="secondary" onClick={() => undoToOpen(it.id)}>
-                          Undo → Open
-                        </Button>
-                      )}
-
-                      <Button
-                        variant="secondary"
-                        onClick={() => updateSeverity(it.id, (it.severity ?? 2) - 1)}
-                        title="Raise priority (towards 1)"
-                      >
-                        ↑ Priority
-                      </Button>
-
-                      <Button
-                        variant="secondary"
-                        onClick={() => updateSeverity(it.id, (it.severity ?? 2) + 1)}
-                        title="Lower priority (towards 3)"
-                      >
-                        ↓ Priority
-                      </Button>
-                    </div>
-
-                    <div className="text-xs text-zinc-500">
-                      type: {it.type} • severity: {it.severity ?? 2} • id: {it.id}
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            );
-          })}
+          {/* Manual */}
+          <SectionHeader
+            title="Your Inbox"
+            count={buckets.manual.length}
+            description="What you captured manually. Decide, snooze, or promote to Decisions."
+            tone="zinc"
+          />
+          {buckets.manual.map(renderItemCard)}
 
           {visibleItems.length === 0 && (
             <Card className="bg-zinc-50">
