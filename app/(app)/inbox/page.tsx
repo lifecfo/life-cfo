@@ -494,12 +494,11 @@ export default function InboxPage() {
     }
 
     setAffirmation(null);
+    setStatusLine("Dismissing v2 insights...");
 
     // Optimistic UI
-    const prevItems = items;
     setItems((prev) => prev.map((it) => (ids.includes(it.id) ? { ...it, status: "done", snoozed_until: null } : it)));
     ids.forEach((id) => clearPerItemInputs(id));
-    setStatusLine(`Dismissed ${ids.length} insight(s) ✅`);
 
     const { error } = await supabase
       .from("decision_inbox")
@@ -508,12 +507,13 @@ export default function InboxPage() {
       .eq("user_id", userId);
 
     if (error) {
-      // Revert
-      setItems(prevItems);
       setStatusLine(`Dismiss failed: ${error.message}`);
-      showToast({ message: `Dismiss failed: ${error.message}` }, 5000);
+      // Re-sync from source of truth
+      loadRef.current();
       return;
     }
+
+    setStatusLine(`Dismissed ${ids.length} ✅`);
 
     showToast(
       {
@@ -521,11 +521,9 @@ export default function InboxPage() {
         undoLabel: "Undo",
         onUndo: async () => {
           setStatusLine("Undoing dismiss...");
+
           // Optimistic reopen
-          const prev2 = items;
-          setItems((prev) =>
-            prev.map((it) => (ids.includes(it.id) ? { ...it, status: "open", snoozed_until: null } : it))
-          );
+          setItems((prev) => prev.map((it) => (ids.includes(it.id) ? { ...it, status: "open", snoozed_until: null } : it)));
 
           const { error: undoErr } = await supabase
             .from("decision_inbox")
@@ -534,9 +532,8 @@ export default function InboxPage() {
             .eq("user_id", userId);
 
           if (undoErr) {
-            setItems(prev2);
             setStatusLine(`Undo failed: ${undoErr.message}`);
-            showToast({ message: `Undo failed: ${undoErr.message}` }, 5000);
+            loadRef.current();
             return;
           }
 
@@ -901,15 +898,21 @@ export default function InboxPage() {
               </Card>
             )}
 
-            {/* ✅ FIX: this block must use `it`, not `item` */}
+            {/* ✅ shortcut action (auto-resolve) */}
             {it.action_href && (
               <Button
                 variant="secondary"
                 onClick={async (e) => {
                   e.stopPropagation?.();
 
-                  // Auto-resolve the insight/reminder when using the action
-                  await supabase.from("decision_inbox").update({ status: "done", snoozed_until: null }).eq("id", it.id);
+                  if (userId) {
+                    // Auto-resolve the insight/reminder when using the action (guard user)
+                    await supabase
+                      .from("decision_inbox")
+                      .update({ status: "done", snoozed_until: null })
+                      .eq("id", it.id)
+                      .eq("user_id", userId);
+                  }
 
                   router.push(it.action_href!);
                 }}
@@ -1130,7 +1133,7 @@ export default function InboxPage() {
           <SectionHeader
             title="Insights (Engine v2)"
             count={buckets.v2.length}
-            description="Higher-signal nudges & patterns — based on current truth, not prediction."
+            description="Read & clear like notifications — higher-signal nudges & patterns based on current truth, not prediction."
             tone="sky"
             open={openV2}
             onToggle={() => setOpenV2((v) => !v)}
