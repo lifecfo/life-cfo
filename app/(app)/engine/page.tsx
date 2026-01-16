@@ -130,7 +130,6 @@ function computeTotals(accounts: Account[], bills: RecurringBill[], income: Recu
   const income14Total = sumCents(income14);
   const income30Total = sumCents(income30);
 
-  // v1 safe-to-spend: simple + truthful, no forecasting
   const safeToSpendWeek = Math.max(0, balance + income7Total - bills7Total);
 
   return {
@@ -152,18 +151,14 @@ function computeTotals(accounts: Account[], bills: RecurringBill[], income: Recu
 }
 
 type EngineInsight = {
-  key: string; // used for dedupe_key
+  key: string;
   title: string;
   body: string;
   severity: 1 | 2 | 3;
 };
 
 // -------------------- Helper bodies + severities (MODULE SCOPE) --------------------
-// IMPORTANT: keep these OUTSIDE EnginePage so both v1 and v2 code can call them.
-
 const INSIGHTS_DEDUPE_KEY = "engine_insights_v2_digest";
-
-// Single source of truth for "due soon" in signal counts
 const REVIEW_DUE_SOON_HOURS = 48;
 
 function buildUpcomingBillsBody(t: ComputedTotals) {
@@ -232,12 +227,10 @@ function severityForUpcomingBills(t: ComputedTotals) {
 }
 
 function severityForUpcomingIncome(t: ComputedTotals) {
-  // income is usually a reassurance, not an alarm
   if (t.income14Total > 0) return 1;
   return 2;
 }
 
-// NEW: cashflow 30d
 function buildCashflow30Body(t: ComputedTotals) {
   const outlook = t.balance + t.income30Total - t.bills30Total;
 
@@ -257,12 +250,11 @@ function buildCashflow30Body(t: ComputedTotals) {
 
 function severityForCashflow30(t: ComputedTotals) {
   const outlook = t.balance + t.income30Total - t.bills30Total;
-  if (outlook < 0) return 3; // high urgency
-  if (outlook < 200_00) return 2; // under $200 buffer
+  if (outlook < 0) return 3;
+  if (outlook < 200_00) return 2;
   return 1;
 }
 
-// NEW: largest bill 14d
 function buildLargestBill14dBody(t: ComputedTotals) {
   if (t.bills14.length === 0) {
     return ["No bills due in the next 14 days.", "", `Balance: ${formatMoneyFromCents(t.balance)}`].join("\n");
@@ -290,7 +282,6 @@ function severityForLargestBill14d(t: ComputedTotals) {
   return 1;
 }
 
-// NEW: autopay risk 7d
 function buildAutopayRiskBody(t: ComputedTotals) {
   const due7NoAutopay = t.bills7.filter((b) => !b.autopay);
   if (due7NoAutopay.length === 0) {
@@ -343,7 +334,6 @@ function sortByCreatedAtAsc<T extends { created_at?: string }>(rows: T[]) {
 
 function sortBills(rows: RecurringBill[]) {
   const copy = [...rows];
-  // match your loadAll ordering: active desc, next_due_at asc
   copy.sort((a, b) => {
     if (a.active !== b.active) return a.active ? -1 : 1;
     const ta = a.next_due_at ? Date.parse(a.next_due_at) : 0;
@@ -357,7 +347,6 @@ function sortBills(rows: RecurringBill[]) {
 
 function sortIncome(rows: RecurringIncome[]) {
   const copy = [...rows];
-  // match your loadAll ordering: active desc, next_pay_at asc
   copy.sort((a, b) => {
     if (a.active !== b.active) return a.active ? -1 : 1;
     const ta = a.next_pay_at ? Date.parse(a.next_pay_at) : 0;
@@ -369,9 +358,8 @@ function sortIncome(rows: RecurringIncome[]) {
   return copy;
 }
 
-// -------------------- NEW: cadence bump helpers (MODULE SCOPE) --------------------
+// -------------------- cadence bump helpers (MODULE SCOPE) --------------------
 function daysInMonth(year: number, month0: number) {
-  // month0: 0-11
   return new Date(year, month0 + 1, 0).getDate();
 }
 
@@ -381,7 +369,7 @@ function addMonthsPreserveDay(date: Date, months: number) {
   const d = date.getDate();
 
   const target = new Date(date);
-  target.setDate(1); // prevent overflow issues
+  target.setDate(1);
   target.setMonth(m + months);
 
   const ty = target.getFullYear();
@@ -424,23 +412,15 @@ export default function EnginePage() {
   const [bills, setBills] = useState<RecurringBill[]>([]);
   const [income, setIncome] = useState<RecurringIncome[]>([]);
 
-  // Signals (derived awareness)
   const [signals, setSignals] = useState<EngineSignals>({ inboxOpen: 0, reviewsDue: 0 });
-
-  // Live indicator
   const [liveStatus, setLiveStatus] = useState<LiveStatus>("connecting");
-
-  // Step 1: last ran indicator (local-only)
   const [lastRanAt, setLastRanAt] = useState<string | null>(null);
 
-  // Step 2: cooldown (local-only)
   const COOLDOWN_MS = 10_000;
   const [cooldownUntil, setCooldownUntil] = useState<number | null>(null);
 
-  // NEW: per-bill action state
   const [markingPaid, setMarkingPaid] = useState<Record<string, boolean>>({});
 
-  // Safe reload throttle
   const reloadTimerRef = useRef<number | null>(null);
   const loadAllRef = useRef<(uid: string, opts?: { silent?: boolean }) => Promise<any>>(async () => ({}));
   const loadSignalsRef = useRef<(uid: string, opts?: { silent?: boolean }) => Promise<void>>(async () => {});
@@ -478,9 +458,7 @@ export default function EnginePage() {
 
   async function loadAll(uid: string, opts?: { silent?: boolean }) {
     const silent = !!opts?.silent;
-    if (!silent) {
-      setError(null);
-    }
+    if (!silent) setError(null);
 
     const [aRes, bRes, iRes] = await Promise.all([
       supabase.from("accounts").select("*").eq("user_id", uid).order("created_at", { ascending: true }),
@@ -514,18 +492,15 @@ export default function EnginePage() {
   }
 
   async function loadSignals(uid: string, opts?: { silent?: boolean }) {
-    // "Signals" are intentionally lightweight. If anything is missing, we just leave the last known values.
     const silent = !!opts?.silent;
 
     try {
-      // Inbox open count (truthy signal, not exact "visible" logic)
       const inboxCountRes = await supabase
         .from("decision_inbox")
         .select("id", { count: "exact", head: true })
         .eq("user_id", uid)
         .neq("status", "done");
 
-      // Reviews due count (due soon/overdue window, approximate but useful)
       const thresholdIso = new Date(Date.now() + REVIEW_DUE_SOON_HOURS * 60 * 60 * 1000).toISOString();
 
       const reviewsCountRes = await supabase
@@ -542,7 +517,7 @@ export default function EnginePage() {
       setSignals({ inboxOpen, reviewsDue });
     } catch (e) {
       if (!silent) {
-        // do nothing loud; signals are optional
+        // signals are optional
       }
     }
   }
@@ -553,7 +528,6 @@ export default function EnginePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId, signals.inboxOpen, signals.reviewsDue]);
 
-  // Realtime: patch inputs + refresh signals
   useEffect(() => {
     if (!userId) return;
 
@@ -588,9 +562,7 @@ export default function EnginePage() {
           const merged = prev.map((x) => (x.id === newRow.id ? { ...x, ...newRow } : x));
           return sortByCreatedAtAsc(merged);
         }
-        if (eventType === "DELETE") {
-          return prev.filter((x) => x.id !== id);
-        }
+        if (eventType === "DELETE") return prev.filter((x) => x.id !== id);
         scheduleReload(() => loadAllRef.current(userId, { silent: true }));
         return prev;
       });
@@ -625,9 +597,7 @@ export default function EnginePage() {
           const merged = prev.map((x) => (x.id === newRow.id ? { ...x, ...newRow } : x));
           return sortBills(merged);
         }
-        if (eventType === "DELETE") {
-          return prev.filter((x) => x.id !== id);
-        }
+        if (eventType === "DELETE") return prev.filter((x) => x.id !== id);
         scheduleReload(() => loadAllRef.current(userId, { silent: true }));
         return prev;
       });
@@ -662,26 +632,19 @@ export default function EnginePage() {
           const merged = prev.map((x) => (x.id === newRow.id ? { ...x, ...newRow } : x));
           return sortIncome(merged);
         }
-        if (eventType === "DELETE") {
-          return prev.filter((x) => x.id !== id);
-        }
+        if (eventType === "DELETE") return prev.filter((x) => x.id !== id);
         scheduleReload(() => loadAllRef.current(userId, { silent: true }));
         return prev;
       });
     };
 
-    // Signals refresh (throttled)
     const bumpSignals = () => scheduleReload(() => loadSignalsRef.current(userId, { silent: true }));
 
     const channel = supabase
       .channel(`engine-realtime-${userId}`)
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "accounts", filter: `user_id=eq.${userId}` },
-        (p) => {
-          patchAccounts(p);
-        }
-      )
+      .on("postgres_changes", { event: "*", schema: "public", table: "accounts", filter: `user_id=eq.${userId}` }, (p) => {
+        patchAccounts(p);
+      })
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "recurring_bills", filter: `user_id=eq.${userId}` },
@@ -696,15 +659,11 @@ export default function EnginePage() {
           patchIncome(p);
         }
       )
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "decision_inbox", filter: `user_id=eq.${userId}` },
-        () => bumpSignals()
+      .on("postgres_changes", { event: "*", schema: "public", table: "decision_inbox", filter: `user_id=eq.${userId}` }, () =>
+        bumpSignals()
       )
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "decisions", filter: `user_id=eq.${userId}` },
-        () => bumpSignals()
+      .on("postgres_changes", { event: "*", schema: "public", table: "decisions", filter: `user_id=eq.${userId}` }, () =>
+        bumpSignals()
       )
       .subscribe((status) => {
         if (status === "SUBSCRIBED") setLiveStatus("live");
@@ -718,7 +677,6 @@ export default function EnginePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId]);
 
-  // Focus refresh (silent)
   useEffect(() => {
     const onFocus = () => {
       if (!userId) return;
@@ -737,7 +695,6 @@ export default function EnginePage() {
 
   const totals = useMemo(() => computeTotals(accounts, bills, income), [accounts, bills, income]);
 
-  // NEW: due soon list for action (stable sort)
   const dueSoonBills7 = useMemo(() => {
     const copy = [...totals.bills7];
     copy.sort((a, b) => {
@@ -750,30 +707,79 @@ export default function EnginePage() {
 
   async function markBillPaid(b: RecurringBill) {
     if (!userId) return;
+    if (markingPaid[b.id]) return;
 
-    // If another write is running, still allow mark-paid, but guard double clicks
     setMarkingPaid((prev) => ({ ...prev, [b.id]: true }));
 
+    const prevDue = b.next_due_at;
     const nextDue = bumpIsoByCadence(b.next_due_at, b.cadence);
 
+    // optimistic bump (Engine view)
+    setBills((prev) => prev.map((x) => (x.id === b.id ? { ...x, next_due_at: nextDue } : x)));
+
     try {
+      // 1) receipt
+      const { data: paymentRow, error: payErr } = await supabase
+        .from("bill_payments")
+        .insert({
+          user_id: userId,
+          bill_id: b.id,
+          paid_at: new Date().toISOString(),
+          amount_cents: b.amount_cents ?? 0,
+          currency: b.currency ?? "AUD",
+          note: "Paid via Engine",
+          source: "engine",
+        })
+        .select("id")
+        .single();
+
+      if (payErr) throw payErr;
+
+      const paymentId = (paymentRow as any)?.id as string | undefined;
+      if (!paymentId) throw new Error("Receipt inserted but missing id (unexpected).");
+
+      // 2) bump due date
       const { error: upErr } = await supabase
         .from("recurring_bills")
         .update({ next_due_at: nextDue })
         .eq("id", b.id)
         .eq("user_id", userId);
 
-      if (upErr) throw upErr;
+      if (upErr) {
+        await supabase.from("bill_payments").delete().eq("id", paymentId).eq("user_id", userId);
+        throw upErr;
+      }
 
-      notify({
-        title: "Marked paid",
-        description: `"${b.name}" moved to ${fmtDateTime(nextDue)} (${b.cadence}).`,
+      showToast({
+        message: `"${b.name}" marked paid ✅`,
+        undoLabel: "Undo",
+        onUndo: async () => {
+          // optimistic revert
+          setBills((prev) => prev.map((x) => (x.id === b.id ? { ...x, next_due_at: prevDue } : x)));
+
+          const { error: dueErr } = await supabase
+            .from("recurring_bills")
+            .update({ next_due_at: prevDue })
+            .eq("id", b.id)
+            .eq("user_id", userId);
+
+          const { error: delErr } = await supabase.from("bill_payments").delete().eq("id", paymentId).eq("user_id", userId);
+
+          if (dueErr || delErr) {
+            await loadAllRef.current(userId, { silent: true });
+            showToast({ message: (dueErr?.message || delErr?.message || "Undo failed") as string });
+            return;
+          }
+
+          showToast({ message: "Undone ✅" });
+        },
       });
 
-      // realtime should patch; this is just correctness fallback
       scheduleReload(() => loadAllRef.current(userId, { silent: true }));
     } catch (e: any) {
-      notify({ title: "Mark paid failed", description: e?.message ?? "Couldn’t update next due date." });
+      setBills((prev) => prev.map((x) => (x.id === b.id ? { ...x, next_due_at: prevDue } : x)));
+      notify({ title: "Mark paid failed", description: e?.message ?? "Couldn’t update / write receipt." });
+      scheduleReload(() => loadAllRef.current(userId, { silent: true }));
     } finally {
       setMarkingPaid((prev) => ({ ...prev, [b.id]: false }));
     }
@@ -822,13 +828,11 @@ export default function EnginePage() {
     if (upErr) throw upErr;
   }
 
-  // Engine v2: digest helper
   const isInsightsDigest = (key: string) => key === INSIGHTS_DEDUPE_KEY;
 
   function computeInsights(t: ComputedTotals, freshBills: RecurringBill[], freshIncome: RecurringIncome[], freshAccounts: Account[]) {
     const list: EngineInsight[] = [];
 
-    // Missing inputs: we keep these as insights too (in addition to v1 reminders)
     if (freshAccounts.length === 0) {
       list.push({
         key: "engine_v2_missing_accounts",
@@ -838,7 +842,7 @@ export default function EnginePage() {
           "\n"
         ),
       });
-      return list; // if no accounts, other insights are meaningless
+      return list;
     }
 
     if (freshBills.length === 0) {
@@ -869,7 +873,6 @@ export default function EnginePage() {
       });
     }
 
-    // Insight 1: Safe-to-spend is zero/low
     const safeDollars = t.safeToSpendWeek / 100;
     if (safeDollars <= 0) {
       list.push({
@@ -900,7 +903,6 @@ export default function EnginePage() {
       });
     }
 
-    // Insight 2: 14d bills exceed balance
     if (t.bills14Total > t.balance) {
       list.push({
         key: "engine_v2_bills_exceed_balance_14d",
@@ -916,7 +918,6 @@ export default function EnginePage() {
       });
     }
 
-    // Insight 3: Autopay OFF on a soon bill (within 7 days)
     const soonManual = t.bills7.filter((b) => !b.autopay);
     if (soonManual.length > 0) {
       const b = soonManual[0];
@@ -935,18 +936,12 @@ export default function EnginePage() {
       });
     }
 
-    // Digest (optional single item to point user back to Engine)
     if (list.length > 0 && !list.some((x) => isInsightsDigest(x.key))) {
       list.unshift({
         key: INSIGHTS_DEDUPE_KEY,
         title: "Insights digest",
         severity: 2,
-        body: [
-          "You have new Engine insights.",
-          "",
-          "Next step:",
-          "Open Inbox → Insights section and clear as you act.",
-        ].join("\n"),
+        body: ["You have new Engine insights.", "", "Next step:", "Open Inbox → Insights section and clear as you act."].join("\n"),
       });
     }
 
@@ -956,7 +951,6 @@ export default function EnginePage() {
   async function runEngineV1() {
     if (!userId) return;
 
-    // Step 2: cooldown
     const now = Date.now();
     if (cooldownUntil && now < cooldownUntil) {
       const secs = Math.ceil((cooldownUntil - now) / 1000);
@@ -968,13 +962,11 @@ export default function EnginePage() {
     setCooldownUntil(now + COOLDOWN_MS);
 
     try {
-      // refresh right before writing, and compute totals from fresh data
       const fresh = await loadAll(userId);
       const freshTotals = computeTotals(fresh.accounts, fresh.bills, fresh.income);
 
       const runId = crypto.randomUUID();
 
-      // Step 5: missing inputs nudges (truthful + deduped)
       if (fresh.bills.length === 0) {
         await writeSingleReminder({
           runId,
@@ -1005,7 +997,6 @@ export default function EnginePage() {
         });
       }
 
-      // SAFEGUARD: if no accounts, write missing-accounts reminder and stop
       if (fresh.accounts.length === 0) {
         await writeSingleReminder({
           runId,
@@ -1028,12 +1019,7 @@ export default function EnginePage() {
         return;
       }
 
-      // Clear missing-accounts reminder if it exists and we now have accounts
-      await supabase
-        .from("decision_inbox")
-        .update({ status: "done", snoozed_until: null })
-        .eq("user_id", userId)
-        .eq("dedupe_key", "engine_missing_accounts");
+      await supabase.from("decision_inbox").update({ status: "done", snoozed_until: null }).eq("user_id", userId).eq("dedupe_key", "engine_missing_accounts");
 
       const safeTitle = "Safe to spend this week";
       const billsTitle = "Upcoming bills (next 14 days)";
@@ -1125,7 +1111,6 @@ export default function EnginePage() {
       const { error: upErr } = await supabase.from("decision_inbox").upsert(upsertRows, { onConflict: "user_id,dedupe_key" });
       if (upErr) throw upErr;
 
-      // If income/bills now exist, close the "missing" reminders if they exist
       await supabase
         .from("decision_inbox")
         .update({ status: "done", snoozed_until: null })
@@ -1133,12 +1118,8 @@ export default function EnginePage() {
         .in("dedupe_key", ["engine_missing_bills", "engine_missing_income"]);
 
       setLastRanAt(new Date().toLocaleString());
-      notify({
-        title: "Engine v1 ran",
-        description: "Wrote baseline reminders into Inbox (dedupe-safe).",
-      });
+      notify({ title: "Engine v1 ran", description: "Wrote baseline reminders into Inbox (dedupe-safe)." });
 
-      // refresh signals after writes
       loadSignalsRef.current(userId, { silent: true });
     } catch (e: any) {
       notify({ title: "Engine error", description: e?.message ?? "Failed to run engine." });
@@ -1178,7 +1159,6 @@ export default function EnginePage() {
       setLastRanAt(new Date().toLocaleString());
       notify({ title: "Engine v2 ran", description: `Wrote ${insights.length} insight(s) into Inbox (deduped).` });
 
-      // refresh signals after writes
       loadSignalsRef.current(userId, { silent: true });
     } catch (e: any) {
       notify({ title: "Engine v2 error", description: e?.message ?? "Failed to run Engine v2." });
@@ -1190,7 +1170,6 @@ export default function EnginePage() {
   const cooldownSeconds = cooldownUntil ? Math.max(0, Math.ceil((cooldownUntil - Date.now()) / 1000)) : 0;
 
   const insightsPreview = useMemo(() => {
-    // preview computed from current loaded inputs (no writes)
     const list = computeInsights(totals, bills, income, accounts);
     return list;
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1217,24 +1196,18 @@ export default function EnginePage() {
                 {lastRanAt ? <Chip>Last ran: {lastRanAt}</Chip> : <Chip>Last ran: —</Chip>}
                 {cooldownSeconds > 0 ? <Chip>Cooldown: {cooldownSeconds}s</Chip> : null}
 
-                {/* Signals */}
                 <Chip>Inbox open: {signals.inboxOpen}</Chip>
                 <Chip>Reviews due ≤{REVIEW_DUE_SOON_HOURS}h: {signals.reviewsDue}</Chip>
               </div>
 
               <div className="flex items-center gap-2">
-                <Button
-                  onClick={() => userId && loadAllRef.current(userId, { silent: true })}
-                  disabled={!userId || loading || running}
-                  title="Refresh Engine inputs"
-                >
+                <Button onClick={() => userId && loadAllRef.current(userId, { silent: true })} disabled={!userId || loading || running}>
                   Refresh inputs
                 </Button>
 
                 <Button
                   onClick={() => userId && loadSignalsRef.current(userId, { silent: true })}
                   disabled={!userId || loading || running}
-                  title="Refresh signal counts"
                   variant="secondary"
                 >
                   Refresh signals
@@ -1329,13 +1302,10 @@ export default function EnginePage() {
               </div>
             </div>
 
-            {/* NEW: Action surface (minimal, truthful) */}
             <div className="mt-4">
               <div className="flex items-center justify-between gap-3 flex-wrap">
                 <div className="font-semibold">Bills due soon (next 7 days)</div>
-                <div className="text-sm opacity-70">
-                  “Mark paid” just moves the next due date forward by cadence.
-                </div>
+                <div className="text-sm opacity-70">“Mark paid” writes a receipt + bumps next due by cadence.</div>
               </div>
 
               {dueSoonBills7.length === 0 ? (
@@ -1358,11 +1328,7 @@ export default function EnginePage() {
                         </div>
 
                         <div className="flex items-center gap-2">
-                          <Button
-                            onClick={() => markBillPaid(b)}
-                            disabled={!userId || busy}
-                            title="Move next due date forward by cadence"
-                          >
+                          <Button onClick={() => markBillPaid(b)} disabled={!userId || busy}>
                             {busy ? "Updating…" : "Mark paid"}
                           </Button>
                         </div>

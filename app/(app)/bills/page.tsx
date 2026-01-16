@@ -30,11 +30,9 @@ type BillPayment = {
   id: string;
   user_id: string;
   bill_id: string;
-
   paid_at: string;
   amount_cents: number;
   currency: string;
-
   note: string | null;
   source: string;
   created_at: string;
@@ -83,22 +81,52 @@ function fromLocalInputValue(localValue: string) {
   return d.toISOString();
 }
 
-function addCadence(iso: string, cadence: Cadence) {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return new Date().toISOString();
-
-  if (cadence === "weekly") d.setDate(d.getDate() + 7);
-  else if (cadence === "fortnightly") d.setDate(d.getDate() + 14);
-  else if (cadence === "monthly") d.setMonth(d.getMonth() + 1);
-  else if (cadence === "yearly") d.setFullYear(d.getFullYear() + 1);
-
-  return d.toISOString();
+function fmtDateTime(iso: string) {
+  try {
+    return new Date(iso).toLocaleString();
+  } catch {
+    return iso;
+  }
 }
 
-const LOAD_THROTTLE_MS = 1500;
+// -------------------- cadence bump helpers (MODULE SCOPE) --------------------
+function daysInMonth(year: number, month0: number) {
+  return new Date(year, month0 + 1, 0).getDate();
+}
 
-// How many recent receipts to fetch (MVP). If you pay a LOT of bills, we’ll replace this with a view/RPC later.
-const RECEIPTS_FETCH_LIMIT = 250;
+function addMonthsPreserveDay(date: Date, months: number) {
+  const y = date.getFullYear();
+  const m = date.getMonth();
+  const d = date.getDate();
+
+  const target = new Date(date);
+  target.setDate(1);
+  target.setMonth(m + months);
+
+  const ty = target.getFullYear();
+  const tm = target.getMonth();
+  const maxDay = daysInMonth(ty, tm);
+  target.setDate(Math.min(d, maxDay));
+
+  return target;
+}
+
+function bumpIsoByCadence(currentIso: string, cadence: Cadence) {
+  const d = new Date(currentIso);
+  if (Number.isNaN(d.getTime())) return currentIso;
+
+  let next = new Date(d);
+
+  if (cadence === "weekly") next.setDate(next.getDate() + 7);
+  else if (cadence === "fortnightly") next.setDate(next.getDate() + 14);
+  else if (cadence === "monthly") next = addMonthsPreserveDay(next, 1);
+  else if (cadence === "yearly") next = addMonthsPreserveDay(next, 12);
+
+  return next.toISOString();
+}
+// -------------------- end cadence bump helpers --------------------
+
+const LOAD_THROTTLE_MS = 1500;
 
 export default function BillsPage() {
   const toastApi: any = useToast();
@@ -129,11 +157,9 @@ export default function BillsPage() {
   const [bills, setBills] = useState<RecurringBill[]>([]);
   const [error, setError] = useState<string | null>(null);
 
-  // per-row "mark paid" spinner
-  const [payingRow, setPayingRow] = useState<Record<string, boolean>>({});
-
-  // Latest payment per bill (bill_id -> latest receipt)
-  const [latestPaymentByBill, setLatestPaymentByBill] = useState<Record<string, BillPayment>>({});
+  // receipts (lightweight)
+  const [payments, setPayments] = useState<BillPayment[]>([]);
+  const [paymentsError, setPaymentsError] = useState<string | null>(null);
 
   // Silent reload throttle
   const lastLoadAtRef = useRef<number>(0);
@@ -157,29 +183,24 @@ export default function BillsPage() {
     Record<string, Partial<RecurringBill> & { amount_input?: string; next_due_local?: string }>
   >({});
 
-  function throttleSilent(uid: string, fn: () => void) {
-    const now = Date.now();
-    if (now - lastLoadAtRef.current < LOAD_THROTTLE_MS) {
-      if (pendingSilentReloadRef.current) window.clearTimeout(pendingSilentReloadRef.current);
-      pendingSilentReloadRef.current = window.setTimeout(() => {
-        pendingSilentReloadRef.current = null;
-        fn();
-      }, LOAD_THROTTLE_MS);
-      return true;
-    }
-    lastLoadAtRef.current = now;
-    return false;
-  }
+  // Mark paid busy map
+  const [markingPaid, setMarkingPaid] = useState<Record<string, boolean>>({});
 
   async function loadBills(uid: string, opts?: { silent?: boolean }) {
     const silent = !!opts?.silent;
 
+    const now = Date.now();
     if (silent) {
-      const throttled = throttleSilent(uid, () => loadBills(uid, { silent: true }));
-      if (throttled) return;
-    } else {
-      lastLoadAtRef.current = Date.now();
+      if (now - lastLoadAtRef.current < LOAD_THROTTLE_MS) {
+        if (pendingSilentReloadRef.current) window.clearTimeout(pendingSilentReloadRef.current);
+        pendingSilentReloadRef.current = window.setTimeout(() => {
+          pendingSilentReloadRef.current = null;
+          loadBills(uid, { silent: true });
+        }, LOAD_THROTTLE_MS);
+        return;
+      }
     }
+    lastLoadAtRef.current = now;
 
     const { data, error } = await supabase
       .from("recurring_bills")
@@ -195,33 +216,22 @@ export default function BillsPage() {
     setBills((data || []) as RecurringBill[]);
   }
 
-  async function loadReceipts(uid: string, opts?: { silent?: boolean }) {
+  async function loadPayments(uid: string, opts?: { silent?: boolean }) {
     const silent = !!opts?.silent;
-
-    // share the same throttle behavior as bills loads
-    if (silent) {
-      const throttled = throttleSilent(uid, () => loadReceipts(uid, { silent: true }));
-      if (throttled) return;
-    }
+    if (!silent) setPaymentsError(null);
 
     const { data, error } = await supabase
       .from("bill_payments")
-      .select("id,user_id,bill_id,paid_at,amount_cents,currency,note,source,created_at")
+      .select("*")
       .eq("user_id", uid)
       .order("paid_at", { ascending: false })
-      .limit(RECEIPTS_FETCH_LIMIT);
+      .limit(20);
 
     if (error) {
-      // receipts are optional; don't scream
-      if (!silent) setError((prev) => prev ?? error.message);
+      if (!silent) setPaymentsError(error.message);
       return;
     }
-
-    const map: Record<string, BillPayment> = {};
-    for (const row of (data || []) as BillPayment[]) {
-      if (!map[row.bill_id]) map[row.bill_id] = row; // first seen is latest (ordered desc)
-    }
-    setLatestPaymentByBill(map);
+    setPayments((data || []) as BillPayment[]);
   }
 
   useEffect(() => {
@@ -237,7 +247,7 @@ export default function BillsPage() {
       }
 
       setUserId(data.user.id);
-      await Promise.all([loadBills(data.user.id), loadReceipts(data.user.id)]);
+      await Promise.all([loadBills(data.user.id), loadPayments(data.user.id, { silent: true })]);
       setLoading(false);
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -249,7 +259,7 @@ export default function BillsPage() {
 
     setLive("connecting");
 
-    const billsChannel = supabase
+    const channel = supabase
       .channel(`recurring_bills:${userId}`)
       .on(
         "postgres_changes",
@@ -285,27 +295,31 @@ export default function BillsPage() {
           }
         }
       )
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "bill_payments", filter: `user_id=eq.${userId}` },
+        (payload) => {
+          // lightweight: prepend new payment
+          try {
+            const row = payload.new as BillPayment;
+            setPayments((prev) => {
+              if (prev.some((x) => x.id === row.id)) return prev;
+              const merged = [row, ...prev];
+              return merged.slice(0, 20);
+            });
+          } catch {
+            loadPayments(userId, { silent: true });
+          }
+        }
+      )
       .subscribe((status) => {
         if (status === "SUBSCRIBED") setLive("live");
         else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") setLive("offline");
         else setLive("connecting");
       });
 
-    // receipts channel: any change just triggers a lightweight refresh
-    const receiptsChannel = supabase
-      .channel(`bill_payments:${userId}`)
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "bill_payments", filter: `user_id=eq.${userId}` },
-        () => {
-          loadReceipts(userId, { silent: true });
-        }
-      )
-      .subscribe();
-
     return () => {
-      supabase.removeChannel(billsChannel);
-      supabase.removeChannel(receiptsChannel);
+      supabase.removeChannel(channel);
     };
   }, [userId]);
 
@@ -319,6 +333,14 @@ export default function BillsPage() {
       return t >= now && t <= in14;
     });
   }, [activeBills]);
+
+  const lastPaymentByBillId = useMemo(() => {
+    const map: Record<string, BillPayment> = {};
+    for (const p of payments) {
+      if (!map[p.bill_id]) map[p.bill_id] = p; // payments already newest-first
+    }
+    return map;
+  }, [payments]);
 
   async function addBill() {
     if (!userId) return;
@@ -404,11 +426,7 @@ export default function BillsPage() {
 
       if (typeof d.next_due_local === "string") updatePayload.next_due_at = fromLocalInputValue(d.next_due_local);
 
-      const { error } = await supabase
-        .from("recurring_bills")
-        .update(updatePayload)
-        .eq("id", id)
-        .eq("user_id", userId);
+      const { error } = await supabase.from("recurring_bills").update(updatePayload).eq("id", id).eq("user_id", userId);
 
       if (error) throw error;
 
@@ -431,11 +449,7 @@ export default function BillsPage() {
     setBills((prev) => prev.map((x) => (x.id === b.id ? { ...x, active: newValue } : x)));
 
     try {
-      const { error } = await supabase
-        .from("recurring_bills")
-        .update({ active: newValue })
-        .eq("id", b.id)
-        .eq("user_id", userId);
+      const { error } = await supabase.from("recurring_bills").update({ active: newValue }).eq("id", b.id).eq("user_id", userId);
 
       if (error) throw error;
 
@@ -449,25 +463,21 @@ export default function BillsPage() {
     }
   }
 
-  async function markPaid(b: RecurringBill) {
+  async function markPaidWithReceipt(b: RecurringBill) {
     if (!userId) return;
+    if (markingPaid[b.id]) return;
 
-    if (drafts[b.id]) {
-      notify({ title: "Mark paid", description: "Finish editing first, then mark paid." });
-      return;
-    }
-
-    setPayingRow((prev) => ({ ...prev, [b.id]: true }));
+    setMarkingPaid((prev) => ({ ...prev, [b.id]: true }));
 
     const prevDue = b.next_due_at;
-    const nextDue = addCadence(b.next_due_at, b.cadence);
+    const nextDue = bumpIsoByCadence(b.next_due_at, b.cadence);
 
-    // Optimistic: bump next_due_at immediately
+    // optimistic UI: bump due date
     setBills((prev) => prev.map((x) => (x.id === b.id ? { ...x, next_due_at: nextDue } : x)));
 
     try {
-      // 1) Insert payment receipt
-      const { data: payRow, error: payErr } = await supabase
+      // 1) insert receipt (append-only)
+      const { data: paymentRow, error: payErr } = await supabase
         .from("bill_payments")
         .insert({
           user_id: userId,
@@ -475,69 +485,66 @@ export default function BillsPage() {
           paid_at: new Date().toISOString(),
           amount_cents: b.amount_cents ?? 0,
           currency: b.currency ?? "AUD",
-          note: "Marked paid in Bills",
+          note: "Paid via Bills page",
           source: "bills_page",
         })
-        .select("id,user_id,bill_id,paid_at,amount_cents,currency,note,source,created_at")
+        .select("*")
         .single();
 
       if (payErr) throw payErr;
 
-      const payment = payRow as BillPayment;
+      const paymentId = (paymentRow as any)?.id as string | undefined;
+      if (!paymentId) throw new Error("Receipt inserted but missing id (unexpected).");
 
-      // Optimistic: latest receipt UI
-      setLatestPaymentByBill((prev) => ({ ...prev, [b.id]: payment }));
-
-      // 2) Update bill next_due_at
-      const { error: updErr } = await supabase
+      // 2) bump next due
+      const { error: upErr } = await supabase
         .from("recurring_bills")
         .update({ next_due_at: nextDue })
         .eq("id", b.id)
         .eq("user_id", userId);
 
-      if (updErr) throw updErr;
+      if (upErr) {
+        // rollback receipt if the due-date update failed
+        await supabase.from("bill_payments").delete().eq("id", paymentId).eq("user_id", userId);
+        throw upErr;
+      }
 
       showToast({
-        message: `"${b.name}" marked paid. Next due updated.`,
+        message: `"${b.name}" marked paid ✅`,
         undoLabel: "Undo",
         onUndo: async () => {
-          // optimistic UI revert
+          // optimistic revert
           setBills((prev) => prev.map((x) => (x.id === b.id ? { ...x, next_due_at: prevDue } : x)));
+          setPayments((prev) => prev.filter((p) => p.id !== paymentId));
 
-          try {
-            // revert bill date
-            const { error: revErr } = await supabase
-              .from("recurring_bills")
-              .update({ next_due_at: prevDue })
-              .eq("id", b.id)
-              .eq("user_id", userId);
+          const { error: dueErr } = await supabase
+            .from("recurring_bills")
+            .update({ next_due_at: prevDue })
+            .eq("id", b.id)
+            .eq("user_id", userId);
 
-            if (revErr) throw revErr;
+          const { error: delErr } = await supabase.from("bill_payments").delete().eq("id", paymentId).eq("user_id", userId);
 
-            // delete receipt row
-            const { error: delErr } = await supabase.from("bill_payments").delete().eq("id", payment.id).eq("user_id", userId);
-
-            if (delErr) throw delErr;
-
-            // refresh receipts map (simple + correct)
-            await loadReceipts(userId, { silent: true });
-
-            showToast({ message: "Undone." });
-          } catch (e: any) {
-            showToast({ message: e?.message ?? "Failed to undo." });
-            loadBills(userId, { silent: true });
-            loadReceipts(userId, { silent: true });
+          if (dueErr || delErr) {
+            // resync if anything failed
+            await Promise.all([loadBills(userId, { silent: true }), loadPayments(userId, { silent: true })]);
+            showToast({ message: (dueErr?.message || delErr?.message || "Undo failed") as string });
+            return;
           }
+
+          showToast({ message: "Undone ✅" });
         },
       });
+
+      // fallback refresh for consistency (realtime should cover)
+      await Promise.all([loadBills(userId, { silent: true }), loadPayments(userId, { silent: true })]);
     } catch (e: any) {
       // revert optimistic bump
       setBills((prev) => prev.map((x) => (x.id === b.id ? { ...x, next_due_at: prevDue } : x)));
-      notify({ title: "Error", description: e?.message ?? "Failed to mark paid." });
-      loadBills(userId, { silent: true });
-      loadReceipts(userId, { silent: true });
+      notify({ title: "Mark paid failed", description: e?.message ?? "Couldn’t mark paid." });
+      await Promise.all([loadBills(userId, { silent: true }), loadPayments(userId, { silent: true })]);
     } finally {
-      setPayingRow((prev) => ({ ...prev, [b.id]: false }));
+      setMarkingPaid((prev) => ({ ...prev, [b.id]: false }));
     }
   }
 
@@ -576,11 +583,7 @@ export default function BillsPage() {
       },
     });
 
-    const { error } = await supabase
-      .from("recurring_bills")
-      .delete()
-      .eq("id", b.id)
-      .eq("user_id", userId);
+    const { error } = await supabase.from("recurring_bills").delete().eq("id", b.id).eq("user_id", userId);
 
     if (error) {
       setBills(snapshot);
@@ -599,6 +602,13 @@ export default function BillsPage() {
     <Chip className={liveChipClass}>{live === "live" ? "Live" : live === "offline" ? "Offline" : "Connecting"}</Chip>
   );
 
+  const recentReceipts = useMemo(() => payments.slice(0, 8), [payments]);
+  const billNameById = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const b of bills) map[b.id] = b.name;
+    return map;
+  }, [bills]);
+
   return (
     <Page title="Bills" subtitle="Recurring bills you’ve told Keystone are true. Used by the Engine later.">
       <div className="grid gap-4">
@@ -613,12 +623,12 @@ export default function BillsPage() {
                 {liveChip}
                 {loading ? <Chip>Loading…</Chip> : <Chip>{bills.length} total</Chip>}
                 {error ? <Chip>{error}</Chip> : null}
+                {paymentsError ? <Chip>Receipts: {paymentsError}</Chip> : null}
                 {userId ? (
                   <Button
                     variant="secondary"
-                    onClick={() => {
-                      loadBills(userId);
-                      loadReceipts(userId, { silent: true });
+                    onClick={async () => {
+                      await Promise.all([loadBills(userId), loadPayments(userId, { silent: true })]);
                     }}
                   >
                     Refresh
@@ -626,6 +636,36 @@ export default function BillsPage() {
                 ) : null}
               </div>
             </div>
+          </CardContent>
+        </Card>
+
+        {/* Lightweight receipt visibility */}
+        <Card>
+          <CardContent>
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <div className="font-semibold">Recent receipts</div>
+              <div className="text-sm opacity-70">Tiny trail — just enough to prove what happened.</div>
+            </div>
+
+            {recentReceipts.length === 0 ? (
+              <div className="mt-2 text-sm text-zinc-600">No receipts yet. Mark a bill paid to create one.</div>
+            ) : (
+              <div className="mt-3 grid gap-2">
+                {recentReceipts.map((p) => (
+                  <div key={p.id} className="rounded-lg border p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="font-semibold">
+                        {billNameById[p.bill_id] ?? "Bill"} • {formatMoneyFromCents(p.amount_cents, p.currency)}
+                      </div>
+                      <div className="text-xs text-zinc-500">{fmtDateTime(p.paid_at)}</div>
+                    </div>
+                    <div className="mt-1 text-xs text-zinc-600">
+                      {p.note ? p.note : "—"} • source: {p.source}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </CardContent>
         </Card>
 
@@ -713,8 +753,8 @@ export default function BillsPage() {
                 bills.map((b) => {
                   const editing = !!drafts[b.id];
                   const d = drafts[b.id];
-                  const paying = !!payingRow[b.id];
-                  const last = latestPaymentByBill[b.id];
+                  const busyPaid = !!markingPaid[b.id];
+                  const lastPaid = lastPaymentByBillId[b.id];
 
                   return (
                     <div key={b.id} className="rounded-lg border p-3">
@@ -729,16 +769,15 @@ export default function BillsPage() {
                                 <Chip>{b.cadence}</Chip>
                               </div>
                               <div className="text-sm opacity-75 mt-1">
-                                {formatMoneyFromCents(b.amount_cents, b.currency)} • Next due{" "}
-                                {new Date(b.next_due_at).toLocaleString()}
+                                {formatMoneyFromCents(b.amount_cents, b.currency)} • Next due {fmtDateTime(b.next_due_at)}
                               </div>
-
-                              {last ? (
+                              {lastPaid ? (
                                 <div className="text-xs text-zinc-600 mt-1">
-                                  Last paid: {new Date(last.paid_at).toLocaleString()} •{" "}
-                                  {formatMoneyFromCents(last.amount_cents, last.currency)}
+                                  Last paid {fmtDateTime(lastPaid.paid_at)} • {formatMoneyFromCents(lastPaid.amount_cents, lastPaid.currency)}
                                 </div>
-                              ) : null}
+                              ) : (
+                                <div className="text-xs text-zinc-500 mt-1">No receipts yet.</div>
+                              )}
                             </>
                           ) : (
                             <div className="grid gap-2 md:grid-cols-6">
@@ -837,33 +876,35 @@ export default function BillsPage() {
                           )}
                         </div>
 
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
                           {!editing ? (
                             <>
                               <Button
-                                variant="secondary"
-                                onClick={() => markPaid(b)}
-                                disabled={saving || paying || !b.active}
-                                title={!b.active ? "Activate the bill to mark paid" : "Insert a receipt + bump due date"}
+                                onClick={() => markPaidWithReceipt(b)}
+                                disabled={saving || !userId || busyPaid}
+                                title="Writes a receipt + bumps next due date by cadence"
                               >
-                                {paying ? "Marking…" : "Mark paid"}
+                                {busyPaid ? "Marking…" : "Mark paid"}
                               </Button>
-                              <Button onClick={() => toggleActive(b)} disabled={saving || paying}>
+
+                              <Button onClick={() => toggleActive(b)} disabled={saving}>
                                 {b.active ? "Pause" : "Activate"}
                               </Button>
-                              <Button onClick={() => beginEdit(b)} disabled={saving || paying}>
+
+                              <Button onClick={() => beginEdit(b)} disabled={saving}>
                                 Edit
                               </Button>
-                              <Button onClick={() => deleteBill(b)} disabled={saving || paying}>
+
+                              <Button onClick={() => deleteBill(b)} disabled={saving}>
                                 Delete
                               </Button>
                             </>
                           ) : (
                             <>
-                              <Button onClick={() => saveEdit(b.id)} disabled={saving || paying}>
+                              <Button onClick={() => saveEdit(b.id)} disabled={saving}>
                                 Save
                               </Button>
-                              <Button onClick={() => cancelEdit(b.id)} disabled={saving || paying}>
+                              <Button onClick={() => cancelEdit(b.id)} disabled={saving}>
                                 Cancel
                               </Button>
                             </>
