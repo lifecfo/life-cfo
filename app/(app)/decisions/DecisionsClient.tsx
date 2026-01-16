@@ -30,6 +30,7 @@ type Decision = {
 };
 
 type ReviewEntry = { at: string; note: string };
+type LiveStatus = "connecting" | "live" | "offline";
 
 function formatLocal(dt: string | null) {
   if (!dt) return "—";
@@ -114,6 +115,7 @@ type TabMode = "all" | "review" | "drafts";
 
 const DEFAULT_REVIEW_BUMP_DAYS = 30;
 const REVIEW_PRESETS_DAYS = [14, 30, 60] as const;
+const REVIEW_DUE_SOON_HOURS = 48;
 
 function isoNowPlusDays(days: number) {
   return new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
@@ -130,7 +132,21 @@ function clampInt(n: number, min: number, max: number) {
   return Math.max(min, Math.min(max, Math.trunc(n)));
 }
 
-type LiveStatus = "connecting" | "live" | "offline";
+function sortRows(list: Decision[]) {
+  const copy = [...list];
+  copy.sort((a, b) => {
+    // pinned desc first
+    if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
+
+    // created_at desc next
+    const ta = Date.parse(a.created_at);
+    const tb = Date.parse(b.created_at);
+    const va = Number.isNaN(ta) ? 0 : ta;
+    const vb = Number.isNaN(tb) ? 0 : tb;
+    return vb - va;
+  });
+  return copy;
+}
 
 export default function DecisionsClient() {
   const { showToast } = useToast();
@@ -145,14 +161,12 @@ export default function DecisionsClient() {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [showAIJson, setShowAIJson] = useState(false);
 
-  // ✅ realtime state
+  // realtime status
   const [liveStatus, setLiveStatus] = useState<LiveStatus>("connecting");
-  const reloadTimerRef = useRef<number | null>(null);
+
+  // fallback reload throttle (used only if realtime payload is missing)
   const loadRef = useRef<() => void>(() => {});
-
-  // store user id (helps filter realtime changes)
-  const [userId, setUserId] = useState<string>("");
-
+  const reloadTimerRef = useRef<number | null>(null);
   const scheduleReload = () => {
     if (reloadTimerRef.current) window.clearTimeout(reloadTimerRef.current);
     reloadTimerRef.current = window.setTimeout(() => {
@@ -217,7 +231,6 @@ export default function DecisionsClient() {
       return;
     }
 
-    setUserId(user.id);
     setEmail(user.email ?? "");
 
     const { data, error } = await supabase
@@ -233,7 +246,7 @@ export default function DecisionsClient() {
       return;
     }
 
-    setRows((data ?? []) as Decision[]);
+    setRows(sortRows((data ?? []) as Decision[]));
     setStatusLine(`Loaded ${data?.length ?? 0} decision(s).`);
 
     setExpanded((prev) => {
@@ -243,10 +256,13 @@ export default function DecisionsClient() {
     });
   };
 
-  // keep the latest load in a ref (for realtime callbacks)
-  loadRef.current = () => {
-    load();
-  };
+  // keep a stable ref for fallback reloads
+  useEffect(() => {
+    loadRef.current = () => {
+      load();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     load();
@@ -258,18 +274,55 @@ export default function DecisionsClient() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ✅ realtime subscription (safe reload throttle, no polling)
+  // ✅ Realtime: patch rows in-place (no full reload)
   useEffect(() => {
     setLiveStatus("connecting");
 
-    // if we don't have a user yet, we still subscribe; once userId arrives, effect reruns with filter
-    const filter = userId ? `user_id=eq.${userId}` : undefined;
-
     const channel = supabase
-      .channel(`decisions-realtime${userId ? `-${userId}` : ""}`)
-      .on("postgres_changes", { event: "*", schema: "public", table: "decisions", filter }, () => {
-        scheduleReload();
-      })
+      .channel("decisions-realtime")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "decisions" },
+        (payload: any) => {
+          const eventType: string | undefined = payload?.eventType;
+          const newRow = payload?.new as Decision | undefined;
+          const oldRow = payload?.old as Partial<Decision> | undefined;
+
+          // If we don't have enough info, fallback to throttled reload
+          const idFromOld = (oldRow as any)?.id as string | undefined;
+          const idFromNew = (newRow as any)?.id as string | undefined;
+          const id = idFromNew || idFromOld;
+
+          if (!eventType || !id) {
+            scheduleReload();
+            return;
+          }
+
+          setRows((prev) => {
+            if (eventType === "INSERT") {
+              if (!newRow) return prev;
+              // dedupe insert
+              const exists = prev.some((x) => x.id === newRow.id);
+              const merged = exists ? prev.map((x) => (x.id === newRow.id ? { ...x, ...newRow } : x)) : [newRow, ...prev];
+              return sortRows(merged);
+            }
+
+            if (eventType === "UPDATE") {
+              if (!newRow) return prev;
+              const merged = prev.map((x) => (x.id === newRow.id ? { ...x, ...newRow } : x));
+              return sortRows(merged);
+            }
+
+            if (eventType === "DELETE") {
+              return prev.filter((x) => x.id !== id);
+            }
+
+            // unknown type -> reload
+            scheduleReload();
+            return prev;
+          });
+        }
+      )
       .subscribe((status) => {
         if (status === "SUBSCRIBED") setLiveStatus("live");
         else if (status === "CLOSED" || status === "CHANNEL_ERROR") setLiveStatus("offline");
@@ -280,7 +333,7 @@ export default function DecisionsClient() {
       setLiveStatus("offline");
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userId]);
+  }, []);
 
   const decidedCount = useMemo(() => rows.filter((d) => d.status === "decided").length, [rows]);
   const draftCount = useMemo(() => rows.filter((d) => d.status === "draft").length, [rows]);
@@ -316,7 +369,7 @@ export default function DecisionsClient() {
     return true;
   };
 
-  const isDueSoon = (d: Decision, hours = 48) => {
+  const isDueSoon = (d: Decision, hours = REVIEW_DUE_SOON_HOURS) => {
     if (!d.review_at) return false;
     const dueMs = Date.parse(d.review_at);
     if (Number.isNaN(dueMs)) return false;
@@ -356,7 +409,7 @@ export default function DecisionsClient() {
       setStatusLine(`Pin failed: ${error.message}`);
       return;
     }
-    setRows((prev) => prev.map((d) => (d.id === id ? { ...d, pinned: next } : d)));
+    setRows((prev) => sortRows(prev.map((d) => (d.id === id ? { ...d, pinned: next } : d))));
   };
 
   /**
@@ -384,8 +437,8 @@ export default function DecisionsClient() {
     const nextReviewAt = shouldSetExplicit
       ? isoNowPlusDays(explicitDays!)
       : shouldBumpDefault
-      ? isoNowPlusDays(DEFAULT_REVIEW_BUMP_DAYS)
-      : prevReviewAt;
+        ? isoNowPlusDays(DEFAULT_REVIEW_BUMP_DAYS)
+        : prevReviewAt;
 
     const payload: any = { reviewed_at: nowIso };
     if (shouldSetExplicit || shouldBumpDefault) payload.review_at = nextReviewAt;
@@ -401,8 +454,8 @@ export default function DecisionsClient() {
     const msg = shouldSetExplicit
       ? `Reviewed ✅ (next in ${explicitDays}d)`
       : shouldBumpDefault
-      ? `Reviewed ✅ (next in ${DEFAULT_REVIEW_BUMP_DAYS}d)`
-      : "Reviewed ✅";
+        ? `Reviewed ✅ (next in ${DEFAULT_REVIEW_BUMP_DAYS}d)`
+        : "Reviewed ✅";
 
     setStatusLine(msg);
 
@@ -491,8 +544,8 @@ export default function DecisionsClient() {
     const nextReviewAt = shouldSetExplicit
       ? isoNowPlusDays(explicitDays!)
       : shouldBumpDefault
-      ? isoNowPlusDays(DEFAULT_REVIEW_BUMP_DAYS)
-      : prevReviewAt;
+        ? isoNowPlusDays(DEFAULT_REVIEW_BUMP_DAYS)
+        : prevReviewAt;
 
     const payload: any = {
       review_history: nextHistory,
@@ -538,8 +591,8 @@ export default function DecisionsClient() {
     const msg = shouldSetExplicit
       ? `Review note saved ✅ (next in ${explicitDays}d)`
       : shouldBumpDefault
-      ? `Review note saved ✅ (next in ${DEFAULT_REVIEW_BUMP_DAYS}d)`
-      : "Review note saved ✅";
+        ? `Review note saved ✅ (next in ${DEFAULT_REVIEW_BUMP_DAYS}d)`
+        : "Review note saved ✅";
 
     setStatusLine(msg);
 
@@ -614,14 +667,12 @@ export default function DecisionsClient() {
 
     setStatusLine("Marking selected as reviewed...");
 
-    // 1) reviewed_at for all
     const { error: baseErr } = await supabase.from("decisions").update({ reviewed_at: nowIso }).in("id", ids);
     if (baseErr) {
       setStatusLine(`Bulk reviewed failed: ${baseErr.message}`);
       return;
     }
 
-    // 2) bump review_at for overdue subset
     if (overdueIds.length > 0) {
       const { error: bumpErr } = await supabase.from("decisions").update({ review_at: bumpIso }).in("id", overdueIds);
       if (bumpErr) {
@@ -706,7 +757,10 @@ export default function DecisionsClient() {
 
     setStatusLine(`Marking selected as reviewed (next in ${safeDays}d)...`);
 
-    const { error } = await supabase.from("decisions").update({ reviewed_at: nowIso, review_at: nextReviewIso }).in("id", ids);
+    const { error } = await supabase
+      .from("decisions")
+      .update({ reviewed_at: nowIso, review_at: nextReviewIso })
+      .in("id", ids);
 
     if (error) {
       setStatusLine(`Bulk reviewed failed: ${error.message}`);
@@ -824,9 +878,7 @@ export default function DecisionsClient() {
         return;
       }
 
-      setRows((prev) =>
-        prev.map((x) => (x.id === d.id ? { ...x, ai_summary: analysis?.reasoning ?? null, ai_json: analysis ?? null } : x))
-      );
+      setRows((prev) => prev.map((x) => (x.id === d.id ? { ...x, ai_summary: analysis?.reasoning ?? null, ai_json: analysis ?? null } : x)));
     } catch (e: any) {
       setDraftAiError((prev) => ({ ...prev, [d.id]: e?.message ?? "AI analysis failed" }));
     } finally {
@@ -864,7 +916,10 @@ export default function DecisionsClient() {
 
     let inboxClosedOk = false;
     if (d.inbox_item_id) {
-      const { error: inboxErr } = await supabase.from("decision_inbox").update({ status: "done", snoozed_until: null }).eq("id", d.inbox_item_id);
+      const { error: inboxErr } = await supabase
+        .from("decision_inbox")
+        .update({ status: "done", snoozed_until: null })
+        .eq("id", d.inbox_item_id);
 
       if (inboxErr) {
         setStatusLine(`Decided ✅ but couldn't close inbox item: ${inboxErr.message}`);
@@ -904,7 +959,10 @@ export default function DecisionsClient() {
           }
 
           if (d.inbox_item_id && inboxClosedOk) {
-            const { error: reopenErr } = await supabase.from("decision_inbox").update({ status: "open", snoozed_until: null }).eq("id", d.inbox_item_id);
+            const { error: reopenErr } = await supabase
+              .from("decision_inbox")
+              .update({ status: "open", snoozed_until: null })
+              .eq("id", d.inbox_item_id);
 
             if (reopenErr) {
               setStatusLine(`Undo partial (reopen inbox failed): ${reopenErr.message}`);
@@ -928,7 +986,10 @@ export default function DecisionsClient() {
 
     return rows.filter((d) => {
       if (tab === "review") {
-        if (!isDueForReview(d)) return false;
+        // overdue OR due soon
+        const due = isDueForReview(d);
+        const soon = !due && isDueSoon(d);
+        if (!due && !soon) return false;
       }
       if (tab === "drafts") {
         if (d.status !== "draft") return false;
@@ -993,6 +1054,8 @@ export default function DecisionsClient() {
     if (s === "draft") return "#71717a";
     return "gray";
   };
+
+  const liveDot = liveStatus === "live" ? "green" : liveStatus === "connecting" ? "#f59e0b" : "#ef4444";
 
   const NextReviewControls = ({
     decisionId,
@@ -1085,17 +1148,6 @@ export default function DecisionsClient() {
     );
   };
 
-  const LiveBadge = () => {
-    const label = liveStatus === "live" ? "Live" : liveStatus === "connecting" ? "Connecting…" : "Offline";
-    const dot = liveStatus === "live" ? "#16a34a" : liveStatus === "connecting" ? "#f59e0b" : "#dc2626";
-    return (
-      <Badge variant="muted" title="Realtime status">
-        <span className="mr-2 inline-block h-2 w-2 rounded-full" style={{ background: dot }} />
-        {label}
-      </Badge>
-    );
-  };
-
   // ---------- UI ----------
   return (
     <Page
@@ -1103,8 +1155,13 @@ export default function DecisionsClient() {
       subtitle={headerSubtitle}
       right={
         <div className="flex flex-wrap items-center gap-2">
-          <LiveBadge />
+          <Badge variant={liveStatus === "live" ? "muted" : liveStatus === "connecting" ? "warning" : "muted"}>
+            <span className="mr-2 inline-block h-2 w-2 rounded-full" style={{ background: liveDot }} />
+            {liveStatus === "live" ? "Live" : liveStatus === "connecting" ? "Connecting…" : "Offline"}
+          </Badge>
+
           <Button onClick={load}>Refresh</Button>
+
           <Button variant="secondary" onClick={() => expandAll(filtered)}>
             Expand filtered
           </Button>
@@ -1129,11 +1186,13 @@ export default function DecisionsClient() {
           Drafts {draftCount > 0 ? `(${draftCount})` : ""}
         </Chip>
 
-        <Chip active={tab === "review"} onClick={() => setTabAndUrl("review")} title="Decisions due for review">
+        <Chip active={tab === "review"} onClick={() => setTabAndUrl("review")} title="Decisions due or due soon for review">
           Review {(overdueCount + dueSoonCount) > 0 ? `(${overdueCount + dueSoonCount})` : ""}
         </Chip>
 
-        {tab === "review" && dueForReviewCount === 0 && <div className="self-center text-sm text-zinc-600">Nothing is due right now 🎉</div>}
+        {tab === "review" && filtered.length === 0 && (
+          <div className="self-center text-sm text-zinc-600">Nothing is due (or due soon) 🎉</div>
+        )}
 
         {tab === "drafts" && draftCount === 0 && <div className="self-center text-sm text-zinc-600">No drafts right now 🎉</div>}
       </div>
@@ -1146,7 +1205,9 @@ export default function DecisionsClient() {
               <div className="flex flex-wrap items-center gap-2">
                 <Badge variant="muted">Scheduled: {scheduledCount}</Badge>
                 <Badge variant="warning">Overdue: {overdueCount}</Badge>
-                <Badge variant="muted">Due soon: {dueSoonCount}</Badge>
+                <Badge variant="muted">
+                  Due soon ({REVIEW_DUE_SOON_HOURS}h): {dueSoonCount}
+                </Badge>
                 {tab === "review" && selectedIds.length > 0 && <Badge variant="muted">Selected: {selectedIds.length}</Badge>}
               </div>
 
@@ -1317,10 +1378,10 @@ export default function DecisionsClient() {
                 isDraft
                   ? "border-zinc-200 bg-zinc-50"
                   : due
-                  ? "border-amber-200 bg-amber-50"
-                  : dueSoon
-                  ? "border-yellow-200 bg-yellow-50"
-                  : "bg-white"
+                    ? "border-amber-200 bg-amber-50"
+                    : dueSoon
+                      ? "border-yellow-200 bg-yellow-50"
+                      : "bg-white"
               }
             >
               <CardContent>
@@ -1645,9 +1706,7 @@ export default function DecisionsClient() {
                                   saveReviewNote(d, days);
                                 }}
                               />
-                              <div className="mt-1 text-xs text-zinc-500">
-                                Optional — if not set, overdue bumps +{DEFAULT_REVIEW_BUMP_DAYS}d.
-                              </div>
+                              <div className="mt-1 text-xs text-zinc-500">Optional — if not set, overdue bumps +{DEFAULT_REVIEW_BUMP_DAYS}d.</div>
                             </div>
                           )}
                         </div>
@@ -1689,7 +1748,7 @@ export default function DecisionsClient() {
 
         {filtered.length === 0 && (
           <div className="text-sm text-zinc-600">
-            {tab === "review" ? "No reviews due." : tab === "drafts" ? "No drafts found." : "No decisions found."}
+            {tab === "review" ? "No reviews due (or due soon)." : tab === "drafts" ? "No drafts found." : "No decisions found."}
           </div>
         )}
       </div>
