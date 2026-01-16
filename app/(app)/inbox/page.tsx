@@ -44,6 +44,18 @@ type DraftStore = {
   confidence?: Record<string, number>;
 };
 
+function sortInboxItems(list: InboxItem[]) {
+  const copy = [...list];
+  copy.sort((a, b) => {
+    const ta = a.created_at ? Date.parse(a.created_at) : 0;
+    const tb = b.created_at ? Date.parse(b.created_at) : 0;
+    const va = Number.isNaN(ta) ? 0 : ta;
+    const vb = Number.isNaN(tb) ? 0 : tb;
+    return vb - va; // newest first
+  });
+  return copy;
+}
+
 export default function InboxPage() {
   const { showToast } = useToast();
   const router = useRouter();
@@ -79,13 +91,13 @@ export default function InboxPage() {
   const [openV1, setOpenV1] = useState(true);
   const [openManual, setOpenManual] = useState(true);
 
-  const loadRef = useRef<() => void>(() => {});
+  const loadRef = useRef<(opts?: { silent?: boolean }) => void>(() => {});
   const reloadTimerRef = useRef<number | null>(null);
 
-  const scheduleReload = () => {
+  const scheduleReload = (opts?: { silent?: boolean }) => {
     if (reloadTimerRef.current) window.clearTimeout(reloadTimerRef.current);
     reloadTimerRef.current = window.setTimeout(() => {
-      loadRef.current();
+      loadRef.current(opts);
     }, 250);
   };
 
@@ -244,32 +256,31 @@ export default function InboxPage() {
   function engineCardClasses(base: { border: string; bg: string }, kind: "v2" | "v1" | null) {
     if (!kind) return `${base.border} ${base.bg}`;
 
-    const left =
-      kind === "v2" ? "border-l-4 border-l-sky-400 bg-zinc-50" : "border-l-4 border-l-amber-400 bg-zinc-50";
+    const left = kind === "v2" ? "border-l-4 border-l-sky-400 bg-zinc-50" : "border-l-4 border-l-amber-400 bg-zinc-50";
 
     return `${base.border} ${left}`;
   }
 
   const prettySupabaseError = (e: any) => {
     const msg = typeof e?.message === "string" ? e.message : "";
-    if (
-      msg.toLowerCase().includes("duplicate key") ||
-      msg.toLowerCase().includes("unique") ||
-      msg.toLowerCase().includes("already exists")
-    ) {
+    if (msg.toLowerCase().includes("duplicate key") || msg.toLowerCase().includes("unique") || msg.toLowerCase().includes("already exists")) {
       return "Already promoted/decided for this inbox item.";
     }
     return msg || "Something went wrong.";
   };
 
   // ---------- auth + load ----------
-  const load = async () => {
-    setStatusLine("Loading...");
-    setAffirmation(null);
+  const load = async (opts?: { silent?: boolean }) => {
+    const silent = !!opts?.silent;
+
+    if (!silent) {
+      setStatusLine("Loading...");
+      setAffirmation(null);
+    }
 
     const { data: auth, error: authError } = await supabase.auth.getUser();
     if (authError) {
-      setStatusLine(`Auth error: ${authError.message}`);
+      if (!silent) setStatusLine(`Auth error: ${authError.message}`);
       setUserId(null);
       setLiveStatus("offline");
       return;
@@ -277,7 +288,7 @@ export default function InboxPage() {
 
     const user = auth.user;
     if (!user) {
-      setStatusLine("Not signed in. Go to /auth/login");
+      if (!silent) setStatusLine("Not signed in. Go to /auth/login");
       setUserId(null);
       setLiveStatus("offline");
       return;
@@ -286,25 +297,21 @@ export default function InboxPage() {
     setUserId(user.id);
     setEmail(user.email ?? "");
 
-    const { data, error } = await supabase
-      .from("decision_inbox")
-      .select("*")
-      .eq("user_id", user.id)
-      .order("created_at", { ascending: false });
+    const { data, error } = await supabase.from("decision_inbox").select("*").eq("user_id", user.id).order("created_at", { ascending: false });
 
     if (error) {
-      setStatusLine(`Error: ${error.message}`);
+      if (!silent) setStatusLine(`Error: ${error.message}`);
       return;
     }
 
-    setItems((data ?? []) as InboxItem[]);
+    setItems(sortInboxItems((data ?? []) as InboxItem[]));
     setLastLoadedAt(new Date());
-    setStatusLine(`Loaded ${data?.length ?? 0} item(s).`);
+    if (!silent) setStatusLine(`Loaded ${data?.length ?? 0} item(s).`);
   };
 
   useEffect(() => {
-    loadRef.current = () => {
-      load();
+    loadRef.current = (opts?: { silent?: boolean }) => {
+      load(opts);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId]);
@@ -319,7 +326,7 @@ export default function InboxPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Realtime subscription: decision_inbox changes for this user
+  // ✅ Realtime subscription: decision_inbox changes for this user (patch in-place, no full reload)
   useEffect(() => {
     if (!userId) return;
 
@@ -335,7 +342,49 @@ export default function InboxPage() {
           table: "decision_inbox",
           filter: `user_id=eq.${userId}`,
         },
-        () => scheduleReload()
+        (payload: any) => {
+          const eventType: string | undefined = payload?.eventType;
+          const newRow = payload?.new as InboxItem | undefined;
+          const oldRow = payload?.old as Partial<InboxItem> | undefined;
+
+          const idFromNew = (newRow as any)?.id as string | undefined;
+          const idFromOld = (oldRow as any)?.id as string | undefined;
+          const id = idFromNew || idFromOld;
+
+          // If we don't have enough info, fallback to throttled SILENT reload
+          if (!eventType || !id) {
+            scheduleReload({ silent: true });
+            return;
+          }
+
+          setItems((prev) => {
+            if (eventType === "INSERT") {
+              if (!newRow) {
+                scheduleReload({ silent: true });
+                return prev;
+              }
+              const exists = prev.some((x) => x.id === newRow.id);
+              const merged = exists ? prev.map((x) => (x.id === newRow.id ? { ...x, ...newRow } : x)) : [newRow, ...prev];
+              return sortInboxItems(merged);
+            }
+
+            if (eventType === "UPDATE") {
+              if (!newRow) {
+                scheduleReload({ silent: true });
+                return prev;
+              }
+              const merged = prev.map((x) => (x.id === newRow.id ? { ...x, ...newRow } : x));
+              return sortInboxItems(merged);
+            }
+
+            if (eventType === "DELETE") {
+              return prev.filter((x) => x.id !== id);
+            }
+
+            scheduleReload({ silent: true });
+            return prev;
+          });
+        }
       )
       .subscribe((status) => {
         if (status === "SUBSCRIBED") setLiveStatus("live");
@@ -352,7 +401,7 @@ export default function InboxPage() {
   // ticker + focus refresh (no polling)
   useEffect(() => {
     const ticker = setInterval(() => setTick((t) => t + 1), 10_000);
-    const onFocus = () => loadRef.current();
+    const onFocus = () => loadRef.current({ silent: true });
     window.addEventListener("focus", onFocus);
 
     return () => {
@@ -441,7 +490,7 @@ export default function InboxPage() {
         return;
       }
 
-      setItems((prev) => [data as any, ...prev]);
+      setItems((prev) => sortInboxItems([data as any, ...prev]));
       setNewItemTitle("");
       setStatusLine("Added ✅");
     } catch (e: any) {
@@ -458,20 +507,14 @@ export default function InboxPage() {
     setAffirmation(null);
     setStatusLine("Unsnoozing all snoozed items...");
 
-    const { error } = await supabase
-      .from("decision_inbox")
-      .update({ status: "open", snoozed_until: null })
-      .eq("user_id", userId)
-      .eq("status", "snoozed");
+    const { error } = await supabase.from("decision_inbox").update({ status: "open", snoozed_until: null }).eq("user_id", userId).eq("status", "snoozed");
 
     if (error) {
       setStatusLine(`Force unsnooze failed: ${error.message}`);
       return;
     }
 
-    setItems((prev) =>
-      prev.map((it) => (it.status === "snoozed" ? { ...it, status: "open", snoozed_until: null } : it))
-    );
+    setItems((prev) => prev.map((it) => (it.status === "snoozed" ? { ...it, status: "open", snoozed_until: null } : it)));
 
     setStatusLine("All snoozed items are now open ✅");
   };
@@ -497,11 +540,7 @@ export default function InboxPage() {
     setAffirmation(null);
     setStatusLine("Marking done...");
 
-    const { error } = await supabase
-      .from("decision_inbox")
-      .update({ status: "done", snoozed_until: null })
-      .eq("id", id)
-      .eq("user_id", userId);
+    const { error } = await supabase.from("decision_inbox").update({ status: "done", snoozed_until: null }).eq("id", id).eq("user_id", userId);
 
     if (error) {
       setStatusLine(`Done failed: ${error.message}`);
@@ -521,11 +560,7 @@ export default function InboxPage() {
     setAffirmation(null);
     setStatusLine(`Snoozing for ${mins} minute(s)...`);
 
-    const { error } = await supabase
-      .from("decision_inbox")
-      .update({ status: "snoozed", snoozed_until: until })
-      .eq("id", id)
-      .eq("user_id", userId);
+    const { error } = await supabase.from("decision_inbox").update({ status: "snoozed", snoozed_until: until }).eq("id", id).eq("user_id", userId);
 
     if (error) {
       setStatusLine(`Snooze failed: ${error.message}`);
@@ -544,11 +579,7 @@ export default function InboxPage() {
     setAffirmation(null);
     setStatusLine("Re-opening...");
 
-    const { error } = await supabase
-      .from("decision_inbox")
-      .update({ status: "open", snoozed_until: null })
-      .eq("id", id)
-      .eq("user_id", userId);
+    const { error } = await supabase.from("decision_inbox").update({ status: "open", snoozed_until: null }).eq("id", id).eq("user_id", userId);
 
     if (error) {
       setStatusLine(`Undo failed: ${error.message}`);
@@ -571,15 +602,11 @@ export default function InboxPage() {
     setItems((prev) => prev.map((x) => (x.id === it.id ? { ...x, status: "done", snoozed_until: null } : x)));
     clearPerItemInputs(it.id);
 
-    const { error } = await supabase
-      .from("decision_inbox")
-      .update({ status: "done", snoozed_until: null })
-      .eq("id", it.id)
-      .eq("user_id", userId);
+    const { error } = await supabase.from("decision_inbox").update({ status: "done", snoozed_until: null }).eq("id", it.id).eq("user_id", userId);
 
     if (error) {
       setStatusLine(`Auto-resolve failed: ${error.message}`);
-      loadRef.current();
+      loadRef.current({ silent: true });
       return;
     }
 
@@ -588,21 +615,15 @@ export default function InboxPage() {
         message,
         undoLabel: "Undo",
         onUndo: async () => {
-          const { error: undoErr } = await supabase
-            .from("decision_inbox")
-            .update({ status: prevStatus, snoozed_until: prevSnooze })
-            .eq("id", it.id)
-            .eq("user_id", userId);
+          const { error: undoErr } = await supabase.from("decision_inbox").update({ status: prevStatus, snoozed_until: prevSnooze }).eq("id", it.id).eq("user_id", userId);
 
           if (undoErr) {
             setStatusLine(`Undo failed: ${undoErr.message}`);
-            loadRef.current();
+            loadRef.current({ silent: true });
             return;
           }
 
-          setItems((prev) =>
-            prev.map((x) => (x.id === it.id ? { ...x, status: prevStatus, snoozed_until: prevSnooze } : x))
-          );
+          setItems((prev) => prev.map((x) => (x.id === it.id ? { ...x, status: prevStatus, snoozed_until: prevSnooze } : x)));
           setStatusLine("Undone ✅");
         },
       },
@@ -626,15 +647,11 @@ export default function InboxPage() {
     setItems((prev) => prev.map((it) => (ids.includes(it.id) ? { ...it, status: "done", snoozed_until: null } : it)));
     ids.forEach((id) => clearPerItemInputs(id));
 
-    const { error } = await supabase
-      .from("decision_inbox")
-      .update({ status: "done", snoozed_until: null })
-      .in("id", ids)
-      .eq("user_id", userId);
+    const { error } = await supabase.from("decision_inbox").update({ status: "done", snoozed_until: null }).in("id", ids).eq("user_id", userId);
 
     if (error) {
       setStatusLine(`Dismiss failed: ${error.message}`);
-      loadRef.current();
+      loadRef.current({ silent: true });
       return;
     }
 
@@ -647,15 +664,11 @@ export default function InboxPage() {
         onUndo: async () => {
           setStatusLine("Undoing dismiss...");
 
-          const { error: undoErr } = await supabase
-            .from("decision_inbox")
-            .update({ status: "open", snoozed_until: null })
-            .in("id", ids)
-            .eq("user_id", userId);
+          const { error: undoErr } = await supabase.from("decision_inbox").update({ status: "open", snoozed_until: null }).in("id", ids).eq("user_id", userId);
 
           if (undoErr) {
             setStatusLine(`Undo failed: ${undoErr.message}`);
-            loadRef.current();
+            loadRef.current({ silent: true });
             return;
           }
 
@@ -733,11 +746,7 @@ export default function InboxPage() {
         return;
       }
 
-      const { error: closeError } = await supabase
-        .from("decision_inbox")
-        .update({ status: "done", snoozed_until: null })
-        .eq("id", item.id)
-        .eq("user_id", userId);
+      const { error: closeError } = await supabase.from("decision_inbox").update({ status: "done", snoozed_until: null }).eq("id", item.id).eq("user_id", userId);
 
       if (closeError) {
         setStatusLine(`Saved decision, but couldn't close inbox item: ${closeError.message}`);
@@ -762,11 +771,7 @@ export default function InboxPage() {
               return;
             }
 
-            const { error: reopenErr } = await supabase
-              .from("decision_inbox")
-              .update({ status: "open", snoozed_until: null })
-              .eq("id", item.id)
-              .eq("user_id", userId);
+            const { error: reopenErr } = await supabase.from("decision_inbox").update({ status: "open", snoozed_until: null }).eq("id", item.id).eq("user_id", userId);
 
             if (reopenErr) {
               setStatusLine(`Undo partial (reopen failed): ${reopenErr.message}`);
@@ -826,11 +831,7 @@ export default function InboxPage() {
         return;
       }
 
-      const { error: closeError } = await supabase
-        .from("decision_inbox")
-        .update({ status: "done", snoozed_until: null })
-        .eq("id", item.id)
-        .eq("user_id", userId);
+      const { error: closeError } = await supabase.from("decision_inbox").update({ status: "done", snoozed_until: null }).eq("id", item.id).eq("user_id", userId);
 
       if (closeError) {
         setStatusLine(`Promoted, but couldn't close inbox item: ${closeError.message}`);
@@ -855,11 +856,7 @@ export default function InboxPage() {
               return;
             }
 
-            const { error: reopenErr } = await supabase
-              .from("decision_inbox")
-              .update({ status: "open", snoozed_until: null })
-              .eq("id", item.id)
-              .eq("user_id", userId);
+            const { error: reopenErr } = await supabase.from("decision_inbox").update({ status: "open", snoozed_until: null }).eq("id", item.id).eq("user_id", userId);
 
             if (reopenErr) {
               setStatusLine(`Undo partial (reopen failed): ${reopenErr.message}`);
@@ -1006,9 +1003,7 @@ export default function InboxPage() {
               <Card className="bg-white">
                 <CardContent>
                   <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div className="text-sm text-zinc-600">
-                      Shortcut actions — use the insight, then come back. (This digest will auto-clear.)
-                    </div>
+                    <div className="text-sm text-zinc-600">Shortcut actions — use the insight, then come back. (This digest will auto-clear.)</div>
 
                     <div className="flex flex-wrap gap-2">
                       <Button
@@ -1111,16 +1106,9 @@ export default function InboxPage() {
                 {[1, 2, 3].map((level) => (
                   <label
                     key={level}
-                    className={`flex cursor-pointer items-center gap-2 text-sm ${
-                      decisionConfidence[it.id] === level ? "opacity-100" : "opacity-80"
-                    }`}
+                    className={`flex cursor-pointer items-center gap-2 text-sm ${decisionConfidence[it.id] === level ? "opacity-100" : "opacity-80"}`}
                   >
-                    <input
-                      type="radio"
-                      name={`confidence-${it.id}`}
-                      checked={decisionConfidence[it.id] === level}
-                      onChange={() => setDraftConfidence(it.id, level)}
-                    />
+                    <input type="radio" name={`confidence-${it.id}`} checked={decisionConfidence[it.id] === level} onChange={() => setDraftConfidence(it.id, level)} />
                     {level === 1 ? "Low" : level === 2 ? "Medium" : "High"}
                   </label>
                 ))}
@@ -1186,9 +1174,7 @@ export default function InboxPage() {
           {email && <div>Signed in as: {email}</div>}
           <div className="text-zinc-700">{statusLine}</div>
           {lastLoadedAt && (
-            <div className="text-xs text-zinc-500">
-              Updated {minutesAgo !== null && minutesAgo < 1 ? "just now" : `${minutesAgo ?? 0}m ago`}
-            </div>
+            <div className="text-xs text-zinc-500">Updated {minutesAgo !== null && minutesAgo < 1 ? "just now" : `${minutesAgo ?? 0}m ago`}</div>
           )}
         </div>
       }
@@ -1247,9 +1233,7 @@ export default function InboxPage() {
       <div className="space-y-3">
         <div className="flex items-end justify-between gap-3">
           <h2 className="m-0 text-lg font-semibold tracking-tight">Visible</h2>
-          <div className="text-xs text-zinc-500">
-            Insights are generated from your inputs — no forecasting. Read & clear like notifications.
-          </div>
+          <div className="text-xs text-zinc-500">Insights are generated from your inputs — no forecasting. Read & clear like notifications.</div>
         </div>
 
         <div className="grid gap-3">
@@ -1266,7 +1250,12 @@ export default function InboxPage() {
                   Run Engine
                 </Button>
 
-                <Button variant="secondary" onClick={dismissAllV2Insights} disabled={buckets.v2.length === 0} title="Mark all visible v2 insights as done">
+                <Button
+                  variant="secondary"
+                  onClick={dismissAllV2Insights}
+                  disabled={buckets.v2.length === 0}
+                  title="Mark all visible v2 insights as done"
+                >
                   Dismiss digest
                 </Button>
               </>
