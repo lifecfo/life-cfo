@@ -168,16 +168,11 @@ export default function InboxPage() {
     isInsightsDigest(it) || (isEngineItem(it) && String(it.dedupe_key ?? "").includes("engine_insights_v2"));
   const isEngineV1Reminder = (it: InboxItem) => isEngineItem(it) && !isEngineV2Insight(it);
 
-  function engineCardClasses(
-    base: { border: string; bg: string },
-    kind: "v2" | "v1" | null
-  ) {
+  function engineCardClasses(base: { border: string; bg: string }, kind: "v2" | "v1" | null) {
     if (!kind) return `${base.border} ${base.bg}`;
 
     const left =
-      kind === "v2"
-        ? "border-l-4 border-l-sky-400 bg-zinc-50"
-        : "border-l-4 border-l-amber-400 bg-zinc-50";
+      kind === "v2" ? "border-l-4 border-l-sky-400 bg-zinc-50" : "border-l-4 border-l-amber-400 bg-zinc-50";
 
     return `${base.border} ${left}`;
   }
@@ -493,6 +488,53 @@ export default function InboxPage() {
     setStatusLine("Open ✅");
   };
 
+  const autoResolveWithUndo = async (it: InboxItem, message = "Marked done ✅") => {
+    if (!userId) return;
+
+    const prevStatus = it.status;
+    const prevSnooze = it.snoozed_until ?? null;
+
+    // optimistic
+    setItems((prev) => prev.map((x) => (x.id === it.id ? { ...x, status: "done", snoozed_until: null } : x)));
+    clearPerItemInputs(it.id);
+
+    const { error } = await supabase
+      .from("decision_inbox")
+      .update({ status: "done", snoozed_until: null })
+      .eq("id", it.id)
+      .eq("user_id", userId);
+
+    if (error) {
+      setStatusLine(`Auto-resolve failed: ${error.message}`);
+      loadRef.current();
+      return;
+    }
+
+    showToast(
+      {
+        message,
+        undoLabel: "Undo",
+        onUndo: async () => {
+          const { error: undoErr } = await supabase
+            .from("decision_inbox")
+            .update({ status: prevStatus, snoozed_until: prevSnooze })
+            .eq("id", it.id)
+            .eq("user_id", userId);
+
+          if (undoErr) {
+            setStatusLine(`Undo failed: ${undoErr.message}`);
+            loadRef.current();
+            return;
+          }
+
+          setItems((prev) => prev.map((x) => (x.id === it.id ? { ...x, status: prevStatus, snoozed_until: prevSnooze } : x)));
+          setStatusLine("Undone ✅");
+        },
+      },
+      8000
+    );
+  };
+
   const dismissAllV2Insights = async () => {
     if (!userId) return;
 
@@ -517,7 +559,6 @@ export default function InboxPage() {
 
     if (error) {
       setStatusLine(`Dismiss failed: ${error.message}`);
-      // reload to reconcile
       loadRef.current();
       return;
     }
@@ -863,7 +904,6 @@ export default function InboxPage() {
                 {isV1 && <Chip>Reminder</Chip>}
                 {!isV2 && !isV1 && isEng && <Chip>Engine</Chip>}
 
-                {/* ✅ clickable Insights chip (only for digest) */}
                 {insightsDigest && (
                   <Chip
                     active={false}
@@ -883,7 +923,6 @@ export default function InboxPage() {
               </div>
             </div>
 
-            {/* Why am I seeing this? */}
             {isV2 && (
               <div className="text-xs text-zinc-500">
                 Why you’re seeing this: generated from your current inputs (no forecasting).
@@ -904,21 +943,41 @@ export default function InboxPage() {
 
             {it.body && <div className="whitespace-pre-wrap text-sm text-zinc-800">{it.body}</div>}
 
-            {/* ✅ Shortcut panel for insights digest */}
             {insightsDigest && (
               <Card className="bg-white">
                 <CardContent>
                   <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div className="text-sm text-zinc-600">Shortcut actions — use the insight, then come back.</div>
+                    <div className="text-sm text-zinc-600">
+                      Shortcut actions — use the insight, then come back. (This digest will auto-clear.)
+                    </div>
 
                     <div className="flex flex-wrap gap-2">
-                      <Button onClick={() => router.push("/decisions?tab=review")}>Review now</Button>
+                      <Button
+                        onClick={async () => {
+                          await autoResolveWithUndo(it, "Digest cleared ✅");
+                          router.push("/decisions?tab=review");
+                        }}
+                      >
+                        Review now
+                      </Button>
 
-                      <Button variant="secondary" onClick={() => router.push("/engine")}>
+                      <Button
+                        variant="secondary"
+                        onClick={async () => {
+                          await autoResolveWithUndo(it, "Digest cleared ✅");
+                          router.push("/engine");
+                        }}
+                      >
                         Open Engine
                       </Button>
 
-                      <Button variant="secondary" onClick={() => snoozeItemMinutes(it.id, 60 * 24)}>
+                      <Button
+                        variant="secondary"
+                        onClick={async () => {
+                          // Snooze keeps it in inbox; no auto-clear here
+                          await snoozeItemMinutes(it.id, 60 * 24);
+                        }}
+                      >
                         Snooze 24h
                       </Button>
                     </div>
@@ -927,22 +986,12 @@ export default function InboxPage() {
               </Card>
             )}
 
-            {/* Shortcut action */}
             {it.action_href && (
               <Button
                 variant="secondary"
                 onClick={async (e) => {
                   e.stopPropagation?.();
-
-                  // Auto-resolve the insight/reminder when using the action (guarded)
-                  if (userId) {
-                    await supabase
-                      .from("decision_inbox")
-                      .update({ status: "done", snoozed_until: null })
-                      .eq("id", it.id)
-                      .eq("user_id", userId);
-                  }
-
+                  await autoResolveWithUndo(it, "Shortcut used ✅");
                   router.push(it.action_href!);
                 }}
                 title="Use this insight and jump to the right place"
@@ -1092,7 +1141,17 @@ export default function InboxPage() {
   return (
     <Page
       title="Inbox"
-      subtitle={headerSubtitle}
+      subtitle={
+        <div className="space-y-1">
+          {email && <div>Signed in as: {email}</div>}
+          <div className="text-zinc-700">{statusLine}</div>
+          {lastLoadedAt && (
+            <div className="text-xs text-zinc-500">
+              Updated {minutesAgo !== null && minutesAgo < 1 ? "just now" : `${minutesAgo ?? 0}m ago`}
+            </div>
+          )}
+        </div>
+      }
       right={
         <div className="flex items-center gap-2">
           <Badge variant={badge.variant}>● {badge.text}</Badge>
@@ -1150,11 +1209,12 @@ export default function InboxPage() {
       <div className="space-y-3">
         <div className="flex items-end justify-between gap-3">
           <h2 className="m-0 text-lg font-semibold tracking-tight">Visible</h2>
-          <div className="text-xs text-zinc-500">Insights are generated from your inputs — no forecasting. Read & clear like notifications.</div>
+          <div className="text-xs text-zinc-500">
+            Insights are generated from your inputs — no forecasting. Read & clear like notifications.
+          </div>
         </div>
 
         <div className="grid gap-3">
-          {/* Engine v2 */}
           <SectionHeader
             title="Insights (Engine v2)"
             count={buckets.v2.length}
@@ -1202,7 +1262,6 @@ export default function InboxPage() {
             )
           ) : null}
 
-          {/* Engine v1 */}
           <SectionHeader
             title="Reminders (Engine v1)"
             count={buckets.v1.length}
@@ -1224,7 +1283,6 @@ export default function InboxPage() {
             )
           ) : null}
 
-          {/* Manual */}
           <SectionHeader
             title="Your Inbox"
             count={buckets.manual.length}
