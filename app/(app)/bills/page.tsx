@@ -30,9 +30,11 @@ type BillPayment = {
   id: string;
   user_id: string;
   bill_id: string;
+
   paid_at: string;
   amount_cents: number;
   currency: string;
+
   note: string | null;
   source: string;
   created_at: string;
@@ -95,6 +97,9 @@ function addCadence(iso: string, cadence: Cadence) {
 
 const LOAD_THROTTLE_MS = 1500;
 
+// How many recent receipts to fetch (MVP). If you pay a LOT of bills, we’ll replace this with a view/RPC later.
+const RECEIPTS_FETCH_LIMIT = 250;
+
 export default function BillsPage() {
   const toastApi: any = useToast();
   const showToast =
@@ -127,6 +132,9 @@ export default function BillsPage() {
   // per-row "mark paid" spinner
   const [payingRow, setPayingRow] = useState<Record<string, boolean>>({});
 
+  // Latest payment per bill (bill_id -> latest receipt)
+  const [latestPaymentByBill, setLatestPaymentByBill] = useState<Record<string, BillPayment>>({});
+
   // Silent reload throttle
   const lastLoadAtRef = useRef<number>(0);
   const pendingSilentReloadRef = useRef<number | null>(null);
@@ -149,21 +157,29 @@ export default function BillsPage() {
     Record<string, Partial<RecurringBill> & { amount_input?: string; next_due_local?: string }>
   >({});
 
+  function throttleSilent(uid: string, fn: () => void) {
+    const now = Date.now();
+    if (now - lastLoadAtRef.current < LOAD_THROTTLE_MS) {
+      if (pendingSilentReloadRef.current) window.clearTimeout(pendingSilentReloadRef.current);
+      pendingSilentReloadRef.current = window.setTimeout(() => {
+        pendingSilentReloadRef.current = null;
+        fn();
+      }, LOAD_THROTTLE_MS);
+      return true;
+    }
+    lastLoadAtRef.current = now;
+    return false;
+  }
+
   async function loadBills(uid: string, opts?: { silent?: boolean }) {
     const silent = !!opts?.silent;
 
-    const now = Date.now();
     if (silent) {
-      if (now - lastLoadAtRef.current < LOAD_THROTTLE_MS) {
-        if (pendingSilentReloadRef.current) window.clearTimeout(pendingSilentReloadRef.current);
-        pendingSilentReloadRef.current = window.setTimeout(() => {
-          pendingSilentReloadRef.current = null;
-          loadBills(uid, { silent: true });
-        }, LOAD_THROTTLE_MS);
-        return;
-      }
+      const throttled = throttleSilent(uid, () => loadBills(uid, { silent: true }));
+      if (throttled) return;
+    } else {
+      lastLoadAtRef.current = Date.now();
     }
-    lastLoadAtRef.current = now;
 
     const { data, error } = await supabase
       .from("recurring_bills")
@@ -179,6 +195,35 @@ export default function BillsPage() {
     setBills((data || []) as RecurringBill[]);
   }
 
+  async function loadReceipts(uid: string, opts?: { silent?: boolean }) {
+    const silent = !!opts?.silent;
+
+    // share the same throttle behavior as bills loads
+    if (silent) {
+      const throttled = throttleSilent(uid, () => loadReceipts(uid, { silent: true }));
+      if (throttled) return;
+    }
+
+    const { data, error } = await supabase
+      .from("bill_payments")
+      .select("id,user_id,bill_id,paid_at,amount_cents,currency,note,source,created_at")
+      .eq("user_id", uid)
+      .order("paid_at", { ascending: false })
+      .limit(RECEIPTS_FETCH_LIMIT);
+
+    if (error) {
+      // receipts are optional; don't scream
+      if (!silent) setError((prev) => prev ?? error.message);
+      return;
+    }
+
+    const map: Record<string, BillPayment> = {};
+    for (const row of (data || []) as BillPayment[]) {
+      if (!map[row.bill_id]) map[row.bill_id] = row; // first seen is latest (ordered desc)
+    }
+    setLatestPaymentByBill(map);
+  }
+
   useEffect(() => {
     (async () => {
       setLoading(true);
@@ -192,7 +237,7 @@ export default function BillsPage() {
       }
 
       setUserId(data.user.id);
-      await loadBills(data.user.id);
+      await Promise.all([loadBills(data.user.id), loadReceipts(data.user.id)]);
       setLoading(false);
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -204,7 +249,7 @@ export default function BillsPage() {
 
     setLive("connecting");
 
-    const channel = supabase
+    const billsChannel = supabase
       .channel(`recurring_bills:${userId}`)
       .on(
         "postgres_changes",
@@ -246,8 +291,21 @@ export default function BillsPage() {
         else setLive("connecting");
       });
 
+    // receipts channel: any change just triggers a lightweight refresh
+    const receiptsChannel = supabase
+      .channel(`bill_payments:${userId}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "bill_payments", filter: `user_id=eq.${userId}` },
+        () => {
+          loadReceipts(userId, { silent: true });
+        }
+      )
+      .subscribe();
+
     return () => {
-      supabase.removeChannel(channel);
+      supabase.removeChannel(billsChannel);
+      supabase.removeChannel(receiptsChannel);
     };
   }, [userId]);
 
@@ -394,7 +452,6 @@ export default function BillsPage() {
   async function markPaid(b: RecurringBill) {
     if (!userId) return;
 
-    // prevent accidental paid while editing (and avoid race with draft save)
     if (drafts[b.id]) {
       notify({ title: "Mark paid", description: "Finish editing first, then mark paid." });
       return;
@@ -428,6 +485,9 @@ export default function BillsPage() {
 
       const payment = payRow as BillPayment;
 
+      // Optimistic: latest receipt UI
+      setLatestPaymentByBill((prev) => ({ ...prev, [b.id]: payment }));
+
       // 2) Update bill next_due_at
       const { error: updErr } = await supabase
         .from("recurring_bills")
@@ -455,19 +515,18 @@ export default function BillsPage() {
             if (revErr) throw revErr;
 
             // delete receipt row
-            const { error: delErr } = await supabase
-              .from("bill_payments")
-              .delete()
-              .eq("id", payment.id)
-              .eq("user_id", userId);
+            const { error: delErr } = await supabase.from("bill_payments").delete().eq("id", payment.id).eq("user_id", userId);
 
             if (delErr) throw delErr;
+
+            // refresh receipts map (simple + correct)
+            await loadReceipts(userId, { silent: true });
 
             showToast({ message: "Undone." });
           } catch (e: any) {
             showToast({ message: e?.message ?? "Failed to undo." });
-            // fallback reload
             loadBills(userId, { silent: true });
+            loadReceipts(userId, { silent: true });
           }
         },
       });
@@ -476,6 +535,7 @@ export default function BillsPage() {
       setBills((prev) => prev.map((x) => (x.id === b.id ? { ...x, next_due_at: prevDue } : x)));
       notify({ title: "Error", description: e?.message ?? "Failed to mark paid." });
       loadBills(userId, { silent: true });
+      loadReceipts(userId, { silent: true });
     } finally {
       setPayingRow((prev) => ({ ...prev, [b.id]: false }));
     }
@@ -554,7 +614,13 @@ export default function BillsPage() {
                 {loading ? <Chip>Loading…</Chip> : <Chip>{bills.length} total</Chip>}
                 {error ? <Chip>{error}</Chip> : null}
                 {userId ? (
-                  <Button variant="secondary" onClick={() => loadBills(userId)}>
+                  <Button
+                    variant="secondary"
+                    onClick={() => {
+                      loadBills(userId);
+                      loadReceipts(userId, { silent: true });
+                    }}
+                  >
                     Refresh
                   </Button>
                 ) : null}
@@ -648,6 +714,7 @@ export default function BillsPage() {
                   const editing = !!drafts[b.id];
                   const d = drafts[b.id];
                   const paying = !!payingRow[b.id];
+                  const last = latestPaymentByBill[b.id];
 
                   return (
                     <div key={b.id} className="rounded-lg border p-3">
@@ -665,6 +732,13 @@ export default function BillsPage() {
                                 {formatMoneyFromCents(b.amount_cents, b.currency)} • Next due{" "}
                                 {new Date(b.next_due_at).toLocaleString()}
                               </div>
+
+                              {last ? (
+                                <div className="text-xs text-zinc-600 mt-1">
+                                  Last paid: {new Date(last.paid_at).toLocaleString()} •{" "}
+                                  {formatMoneyFromCents(last.amount_cents, last.currency)}
+                                </div>
+                              ) : null}
                             </>
                           ) : (
                             <div className="grid gap-2 md:grid-cols-6">
