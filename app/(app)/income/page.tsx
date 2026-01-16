@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { Page } from "@/components/Page";
 import { Card, CardContent, Button, Chip, Badge, useToast } from "@/components/ui";
@@ -23,6 +23,8 @@ type RecurringIncome = {
   created_at: string;
   updated_at: string;
 };
+
+type LiveStatus = "connecting" | "live" | "offline";
 
 function formatMoneyFromCents(cents: number, currency = "AUD") {
   const value = (cents || 0) / 100;
@@ -54,15 +56,29 @@ function centsFromInput(input: string): number {
 function toLocalInputValue(iso: string) {
   const d = new Date(iso);
   const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(
-    d.getMinutes()
-  )}`;
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 function fromLocalInputValue(localValue: string) {
   const d = new Date(localValue);
   return d.toISOString();
 }
+
+function sortIncome(rows: RecurringIncome[]) {
+  const copy = [...rows];
+  // match loadIncome ordering: active desc, next_pay_at asc
+  copy.sort((a, b) => {
+    if (a.active !== b.active) return a.active ? -1 : 1;
+    const ta = a.next_pay_at ? Date.parse(a.next_pay_at) : 0;
+    const tb = b.next_pay_at ? Date.parse(b.next_pay_at) : 0;
+    const va = Number.isNaN(ta) ? 0 : ta;
+    const vb = Number.isNaN(tb) ? 0 : tb;
+    return va - vb;
+  });
+  return copy;
+}
+
+const LOAD_THROTTLE_MS = 1500;
 
 export default function IncomePage() {
   const { showToast } = useToast();
@@ -78,6 +94,13 @@ export default function IncomePage() {
 
   const [items, setItems] = useState<RecurringIncome[]>([]);
   const [error, setError] = useState<string | null>(null);
+
+  // Live indicator
+  const [liveStatus, setLiveStatus] = useState<LiveStatus>("connecting");
+
+  // Silent reload throttle
+  const lastLoadAtRef = useRef<number>(0);
+  const pendingSilentReloadRef = useRef<number | null>(null);
 
   // Add form
   const [name, setName] = useState("");
@@ -105,6 +128,7 @@ export default function IncomePage() {
       if (userErr || !data.user) {
         setError("Not signed in.");
         setLoading(false);
+        setLiveStatus("offline");
         return;
       }
 
@@ -115,7 +139,24 @@ export default function IncomePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  async function loadIncome(uid: string) {
+  async function loadIncome(uid: string, opts?: { silent?: boolean }) {
+    const silent = !!opts?.silent;
+
+    const now = Date.now();
+    if (silent) {
+      if (now - lastLoadAtRef.current < LOAD_THROTTLE_MS) {
+        if (pendingSilentReloadRef.current) window.clearTimeout(pendingSilentReloadRef.current);
+        pendingSilentReloadRef.current = window.setTimeout(() => {
+          pendingSilentReloadRef.current = null;
+          loadIncome(uid, { silent: true });
+        }, LOAD_THROTTLE_MS);
+        return;
+      }
+    }
+    lastLoadAtRef.current = now;
+
+    if (!silent) setError(null);
+
     const { data, error } = await supabase
       .from("recurring_income")
       .select("*")
@@ -129,6 +170,78 @@ export default function IncomePage() {
     }
     setItems((data || []) as RecurringIncome[]);
   }
+
+  // Realtime patching
+  useEffect(() => {
+    if (!userId) return;
+
+    setLiveStatus("connecting");
+
+    const channel = supabase
+      .channel(`income-realtime-${userId}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "recurring_income", filter: `user_id=eq.${userId}` },
+        (payload) => {
+          try {
+            const eventType: string | undefined = (payload as any)?.eventType;
+            const newRow = (payload as any)?.new as RecurringIncome | undefined;
+            const oldRow = (payload as any)?.old as Partial<RecurringIncome> | undefined;
+            const id = (newRow as any)?.id || (oldRow as any)?.id;
+
+            if (!eventType || !id) {
+              loadIncome(userId, { silent: true });
+              return;
+            }
+
+            setItems((prev) => {
+              if (eventType === "INSERT") {
+                if (!newRow) return prev;
+                const exists = prev.some((x) => x.id === newRow.id);
+                const merged = exists
+                  ? prev.map((x) => (x.id === newRow.id ? { ...x, ...newRow } : x))
+                  : [...prev, newRow];
+                return sortIncome(merged);
+              }
+
+              if (eventType === "UPDATE") {
+                if (!newRow) return prev;
+                const merged = prev.map((x) => (x.id === newRow.id ? { ...x, ...newRow } : x));
+                return sortIncome(merged);
+              }
+
+              if (eventType === "DELETE") {
+                return prev.filter((x) => x.id !== id);
+              }
+
+              return prev;
+            });
+          } catch {
+            loadIncome(userId, { silent: true });
+          }
+        }
+      )
+      .subscribe((status) => {
+        if (status === "SUBSCRIBED") setLiveStatus("live");
+        else if (status === "CLOSED" || status === "CHANNEL_ERROR" || status === "TIMED_OUT") setLiveStatus("offline");
+        else setLiveStatus("connecting");
+      });
+
+    return () => {
+      supabase.removeChannel(channel);
+      setLiveStatus("offline");
+    };
+  }, [userId]);
+
+  // Focus refresh (silent)
+  useEffect(() => {
+    const onFocus = () => {
+      if (!userId) return;
+      loadIncome(userId, { silent: true });
+    };
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [userId]);
 
   const activeIncome = useMemo(() => items.filter((i) => i.active), [items]);
 
@@ -171,7 +284,9 @@ export default function IncomePage() {
       setActive(true);
 
       notify({ title: "Saved", description: "Recurring income added." });
-      await loadIncome(userId);
+
+      // allow realtime to pick it up, but also ensure correctness
+      await loadIncome(userId, { silent: true });
     } catch (e: any) {
       notify({ title: "Error", description: e?.message ?? "Failed to add income." });
     } finally {
@@ -227,17 +342,14 @@ export default function IncomePage() {
         updatePayload.next_pay_at = fromLocalInputValue(d.next_pay_local);
       }
 
-      const { error } = await supabase
-        .from("recurring_income")
-        .update(updatePayload)
-        .eq("id", id)
-        .eq("user_id", userId);
+      const { error } = await supabase.from("recurring_income").update(updatePayload).eq("id", id).eq("user_id", userId);
 
       if (error) throw error;
 
       notify({ title: "Saved", description: "Income updated." });
       cancelEdit(id);
-      await loadIncome(userId);
+
+      await loadIncome(userId, { silent: true });
     } catch (e: any) {
       notify({ title: "Error", description: e?.message ?? "Failed to update income." });
     } finally {
@@ -254,11 +366,7 @@ export default function IncomePage() {
     setItems((prev) => prev.map((x) => (x.id === i.id ? { ...x, active: newValue } : x)));
 
     try {
-      const { error } = await supabase
-        .from("recurring_income")
-        .update({ active: newValue })
-        .eq("id", i.id)
-        .eq("user_id", userId);
+      const { error } = await supabase.from("recurring_income").update({ active: newValue }).eq("id", i.id).eq("user_id", userId);
 
       if (error) throw error;
 
@@ -296,7 +404,7 @@ export default function IncomePage() {
           const { error } = await supabase.from("recurring_income").insert(payload);
           if (error) throw error;
 
-          await loadIncome(userId);
+          await loadIncome(userId, { silent: true });
           showToast({ message: "Restored." });
         } catch (e: any) {
           showToast({ message: e?.message ?? "Failed to restore." });
@@ -304,11 +412,7 @@ export default function IncomePage() {
       },
     });
 
-    const { error } = await supabase
-      .from("recurring_income")
-      .delete()
-      .eq("id", i.id)
-      .eq("user_id", userId);
+    const { error } = await supabase.from("recurring_income").delete().eq("id", i.id).eq("user_id", userId);
 
     if (error) {
       setItems(snapshot);
@@ -316,8 +420,28 @@ export default function IncomePage() {
     }
   }
 
+  const liveChipClass =
+    liveStatus === "live"
+      ? "border border-emerald-200 bg-emerald-50 text-emerald-700"
+      : liveStatus === "offline"
+      ? "border border-rose-200 bg-rose-50 text-rose-700"
+      : "border border-zinc-200 bg-zinc-50 text-zinc-700";
+
   return (
-    <Page title="Income" subtitle="Recurring income you’ve told Keystone is true. Used by the Engine later.">
+    <Page
+      title="Income"
+      subtitle="Recurring income you’ve told Keystone is true. Used by the Engine later."
+      right={
+        <div className="flex items-center gap-2">
+          <Chip className={liveChipClass}>
+            {liveStatus === "live" ? "Live" : liveStatus === "offline" ? "Offline" : "Connecting"}
+          </Chip>
+          <Button variant="secondary" onClick={() => userId && loadIncome(userId)}>
+            Refresh
+          </Button>
+        </div>
+      }
+    >
       <div className="grid gap-4">
         <Card>
           <CardContent>
