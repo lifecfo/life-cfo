@@ -369,6 +369,44 @@ function sortIncome(rows: RecurringIncome[]) {
   return copy;
 }
 
+// -------------------- NEW: cadence bump helpers (MODULE SCOPE) --------------------
+function daysInMonth(year: number, month0: number) {
+  // month0: 0-11
+  return new Date(year, month0 + 1, 0).getDate();
+}
+
+function addMonthsPreserveDay(date: Date, months: number) {
+  const y = date.getFullYear();
+  const m = date.getMonth();
+  const d = date.getDate();
+
+  const target = new Date(date);
+  target.setDate(1); // prevent overflow issues
+  target.setMonth(m + months);
+
+  const ty = target.getFullYear();
+  const tm = target.getMonth();
+  const maxDay = daysInMonth(ty, tm);
+  target.setDate(Math.min(d, maxDay));
+
+  return target;
+}
+
+function bumpIsoByCadence(currentIso: string, cadence: Cadence) {
+  const d = new Date(currentIso);
+  if (Number.isNaN(d.getTime())) return currentIso;
+
+  let next = new Date(d);
+
+  if (cadence === "weekly") next.setDate(next.getDate() + 7);
+  else if (cadence === "fortnightly") next.setDate(next.getDate() + 14);
+  else if (cadence === "monthly") next = addMonthsPreserveDay(next, 1);
+  else if (cadence === "yearly") next = addMonthsPreserveDay(next, 12);
+
+  return next.toISOString();
+}
+// -------------------- End cadence bump helpers --------------------
+
 export default function EnginePage() {
   const { showToast } = useToast();
 
@@ -398,6 +436,9 @@ export default function EnginePage() {
   // Step 2: cooldown (local-only)
   const COOLDOWN_MS = 10_000;
   const [cooldownUntil, setCooldownUntil] = useState<number | null>(null);
+
+  // NEW: per-bill action state
+  const [markingPaid, setMarkingPaid] = useState<Record<string, boolean>>({});
 
   // Safe reload throttle
   const reloadTimerRef = useRef<number | null>(null);
@@ -696,6 +737,48 @@ export default function EnginePage() {
 
   const totals = useMemo(() => computeTotals(accounts, bills, income), [accounts, bills, income]);
 
+  // NEW: due soon list for action (stable sort)
+  const dueSoonBills7 = useMemo(() => {
+    const copy = [...totals.bills7];
+    copy.sort((a, b) => {
+      const ta = a.next_due_at ? Date.parse(a.next_due_at) : 0;
+      const tb = b.next_due_at ? Date.parse(b.next_due_at) : 0;
+      return ta - tb;
+    });
+    return copy;
+  }, [totals.bills7]);
+
+  async function markBillPaid(b: RecurringBill) {
+    if (!userId) return;
+
+    // If another write is running, still allow mark-paid, but guard double clicks
+    setMarkingPaid((prev) => ({ ...prev, [b.id]: true }));
+
+    const nextDue = bumpIsoByCadence(b.next_due_at, b.cadence);
+
+    try {
+      const { error: upErr } = await supabase
+        .from("recurring_bills")
+        .update({ next_due_at: nextDue })
+        .eq("id", b.id)
+        .eq("user_id", userId);
+
+      if (upErr) throw upErr;
+
+      notify({
+        title: "Marked paid",
+        description: `"${b.name}" moved to ${fmtDateTime(nextDue)} (${b.cadence}).`,
+      });
+
+      // realtime should patch; this is just correctness fallback
+      scheduleReload(() => loadAllRef.current(userId, { silent: true }));
+    } catch (e: any) {
+      notify({ title: "Mark paid failed", description: e?.message ?? "Couldn’t update next due date." });
+    } finally {
+      setMarkingPaid((prev) => ({ ...prev, [b.id]: false }));
+    }
+  }
+
   async function writeSingleReminder(opts: { runId: string; dedupe_key: string; title: string; body: string; severity: number }) {
     if (!userId) return;
 
@@ -946,7 +1029,11 @@ export default function EnginePage() {
       }
 
       // Clear missing-accounts reminder if it exists and we now have accounts
-      await supabase.from("decision_inbox").update({ status: "done", snoozed_until: null }).eq("user_id", userId).eq("dedupe_key", "engine_missing_accounts");
+      await supabase
+        .from("decision_inbox")
+        .update({ status: "done", snoozed_until: null })
+        .eq("user_id", userId)
+        .eq("dedupe_key", "engine_missing_accounts");
 
       const safeTitle = "Safe to spend this week";
       const billsTitle = "Upcoming bills (next 14 days)";
@@ -1240,6 +1327,50 @@ export default function EnginePage() {
                   Income: {formatMoneyFromCents(totals.income30Total)} ({totals.income30.length})
                 </div>
               </div>
+            </div>
+
+            {/* NEW: Action surface (minimal, truthful) */}
+            <div className="mt-4">
+              <div className="flex items-center justify-between gap-3 flex-wrap">
+                <div className="font-semibold">Bills due soon (next 7 days)</div>
+                <div className="text-sm opacity-70">
+                  “Mark paid” just moves the next due date forward by cadence.
+                </div>
+              </div>
+
+              {dueSoonBills7.length === 0 ? (
+                <div className="mt-2 text-sm text-zinc-600">No bills due in the next 7 days.</div>
+              ) : (
+                <div className="mt-2 grid gap-2">
+                  {dueSoonBills7.slice(0, 6).map((b) => {
+                    const busy = !!markingPaid[b.id];
+                    return (
+                      <div key={b.id} className="flex flex-wrap items-start justify-between gap-3 rounded-lg border p-3">
+                        <div className="min-w-[240px] flex-1">
+                          <div className="font-semibold flex items-center gap-2 flex-wrap">
+                            {b.name}
+                            {b.autopay ? <Chip>Autopay</Chip> : <Chip>Manual</Chip>}
+                            <Chip>{b.cadence}</Chip>
+                          </div>
+                          <div className="text-sm text-zinc-600 mt-1">
+                            {formatMoneyFromCents(b.amount_cents, b.currency)} • Due {fmtDateTime(b.next_due_at)}
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          <Button
+                            onClick={() => markBillPaid(b)}
+                            disabled={!userId || busy}
+                            title="Move next due date forward by cadence"
+                          >
+                            {busy ? "Updating…" : "Mark paid"}
+                          </Button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
 
             <div className="text-sm opacity-70 mt-3">
