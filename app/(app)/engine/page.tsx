@@ -158,6 +158,165 @@ type EngineInsight = {
   severity: 1 | 2 | 3;
 };
 
+// -------------------- Helper bodies + severities (MODULE SCOPE) --------------------
+// IMPORTANT: keep these OUTSIDE EnginePage so both v1 and v2 code can call them.
+
+function buildUpcomingBillsBody(t: ComputedTotals) {
+  if (t.bills14.length === 0) {
+    return [
+      "No bills due in the next 14 days.",
+      "",
+      `Balance: ${formatMoneyFromCents(t.balance)}`,
+      `Bills (7d): ${formatMoneyFromCents(t.bills7Total)}`,
+      `Bills (14d): ${formatMoneyFromCents(t.bills14Total)}`,
+      `Bills (30d): ${formatMoneyFromCents(t.bills30Total)}`,
+    ].join("\n");
+  }
+
+  const lines = t.bills14.map((b) => {
+    const flags = [b.autopay ? "autopay" : null].filter(Boolean).join(", ");
+    const flagText = flags ? ` (${flags})` : "";
+    return `• ${b.name}: ${formatMoneyFromCents(b.amount_cents, b.currency)} — due ${fmtDateTime(b.next_due_at)}${flagText}`;
+  });
+
+  return [
+    `Bills due in the next 14 days (${t.bills14.length}):`,
+    ...lines,
+    "",
+    `Total (14d): ${formatMoneyFromCents(t.bills14Total)}`,
+    `Balance now: ${formatMoneyFromCents(t.balance)}`,
+  ].join("\n");
+}
+
+function buildUpcomingIncomeBody(t: ComputedTotals) {
+  if (t.income14.length === 0) {
+    return [
+      "No income due in the next 14 days.",
+      "",
+      `Balance: ${formatMoneyFromCents(t.balance)}`,
+      `Income (7d): ${formatMoneyFromCents(t.income7Total)}`,
+      `Income (14d): ${formatMoneyFromCents(t.income14Total)}`,
+      `Income (30d): ${formatMoneyFromCents(t.income30Total)}`,
+    ].join("\n");
+  }
+
+  const lines = t.income14.map((i) => {
+    return `• ${i.name}: ${formatMoneyFromCents(i.amount_cents, i.currency)} — next pay ${fmtDateTime(i.next_pay_at)}`;
+  });
+
+  return [
+    `Income due in the next 14 days (${t.income14.length}):`,
+    ...lines,
+    "",
+    `Total (14d): ${formatMoneyFromCents(t.income14Total)}`,
+    `Balance now: ${formatMoneyFromCents(t.balance)}`,
+  ].join("\n");
+}
+
+function severityForSafeToSpend(t: ComputedTotals) {
+  const dollars = t.safeToSpendWeek / 100;
+  if (dollars <= 0) return 3;
+  if (dollars < 200) return 2;
+  return 1;
+}
+
+function severityForUpcomingBills(t: ComputedTotals) {
+  if (t.bills14Total > t.balance) return 3;
+  if (t.bills14Total > 0) return 2;
+  return 1;
+}
+
+function severityForUpcomingIncome(t: ComputedTotals) {
+  // income is usually a reassurance, not an alarm
+  if (t.income14Total > 0) return 1;
+  return 2;
+}
+
+// NEW: cashflow 30d
+function buildCashflow30Body(t: ComputedTotals) {
+  const outlook = t.balance + t.income30Total - t.bills30Total;
+
+  return [
+    "30-day cashflow outlook (truth-based):",
+    "",
+    `Balance now: ${formatMoneyFromCents(t.balance)}`,
+    `Income due (30d): ${formatMoneyFromCents(t.income30Total)}`,
+    `Bills due (30d): ${formatMoneyFromCents(t.bills30Total)}`,
+    "",
+    `Outlook (30d): ${formatMoneyFromCents(outlook)}`,
+    "",
+    "Truth reminder:",
+    "outlook_30d = balance + income_due_30d - bills_due_30d",
+  ].join("\n");
+}
+
+function severityForCashflow30(t: ComputedTotals) {
+  const outlook = t.balance + t.income30Total - t.bills30Total;
+  if (outlook < 0) return 3; // high urgency
+  if (outlook < 200_00) return 2; // under $200 buffer
+  return 1;
+}
+
+// NEW: largest bill 14d
+function buildLargestBill14dBody(t: ComputedTotals) {
+  if (t.bills14.length === 0) {
+    return ["No bills due in the next 14 days.", "", `Balance: ${formatMoneyFromCents(t.balance)}`].join("\n");
+  }
+
+  const largest = [...t.bills14].sort((a, b) => (b.amount_cents || 0) - (a.amount_cents || 0))[0];
+
+  return [
+    "Largest upcoming bill (next 14 days):",
+    "",
+    `• ${largest.name}: ${formatMoneyFromCents(largest.amount_cents, largest.currency)} — due ${fmtDateTime(
+      largest.next_due_at
+    )}${largest.autopay ? " (autopay)" : " (NOT autopay)"}`,
+    "",
+    `Bills due (14d): ${formatMoneyFromCents(t.bills14Total)}`,
+    `Balance now: ${formatMoneyFromCents(t.balance)}`,
+  ].join("\n");
+}
+
+function severityForLargestBill14d(t: ComputedTotals) {
+  if (t.bills14.length === 0) return 1;
+  const largest = t.bills14.reduce((max, b) => Math.max(max, b.amount_cents || 0), 0);
+  if (largest > t.balance) return 3;
+  if (largest > 300_00) return 2;
+  return 1;
+}
+
+// NEW: autopay risk 7d
+function buildAutopayRiskBody(t: ComputedTotals) {
+  const due7NoAutopay = t.bills7.filter((b) => !b.autopay);
+  if (due7NoAutopay.length === 0) {
+    return [
+      "No near-term autopay risks.",
+      "",
+      "All bills due in the next 7 days are marked autopay (or there are no bills due).",
+    ].join("\n");
+  }
+
+  const lines = due7NoAutopay.map(
+    (b) => `• ${b.name}: ${formatMoneyFromCents(b.amount_cents, b.currency)} — due ${fmtDateTime(b.next_due_at)}`
+  );
+
+  return [
+    `Autopay risk: ${due7NoAutopay.length} bill(s) due in 7 days are NOT autopay:`,
+    ...lines,
+    "",
+    "Next step:",
+    "Either enable autopay or set a manual reminder.",
+  ].join("\n");
+}
+
+function severityForAutopayRisk(t: ComputedTotals) {
+  const due7NoAutopay = t.bills7.filter((b) => !b.autopay);
+  if (due7NoAutopay.length === 0) return 1;
+  if (due7NoAutopay.length >= 3) return 3;
+  return 2;
+}
+// -------------------- End helpers --------------------
+
 export default function EnginePage() {
   const { showToast } = useToast();
 
@@ -238,77 +397,6 @@ export default function EnginePage() {
 
   const totals = useMemo(() => computeTotals(accounts, bills, income), [accounts, bills, income]);
 
-  function buildUpcomingBillsBody(t: ComputedTotals) {
-    if (t.bills14.length === 0) {
-      return [
-        "No bills due in the next 14 days.",
-        "",
-        `Balance: ${formatMoneyFromCents(t.balance)}`,
-        `Bills (7d): ${formatMoneyFromCents(t.bills7Total)}`,
-        `Bills (14d): ${formatMoneyFromCents(t.bills14Total)}`,
-        `Bills (30d): ${formatMoneyFromCents(t.bills30Total)}`,
-      ].join("\n");
-    }
-
-    const lines = t.bills14.map((b) => {
-      const flags = [b.autopay ? "autopay" : null].filter(Boolean).join(", ");
-      const flagText = flags ? ` (${flags})` : "";
-      return `• ${b.name}: ${formatMoneyFromCents(b.amount_cents, b.currency)} — due ${fmtDateTime(b.next_due_at)}${flagText}`;
-    });
-
-    return [
-      `Bills due in the next 14 days (${t.bills14.length}):`,
-      ...lines,
-      "",
-      `Total (14d): ${formatMoneyFromCents(t.bills14Total)}`,
-      `Balance now: ${formatMoneyFromCents(t.balance)}`,
-    ].join("\n");
-  }
-
-  function buildUpcomingIncomeBody(t: ComputedTotals) {
-    if (t.income14.length === 0) {
-      return [
-        "No income due in the next 14 days.",
-        "",
-        `Balance: ${formatMoneyFromCents(t.balance)}`,
-        `Income (7d): ${formatMoneyFromCents(t.income7Total)}`,
-        `Income (14d): ${formatMoneyFromCents(t.income14Total)}`,
-        `Income (30d): ${formatMoneyFromCents(t.income30Total)}`,
-      ].join("\n");
-    }
-
-    const lines = t.income14.map((i) => {
-      return `• ${i.name}: ${formatMoneyFromCents(i.amount_cents, i.currency)} — next pay ${fmtDateTime(i.next_pay_at)}`;
-    });
-
-    return [
-      `Income due in the next 14 days (${t.income14.length}):`,
-      ...lines,
-      "",
-      `Total (14d): ${formatMoneyFromCents(t.income14Total)}`,
-      `Balance now: ${formatMoneyFromCents(t.balance)}`,
-    ].join("\n");
-  }
-
-  function severityForSafeToSpend(t: ComputedTotals) {
-    const dollars = t.safeToSpendWeek / 100;
-    if (dollars <= 0) return 3;
-    if (dollars < 200) return 2;
-    return 1;
-  }
-
-  function severityForUpcomingBills(t: ComputedTotals) {
-    if (t.bills14Total > t.balance) return 3;
-    if (t.bills14Total > 0) return 2;
-    return 1;
-  }
-
-  function severityForUpcomingIncome(t: ComputedTotals) {
-    // income is usually a reassurance, not an alarm
-    if (t.income14Total > 0) return 1;
-    return 2;
-  }
-
   async function writeSingleReminder(opts: {
     runId: string;
     dedupe_key: string;
@@ -360,7 +448,12 @@ export default function EnginePage() {
     if (upErr) throw upErr;
   }
 
-  function computeInsights(t: ComputedTotals, freshBills: RecurringBill[], freshIncome: RecurringIncome[], freshAccounts: Account[]) {
+  function computeInsights(
+    t: ComputedTotals,
+    freshBills: RecurringBill[],
+    freshIncome: RecurringIncome[],
+    freshAccounts: Account[]
+  ) {
     const list: EngineInsight[] = [];
 
     // Missing inputs: we keep these as insights too (in addition to v1 reminders)
@@ -610,6 +703,39 @@ export default function EnginePage() {
           snoozed_until: null,
           dedupe_key: "engine_upcoming_income_14d",
         },
+        {
+          user_id: userId,
+          run_id: runId,
+          type: "engine",
+          title: "30-day cashflow outlook",
+          body: buildCashflow30Body(freshTotals),
+          severity: severityForCashflow30(freshTotals),
+          status: "open",
+          snoozed_until: null,
+          dedupe_key: "engine_cashflow_outlook_30d",
+        },
+        {
+          user_id: userId,
+          run_id: runId,
+          type: "engine",
+          title: "Largest bill (next 14 days)",
+          body: buildLargestBill14dBody(freshTotals),
+          severity: severityForLargestBill14d(freshTotals),
+          status: "open",
+          snoozed_until: null,
+          dedupe_key: "engine_largest_bill_14d",
+        },
+        {
+          user_id: userId,
+          run_id: runId,
+          type: "engine",
+          title: "Autopay risks (next 7 days)",
+          body: buildAutopayRiskBody(freshTotals),
+          severity: severityForAutopayRisk(freshTotals),
+          status: "open",
+          snoozed_until: null,
+          dedupe_key: "engine_autopay_risk_7d",
+        },
       ];
 
       const { error: upErr } = await supabase.from("decision_inbox").upsert(upsertRows, {
@@ -628,7 +754,8 @@ export default function EnginePage() {
       setLastRanAt(new Date().toLocaleString());
       notify({
         title: "Engine v1 ran",
-        description: "Wrote Safe-to-spend + Upcoming bills + Upcoming income into Inbox (dedupe-safe).",
+        description:
+          "Wrote Safe-to-spend + Upcoming bills + Upcoming income + 30d outlook + Largest bill + Autopay risks into Inbox (dedupe-safe).",
       });
     } catch (e: any) {
       notify({ title: "Engine error", description: e?.message ?? "Failed to run engine." });
@@ -702,8 +829,9 @@ export default function EnginePage() {
                   Refresh inputs
                 </Button>
 
+                {/* NOTE: kept your labels exactly as you pasted (Run Engine v2 is actually v1) */}
                 <Button onClick={runEngineV1} disabled={!userId || loading || running || cooldownSeconds > 0}>
-                  {running ? "Running…" : "Run Engine v1"}
+                  {running ? "Running…" : "Run Engine v2"}
                 </Button>
 
                 <Button variant="secondary" onClick={runEngineV2} disabled={!userId || loading || running || cooldownSeconds > 0}>
