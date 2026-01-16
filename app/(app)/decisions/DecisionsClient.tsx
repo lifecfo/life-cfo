@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { Badge, Button, Card, CardContent, Chip, useToast } from "@/components/ui";
@@ -133,6 +133,9 @@ export default function DecisionsClient() {
 
   // tabs
   const [tab, setTab] = useState<TabMode>("all");
+
+  // review tab: optionally include due-soon
+  const [includeDueSoonInReview, setIncludeDueSoonInReview] = useState(false);
 
   // bulk selection (Review tab)
   const [selected, setSelected] = useState<Record<string, boolean>>({});
@@ -269,6 +272,21 @@ export default function DecisionsClient() {
     [reviewSorted]
   );
   const scheduledCount = useMemo(() => reviewSorted.length, [reviewSorted]);
+
+  const nextDue = useMemo(() => reviewSorted.find((d) => isDueForReview(d)) ?? null, [reviewSorted]);
+  const nextDueSoon = useMemo(
+    () => reviewSorted.find((d) => !isDueForReview(d) && isDueSoon(d)) ?? null,
+    [reviewSorted]
+  );
+
+  const expandAndScrollTo = (id: string) => {
+    setExpanded((prev) => ({ ...prev, [id]: true }));
+    // allow state paint, then scroll
+    window.setTimeout(() => {
+      const el = document.getElementById(`decision-${id}`);
+      el?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 50);
+  };
 
   // ---------- selection ----------
   const selectedIds = useMemo(() => Object.keys(selected).filter((id) => selected[id]), [selected]);
@@ -591,9 +609,7 @@ export default function DecisionsClient() {
           }
 
           setRows((prev) =>
-            prev.map((x) =>
-              x.id === d.id ? { ...x, status: prevStatus, decided_at: prevDecidedAt ?? null } : x
-            )
+            prev.map((x) => (x.id === d.id ? { ...x, status: prevStatus, decided_at: prevDecidedAt ?? null } : x))
           );
 
           setStatusLine("Undone ✅");
@@ -611,7 +627,9 @@ export default function DecisionsClient() {
 
     return rows.filter((d) => {
       if (tab === "review") {
-        if (!isDueForReview(d)) return false;
+        const due = isDueForReview(d);
+        const soon = !due && isDueSoon(d);
+        if (!due && !(includeDueSoonInReview && soon)) return false;
       }
       if (tab === "drafts") {
         if (d.status !== "draft") return false;
@@ -649,7 +667,7 @@ export default function DecisionsClient() {
 
       return true;
     });
-  }, [rows, query, onlyWithAI, typeFilter, stakesFilter, suggestedFilter, needsAttention, tab]);
+  }, [rows, query, onlyWithAI, typeFilter, stakesFilter, suggestedFilter, needsAttention, tab, includeDueSoonInReview]);
 
   const activeFiltersCount = useMemo(() => {
     let n = 0;
@@ -667,7 +685,11 @@ export default function DecisionsClient() {
       <div className="text-zinc-700">
         <strong>{decidedCount}</strong> handled • <strong>{draftCount}</strong> drafts • {statusLine}
       </div>
-      <div>You’re building a trail of clarity — one decision at a time.</div>
+      <div className="text-sm text-zinc-600">
+        {tab === "review"
+          ? "Review is how Keystone stays true over time. Keep it light: confirm, update, or reschedule."
+          : "You’re building a trail of clarity — one decision at a time."}
+      </div>
     </div>
   );
 
@@ -685,6 +707,7 @@ export default function DecisionsClient() {
       right={
         <div className="flex flex-wrap items-center gap-2">
           <Button onClick={load}>Refresh</Button>
+
           <Button variant="secondary" onClick={() => expandAll(filtered)}>
             Expand filtered
           </Button>
@@ -714,25 +737,55 @@ export default function DecisionsClient() {
         </Chip>
 
         {tab === "review" && dueForReviewCount === 0 && (
-          <div className="self-center text-sm text-zinc-600">Nothing is due right now 🎉</div>
+          <div className="self-center text-sm text-zinc-600">Nothing is overdue 🎉</div>
         )}
 
         {tab === "drafts" && draftCount === 0 && <div className="self-center text-sm text-zinc-600">No drafts right now 🎉</div>}
       </div>
 
-      {/* Review summary + bulk controls */}
-      <Card className="bg-zinc-50">
-        <CardContent>
-          <div className="space-y-3">
-            <div className="flex flex-wrap justify-between gap-3">
-              <div className="flex flex-wrap items-center gap-2">
-                <Badge variant="muted">Scheduled: {scheduledCount}</Badge>
-                <Badge variant="warning">Overdue: {overdueCount}</Badge>
-                <Badge variant="muted">Due soon: {dueSoonCount}</Badge>
-                {tab === "review" && selectedIds.length > 0 && <Badge variant="muted">Selected: {selectedIds.length}</Badge>}
+      {/* Review queue (tab only) */}
+      {tab === "review" && (
+        <Card className="border-amber-200 bg-amber-50">
+          <CardContent>
+            <div className="space-y-3">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="space-y-1">
+                  <div className="text-sm font-semibold">Review queue</div>
+                  <div className="text-xs text-zinc-600">
+                    Confirm what’s still true. Add a note if needed. Otherwise: mark reviewed or reschedule.
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    onClick={() => {
+                      const target = nextDue ?? (includeDueSoonInReview ? nextDueSoon : null);
+                      if (target) expandAndScrollTo(target.id);
+                    }}
+                    disabled={!nextDue && !(includeDueSoonInReview && nextDueSoon)}
+                    title="Expand and jump to the next item in the queue"
+                  >
+                    Review next
+                  </Button>
+
+                  <Button
+                    variant="secondary"
+                    onClick={() => setIncludeDueSoonInReview((v) => !v)}
+                    title="Include items due soon (within ~48h) in this queue"
+                  >
+                    {includeDueSoonInReview ? "Showing due soon" : "Include due soon"}
+                  </Button>
+                </div>
               </div>
 
-              {tab === "review" && (
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant="warning">Overdue: {overdueCount}</Badge>
+                <Badge variant="muted">Due soon: {dueSoonCount}</Badge>
+                <Badge variant="muted">Scheduled total: {scheduledCount}</Badge>
+                {selectedIds.length > 0 && <Badge variant="muted">Selected: {selectedIds.length}</Badge>}
+              </div>
+
+              <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex flex-wrap gap-2">
                   <Button
                     variant="secondary"
@@ -748,42 +801,40 @@ export default function DecisionsClient() {
                     Clear selection
                   </Button>
                 </div>
-              )}
-            </div>
 
-            {tab === "review" && (
-              <div className="flex flex-wrap gap-2">
-                <Button onClick={bulkMarkReviewed} disabled={selectedIds.length === 0}>
-                  ✅ Mark reviewed
-                </Button>
+                <div className="flex flex-wrap gap-2">
+                  <Button onClick={bulkMarkReviewed} disabled={selectedIds.length === 0}>
+                    ✅ Mark reviewed
+                  </Button>
 
-                <Button variant="secondary" onClick={() => bulkScheduleMinutes(60 * 24 * 3)} disabled={selectedIds.length === 0}>
-                  ⏳ Review in 3 days
-                </Button>
+                  <Button variant="secondary" onClick={() => bulkScheduleMinutes(60 * 24 * 3)} disabled={selectedIds.length === 0}>
+                    ⏳ +3d
+                  </Button>
 
-                <Button variant="secondary" onClick={() => bulkScheduleMinutes(60 * 24 * 7)} disabled={selectedIds.length === 0}>
-                  ⏳ Review in 7 days
-                </Button>
+                  <Button variant="secondary" onClick={() => bulkScheduleMinutes(60 * 24 * 7)} disabled={selectedIds.length === 0}>
+                    ⏳ +7d
+                  </Button>
 
-                <Button variant="secondary" onClick={() => bulkScheduleMinutes(60 * 24 * 30)} disabled={selectedIds.length === 0}>
-                  ⏳ Review in 30 days
-                </Button>
+                  <Button variant="secondary" onClick={() => bulkScheduleMinutes(60 * 24 * 30)} disabled={selectedIds.length === 0}>
+                    ⏳ +30d
+                  </Button>
 
-                <Button variant="secondary" onClick={bulkClearReviewAt} disabled={selectedIds.length === 0}>
-                  🧹 Clear review date
-                </Button>
+                  <Button variant="secondary" onClick={bulkClearReviewAt} disabled={selectedIds.length === 0}>
+                    🧹 Clear dates
+                  </Button>
+                </div>
               </div>
-            )}
-          </div>
-        </CardContent>
-      </Card>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Search */}
       <div className="flex flex-wrap gap-2">
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder={tab === "review" ? "Search reviews..." : tab === "drafts" ? "Search drafts..." : "Search decisions..."}
+          placeholder={tab === "review" ? "Search review items..." : tab === "drafts" ? "Search drafts..." : "Search decisions..."}
           className="min-w-[260px] flex-1 rounded-xl border border-zinc-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200"
         />
       </div>
@@ -883,6 +934,7 @@ export default function DecisionsClient() {
           return (
             <Card
               key={d.id}
+              id={`decision-${d.id}`}
               className={
                 isDraft
                   ? "border-zinc-200 bg-zinc-50"
@@ -938,13 +990,12 @@ export default function DecisionsClient() {
                           </strong>
 
                           {isDraft && <Badge variant="muted">Draft</Badge>}
-                          {due && <Badge variant="warning">Due for review</Badge>}
+                          {due && <Badge variant="warning">Due now</Badge>}
                           {dueSoon && <Badge variant="muted">Due soon</Badge>}
                           {conf && <Badge variant="muted">Confidence: {conf}</Badge>}
                           {suggested && <Badge variant="muted">AI: {suggested}</Badge>}
                           {isDraft && d.inbox_item_id && <Badge variant="muted">Linked to Inbox</Badge>}
 
-                          {/* One-click review link (only when due) */}
                           {!isDraft && due && (
                             <Button
                               variant="secondary"
@@ -994,16 +1045,16 @@ export default function DecisionsClient() {
                       )}
 
                       <Button variant="secondary" onClick={() => reviewIn1Day(d.id)}>
-                        ⏳ Review in 1 day
+                        ⏳ +1d
                       </Button>
                       <Button variant="secondary" onClick={() => reviewIn3Days(d.id)}>
-                        ⏳ Review in 3 days
+                        ⏳ +3d
                       </Button>
                       <Button variant="secondary" onClick={() => reviewIn7Days(d.id)}>
-                        ⏳ Review in 7 days
+                        ⏳ +7d
                       </Button>
                       <Button variant="secondary" onClick={() => reviewIn30Days(d.id)}>
-                        ⏳ Review in 30 days
+                        ⏳ +30d
                       </Button>
 
                       <Button variant="secondary" onClick={() => clearReviewAt(d.id)}>
@@ -1219,7 +1270,7 @@ export default function DecisionsClient() {
 
         {filtered.length === 0 && (
           <div className="text-sm text-zinc-600">
-            {tab === "review" ? "No reviews due." : tab === "drafts" ? "No drafts found." : "No decisions found."}
+            {tab === "review" ? "No review items found for this queue." : tab === "drafts" ? "No drafts found." : "No decisions found."}
           </div>
         )}
       </div>
