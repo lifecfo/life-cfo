@@ -44,6 +44,18 @@ type RecurringIncome = {
   updated_at: string;
 };
 
+type BillPayment = {
+  id: string;
+  user_id: string;
+  bill_id: string;
+  paid_at: string;
+  amount_cents: number;
+  currency: string;
+  note: string | null;
+  source: string;
+  created_at: string;
+};
+
 function formatMoneyFromCents(cents: number, currency = "AUD") {
   const value = (cents || 0) / 100;
   try {
@@ -130,6 +142,7 @@ function computeTotals(accounts: Account[], bills: RecurringBill[], income: Recu
   const income14Total = sumCents(income14);
   const income30Total = sumCents(income30);
 
+  // v1 safe-to-spend: simple + truthful, no forecasting
   const safeToSpendWeek = Math.max(0, balance + income7Total - bills7Total);
 
   return {
@@ -151,14 +164,20 @@ function computeTotals(accounts: Account[], bills: RecurringBill[], income: Recu
 }
 
 type EngineInsight = {
-  key: string;
+  key: string; // used for dedupe_key
   title: string;
   body: string;
   severity: 1 | 2 | 3;
+
+  // optional “Money actions” shortcut row (Inbox already supports it)
+  action_label?: string | null;
+  action_href?: string | null;
 };
 
 // -------------------- Helper bodies + severities (MODULE SCOPE) --------------------
 const INSIGHTS_DEDUPE_KEY = "engine_insights_v2_digest";
+
+// Single source of truth for "due soon" in signal counts
 const REVIEW_DUE_SOON_HOURS = 48;
 
 function buildUpcomingBillsBody(t: ComputedTotals) {
@@ -358,7 +377,7 @@ function sortIncome(rows: RecurringIncome[]) {
   return copy;
 }
 
-// -------------------- cadence bump helpers (MODULE SCOPE) --------------------
+// -------------------- cadence bump helpers --------------------
 function daysInMonth(year: number, month0: number) {
   return new Date(year, month0 + 1, 0).getDate();
 }
@@ -412,18 +431,30 @@ export default function EnginePage() {
   const [bills, setBills] = useState<RecurringBill[]>([]);
   const [income, setIncome] = useState<RecurringIncome[]>([]);
 
+  // receipts (latest per bill)
+  const [latestPaymentByBill, setLatestPaymentByBill] = useState<Record<string, BillPayment>>({});
+
+  // Signals (derived awareness)
   const [signals, setSignals] = useState<EngineSignals>({ inboxOpen: 0, reviewsDue: 0 });
+
+  // Live indicator
   const [liveStatus, setLiveStatus] = useState<LiveStatus>("connecting");
+
+  // local-only: last ran indicator
   const [lastRanAt, setLastRanAt] = useState<string | null>(null);
 
+  // cooldown (local-only)
   const COOLDOWN_MS = 10_000;
   const [cooldownUntil, setCooldownUntil] = useState<number | null>(null);
 
+  // per-bill action state
   const [markingPaid, setMarkingPaid] = useState<Record<string, boolean>>({});
 
+  // Safe reload throttle
   const reloadTimerRef = useRef<number | null>(null);
   const loadAllRef = useRef<(uid: string, opts?: { silent?: boolean }) => Promise<any>>(async () => ({}));
   const loadSignalsRef = useRef<(uid: string, opts?: { silent?: boolean }) => Promise<void>>(async () => {});
+  const loadReceiptsRef = useRef<(uid: string, opts?: { silent?: boolean }) => Promise<void>>(async () => {});
 
   const scheduleReload = (fn: () => void) => {
     if (reloadTimerRef.current) window.clearTimeout(reloadTimerRef.current);
@@ -446,6 +477,7 @@ export default function EnginePage() {
       setUserId(data.user.id);
       await loadAll(data.user.id);
       await loadSignals(data.user.id, { silent: true });
+      await loadReceipts(data.user.id, { silent: true });
       setLoading(false);
     })();
 
@@ -491,6 +523,33 @@ export default function EnginePage() {
     return { accounts: a, bills: b, income: i };
   }
 
+  async function loadReceipts(uid: string, opts?: { silent?: boolean }) {
+    const silent = !!opts?.silent;
+
+    try {
+      const { data, error } = await supabase
+        .from("bill_payments")
+        .select("id,user_id,bill_id,paid_at,amount_cents,currency,note,source,created_at")
+        .eq("user_id", uid)
+        .order("paid_at", { ascending: false })
+        .limit(250);
+
+      if (error) {
+        if (!silent) setError(error.message);
+        return;
+      }
+
+      const rows = (data || []) as BillPayment[];
+      const map: Record<string, BillPayment> = {};
+      for (const r of rows) {
+        if (!map[r.bill_id]) map[r.bill_id] = r; // first = latest due to order desc
+      }
+      setLatestPaymentByBill(map);
+    } catch {
+      // silent
+    }
+  }
+
   async function loadSignals(uid: string, opts?: { silent?: boolean }) {
     const silent = !!opts?.silent;
 
@@ -515,7 +574,7 @@ export default function EnginePage() {
       const reviewsDue = reviewsCountRes.count ?? signals.reviewsDue;
 
       setSignals({ inboxOpen, reviewsDue });
-    } catch (e) {
+    } catch {
       if (!silent) {
         // signals are optional
       }
@@ -525,9 +584,11 @@ export default function EnginePage() {
   useEffect(() => {
     loadAllRef.current = (uid: string, opts?: { silent?: boolean }) => loadAll(uid, opts);
     loadSignalsRef.current = (uid: string, opts?: { silent?: boolean }) => loadSignals(uid, opts);
+    loadReceiptsRef.current = (uid: string, opts?: { silent?: boolean }) => loadReceipts(uid, opts);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId, signals.inboxOpen, signals.reviewsDue]);
 
+  // Realtime: patch inputs + refresh signals + refresh receipts
   useEffect(() => {
     if (!userId) return;
 
@@ -639,32 +700,16 @@ export default function EnginePage() {
     };
 
     const bumpSignals = () => scheduleReload(() => loadSignalsRef.current(userId, { silent: true }));
+    const bumpReceipts = () => scheduleReload(() => loadReceiptsRef.current(userId, { silent: true }));
 
     const channel = supabase
       .channel(`engine-realtime-${userId}`)
-      .on("postgres_changes", { event: "*", schema: "public", table: "accounts", filter: `user_id=eq.${userId}` }, (p) => {
-        patchAccounts(p);
-      })
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "recurring_bills", filter: `user_id=eq.${userId}` },
-        (p) => {
-          patchBills(p);
-        }
-      )
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "recurring_income", filter: `user_id=eq.${userId}` },
-        (p) => {
-          patchIncome(p);
-        }
-      )
-      .on("postgres_changes", { event: "*", schema: "public", table: "decision_inbox", filter: `user_id=eq.${userId}` }, () =>
-        bumpSignals()
-      )
-      .on("postgres_changes", { event: "*", schema: "public", table: "decisions", filter: `user_id=eq.${userId}` }, () =>
-        bumpSignals()
-      )
+      .on("postgres_changes", { event: "*", schema: "public", table: "accounts", filter: `user_id=eq.${userId}` }, (p) => patchAccounts(p))
+      .on("postgres_changes", { event: "*", schema: "public", table: "recurring_bills", filter: `user_id=eq.${userId}` }, (p) => patchBills(p))
+      .on("postgres_changes", { event: "*", schema: "public", table: "recurring_income", filter: `user_id=eq.${userId}` }, (p) => patchIncome(p))
+      .on("postgres_changes", { event: "*", schema: "public", table: "decision_inbox", filter: `user_id=eq.${userId}` }, () => bumpSignals())
+      .on("postgres_changes", { event: "*", schema: "public", table: "decisions", filter: `user_id=eq.${userId}` }, () => bumpSignals())
+      .on("postgres_changes", { event: "*", schema: "public", table: "bill_payments", filter: `user_id=eq.${userId}` }, () => bumpReceipts())
       .subscribe((status) => {
         if (status === "SUBSCRIBED") setLiveStatus("live");
         else if (status === "CLOSED" || status === "CHANNEL_ERROR") setLiveStatus("offline");
@@ -677,11 +722,13 @@ export default function EnginePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId]);
 
+  // Focus refresh (silent)
   useEffect(() => {
     const onFocus = () => {
       if (!userId) return;
       loadAllRef.current(userId, { silent: true });
       loadSignalsRef.current(userId, { silent: true });
+      loadReceiptsRef.current(userId, { silent: true });
     };
     window.addEventListener("focus", onFocus);
 
@@ -695,6 +742,7 @@ export default function EnginePage() {
 
   const totals = useMemo(() => computeTotals(accounts, bills, income), [accounts, bills, income]);
 
+  // due soon list for action (stable sort)
   const dueSoonBills7 = useMemo(() => {
     const copy = [...totals.bills7];
     copy.sort((a, b) => {
@@ -707,85 +755,63 @@ export default function EnginePage() {
 
   async function markBillPaid(b: RecurringBill) {
     if (!userId) return;
-    if (markingPaid[b.id]) return;
 
+    // guard double clicks
     setMarkingPaid((prev) => ({ ...prev, [b.id]: true }));
 
-    const prevDue = b.next_due_at;
     const nextDue = bumpIsoByCadence(b.next_due_at, b.cadence);
 
-    // optimistic bump (Engine view)
-    setBills((prev) => prev.map((x) => (x.id === b.id ? { ...x, next_due_at: nextDue } : x)));
-
     try {
-      // 1) receipt
-      const { data: paymentRow, error: payErr } = await supabase
-        .from("bill_payments")
-        .insert({
-          user_id: userId,
-          bill_id: b.id,
-          paid_at: new Date().toISOString(),
-          amount_cents: b.amount_cents ?? 0,
-          currency: b.currency ?? "AUD",
-          note: "Paid via Engine",
-          source: "engine",
-        })
-        .select("id")
-        .single();
-
-      if (payErr) throw payErr;
-
-      const paymentId = (paymentRow as any)?.id as string | undefined;
-      if (!paymentId) throw new Error("Receipt inserted but missing id (unexpected).");
-
-      // 2) bump due date
+      // 1) move the bill forward (truth update)
       const { error: upErr } = await supabase
         .from("recurring_bills")
         .update({ next_due_at: nextDue })
         .eq("id", b.id)
         .eq("user_id", userId);
 
-      if (upErr) {
-        await supabase.from("bill_payments").delete().eq("id", paymentId).eq("user_id", userId);
-        throw upErr;
-      }
+      if (upErr) throw upErr;
 
-      showToast({
-        message: `"${b.name}" marked paid ✅`,
-        undoLabel: "Undo",
-        onUndo: async () => {
-          // optimistic revert
-          setBills((prev) => prev.map((x) => (x.id === b.id ? { ...x, next_due_at: prevDue } : x)));
-
-          const { error: dueErr } = await supabase
-            .from("recurring_bills")
-            .update({ next_due_at: prevDue })
-            .eq("id", b.id)
-            .eq("user_id", userId);
-
-          const { error: delErr } = await supabase.from("bill_payments").delete().eq("id", paymentId).eq("user_id", userId);
-
-          if (dueErr || delErr) {
-            await loadAllRef.current(userId, { silent: true });
-            showToast({ message: (dueErr?.message || delErr?.message || "Undo failed") as string });
-            return;
-          }
-
-          showToast({ message: "Undone ✅" });
-        },
+      // 2) write receipt (append-only)
+      const receiptNote = `Marked paid in Engine. Next due moved to ${fmtDateTime(nextDue)}.`;
+      const { error: payErr } = await supabase.from("bill_payments").insert({
+        user_id: userId,
+        bill_id: b.id,
+        paid_at: new Date().toISOString(),
+        amount_cents: b.amount_cents ?? 0,
+        currency: b.currency ?? "AUD",
+        note: receiptNote,
+        source: "engine",
       });
 
+      if (payErr) {
+        // bill moved forward already; surface receipt failure softly
+        notify({ title: "Paid (but no receipt)", description: payErr.message });
+      } else {
+        notify({
+          title: "Marked paid",
+          description: `"${b.name}" moved to ${fmtDateTime(nextDue)} (${b.cadence}).`,
+        });
+      }
+
+      // realtime should patch; these are correctness fallbacks
       scheduleReload(() => loadAllRef.current(userId, { silent: true }));
+      scheduleReload(() => loadReceiptsRef.current(userId, { silent: true }));
     } catch (e: any) {
-      setBills((prev) => prev.map((x) => (x.id === b.id ? { ...x, next_due_at: prevDue } : x)));
-      notify({ title: "Mark paid failed", description: e?.message ?? "Couldn’t update / write receipt." });
-      scheduleReload(() => loadAllRef.current(userId, { silent: true }));
+      notify({ title: "Mark paid failed", description: e?.message ?? "Couldn’t update next due date." });
     } finally {
       setMarkingPaid((prev) => ({ ...prev, [b.id]: false }));
     }
   }
 
-  async function writeSingleReminder(opts: { runId: string; dedupe_key: string; title: string; body: string; severity: number }) {
+  async function writeSingleReminder(opts: {
+    runId: string;
+    dedupe_key: string;
+    title: string;
+    body: string;
+    severity: number;
+    action_label?: string | null;
+    action_href?: string | null;
+  }) {
     if (!userId) return;
 
     const { error: upErr } = await supabase.from("decision_inbox").upsert(
@@ -800,6 +826,8 @@ export default function EnginePage() {
           status: "open",
           snoozed_until: null,
           dedupe_key: opts.dedupe_key,
+          action_label: opts.action_label ?? null,
+          action_href: opts.action_href ?? null,
         },
       ],
       { onConflict: "user_id,dedupe_key" }
@@ -821,6 +849,8 @@ export default function EnginePage() {
       status: "open",
       snoozed_until: null,
       dedupe_key: x.key,
+      action_label: x.action_label ?? null,
+      action_href: x.action_href ?? null,
     }));
 
     const { error: upErr } = await supabase.from("decision_inbox").upsert(payload, { onConflict: "user_id,dedupe_key" });
@@ -828,6 +858,7 @@ export default function EnginePage() {
     if (upErr) throw upErr;
   }
 
+  // Engine v2: digest helper
   const isInsightsDigest = (key: string) => key === INSIGHTS_DEDUPE_KEY;
 
   function computeInsights(t: ComputedTotals, freshBills: RecurringBill[], freshIncome: RecurringIncome[], freshAccounts: Account[]) {
@@ -838,9 +869,14 @@ export default function EnginePage() {
         key: "engine_v2_missing_accounts",
         title: "Insight: Add accounts to compute safe-to-spend",
         severity: 2,
-        body: ["Keystone can’t compute safe-to-spend yet because there are no accounts.", "", "Next step:", "Go to Accounts and add at least one account balance."].join(
-          "\n"
-        ),
+        action_label: "Open Accounts",
+        action_href: "/accounts",
+        body: [
+          "Keystone can’t compute safe-to-spend yet because there are no accounts.",
+          "",
+          "Next step:",
+          "Go to Accounts and add at least one account balance.",
+        ].join("\n"),
       });
       return list;
     }
@@ -850,6 +886,8 @@ export default function EnginePage() {
         key: "engine_v2_missing_bills",
         title: "Insight: Add bills so reminders are real",
         severity: 2,
+        action_label: "Open Bills",
+        action_href: "/bills",
         body: [
           "Keystone can’t warn you about upcoming obligations yet because there are no bills.",
           "",
@@ -864,6 +902,8 @@ export default function EnginePage() {
         key: "engine_v2_missing_income",
         title: "Insight: Add income so safe-to-spend is truthful",
         severity: 2,
+        action_label: "Open Income",
+        action_href: "/income",
         body: [
           "Keystone can’t include income in safe-to-spend yet because there is no recurring income.",
           "",
@@ -879,6 +919,8 @@ export default function EnginePage() {
         key: "engine_v2_safe_to_spend_zero",
         title: "Insight: Safe-to-spend is $0 this week",
         severity: 1,
+        action_label: "Review Bills",
+        action_href: "/bills",
         body: [
           `Balance now: ${formatMoneyFromCents(t.balance)}`,
           `Income due (7d): ${formatMoneyFromCents(t.income7Total)}`,
@@ -895,6 +937,8 @@ export default function EnginePage() {
         key: "engine_v2_safe_to_spend_low",
         title: "Insight: Safe-to-spend is low this week",
         severity: 2,
+        action_label: "Open Bills",
+        action_href: "/bills",
         body: [
           `Safe-to-spend (7d): ${formatMoneyFromCents(t.safeToSpendWeek)}`,
           "",
@@ -908,6 +952,8 @@ export default function EnginePage() {
         key: "engine_v2_bills_exceed_balance_14d",
         title: "Insight: Bills due in 14 days exceed balance",
         severity: 1,
+        action_label: "Review Bills",
+        action_href: "/bills",
         body: [
           `Balance now: ${formatMoneyFromCents(t.balance)}`,
           `Bills due (14d): ${formatMoneyFromCents(t.bills14Total)}`,
@@ -925,6 +971,8 @@ export default function EnginePage() {
         key: "engine_v2_autopay_off_bill_due_soon",
         title: "Insight: A bill is due soon and autopay is OFF",
         severity: 2,
+        action_label: "Open Bills",
+        action_href: "/bills",
         body: [
           `Bill: ${b.name}`,
           `Amount: ${formatMoneyFromCents(b.amount_cents, b.currency)}`,
@@ -936,11 +984,14 @@ export default function EnginePage() {
       });
     }
 
+    // Digest (points user back to Inbox “Insights” bucket; keep it clean)
     if (list.length > 0 && !list.some((x) => isInsightsDigest(x.key))) {
       list.unshift({
         key: INSIGHTS_DEDUPE_KEY,
         title: "Insights digest",
         severity: 2,
+        action_label: "Open Engine",
+        action_href: "/engine",
         body: ["You have new Engine insights.", "", "Next step:", "Open Inbox → Insights section and clear as you act."].join("\n"),
       });
     }
@@ -973,6 +1024,8 @@ export default function EnginePage() {
           dedupe_key: "engine_missing_bills",
           title: "Add bills so Keystone can remind you",
           severity: 2,
+          action_label: "Open Bills",
+          action_href: "/bills",
           body: [
             "Keystone can’t remind you about upcoming bills yet because there are no bills.",
             "",
@@ -988,6 +1041,8 @@ export default function EnginePage() {
           dedupe_key: "engine_missing_income",
           title: "Add income so safe-to-spend can be truthful",
           severity: 2,
+          action_label: "Open Income",
+          action_href: "/income",
           body: [
             "Keystone can’t include income in safe-to-spend yet because there is no recurring income.",
             "",
@@ -1003,6 +1058,8 @@ export default function EnginePage() {
           dedupe_key: "engine_missing_accounts",
           title: "Add accounts to compute safe-to-spend",
           severity: 1,
+          action_label: "Open Accounts",
+          action_href: "/accounts",
           body: [
             "Keystone can’t compute safe-to-spend yet because there are no accounts.",
             "",
@@ -1019,11 +1076,11 @@ export default function EnginePage() {
         return;
       }
 
-      await supabase.from("decision_inbox").update({ status: "done", snoozed_until: null }).eq("user_id", userId).eq("dedupe_key", "engine_missing_accounts");
-
-      const safeTitle = "Safe to spend this week";
-      const billsTitle = "Upcoming bills (next 14 days)";
-      const incomeTitle = "Upcoming income (next 14 days)";
+      await supabase
+        .from("decision_inbox")
+        .update({ status: "done", snoozed_until: null })
+        .eq("user_id", userId)
+        .eq("dedupe_key", "engine_missing_accounts");
 
       const safeBody = [
         `Balance now: ${formatMoneyFromCents(freshTotals.balance)}`,
@@ -1036,42 +1093,45 @@ export default function EnginePage() {
         "safe_to_spend = balance + income_due_7d - bills_due_7d (floored at 0).",
       ].join("\n");
 
-      const billsBody = buildUpcomingBillsBody(freshTotals);
-      const incomeBody = buildUpcomingIncomeBody(freshTotals);
-
       const upsertRows: any[] = [
         {
           user_id: userId,
           run_id: runId,
           type: "engine",
-          title: safeTitle,
+          title: "Safe to spend this week",
           body: safeBody,
           severity: severityForSafeToSpend(freshTotals),
           status: "open",
           snoozed_until: null,
           dedupe_key: "engine_safe_to_spend_week",
+          action_label: "Open Bills",
+          action_href: "/bills",
         },
         {
           user_id: userId,
           run_id: runId,
           type: "engine",
-          title: billsTitle,
-          body: billsBody,
+          title: "Upcoming bills (next 14 days)",
+          body: buildUpcomingBillsBody(freshTotals),
           severity: severityForUpcomingBills(freshTotals),
           status: "open",
           snoozed_until: null,
           dedupe_key: "engine_upcoming_bills_14d",
+          action_label: "Open Bills",
+          action_href: "/bills",
         },
         {
           user_id: userId,
           run_id: runId,
           type: "engine",
-          title: incomeTitle,
-          body: incomeBody,
+          title: "Upcoming income (next 14 days)",
+          body: buildUpcomingIncomeBody(freshTotals),
           severity: severityForUpcomingIncome(freshTotals),
           status: "open",
           snoozed_until: null,
           dedupe_key: "engine_upcoming_income_14d",
+          action_label: "Open Income",
+          action_href: "/income",
         },
         {
           user_id: userId,
@@ -1083,6 +1143,8 @@ export default function EnginePage() {
           status: "open",
           snoozed_until: null,
           dedupe_key: "engine_cashflow_outlook_30d",
+          action_label: "Open Bills",
+          action_href: "/bills",
         },
         {
           user_id: userId,
@@ -1094,6 +1156,8 @@ export default function EnginePage() {
           status: "open",
           snoozed_until: null,
           dedupe_key: "engine_largest_bill_14d",
+          action_label: "Open Bills",
+          action_href: "/bills",
         },
         {
           user_id: userId,
@@ -1105,6 +1169,8 @@ export default function EnginePage() {
           status: "open",
           snoozed_until: null,
           dedupe_key: "engine_autopay_risk_7d",
+          action_label: "Review Bills",
+          action_href: "/bills",
         },
       ];
 
@@ -1170,8 +1236,7 @@ export default function EnginePage() {
   const cooldownSeconds = cooldownUntil ? Math.max(0, Math.ceil((cooldownUntil - Date.now()) / 1000)) : 0;
 
   const insightsPreview = useMemo(() => {
-    const list = computeInsights(totals, bills, income, accounts);
-    return list;
+    return computeInsights(totals, bills, income, accounts);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [totals, bills, income, accounts]);
 
@@ -1197,17 +1262,20 @@ export default function EnginePage() {
                 {cooldownSeconds > 0 ? <Chip>Cooldown: {cooldownSeconds}s</Chip> : null}
 
                 <Chip>Inbox open: {signals.inboxOpen}</Chip>
-                <Chip>Reviews due ≤{REVIEW_DUE_SOON_HOURS}h: {signals.reviewsDue}</Chip>
+                <Chip>
+                  Reviews due ≤{REVIEW_DUE_SOON_HOURS}h: {signals.reviewsDue}
+                </Chip>
               </div>
 
               <div className="flex items-center gap-2">
-                <Button onClick={() => userId && loadAllRef.current(userId, { silent: true })} disabled={!userId || loading || running}>
+                <Button onClick={() => userId && loadAllRef.current(userId, { silent: true })} disabled={!userId || loading || running} title="Refresh Engine inputs">
                   Refresh inputs
                 </Button>
 
                 <Button
                   onClick={() => userId && loadSignalsRef.current(userId, { silent: true })}
                   disabled={!userId || loading || running}
+                  title="Refresh signal counts"
                   variant="secondary"
                 >
                   Refresh signals
@@ -1247,9 +1315,16 @@ export default function EnginePage() {
               <div className="grid gap-2">
                 {insightsPreview.map((x) => (
                   <div key={x.key} className="rounded-lg border p-3">
-                    <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
                       <div className="font-semibold">{x.title}</div>
-                      <div className="text-xs text-zinc-500">severity {x.severity}</div>
+                      <div className="flex items-center gap-2">
+                        {x.action_label && x.action_href ? (
+                          <Chip>
+                            Action: {x.action_label} → {x.action_href}
+                          </Chip>
+                        ) : null}
+                        <div className="text-xs text-zinc-500">severity {x.severity}</div>
+                      </div>
                     </div>
                     <div className="mt-2 whitespace-pre-wrap text-sm text-zinc-700">{x.body}</div>
                   </div>
@@ -1258,7 +1333,7 @@ export default function EnginePage() {
             )}
 
             <div className="text-sm opacity-70 mt-3">
-              Preview is computed locally from current inputs. Clicking “Run Engine v2 (Insights)” writes these as deduped Inbox items.
+              Preview is computed locally from current inputs. Clicking “Run Engine v2 (Insights)” writes these as deduped Inbox items (with optional action shortcuts).
             </div>
           </CardContent>
         </Card>
@@ -1302,10 +1377,11 @@ export default function EnginePage() {
               </div>
             </div>
 
+            {/* Action surface (minimal + truthful) */}
             <div className="mt-4">
               <div className="flex items-center justify-between gap-3 flex-wrap">
                 <div className="font-semibold">Bills due soon (next 7 days)</div>
-                <div className="text-sm opacity-70">“Mark paid” writes a receipt + bumps next due by cadence.</div>
+                <div className="text-sm opacity-70">“Mark paid” moves the next due date forward by cadence + writes a receipt.</div>
               </div>
 
               {dueSoonBills7.length === 0 ? (
@@ -1314,6 +1390,8 @@ export default function EnginePage() {
                 <div className="mt-2 grid gap-2">
                   {dueSoonBills7.slice(0, 6).map((b) => {
                     const busy = !!markingPaid[b.id];
+                    const receipt = latestPaymentByBill[b.id];
+
                     return (
                       <div key={b.id} className="flex flex-wrap items-start justify-between gap-3 rounded-lg border p-3">
                         <div className="min-w-[240px] flex-1">
@@ -1322,13 +1400,24 @@ export default function EnginePage() {
                             {b.autopay ? <Chip>Autopay</Chip> : <Chip>Manual</Chip>}
                             <Chip>{b.cadence}</Chip>
                           </div>
+
                           <div className="text-sm text-zinc-600 mt-1">
                             {formatMoneyFromCents(b.amount_cents, b.currency)} • Due {fmtDateTime(b.next_due_at)}
                           </div>
+
+                          {/* lightweight receipt */}
+                          {receipt ? (
+                            <div className="text-xs text-zinc-500 mt-1">
+                              Last paid {fmtDateTime(receipt.paid_at)}
+                              {receipt.note ? ` — ${receipt.note}` : ""}
+                            </div>
+                          ) : (
+                            <div className="text-xs text-zinc-500 mt-1">No receipts yet.</div>
+                          )}
                         </div>
 
                         <div className="flex items-center gap-2">
-                          <Button onClick={() => markBillPaid(b)} disabled={!userId || busy}>
+                          <Button onClick={() => markBillPaid(b)} disabled={!userId || busy} title="Move next due date forward by cadence">
                             {busy ? "Updating…" : "Mark paid"}
                           </Button>
                         </div>
@@ -1339,9 +1428,7 @@ export default function EnginePage() {
               )}
             </div>
 
-            <div className="text-sm opacity-70 mt-3">
-              Engine v1 writes baseline reminders. Engine v2 writes higher-signal insights. Cooldown prevents spam runs.
-            </div>
+            <div className="text-sm opacity-70 mt-3">Engine v1 writes baseline reminders. Engine v2 writes higher-signal insights. Cooldown prevents spam runs.</div>
           </CardContent>
         </Card>
       </div>
