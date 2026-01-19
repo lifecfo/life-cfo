@@ -8,6 +8,17 @@ import { Card, CardContent, Button, Chip, Badge, useToast } from "@/components/u
 
 type Severity = 1 | 2 | 3;
 
+function safeUUID() {
+  try {
+    // modern browsers
+    if (typeof crypto !== "undefined" && "randomUUID" in crypto) return (crypto as any).randomUUID();
+  } catch {
+    // ignore
+  }
+  // fallback
+  return `m_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+}
+
 export default function CapturePage() {
   const toastApi: any = useToast();
   const showToast =
@@ -74,8 +85,11 @@ export default function CapturePage() {
     setError(null);
 
     try {
-      const runId =
-        typeof crypto !== "undefined" && "randomUUID" in crypto ? (crypto as any).randomUUID() : `manual_${Date.now()}`;
+      const runId = safeUUID();
+
+      // IMPORTANT: your schema has dedupe_key NOT NULL.
+      // For manual items we use a unique dedupe key that will never collide with Engine.
+      const dedupe_key = `manual:${runId}`;
 
       const { error: insErr } = await supabase.from("decision_inbox").insert({
         user_id: userId,
@@ -87,12 +101,8 @@ export default function CapturePage() {
         status: "open",
         snoozed_until: null,
 
-        // IMPORTANT:
-        // Manual capture should never conflict with Engine dedupe.
-        // So we leave dedupe_key null.
-        dedupe_key: null,
+        dedupe_key,
 
-        // No action buttons by default (user can decide later)
         action_label: null,
         action_href: null,
       } as any);
@@ -177,7 +187,7 @@ export default function CapturePage() {
               </div>
 
               <div className="text-xs text-zinc-500">
-                Tip: capture fast here, then decide in Inbox. Manual items don’t dedupe against Engine.
+                Tip: capture fast here, then decide in Inbox. Manual items use unique dedupe keys (never collide with Engine).
               </div>
             </div>
           </CardContent>
