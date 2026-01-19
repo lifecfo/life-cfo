@@ -16,7 +16,7 @@ export function AppShell({ children }: AppShellProps) {
   const router = useRouter();
 
   const nav = [
-    // UI label is Home, but route stays /inbox for now
+// Home is the main entry point. /inbox remains as an internal alias.
     { href: "/home", label: "Home" },
     { href: "/capture", label: "Capture" },
     { href: "/decisions", label: "Decisions" },

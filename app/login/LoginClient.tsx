@@ -38,7 +38,7 @@ export default function LoginClient({ nextPath }: { nextPath: string }) {
 
     setStatus(`Signed in ✅ ${data.user?.email ?? ""}`);
 
-    router.replace(nextPath || "/inbox");
+    router.replace(nextPath || "/home");
     router.refresh();
   };
 

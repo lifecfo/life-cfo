@@ -105,8 +105,8 @@ export default function ResetPasswordPage() {
         return;
       }
 
-      showToast({ message: "Password updated ✅ Redirecting you to Inbox…" }, 6000);
-      window.location.href = "/inbox";
+      showToast({ message: "Password updated ✅ Redirecting you to Home…" }, 6000);
+      window.location.href = "/home";
     } finally {
       setSaving(false);
     }

@@ -52,6 +52,8 @@ export async function updateSession(request: NextRequest) {
     pathname === "/favicon.ico";
 
   const isProtected =
+    pathname === "/home" ||
+    pathname.startsWith("/home/") ||
     pathname === "/inbox" ||
     pathname.startsWith("/inbox/") ||
     pathname === "/decisions" ||
@@ -77,7 +79,7 @@ export async function updateSession(request: NextRequest) {
   if (user && pathname.startsWith("/login")) {
     const url = request.nextUrl.clone();
     const next = url.searchParams.get("next");
-    url.pathname = next || "/inbox";
+    url.pathname = next || "/home";
     url.search = "";
     return NextResponse.redirect(url);
   }

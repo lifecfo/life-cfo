@@ -113,7 +113,7 @@ export default function CapturePage() {
       setBody("");
       setSeverity(2);
 
-      notify({ title: "Captured", description: "Added to Inbox." });
+      notify({ title: "Captured", description: "Added to Home." });
     } catch (e: any) {
       const msg = e?.message ?? "Failed to capture.";
       setError(msg);
@@ -124,7 +124,7 @@ export default function CapturePage() {
   }
 
   return (
-    <Page title="Capture" subtitle="A calm place to record something for your Inbox. No nudges, no loops.">
+    <Page title="Capture" subtitle="A calm place to record something for Home. No nudges, no loops.">
       <div className="grid gap-4">
         <Card>
           <CardContent>
@@ -143,7 +143,7 @@ export default function CapturePage() {
 
         <Card>
           <CardContent>
-            <div className="font-semibold mb-2">New Inbox item</div>
+            <div className="font-semibold mb-2">New note</div>
 
             <div className="grid gap-3">
               <div>
@@ -182,12 +182,12 @@ export default function CapturePage() {
                 </div>
 
                 <Button onClick={createInboxItem} disabled={!canSave}>
-                  {saving ? "Saving…" : "Add to Inbox"}
+                  {saving ? "Saving…" : "Add"}
                 </Button>
               </div>
 
               <div className="text-xs text-zinc-500">
-                Tip: capture fast here, then decide in Inbox. Manual items use unique dedupe keys (never collide with Engine).
+                Tip: capture fast here, then decide on Home. Manual items use unique dedupe keys (never collide with Engine).
               </div>
             </div>
           </CardContent>

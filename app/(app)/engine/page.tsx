@@ -169,7 +169,7 @@ type EngineInsight = {
   body: string;
   severity: 1 | 2 | 3;
 
-  // optional “Money actions” shortcut row (Inbox already supports it)
+  // optional “Money actions” shortcut row (Home already supports it)
   action_label?: string | null;
   action_href?: string | null;
 };
@@ -991,7 +991,7 @@ export default function EnginePage() {
       });
     }
 
-    // Digest (points user back to Inbox “Insights” bucket; keep it clean)
+    // Digest (points user back to Home “Insights” bucket; keep it clean)
     if (list.length > 0 && !list.some((x) => isInsightsDigest(x.key))) {
       list.unshift({
         key: INSIGHTS_DEDUPE_KEY,
@@ -999,7 +999,7 @@ export default function EnginePage() {
         severity: 2,
         action_label: "Open Engine",
         action_href: "/engine",
-        body: ["You have new Engine insights.", "", "Next step:", "Open Inbox → Insights section and clear as you act."].join("\n"),
+        body: ["You have new Engine insights.", "", "Next step:", "Open Home → Insights section and clear as you act."].join("\n"),
       });
     }
 
@@ -1079,7 +1079,7 @@ export default function EnginePage() {
         });
 
         setLastRanAt(new Date().toLocaleString());
-        notify({ title: "Engine v1 ran", description: "Missing accounts reminder written to Inbox." });
+        notify({ title: "Engine v1 ran", description: "Missing accounts reminder written to Home." });
         return;
       }
 
@@ -1191,7 +1191,7 @@ export default function EnginePage() {
         .in("dedupe_key", ["engine_missing_bills", "engine_missing_income"]);
 
       setLastRanAt(new Date().toLocaleString());
-      notify({ title: "Engine v1 ran", description: "Wrote baseline reminders into Inbox (dedupe-safe)." });
+      notify({ title: "Engine v1 ran", description: "Wrote baseline reminders into Home (dedupe-safe)." });
 
       loadSignalsRef.current(userId, { silent: true });
     } catch (e: any) {
@@ -1230,7 +1230,7 @@ export default function EnginePage() {
       await upsertInsights(runId, insights);
 
       setLastRanAt(new Date().toLocaleString());
-      notify({ title: "Engine v2 ran", description: `Wrote ${insights.length} insight(s) into Inbox (deduped).` });
+      notify({ title: "Engine v2 ran", description: `Wrote ${insights.length} insight(s) into Home (deduped).` });
 
       loadSignalsRef.current(userId, { silent: true });
     } catch (e: any) {
@@ -1256,7 +1256,7 @@ export default function EnginePage() {
   const badge = liveBadge();
 
   return (
-    <Page title="Engine" subtitle="Manual simulation harness. Engine reads your truths and writes reminders/insights to Inbox.">
+    <Page title="Engine" subtitle="Manual simulation harness. Engine reads your truths and writes reminders/insights to Home.">
       <div className="grid gap-4">
         <Card>
           <CardContent>

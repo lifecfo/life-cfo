@@ -4,10 +4,10 @@ import { redirect } from "next/navigation";
 import { createServerClient } from "@supabase/ssr";
 
 function safeNext(input: unknown) {
-  if (typeof input !== "string") return "/inbox";
-  if (!input.startsWith("/")) return "/inbox";
-  if (input.startsWith("//")) return "/inbox";
-  if (input.includes("http://") || input.includes("https://")) return "/inbox";
+  if (typeof input !== "string") return "/home";
+  if (!input.startsWith("/")) return "/home";
+  if (input.startsWith("//")) return "/home";
+  if (input.includes("http://") || input.includes("https://")) return "/home";
   return input;
 }
 

@@ -13,7 +13,7 @@ export default function LoginPage({
       ? nextParam
       : Array.isArray(nextParam)
       ? nextParam[0]
-      : "/inbox";
+      : "/home";
 
   // Wrap the client component in Suspense to keep Next happy during prerender
   return (

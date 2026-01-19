@@ -13,7 +13,7 @@ export default function HomePage() {
 
       <div style={{ display: "grid", gap: 12, marginTop: 20 }}>
         <Link
-          href="/inbox"
+          href="/home"
           style={{
             padding: 14,
             borderRadius: 12,
@@ -23,7 +23,7 @@ export default function HomePage() {
             display: "block",
           }}
         >
-          <strong>Inbox</strong>
+          <strong>Home</strong>
           <div style={{ marginTop: 6, opacity: 0.75, fontSize: 13 }}>
             Your visible items + decide now + snooze + done
           </div>
@@ -59,13 +59,13 @@ export default function HomePage() {
         >
           <strong>Engine (manual)</strong>
           <div style={{ marginTop: 6, opacity: 0.75, fontSize: 13 }}>
-            Generate realistic inbox items (dev tool)
+            Generate realistic home items (dev tool)
           </div>
         </Link>
       </div>
 
       <div style={{ marginTop: 18, fontSize: 12, opacity: 0.7 }}>
-        Tip: Engine → Inbox → Decide Now → Decisions
+        Tip: Engine → Home → Decide Now → Decisions
       </div>
     </main>
   );

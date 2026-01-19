@@ -1075,7 +1075,7 @@ export default function DecisionsClient() {
       )
     );
 
-    setStatusLine(inboxClosedOk ? "Decided ✅ (Inbox closed)" : "Decided ✅");
+    setStatusLine(inboxClosedOk ? "Decided ✅ (item cleared)" : "Decided ✅");
 
     showToast(
       {
@@ -1095,7 +1095,7 @@ export default function DecisionsClient() {
             const { error: reopenErr } = await supabase.from("decision_inbox").update({ status: "open", snoozed_until: null }).eq("id", d.inbox_item_id);
 
             if (reopenErr) {
-              setStatusLine(`Undo partial (reopen inbox failed): ${reopenErr.message}`);
+              setStatusLine(`Undo partial (reopen item failed): ${reopenErr.message}`);
               return;
             }
           }
@@ -1553,7 +1553,7 @@ export default function DecisionsClient() {
                                                     {dueSoon && <Badge variant="muted">Due soon</Badge>}
                           {conf && <Badge variant="muted">Confidence: {conf}</Badge>}
                           {suggested && <Badge variant="muted">AI: {suggested}</Badge>}
-                          {isDraft && d.inbox_item_id && <Badge variant="muted">Linked to Inbox</Badge>}
+                          {isDraft && d.inbox_item_id && <Badge variant="muted">Linked to Home</Badge>}
 
                           {/* One-click review link (only when due) */}
                           {!isDraft && due && (
@@ -1679,7 +1679,7 @@ export default function DecisionsClient() {
                                 <div className="text-sm font-semibold">Finish this decision</div>
                                 <div className="text-xs text-zinc-500">
                                   Add your reasoning + confidence, optionally run AI, then mark decided.
-                                  {d.inbox_item_id ? " This will also close the linked Inbox item." : ""}
+                                  {d.inbox_item_id ? " This will also close the linked Home item." : ""}
                                 </div>
                               </div>
 
