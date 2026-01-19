@@ -154,20 +154,18 @@ export default function SeedPage() {
     const runId = safeUUID();
 
     try {
-      // 1) Accounts
+      // 1) Accounts (NOTE: accounts table does NOT have currency in your schema)
       setStatusLine("Seeding accounts…");
       const accountsPayload = [
         {
           user_id: userId,
           name: "Everyday Spending",
           current_balance_cents: 1250_00,
-          currency: "AUD",
         },
         {
           user_id: userId,
           name: "Bills Buffer",
           current_balance_cents: 600_00,
-          currency: "AUD",
         },
       ];
 
@@ -339,8 +337,7 @@ export default function SeedPage() {
           <CardContent>
             <div className="font-semibold mb-2">Reset my data (destructive)</div>
             <div className="text-sm text-zinc-600">
-              Deletes only rows belonging to your <code>user_id</code> across the V1 tables. Requires explicit typed
-              confirmation.
+              Deletes only rows belonging to your user_id across the V1 tables. Requires explicit typed confirmation.
             </div>
 
             <div className="mt-3 grid gap-3">
