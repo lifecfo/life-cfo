@@ -104,6 +104,9 @@ export default function InboxPage() {
   // ✅ Action hierarchy: keep advanced controls tucked away
   const [showAdvanced, setShowAdvanced] = useState<Record<string, boolean>>({});
 
+  // ✅ Hide “how it’s calculated” unless asked (per-item)
+  const [showFormula, setShowFormula] = useState<Record<string, boolean>>({});
+
   const loadRef = useRef<(opts?: { silent?: boolean }) => void>(() => {});
   const reloadTimerRef = useRef<number | null>(null);
 
@@ -258,6 +261,12 @@ export default function InboxPage() {
       delete copy[id];
       return copy;
     });
+
+    setShowFormula((prev) => {
+      const copy = { ...prev };
+      delete copy[id];
+      return copy;
+    });
   };
 
   const analyzeItem = async (item: InboxItem) => {
@@ -297,7 +306,7 @@ export default function InboxPage() {
 
   function engineCardClasses(base: { border: string; bg: string }, kind: "v2" | "v1" | null) {
     if (!kind) return `${base.border} ${base.bg}`;
-    const left = kind === "v2" ? "border-l-4 border-l-sky-400 bg-zinc-50" : "border-l-4 border-l-amber-400 bg-zinc-50";
+    const left = kind === "v2" ? "border-l-4 border-l-sky-300 bg-zinc-50" : "border-l-4 border-l-amber-400 bg-zinc-50";
     return `${base.border} ${left}`;
   }
 
@@ -374,6 +383,10 @@ export default function InboxPage() {
 
   const setAdvancedOpen = (id: string, open: boolean) => {
     setShowAdvanced((prev) => ({ ...prev, [id]: open }));
+  };
+
+  const toggleFormula = (id: string) => {
+    setShowFormula((prev) => ({ ...prev, [id]: !prev[id] }));
   };
 
   const normalizeActionLabel = (it: InboxItem) => {
@@ -648,7 +661,7 @@ export default function InboxPage() {
 
     setAffirmation(null);
     setAdding(true);
-    setStatusLine("Adding to My notes...");
+    setStatusLine("Adding to My Notes...");
 
     try {
       const dedupe_key = `manual_${Date.now()}`;
@@ -1029,7 +1042,6 @@ export default function InboxPage() {
       setStatusLine(e?.message ?? "Failed to save decision");
     }
   };
-
   const promoteInboxItemToDecision = async (item: InboxItem) => {
     if (!userId) return;
 
@@ -1163,7 +1175,7 @@ export default function InboxPage() {
 
     const leftBar =
       tone === "sky"
-        ? "border-l-4 border-l-sky-400"
+        ? "border-l-4 border-l-sky-300"
         : tone === "amber"
         ? "border-l-4 border-l-amber-400"
         : "border-l-4 border-l-zinc-300";
@@ -1174,7 +1186,7 @@ export default function InboxPage() {
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="flex min-w-[260px] flex-1 flex-col gap-1">
               <div className="flex flex-wrap items-center gap-2">
-                <h2 className="m-0 text-lg font-semibold tracking-tight">{title}</h2>
+                <h2 className="m-0 text-lg font-semibold tracking-tight text-zinc-900">{title}</h2>
                 <Badge variant="muted">{count}</Badge>
 
                 <Button variant="secondary" onClick={onToggle} title={open ? "Hide this section" : "Show this section"}>
@@ -1182,13 +1194,70 @@ export default function InboxPage() {
                 </Button>
               </div>
 
-              {description && <div className="text-xs text-zinc-600">{description}</div>}
+              {description && <div className="text-xs text-zinc-700">{description}</div>}
             </div>
 
             <div className="flex flex-wrap items-center justify-end gap-2">{actions}</div>
           </div>
         </CardContent>
       </Card>
+    );
+  };
+
+  const renderBodySmart = (it: InboxItem) => {
+    const raw = (it.body ?? "").trim();
+    if (!raw) return null;
+
+    const lines = raw.split("\n").map((l) => l.trimEnd());
+    const truthIdx = lines.findIndex((l) => l.toLowerCase().startsWith("truth reminder"));
+
+    const mainLines = truthIdx >= 0 ? lines.slice(0, truthIdx) : lines;
+    const truthLines = truthIdx >= 0 ? lines.slice(truthIdx) : [];
+
+    const show = !!showFormula[it.id];
+
+    const renderLine = (line: string, idx: number) => {
+      const m = line.match(/^([^:]{1,40}):\s*(.*)$/);
+      if (!m) return <div key={idx}>{line}</div>;
+      const label = m[1];
+      const value = m[2];
+      return (
+        <div key={idx}>
+          <strong className="text-zinc-900">{label}:</strong> {value}
+        </div>
+      );
+    };
+
+    return (
+      <div className="space-y-3">
+        {/* Main content */}
+        <div className="space-y-1 whitespace-pre-wrap text-sm text-zinc-800">
+          {mainLines.map((l, idx) => (l.trim() ? renderLine(l, idx) : <div key={idx} className="h-2" />))}
+        </div>
+
+        {/* “How it’s calculated” (power-user) */}
+        {truthLines.length > 0 ? (
+          <div className="space-y-2">
+            <Button
+              variant="secondary"
+              onClick={() => toggleFormula(it.id)}
+              title={show ? "Hide how it's calculated" : "Show how it's calculated"}
+            >
+              {show ? "Hide how it’s calculated" : "Show how it’s calculated"}
+            </Button>
+
+            {show ? (
+              <Card className="bg-zinc-50">
+                <CardContent>
+                  <div className="whitespace-pre-wrap text-xs text-zinc-700">
+                    {truthLines.join("\n")}
+                  </div>
+                </CardContent>
+              </Card>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
     );
   };
 
@@ -1216,17 +1285,18 @@ export default function InboxPage() {
     const expanded = !!openItem[it.id];
     const advOpen = !!showAdvanced[it.id];
 
+    // Don’t re-print metric summaries up top when expanded; and don’t show raw metric snippets in collapsed.
     const subtitle =
       autopayAllClear
         ? "All clear — nothing due soon."
         : activelySnoozed && it.snoozed_until
         ? `Snoozed until ${formatWhen(it.snoozed_until)}`
+        : isV2
+        ? "A suggestion based on your recent activity."
+        : isV1
+        ? "A quick check that keeps your numbers accurate."
         : it.body
         ? snippet(it.body, 120)
-        : isV2
-        ? "Recommended based on your current inputs."
-        : isV1
-        ? "A quick check to keep things accurate."
         : "Note you captured.";
 
     const shortcutLabel = it.action_href ? normalizeActionLabel(it) : null;
@@ -1245,7 +1315,7 @@ export default function InboxPage() {
                 title={expanded ? "Collapse details" : "Expand details"}
               >
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-base font-medium text-zinc-900">{it.title}</span>
+                  <span className="text-base font-semibold text-zinc-900">{it.title}</span>
 
                   <Badge variant={b.variant}>{b.label}</Badge>
 
@@ -1270,8 +1340,8 @@ export default function InboxPage() {
                   )}
                 </div>
 
-                <div className="text-xs text-zinc-600">{subtitle}</div>
-
+                <div className="text-xs text-zinc-700">{subtitle}</div>
+                <div className="mt-1 text-xs text-zinc-500">{expanded ? "Collapse" : "Expand"}</div>
               </button>
 
               <div className="flex flex-wrap items-center justify-end gap-2">
@@ -1315,38 +1385,30 @@ export default function InboxPage() {
 
             {/* ---- expanded details ---- */}
             {expanded ? (
-              <div className="space-y-3">
-                {/* Top-right collapse inside expanded content (so it never feels “stuck open”) */}
+              <div className="space-y-4">
                 <div className="flex items-center justify-end">
                   <Button variant="secondary" onClick={() => setItemOpen(it.id, false)} title="Collapse details">
                     Hide details
                   </Button>
                 </div>
 
-                {/* context / why */}
-                {isV2 && (
+                {/* Context / why (kept, but subtle + short) */}
+                {(isV2 || isV1) && (
                   <div className="text-xs text-zinc-500">
-                    Why this is here: based on your current inputs. {hasShortcutAction ? "Using the action will clear this item." : ""}
+                    {isV2 ? "Suggested by the Engine." : "Maintenance reminder."}{" "}
+                    {hasShortcutAction ? "Using the action clears this item." : ""}
                   </div>
                 )}
-                {isV1 && (
-                  <div className="text-xs text-zinc-500">
-                    Why this is here: a quick check that keeps your numbers and reminders trustworthy.{" "}
-                    {hasShortcutAction ? "Using the action will clear this item." : ""}
-                  </div>
-                )}
-                {!isV2 && !isV1 && isEng && <div className="text-xs text-zinc-500">Engine note.</div>}
 
-                {it.body && <div className="whitespace-pre-wrap text-sm text-zinc-800">{it.body}</div>}
+                {/* Body (with labels bold + formula hidden behind toggle) */}
+                {renderBodySmart(it)}
 
-                {/* digest shortcuts */}
+                {/* Digest shortcuts */}
                 {insightsDigest && (
                   <Card className="bg-white">
                     <CardContent>
                       <div className="flex flex-wrap items-center justify-between gap-3">
-                        <div className="text-sm text-zinc-600">
-                          Shortcut actions — do the review, then come back. (This digest will clear itself.)
-                        </div>
+                        <div className="text-sm text-zinc-700">Do the review, then come back. (This digest clears itself.)</div>
 
                         <div className="flex flex-wrap gap-2">
                           <Button
@@ -1377,7 +1439,7 @@ export default function InboxPage() {
                   </Card>
                 )}
 
-                               {/* Primary action hierarchy */}
+                {/* Primary action hierarchy */}
                 <Card className="bg-white">
                   <CardContent>
                     <div className="space-y-3">
@@ -1385,28 +1447,9 @@ export default function InboxPage() {
 
                       <div className="flex flex-wrap items-center gap-2">
                         {/* Primary */}
-                        {it.action_href ? (
-                          <Button
-                            onClick={async () => {
-                              await autoResolveWithUndo(it, "Opened.");
-                              router.push(it.action_href!);
-                            }}
-                            title="Open the right place (this will clear the item)"
-                          >
-                            {shortcutLabel ?? "Open"}
-                          </Button>
-                        ) : !isEng ? (
-                          <Button
-                            onClick={() => decideNowAndCloseInboxItem(it)}
-                            title="Save a decision and clear this item"
-                          >
-                            Decide
-                          </Button>
-                        ) : (
-                          <Button onClick={() => doneItem(it.id)} title="Mark this as handled">
-                            Mark done
-                          </Button>
-                        )}
+                        <Button onClick={() => decideNowAndCloseInboxItem(it)} title="Save a decision and clear this item">
+                          Decide
+                        </Button>
 
                         {/* Secondary */}
                         <Button variant="secondary" onClick={() => snooze24h(it.id)} title="Hide this until tomorrow">
@@ -1429,9 +1472,7 @@ export default function InboxPage() {
                         )}
                       </div>
 
-                      <div className="text-xs text-zinc-500">
-                        Tip: If you’re not ready, snooze it. If it’s handled, mark it done.
-                      </div>
+                      <div className="text-xs text-zinc-500">Tip: If you’re not ready, snooze it. If it’s already handled, mark it done.</div>
                     </div>
                   </CardContent>
                 </Card>
@@ -1457,19 +1498,11 @@ export default function InboxPage() {
                             Mark done
                           </Button>
 
-                          <Button
-                            variant="secondary"
-                            onClick={() => snooze7d(it.id)}
-                            title="Hide this for a week"
-                          >
+                          <Button variant="secondary" onClick={() => snooze7d(it.id)} title="Hide this for a week">
                             Snooze 7d
                           </Button>
 
-                          <Button
-                            variant="secondary"
-                            onClick={() => snoozeItemMinutes(it.id, 10)}
-                            title="Short snooze"
-                          >
+                          <Button variant="secondary" onClick={() => snoozeItemMinutes(it.id, 10)} title="Short snooze">
                             Snooze 10m
                           </Button>
 
@@ -1502,14 +1535,12 @@ export default function InboxPage() {
                             <Card className="border-sky-200 bg-sky-50">
                               <CardContent>
                                 <div className="space-y-3">
-                                  <div className="text-xs text-zinc-500">AI analysis</div>
+                                  <div className="text-xs text-zinc-600">AI analysis</div>
 
-                                  <div className="flex flex-wrap gap-2 text-xs text-zinc-600">
+                                  <div className="flex flex-wrap gap-2 text-xs text-zinc-700">
                                     {analysis.decision_type && <span>Type: {analysis.decision_type}</span>}
                                     {analysis.stakes && <span>• Stakes: {analysis.stakes}</span>}
-                                    {analysis.reversible != null && (
-                                      <span>• Reversible: {analysis.reversible ? "Yes" : "No"}</span>
-                                    )}
+                                    {analysis.reversible != null && <span>• Reversible: {analysis.reversible ? "Yes" : "No"}</span>}
                                     {analysis.time_horizon && <span>• Horizon: {analysis.time_horizon}</span>}
                                   </div>
 
@@ -1519,9 +1550,7 @@ export default function InboxPage() {
                                     </div>
                                   )}
 
-                                  {analysis.reasoning && (
-                                    <div className="whitespace-pre-wrap text-sm leading-relaxed">{analysis.reasoning}</div>
-                                  )}
+                                  {analysis.reasoning && <div className="whitespace-pre-wrap text-sm leading-relaxed">{analysis.reasoning}</div>}
 
                                   {Array.isArray(analysis.key_questions) && analysis.key_questions.length > 0 && (
                                     <div className="text-sm">
@@ -1543,7 +1572,7 @@ export default function InboxPage() {
 
                         {/* decision inputs */}
                         <div className="space-y-2">
-                          <div className="text-xs text-zinc-500">How confident do you feel about this?</div>
+                          <div className="text-xs text-zinc-600">How confident do you feel about this?</div>
 
                           <div className="flex flex-wrap gap-4">
                             {[1, 2, 3].map((level) => (
@@ -1572,15 +1601,17 @@ export default function InboxPage() {
                           />
                         </div>
 
-                        <div className="text-xs text-zinc-500">
-                          type: {it.type} • severity: {it.severity ?? 2} • id: {it.id}
-                        </div>
+                        {process.env.NODE_ENV === "development" && (
+                          <div className="text-xs text-zinc-500">
+                            type: {it.type} • severity: {it.severity ?? 2} • id: {it.id}
+                          </div>
+                        )}
                       </div>
                     </CardContent>
                   </Card>
                 ) : (
                   <div className="space-y-2">
-                    <div className="text-xs text-zinc-500">Optional: add a reason before deciding</div>
+                    <div className="text-xs text-zinc-600">Optional: add a reason before deciding</div>
                     <textarea
                       placeholder="Reason (optional)"
                       value={decisionReason[it.id] ?? ""}
@@ -1597,8 +1628,7 @@ export default function InboxPage() {
     );
   };
 
-  const minutesAgoText =
-    !lastLoadedAt ? "" : minutesAgo !== null && minutesAgo < 1 ? "just now" : `${minutesAgo ?? 0}m ago`;
+  const minutesAgoText = !lastLoadedAt ? "" : minutesAgo !== null && minutesAgo < 1 ? "just now" : `${minutesAgo ?? 0}m ago`;
 
   const updateNow = () => loadRef.current({ silent: false });
 
@@ -1644,8 +1674,7 @@ export default function InboxPage() {
       <Card className="bg-zinc-50">
         <CardContent>
           <div className="text-sm text-zinc-700">
-            Start with <strong>Recommended</strong>. If you’re not ready, <strong>Snooze</strong>. If it’s handled,
-            <strong> mark done</strong>.
+            Start with <strong>Recommended</strong>. If you’re not ready, <strong>Snooze</strong>. If it’s handled, <strong>mark done</strong>.
           </div>
         </CardContent>
       </Card>
@@ -1657,7 +1686,7 @@ export default function InboxPage() {
             <div className="flex items-center justify-between gap-2">
               <div>
                 <div className="text-sm font-semibold text-zinc-900">Capture</div>
-                <div className="text-xs text-zinc-600">Add something you don’t want to forget.</div>
+                <div className="text-xs text-zinc-700">Add something you don’t want to forget.</div>
               </div>
             </div>
 
@@ -1673,7 +1702,7 @@ export default function InboxPage() {
               />
 
               <Button onClick={addManualInboxItem} disabled={adding}>
-                {adding ? "Adding…" : "Add to My notes"}
+                {adding ? "Adding…" : "Add to My Notes"}
               </Button>
             </div>
           </div>
@@ -1683,7 +1712,7 @@ export default function InboxPage() {
       {/* Sections */}
       <div className="space-y-3">
         <div className="flex items-end justify-between gap-3">
-          <h2 className="m-0 text-lg font-semibold tracking-tight">What to do next</h2>
+          <h2 className="m-0 text-lg font-semibold tracking-tight text-zinc-900">What to do next</h2>
           <div className="text-xs text-zinc-500">Snoozed items hide until they’re due.</div>
         </div>
 
@@ -1691,7 +1720,7 @@ export default function InboxPage() {
           <SectionHeader
             title="Recommended"
             count={buckets.recommended.length}
-            description="Higher-signal nudges & patterns. Use these first if you’re not sure what to do next."
+            description="Smart nudges from the Engine — designed to help you choose the next best move."
             tone="sky"
             open={openRecommended}
             onToggle={() => setOpenRecommended((v) => !v)}
@@ -1714,7 +1743,7 @@ export default function InboxPage() {
           />
 
           {openRecommended ? (
-            <div className="pl-2 space-y-3">
+            <div className="space-y-3 rounded-xl border border-zinc-100 bg-white/40 p-3">
               {buckets.recommended.length ? (
                 buckets.recommended.map(renderItemCard)
               ) : (
@@ -1731,14 +1760,14 @@ export default function InboxPage() {
           <SectionHeader
             title="Maintenance"
             count={buckets.maintenance.length}
-            description="These keep your dashboard correct. A few minutes here prevents bigger issues later."
+            description="Quick checks that prevent bigger issues later."
             tone="amber"
             open={openMaintenance}
             onToggle={() => setOpenMaintenance((v) => !v)}
           />
 
           {openMaintenance ? (
-            <div className="pl-2 space-y-3">
+            <div className="space-y-3 rounded-xl border border-zinc-100 bg-white/40 p-3">
               {buckets.maintenance.length ? (
                 buckets.maintenance.map(renderItemCard)
               ) : (
@@ -1753,7 +1782,7 @@ export default function InboxPage() {
           ) : null}
 
           <SectionHeader
-            title="My notes"
+            title="My Notes"
             count={buckets.notes.length}
             description="Things you captured. Decide, snooze, or promote to Decisions."
             tone="zinc"
@@ -1762,7 +1791,7 @@ export default function InboxPage() {
           />
 
           {openNotes ? (
-            <div className="pl-2 space-y-3">
+            <div className="space-y-3 rounded-xl border border-zinc-100 bg-white/40 p-3">
               {buckets.notes.length ? (
                 buckets.notes.map(renderItemCard)
               ) : (
