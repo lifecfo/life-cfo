@@ -17,7 +17,7 @@ export function AppShell({ children }: AppShellProps) {
 
   const nav = [
     // UI label is Home, but route stays /inbox for now
-    { href: "/inbox", label: "Home" },
+    { href: "/home", label: "Home" },
     { href: "/capture", label: "Capture" },
     { href: "/decisions", label: "Decisions" },
     { href: "/accounts", label: "Accounts" },
