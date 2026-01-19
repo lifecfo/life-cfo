@@ -101,6 +101,9 @@ export default function InboxPage() {
   // ✅ New UX: item-level collapse (collapsed by default)
   const [openItem, setOpenItem] = useState<Record<string, boolean>>({});
 
+  // ✅ Action hierarchy: keep advanced controls tucked away
+  const [showAdvanced, setShowAdvanced] = useState<Record<string, boolean>>({});
+
   const loadRef = useRef<(opts?: { silent?: boolean }) => void>(() => {});
   const reloadTimerRef = useRef<number | null>(null);
 
@@ -249,6 +252,12 @@ export default function InboxPage() {
       delete copy[id];
       return copy;
     });
+
+    setShowAdvanced((prev) => {
+      const copy = { ...prev };
+      delete copy[id];
+      return copy;
+    });
   };
 
   const analyzeItem = async (item: InboxItem) => {
@@ -324,6 +333,14 @@ export default function InboxPage() {
 
   const setItemOpen = (id: string, open: boolean) => {
     setOpenItem((prev) => ({ ...prev, [id]: open }));
+  };
+
+  const toggleAdvanced = (id: string) => {
+    setShowAdvanced((prev) => ({ ...prev, [id]: !prev[id] }));
+  };
+
+  const setAdvancedOpen = (id: string, open: boolean) => {
+    setShowAdvanced((prev) => ({ ...prev, [id]: open }));
   };
 
   // ---------- auth + load ----------
@@ -590,7 +607,7 @@ export default function InboxPage() {
       setItems((prev) => [data as any, ...prev]);
       setNewItemTitle("");
       setLastLoadedAt(new Date());
-      setStatusLine("Added ✅");
+      setStatusLine("Added.");
     } catch (e: any) {
       setStatusLine(e?.message ?? "Add failed");
     } finally {
@@ -618,7 +635,7 @@ export default function InboxPage() {
 
     setItems((prev) => prev.map((it) => (it.status === "snoozed" ? { ...it, status: "open", snoozed_until: null } : it)));
     setLastLoadedAt(new Date());
-    setStatusLine("All snoozed items are now open ✅");
+    setStatusLine("All snoozed items are now open.");
   };
 
   const updateSeverity = async (id: string, next: number) => {
@@ -657,14 +674,14 @@ export default function InboxPage() {
     setItems((prev) => prev.map((it) => (it.id === id ? { ...it, status: "done", snoozed_until: null } : it)));
     clearPerItemInputs(id);
     setLastLoadedAt(new Date());
-    setStatusLine("Done ✅");
+    setStatusLine("Done.");
   };
 
   const snoozeItemUntil = async (id: string, untilIso: string, label: string) => {
     if (!userId) return;
 
     setAffirmation(null);
-    setStatusLine(`Snoozing (${label})...`);
+    setStatusLine("Snoozing...");
 
     const { error } = await supabase
       .from("decision_inbox")
@@ -680,7 +697,7 @@ export default function InboxPage() {
     setItems((prev) => prev.map((it) => (it.id === id ? { ...it, status: "snoozed", snoozed_until: untilIso } : it)));
     clearPerItemInputs(id);
     setLastLoadedAt(new Date());
-    setStatusLine(`Snoozed ✅ (${label})`);
+    setStatusLine(`Snoozed (${label}).`);
   };
 
   const snoozeItemMinutes = async (id: string, mins: number) => {
@@ -718,10 +735,10 @@ export default function InboxPage() {
     setItems((prev) => prev.map((it) => (it.id === id ? { ...it, status: "open", snoozed_until: null } : it)));
     clearPerItemInputs(id);
     setLastLoadedAt(new Date());
-    setStatusLine("Unsnoozed ✅");
+    setStatusLine("Back in your inbox.");
   };
 
-  const autoResolveWithUndo = async (it: InboxItem, message = "Marked done ✅") => {
+  const autoResolveWithUndo = async (it: InboxItem, message = "Marked done") => {
     if (!userId) return;
 
     const prevStatus = it.status;
@@ -762,7 +779,7 @@ export default function InboxPage() {
 
           setItems((prev) => prev.map((x) => (x.id === it.id ? { ...x, status: prevStatus, snoozed_until: prevSnooze } : x)));
           setLastLoadedAt(new Date());
-          setStatusLine("Undone ✅");
+          setStatusLine("Undone.");
         },
       },
       8000
@@ -774,12 +791,12 @@ export default function InboxPage() {
 
     const ids = buckets.recommended.map((x) => x.id);
     if (ids.length === 0) {
-      showToast({ message: "Nothing to dismiss." }, 2500);
+      showToast({ message: "Nothing to clear." }, 2500);
       return;
     }
 
     setAffirmation(null);
-    setStatusLine("Dismissing recommended items...");
+    setStatusLine("Clearing recommended items...");
 
     setItems((prev) => prev.map((it) => (ids.includes(it.id) ? { ...it, status: "done", snoozed_until: null } : it)));
     ids.forEach((id) => clearPerItemInputs(id));
@@ -792,19 +809,19 @@ export default function InboxPage() {
       .eq("user_id", userId);
 
     if (error) {
-      setStatusLine(`Dismiss failed: ${error.message}`);
+      setStatusLine(`Clear failed: ${error.message}`);
       loadRef.current({ silent: true });
       return;
     }
 
-    setStatusLine(`Dismissed ${ids.length} ✅`);
+    setStatusLine(`Cleared ${ids.length}.`);
 
     showToast(
       {
-        message: `Dismissed ${ids.length} ✅`,
+        message: `Cleared ${ids.length}.`,
         undoLabel: "Undo",
         onUndo: async () => {
-          setStatusLine("Undoing dismiss...");
+          setStatusLine("Undoing clear...");
 
           const { error: undoErr } = await supabase
             .from("decision_inbox")
@@ -820,7 +837,7 @@ export default function InboxPage() {
 
           setItems((prev) => prev.map((it) => (ids.includes(it.id) ? { ...it, status: "open", snoozed_until: null } : it)));
           setLastLoadedAt(new Date());
-          setStatusLine("Undone ✅");
+          setStatusLine("Undone.");
         },
       },
       8000
@@ -906,11 +923,11 @@ export default function InboxPage() {
       clearPerItemInputs(item.id);
       setLastLoadedAt(new Date());
 
-      setStatusLine("Decision saved ✅");
+      setStatusLine("Decision saved.");
 
       showToast(
         {
-          message: "Decision saved ✅",
+          message: "Decision saved.",
           undoLabel: "Undo",
           onUndo: async () => {
             setStatusLine("Undoing decision...");
@@ -934,7 +951,7 @@ export default function InboxPage() {
 
             setItems((prev) => prev.map((it) => (it.id === item.id ? { ...it, status: "open", snoozed_until: null } : it)));
             setLastLoadedAt(new Date());
-            setStatusLine("Undone ✅");
+            setStatusLine("Undone.");
           },
         },
         8000
@@ -1001,11 +1018,11 @@ export default function InboxPage() {
       clearPerItemInputs(item.id);
       setLastLoadedAt(new Date());
 
-      setStatusLine("Promoted ✅");
+      setStatusLine("Promoted.");
 
       showToast(
         {
-          message: "Promoted to Decisions ✅",
+          message: "Promoted to Decisions.",
           undoLabel: "Undo",
           onUndo: async () => {
             setStatusLine("Undoing promotion...");
@@ -1029,7 +1046,7 @@ export default function InboxPage() {
 
             setItems((prev) => prev.map((it) => (it.id === item.id ? { ...it, status: "open", snoozed_until: null } : it)));
             setLastLoadedAt(new Date());
-            setStatusLine("Undone ✅");
+            setStatusLine("Undone.");
           },
         },
         8000
@@ -1089,6 +1106,7 @@ export default function InboxPage() {
 
             <div className="flex flex-wrap items-center justify-end gap-2">{actions}</div>
           </div>
+
           {description && <div className="mt-2 text-xs text-zinc-600">{description}</div>}
         </CardContent>
       </Card>
@@ -1114,6 +1132,7 @@ export default function InboxPage() {
     const activelySnoozed = isActivelySnoozed(it, now);
 
     const expanded = !!openItem[it.id];
+    const advOpen = !!showAdvanced[it.id];
 
     const subtitle =
       activelySnoozed && it.snoozed_until
@@ -1123,7 +1142,7 @@ export default function InboxPage() {
         : isV2
         ? "Recommended based on your current inputs."
         : isV1
-        ? "Maintenance reminder."
+        ? "Maintenance item to keep things accurate."
         : "Note you captured.";
 
     return (
@@ -1176,7 +1195,7 @@ export default function InboxPage() {
                     variant="secondary"
                     onClick={async (e) => {
                       e.stopPropagation?.();
-                      await autoResolveWithUndo(it, "Shortcut used ✅");
+                      await autoResolveWithUndo(it, "Shortcut used.");
                       router.push(it.action_href!);
                     }}
                     title="Use this and jump to the right place"
@@ -1216,13 +1235,13 @@ export default function InboxPage() {
                 {isV2 && (
                   <div className="text-xs text-zinc-500">
                     Why this is here: based on your current inputs (no forecasting).{" "}
-                    {hasShortcutAction ? "Using the action will auto-clear this item." : ""}
+                    {hasShortcutAction ? "Using the action will clear this item." : ""}
                   </div>
                 )}
                 {isV1 && (
                   <div className="text-xs text-zinc-500">
-                    Why this is here: maintenance reminder from your current inputs.{" "}
-                    {hasShortcutAction ? "Using the action will auto-clear this item." : ""}
+                    Why this is here: keeping your system accurate and up to date.{" "}
+                    {hasShortcutAction ? "Using the action will clear this item." : ""}
                   </div>
                 )}
                 {!isV2 && !isV1 && isEng && <div className="text-xs text-zinc-500">Engine note.</div>}
@@ -1235,23 +1254,23 @@ export default function InboxPage() {
                     <CardContent>
                       <div className="flex flex-wrap items-center justify-between gap-3">
                         <div className="text-sm text-zinc-600">
-                          Shortcut actions — use the insight, then come back. (This digest will auto-clear.)
+                          Shortcut actions — use the insight, then come back. (This digest will clear itself.)
                         </div>
 
                         <div className="flex flex-wrap gap-2">
                           <Button
                             onClick={async () => {
-                              await autoResolveWithUndo(it, "Digest cleared ✅");
+                              await autoResolveWithUndo(it, "Digest cleared.");
                               router.push("/decisions?tab=review");
                             }}
                           >
-                            Review now
+                            Review decisions
                           </Button>
 
                           <Button
                             variant="secondary"
                             onClick={async () => {
-                              await autoResolveWithUndo(it, "Digest cleared ✅");
+                              await autoResolveWithUndo(it, "Digest cleared.");
                               router.push("/engine");
                             }}
                           >
@@ -1267,155 +1286,197 @@ export default function InboxPage() {
                   </Card>
                 )}
 
-                {/* AI */}
-                <div className="space-y-2">
-                  <Button
-                    variant="secondary"
-                    onClick={() => analyzeItem(it)}
-                    disabled={loading}
-                    title="Get a quick structured view"
-                  >
-                    {loading ? "Analyzing…" : analysis ? "Re-analyze with AI" : "Analyze with AI"}
-                  </Button>
+                {/* Primary vs secondary actions */}
+                <Card className="bg-white">
+                  <CardContent>
+                    <div className="space-y-3">
+                      <div className="text-sm font-semibold text-zinc-900">Next step</div>
 
-                  {err && <div className="text-xs text-red-700">AI error: {err}</div>}
+                      <div className="flex flex-wrap gap-2">
+                        <Button onClick={() => decideNowAndCloseInboxItem(it)} title="Save a decision and clear this item">
+                          Decide now
+                        </Button>
 
-                  {analysis && (
-                    <Card className="border-sky-200 bg-sky-50">
-                      <CardContent>
-                        <div className="space-y-3">
-                          <div className="text-xs text-zinc-500">AI analysis</div>
+                        <Button
+                          variant="secondary"
+                          onClick={() => snooze24h(it.id)}
+                          title="Hide this until tomorrow"
+                        >
+                          Snooze 24h
+                        </Button>
 
-                          <div className="flex flex-wrap gap-2 text-xs text-zinc-600">
-                            {analysis.decision_type && <span>Type: {analysis.decision_type}</span>}
-                            {analysis.stakes && <span>• Stakes: {analysis.stakes}</span>}
-                            {analysis.reversible != null && (
-                              <span>• Reversible: {analysis.reversible ? "Yes" : "No"}</span>
-                            )}
-                            {analysis.time_horizon && <span>• Horizon: {analysis.time_horizon}</span>}
-                          </div>
+                        <Button variant="secondary" onClick={() => snooze7d(it.id)} title="Hide this for a week">
+                          Snooze 7d
+                        </Button>
 
-                          {analysis.suggested_default && (
-                            <div className="text-sm">
-                              <strong>Suggested default:</strong> {analysis.suggested_default}
-                            </div>
-                          )}
+                        {activelySnoozed && (
+                          <Button variant="secondary" onClick={() => unsnoozeToOpen(it.id)}>
+                            Unsnooze
+                          </Button>
+                        )}
 
-                          {analysis.reasoning && (
-                            <div className="whitespace-pre-wrap text-sm leading-relaxed">{analysis.reasoning}</div>
-                          )}
+                        <Button
+                          variant="secondary"
+                          onClick={() => toggleAdvanced(it.id)}
+                          title={advOpen ? "Hide advanced actions" : "Show advanced actions"}
+                        >
+                          {advOpen ? "Hide advanced" : "Advanced"}
+                        </Button>
+                      </div>
 
-                          {Array.isArray(analysis.key_questions) && analysis.key_questions.length > 0 && (
-                            <div className="text-sm">
-                              <strong>Key questions</strong>
-                              <ul className="mt-2 list-disc pl-5">
-                                {analysis.key_questions.map((q: string, idx: number) => (
-                                  <li key={idx} className="mb-1">
-                                    {q}
-                                  </li>
-                                ))}
-                              </ul>
-                            </div>
+                      <div className="text-xs text-zinc-500">
+                        Tip: If you’re not ready to decide, snooze it. If it’s fully handled, mark it done.
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Advanced */}
+                {advOpen ? (
+                  <Card className="bg-zinc-50">
+                    <CardContent>
+                      <div className="space-y-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="text-sm font-semibold text-zinc-900">Advanced</div>
+                          <Button variant="secondary" onClick={() => setAdvancedOpen(it.id, false)}>
+                            Hide
+                          </Button>
+                        </div>
+
+                        <div className="flex flex-wrap gap-2">
+                          <Button variant="secondary" onClick={() => promoteInboxItemToDecision(it)}>
+                            Promote to Decisions
+                          </Button>
+
+                          <Button variant="secondary" onClick={() => doneItem(it.id)}>
+                            Mark done
+                          </Button>
+
+                          <Button variant="secondary" onClick={() => snoozeItemMinutes(it.id, 10)} title="Short snooze">
+                            Snooze 10m
+                          </Button>
+
+                          <Button
+                            variant="secondary"
+                            onClick={() => updateSeverity(it.id, (it.severity ?? 2) - 1)}
+                            title="Raise priority (towards Top)"
+                          >
+                            Raise priority
+                          </Button>
+
+                          <Button
+                            variant="secondary"
+                            onClick={() => updateSeverity(it.id, (it.severity ?? 2) + 1)}
+                            title="Lower priority (towards Low)"
+                          >
+                            Lower priority
+                          </Button>
+
+                          <Button variant="secondary" onClick={() => setItemOpen(it.id, false)} title="Collapse details">
+                            Collapse
+                          </Button>
+                        </div>
+
+                        {/* AI */}
+                        <div className="space-y-2">
+                          <Button variant="secondary" onClick={() => analyzeItem(it)} disabled={loading}>
+                            {loading ? "Analyzing…" : analysis ? "Re-analyze with AI" : "Analyze with AI"}
+                          </Button>
+
+                          {err && <div className="text-xs text-red-700">AI error: {err}</div>}
+
+                          {analysis && (
+                            <Card className="border-sky-200 bg-sky-50">
+                              <CardContent>
+                                <div className="space-y-3">
+                                  <div className="text-xs text-zinc-500">AI analysis</div>
+
+                                  <div className="flex flex-wrap gap-2 text-xs text-zinc-600">
+                                    {analysis.decision_type && <span>Type: {analysis.decision_type}</span>}
+                                    {analysis.stakes && <span>• Stakes: {analysis.stakes}</span>}
+                                    {analysis.reversible != null && (
+                                      <span>• Reversible: {analysis.reversible ? "Yes" : "No"}</span>
+                                    )}
+                                    {analysis.time_horizon && <span>• Horizon: {analysis.time_horizon}</span>}
+                                  </div>
+
+                                  {analysis.suggested_default && (
+                                    <div className="text-sm">
+                                      <strong>Suggested default:</strong> {analysis.suggested_default}
+                                    </div>
+                                  )}
+
+                                  {analysis.reasoning && (
+                                    <div className="whitespace-pre-wrap text-sm leading-relaxed">{analysis.reasoning}</div>
+                                  )}
+
+                                  {Array.isArray(analysis.key_questions) && analysis.key_questions.length > 0 && (
+                                    <div className="text-sm">
+                                      <strong>Key questions</strong>
+                                      <ul className="mt-2 list-disc pl-5">
+                                        {analysis.key_questions.map((q: string, idx: number) => (
+                                          <li key={idx} className="mb-1">
+                                            {q}
+                                          </li>
+                                        ))}
+                                      </ul>
+                                    </div>
+                                  )}
+                                </div>
+                              </CardContent>
+                            </Card>
                           )}
                         </div>
-                      </CardContent>
-                    </Card>
-                  )}
-                </div>
 
-                {/* decision inputs */}
-                <div className="space-y-2">
-                  <div className="text-xs text-zinc-500">How confident do you feel about this?</div>
+                        {/* decision inputs */}
+                        <div className="space-y-2">
+                          <div className="text-xs text-zinc-500">How confident do you feel about this?</div>
 
-                  <div className="flex flex-wrap gap-4">
-                    {[1, 2, 3].map((level) => (
-                      <label
-                        key={level}
-                        className={`flex cursor-pointer items-center gap-2 text-sm ${
-                          decisionConfidence[it.id] === level ? "opacity-100" : "opacity-80"
-                        }`}
-                      >
-                        <input
-                          type="radio"
-                          name={`confidence-${it.id}`}
-                          checked={decisionConfidence[it.id] === level}
-                          onChange={() => setDraftConfidence(it.id, level)}
-                        />
-                        {level === 1 ? "Low" : level === 2 ? "Medium" : "High"}
-                      </label>
-                    ))}
+                          <div className="flex flex-wrap gap-4">
+                            {[1, 2, 3].map((level) => (
+                              <label
+                                key={level}
+                                className={`flex cursor-pointer items-center gap-2 text-sm ${
+                                  decisionConfidence[it.id] === level ? "opacity-100" : "opacity-80"
+                                }`}
+                              >
+                                <input
+                                  type="radio"
+                                  name={`confidence-${it.id}`}
+                                  checked={decisionConfidence[it.id] === level}
+                                  onChange={() => setDraftConfidence(it.id, level)}
+                                />
+                                {level === 1 ? "Low" : level === 2 ? "Medium" : "High"}
+                              </label>
+                            ))}
+                          </div>
+
+                          <textarea
+                            placeholder="Reason (optional)"
+                            value={decisionReason[it.id] ?? ""}
+                            onChange={(e) => setDraftReason(it.id, e.target.value)}
+                            className="w-full min-h-[70px] rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200"
+                          />
+                        </div>
+
+                        <div className="text-xs text-zinc-500">
+                          type: {it.type} • severity: {it.severity ?? 2} • id: {it.id}
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ) : (
+                  // If advanced is hidden, still keep inputs lightly accessible (not mandatory)
+                  <div className="space-y-2">
+                    <div className="text-xs text-zinc-500">Optional: add a reason before deciding</div>
+                    <textarea
+                      placeholder="Reason (optional)"
+                      value={decisionReason[it.id] ?? ""}
+                      onChange={(e) => setDraftReason(it.id, e.target.value)}
+                      className="w-full min-h-[60px] rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200"
+                    />
                   </div>
-
-                  <textarea
-                    placeholder="Why did you decide this? (optional)"
-                    value={decisionReason[it.id] ?? ""}
-                    onChange={(e) => setDraftReason(it.id, e.target.value)}
-                    className="w-full min-h-[70px] rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200"
-                  />
-                </div>
-
-                {/* primary actions */}
-                <div className="flex flex-wrap gap-2">
-                  <Button onClick={() => decideNowAndCloseInboxItem(it)}>Decide now ✅</Button>
-
-                  <Button variant="secondary" onClick={() => promoteInboxItemToDecision(it)}>
-                    Promote → Decisions
-                  </Button>
-
-                  <Button variant="secondary" onClick={() => doneItem(it.id)}>
-                    Done
-                  </Button>
-
-                  <Button variant="secondary" onClick={() => snooze24h(it.id)}>
-                    Snooze 24h
-                  </Button>
-
-                  <Button variant="secondary" onClick={() => snooze7d(it.id)}>
-                    Snooze 7d
-                  </Button>
-
-                  <Button
-                    variant="secondary"
-                    onClick={() => snoozeItemMinutes(it.id, 10)}
-                    title="Short snooze (testing / quick defer)"
-                  >
-                    Snooze 10m
-                  </Button>
-
-                  {activelySnoozed && (
-                    <Button variant="secondary" onClick={() => unsnoozeToOpen(it.id)}>
-                      Unsnooze
-                    </Button>
-                  )}
-
-                  <Button
-                    variant="secondary"
-                    onClick={() => updateSeverity(it.id, (it.severity ?? 2) - 1)}
-                    title="Raise priority (towards Top)"
-                  >
-                    ↑ Priority
-                  </Button>
-
-                  <Button
-                    variant="secondary"
-                    onClick={() => updateSeverity(it.id, (it.severity ?? 2) + 1)}
-                    title="Lower priority (towards Low)"
-                  >
-                    ↓ Priority
-                  </Button>
-
-                  <Button
-                    variant="secondary"
-                    onClick={() => setItemOpen(it.id, false)}
-                    title="Collapse details"
-                  >
-                    Collapse
-                  </Button>
-                </div>
-
-                <div className="text-xs text-zinc-500">
-                  type: {it.type} • severity: {it.severity ?? 2} • id: {it.id}
-                </div>
+                )}
               </div>
             ) : null}
           </div>
@@ -1450,7 +1511,7 @@ export default function InboxPage() {
           <Button onClick={updateNow}>Update now</Button>
 
           <Button variant="secondary" onClick={() => router.push("/decisions?tab=review")}>
-            Review bills
+            Review decisions
           </Button>
 
           <Button variant="secondary" onClick={() => router.push("/engine")}>
@@ -1470,6 +1531,15 @@ export default function InboxPage() {
           <CardContent className="text-sm text-emerald-900">{affirmation}</CardContent>
         </Card>
       )}
+
+      {/* Orientation */}
+      <Card className="bg-zinc-50">
+        <CardContent>
+          <div className="text-sm text-zinc-700">
+            Start with <strong>Recommended</strong>. If you’re not ready to decide, <strong>Snooze</strong>. If it’s handled, mark it done.
+          </div>
+        </CardContent>
+      </Card>
 
       {/* ---- quick capture ---- */}
       <Card>
@@ -1523,9 +1593,9 @@ export default function InboxPage() {
                   variant="secondary"
                   onClick={dismissAllRecommended}
                   disabled={buckets.recommended.length === 0}
-                  title="Mark all recommended items as done"
+                  title="Clear all recommended items (you can undo)"
                 >
-                  Dismiss all
+                  Clear all
                 </Button>
               </>
             }
@@ -1547,7 +1617,7 @@ export default function InboxPage() {
           <SectionHeader
             title="Maintenance"
             count={buckets.maintenance.length}
-            description="Housekeeping items. Do these when you have a moment."
+            description="These keep your dashboard correct. A few minutes here prevents bigger issues later."
             tone="amber"
             open={openMaintenance}
             onToggle={() => setOpenMaintenance((v) => !v)}
@@ -1560,7 +1630,7 @@ export default function InboxPage() {
               <Card className="bg-white">
                 <CardContent>
                   <div className="text-sm text-zinc-700">Nothing to maintain right now.</div>
-                  <div className="text-xs text-zinc-500">Nice and calm ✅</div>
+                  <div className="text-xs text-zinc-500">All up to date.</div>
                 </CardContent>
               </Card>
             )
@@ -1569,7 +1639,7 @@ export default function InboxPage() {
           <SectionHeader
             title="My notes"
             count={buckets.notes.length}
-            description="Things you captured manually. Decide, snooze, or promote to Decisions."
+            description="Things you captured. Decide, snooze, or promote to Decisions."
             tone="zinc"
             open={openNotes}
             onToggle={() => setOpenNotes((v) => !v)}
