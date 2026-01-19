@@ -31,6 +31,18 @@ type InboxItem = {
   dedupe_key?: string | null;
 };
 
+type Bill = {
+  id: string;
+  user_id: string;
+  merchant_key: string;
+  nickname: string | null;
+  due_day_or_date: string;
+  expected_amount: number | null;
+  status: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+};
+
 function isoNowPlusMinutes(mins: number) {
   const d = new Date(Date.now() + mins * 60 * 1000);
   return d.toISOString();
@@ -106,6 +118,10 @@ export default function InboxPage() {
 
   // ✅ Hide “how it’s calculated” unless asked (per-item)
   const [showFormula, setShowFormula] = useState<Record<string, boolean>>({});
+
+  // ✅ Bills snapshot (calm, collapsed)
+  const [bills, setBills] = useState<Bill[]>([]);
+  const [openComingUp, setOpenComingUp] = useState(false);
 
   const loadRef = useRef<(opts?: { silent?: boolean }) => void>(() => {});
   const reloadTimerRef = useRef<number | null>(null);
@@ -401,6 +417,13 @@ export default function InboxPage() {
     return raw;
   };
 
+  const parseDueDay = (s: string) => {
+    const n = parseInt(String(s ?? "").trim(), 10);
+    if (!Number.isFinite(n)) return null;
+    if (n < 1 || n > 31) return null;
+    return n;
+  };
+
   // ---------- auth + load ----------
   const load = async (opts?: { silent?: boolean }) => {
     const silent = !!opts?.silent;
@@ -436,6 +459,20 @@ export default function InboxPage() {
     if (error) {
       setStatusLine(`Error: ${error.message}`);
       return;
+    }
+
+    // Bills snapshot (top 5, calm)
+    const { data: billsData, error: billsError } = await supabase
+      .from("bills")
+      .select("id,user_id,merchant_key,nickname,due_day_or_date,expected_amount,status,created_at,updated_at")
+      .eq("user_id", user.id)
+      .eq("status", "active");
+
+    if (billsError) {
+      // Don't block Home if this fails; just keep it quiet.
+      setBills([]);
+    } else {
+      setBills((billsData ?? []) as Bill[]);
     }
 
     setItems((data ?? []) as InboxItem[]);
@@ -638,6 +675,28 @@ export default function InboxPage() {
     return { recommended, maintenance, notes };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visibleItems]);
+
+  const upcomingBills = useMemo(() => {
+    const list = [...(bills ?? [])].filter((b) => (b.status ?? "active") === "active");
+
+    const createdMs = (x: Bill) => (x.created_at ? Date.parse(x.created_at) || 0 : 0);
+
+    // Best-effort sort:
+    // - numeric due_day_or_date (1–31) first, ascending
+    // - then everything else, newest first
+    list.sort((a, b) => {
+      const da = parseDueDay(a.due_day_or_date);
+      const db = parseDueDay(b.due_day_or_date);
+
+      if (da != null && db != null) return da - db;
+      if (da != null && db == null) return -1;
+      if (da == null && db != null) return 1;
+
+      return createdMs(b) - createdMs(a);
+    });
+
+    return list.slice(0, 5);
+  }, [bills]);
 
   // ---------- manual add ----------
   const addManualInboxItem = async () => {
@@ -1266,7 +1325,6 @@ export default function InboxPage() {
     const expanded = !!openItem[it.id];
     const advOpen = !!showAdvanced[it.id];
 
-    // Don’t re-print metric summaries up top when expanded; and don’t show raw metric snippets in collapsed.
     const subtitle =
       autopayAllClear
         ? "All clear — nothing due soon."
@@ -1286,7 +1344,6 @@ export default function InboxPage() {
       <Card key={it.id} className={engineCardClasses(s, kind)}>
         <CardContent>
           <div className="space-y-3">
-            {/* ---- collapsed summary row ---- */}
             <div className="flex flex-wrap items-start justify-between gap-3">
               <button
                 type="button"
@@ -1364,7 +1421,6 @@ export default function InboxPage() {
               </div>
             </div>
 
-            {/* ---- expanded details ---- */}
             {expanded ? (
               <div className="space-y-4">
                 <div className="flex items-center justify-end">
@@ -1373,20 +1429,19 @@ export default function InboxPage() {
                   </Button>
                 </div>
 
-                {/* Context / why (kept, but subtle + short) */}
                 {(isV2 || isV1) && hasShortcutAction ? (
                   <div className="text-xs text-zinc-500">Using the action clears this item.</div>
                 ) : null}
 
-                {/* Body (with labels bold + formula hidden behind toggle) */}
                 {renderBodySmart(it)}
 
-                {/* Digest shortcuts */}
                 {insightsDigest && (
                   <Card className="bg-white">
                     <CardContent>
                       <div className="flex flex-wrap items-center justify-between gap-3">
-                        <div className="text-sm text-zinc-700">Do the review, then come back. (This digest clears itself.)</div>
+                        <div className="text-sm text-zinc-700">
+                          Do the review, then come back. (This digest clears itself.)
+                        </div>
 
                         <div className="flex flex-wrap gap-2">
                           <Button
@@ -1417,24 +1472,20 @@ export default function InboxPage() {
                   </Card>
                 )}
 
-                {/* Primary action hierarchy */}
                 <Card className="bg-white">
                   <CardContent>
                     <div className="space-y-3">
                       <div className="text-sm font-semibold text-zinc-900">Next step</div>
 
                       <div className="flex flex-wrap items-center gap-2">
-                        {/* Primary */}
                         <Button onClick={() => decideNowAndCloseInboxItem(it)} title="Save a decision and clear this item">
                           Decide
                         </Button>
 
-                        {/* Secondary */}
                         <Button variant="secondary" onClick={() => snooze24h(it.id)} title="Hide this until tomorrow">
                           Snooze
                         </Button>
 
-                        {/* Tertiary */}
                         <Button
                           variant="secondary"
                           onClick={() => toggleAdvanced(it.id)}
@@ -1457,7 +1508,6 @@ export default function InboxPage() {
                   </CardContent>
                 </Card>
 
-                {/* Advanced */}
                 {advOpen ? (
                   <Card className="bg-zinc-50">
                     <CardContent>
@@ -1503,7 +1553,6 @@ export default function InboxPage() {
                           </Button>
                         </div>
 
-                        {/* AI */}
                         <div className="space-y-2">
                           <Button variant="secondary" onClick={() => analyzeItem(it)} disabled={loading}>
                             {loading ? "Analyzing…" : analysis ? "Re-analyze with AI" : "Analyze with AI"}
@@ -1554,7 +1603,6 @@ export default function InboxPage() {
                           )}
                         </div>
 
-                        {/* decision inputs */}
                         <div className="space-y-2">
                           <div className="text-xs text-zinc-600">How confident do you feel about this?</div>
 
@@ -1634,7 +1682,6 @@ export default function InboxPage() {
         <div className="flex items-center gap-2">
           <Badge variant={badge.variant}>● {badge.text}</Badge>
 
-          {/* Calmer: no big CTA; keep a subtle “Updated …” in subtitle. */}
           <Button variant="secondary" onClick={updateNow} title="Refresh">
             Refresh
           </Button>
@@ -1697,6 +1744,71 @@ export default function InboxPage() {
         </CardContent>
       </Card>
 
+      {/* Coming up (Bills snapshot) */}
+      {upcomingBills.length > 0 ? (
+        <Card className="border-zinc-200 bg-white border-l-4 border-l-zinc-300">
+          <CardContent>
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="flex min-w-[260px] flex-1 flex-col gap-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h2 className="m-0 text-lg font-semibold tracking-tight text-zinc-900">Coming up</h2>
+                  <Badge variant="muted">{upcomingBills.length}</Badge>
+
+                  <Button
+                    variant="secondary"
+                    onClick={() => setOpenComingUp((v) => !v)}
+                    title={openComingUp ? "Hide coming up" : "Show coming up"}
+                  >
+                    {openComingUp ? "Hide" : "Show"}
+                  </Button>
+                </div>
+
+                <div className="text-xs text-zinc-700">Top 5 bills (active).</div>
+              </div>
+
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                <Button variant="secondary" onClick={() => router.push("/bills")} title="Open bills">
+                  View bills
+                </Button>
+              </div>
+            </div>
+
+            {openComingUp ? (
+              <div className="mt-3 space-y-2">
+                {upcomingBills.map((b) => {
+                  const title = (b.nickname ?? "").trim() ? (b.nickname as string) : b.merchant_key;
+                  const amount =
+                    b.expected_amount == null || Number.isNaN(Number(b.expected_amount))
+                      ? null
+                      : Number(b.expected_amount);
+
+                  return (
+                    <Card key={b.id} className="bg-white">
+                      <CardContent>
+                        <div className="flex flex-wrap items-start justify-between gap-2">
+                          <div className="min-w-[220px] flex-1">
+                            <div className="text-sm font-semibold text-zinc-900">{title}</div>
+                            <div className="text-xs text-zinc-600">Due: {b.due_day_or_date}</div>
+                          </div>
+
+                          <div className="text-sm text-zinc-700">
+                            {amount != null ? `$${amount.toFixed(2)}` : ""}
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="mt-2 text-xs text-zinc-500">
+                {upcomingBills.length === 1 ? "1 bill listed." : `${upcomingBills.length} bills listed.`}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      ) : null}
+
       {/* Sections */}
       <div className="space-y-3">
         <div className="flex items-end justify-between gap-3">
@@ -1714,7 +1826,6 @@ export default function InboxPage() {
             onToggle={() => setOpenRecommended((v) => !v)}
             actions={
               <>
-                {/* Removed big “Update suggestions” CTA (keep it out of Home). */}
                 <Button
                   variant="secondary"
                   onClick={dismissAllRecommended}
