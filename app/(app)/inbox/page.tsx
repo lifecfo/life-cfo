@@ -304,21 +304,13 @@ export default function InboxPage() {
     isInsightsDigest(it) || (isEngineItem(it) && String(it.dedupe_key ?? "").includes("engine_insights_v2"));
   const isEngineV1Reminder = (it: InboxItem) => isEngineItem(it) && !isEngineV2Insight(it);
 
-  function engineCardClasses(
-  base: { border: string; bg: string },
-  kind: "v2" | "v1" | null
-) {
-  if (!kind) return `${base.border} ${base.bg}`;
+  function engineCardClasses(base: { border: string; bg: string }, kind: "v2" | "v1" | null) {
+    if (!kind) return `${base.border} ${base.bg}`;
 
-  // Category-only bars (brand-ready, neutral)
-  const left =
-    kind === "v2"
-      ? "border-l-4 border-l-zinc-300"
-      : "border-l-4 border-l-zinc-300";
-
-  return `${base.border} ${left} bg-white`;
-}
-
+    // Neutral brand-ready bar (won't fight status colors)
+    const left = "border-l-4 border-l-zinc-300";
+    return `${base.border} ${left} bg-white`;
+  }
 
   const prettySupabaseError = (e: any) => {
     const msg = typeof e?.message === "string" ? e.message : "";
@@ -1043,6 +1035,7 @@ export default function InboxPage() {
       setStatusLine(e?.message ?? "Failed to save decision");
     }
   };
+
   const promoteInboxItemToDecision = async (item: InboxItem) => {
     if (!userId) return;
 
@@ -1167,9 +1160,8 @@ export default function InboxPage() {
     onToggle: () => void;
     actions?: ReactNode;
   }) => {
-
-const toneClasses = "border-zinc-200 bg-white";
-const leftBar = "border-l-4 border-l-zinc-300";
+    const toneClasses = "border-zinc-200 bg-white";
+    const leftBar = "border-l-4 border-l-zinc-300";
 
     return (
       <Card className={`${toneClasses} ${leftBar}`}>
@@ -1240,9 +1232,7 @@ const leftBar = "border-l-4 border-l-zinc-300";
             {show ? (
               <Card className="bg-zinc-50">
                 <CardContent>
-                  <div className="whitespace-pre-wrap text-xs text-zinc-700">
-                    {truthLines.join("\n")}
-                  </div>
+                  <div className="whitespace-pre-wrap text-xs text-zinc-700">{truthLines.join("\n")}</div>
                 </CardContent>
               </Card>
             ) : null}
@@ -1281,14 +1271,14 @@ const leftBar = "border-l-4 border-l-zinc-300";
       autopayAllClear
         ? "All clear — nothing due soon."
         : activelySnoozed && it.snoozed_until
-        ? `Snoozed until ${formatWhen(it.snoozed_until)}`
-        : isV2
-        ? "A suggestion based on your recent activity."
-        : isV1
-        ? "A quick check that keeps your numbers accurate."
-        : it.body
-        ? snippet(it.body, 120)
-        : "Note you captured.";
+          ? `Snoozed until ${formatWhen(it.snoozed_until)}`
+          : isV2
+            ? "A suggestion based on your recent activity."
+            : isV1
+              ? "A quick check that keeps your numbers accurate."
+              : it.body
+                ? snippet(it.body, 120)
+                : "Note you captured.";
 
     const shortcutLabel = it.action_href ? normalizeActionLabel(it) : null;
 
@@ -1385,9 +1375,8 @@ const leftBar = "border-l-4 border-l-zinc-300";
 
                 {/* Context / why (kept, but subtle + short) */}
                 {(isV2 || isV1) && hasShortcutAction ? (
-                <div className="text-xs text-zinc-500">Using the action clears this item.</div>
+                  <div className="text-xs text-zinc-500">Using the action clears this item.</div>
                 ) : null}
-
 
                 {/* Body (with labels bold + formula hidden behind toggle) */}
                 {renderBodySmart(it)}
@@ -1461,7 +1450,9 @@ const leftBar = "border-l-4 border-l-zinc-300";
                         )}
                       </div>
 
-                      <div className="text-xs text-zinc-500">Tip: If you’re not ready, snooze it. If it’s already handled, mark it done.</div>
+                      <div className="text-xs text-zinc-500">
+                        Tip: If you’re not ready, snooze it. If it’s already handled, mark it done.
+                      </div>
                     </div>
                   </CardContent>
                 </Card>
@@ -1529,7 +1520,9 @@ const leftBar = "border-l-4 border-l-zinc-300";
                                   <div className="flex flex-wrap gap-2 text-xs text-zinc-700">
                                     {analysis.decision_type && <span>Type: {analysis.decision_type}</span>}
                                     {analysis.stakes && <span>• Stakes: {analysis.stakes}</span>}
-                                    {analysis.reversible != null && <span>• Reversible: {analysis.reversible ? "Yes" : "No"}</span>}
+                                    {analysis.reversible != null && (
+                                      <span>• Reversible: {analysis.reversible ? "Yes" : "No"}</span>
+                                    )}
                                     {analysis.time_horizon && <span>• Horizon: {analysis.time_horizon}</span>}
                                   </div>
 
@@ -1539,7 +1532,9 @@ const leftBar = "border-l-4 border-l-zinc-300";
                                     </div>
                                   )}
 
-                                  {analysis.reasoning && <div className="whitespace-pre-wrap text-sm leading-relaxed">{analysis.reasoning}</div>}
+                                  {analysis.reasoning && (
+                                    <div className="whitespace-pre-wrap text-sm leading-relaxed">{analysis.reasoning}</div>
+                                  )}
 
                                   {Array.isArray(analysis.key_questions) && analysis.key_questions.length > 0 && (
                                     <div className="text-sm">
@@ -1617,13 +1612,17 @@ const leftBar = "border-l-4 border-l-zinc-300";
     );
   };
 
-  const minutesAgoText = !lastLoadedAt ? "" : minutesAgo !== null && minutesAgo < 1 ? "just now" : `${minutesAgo ?? 0}m ago`;
+  const minutesAgoText = !lastLoadedAt
+    ? ""
+    : minutesAgo !== null && minutesAgo < 1
+      ? "just now"
+      : `${minutesAgo ?? 0}m ago`;
 
   const updateNow = () => loadRef.current({ silent: false });
 
   return (
     <Page
-      title="Inbox"
+      title="Home"
       subtitle={
         <div className="space-y-1">
           {email && <div>Signed in as: {email}</div>}
@@ -1635,7 +1634,10 @@ const leftBar = "border-l-4 border-l-zinc-300";
         <div className="flex items-center gap-2">
           <Badge variant={badge.variant}>● {badge.text}</Badge>
 
-          <Button onClick={updateNow}>Update now</Button>
+          {/* Calmer: no big CTA; keep a subtle “Updated …” in subtitle. */}
+          <Button variant="secondary" onClick={updateNow} title="Refresh">
+            Refresh
+          </Button>
 
           <Button variant="secondary" onClick={() => router.push("/decisions?tab=review")}>
             Review decisions
@@ -1659,7 +1661,8 @@ const leftBar = "border-l-4 border-l-zinc-300";
       <Card className="bg-zinc-50">
         <CardContent>
           <div className="text-sm text-zinc-700">
-            Start with <strong>Recommended</strong>. If you’re not ready, <strong>Snooze</strong>. If it’s handled, <strong>mark done</strong>.
+            Start with <strong>Recommended</strong>. If you’re not ready, <strong>Snooze</strong>. If it’s handled,{" "}
+            <strong>mark done</strong>.
           </div>
         </CardContent>
       </Card>
@@ -1711,10 +1714,7 @@ const leftBar = "border-l-4 border-l-zinc-300";
             onToggle={() => setOpenRecommended((v) => !v)}
             actions={
               <>
-                <Button variant="secondary" onClick={() => router.push("/engine")} title="Refresh your suggestions">
-                  Update suggestions
-                </Button>
-
+                {/* Removed big “Update suggestions” CTA (keep it out of Home). */}
                 <Button
                   variant="secondary"
                   onClick={dismissAllRecommended}
@@ -1735,7 +1735,7 @@ const leftBar = "border-l-4 border-l-zinc-300";
                 <Card className="bg-white">
                   <CardContent>
                     <div className="text-sm text-zinc-700">No recommendations right now.</div>
-                    <div className="text-xs text-zinc-500">You can update suggestions if you want a fresh pass.</div>
+                    <div className="text-xs text-zinc-500">Updated {minutesAgoText}.</div>
                   </CardContent>
                 </Card>
               )}
