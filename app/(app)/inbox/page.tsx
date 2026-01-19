@@ -612,6 +612,80 @@ export default function InboxPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId]);
 
+    // Realtime subscription: bills changes for this user (keeps “Coming up” accurate)
+  useEffect(() => {
+    if (!userId) return;
+
+    const channel = supabase
+      .channel(`bills-realtime-${userId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "bills",
+          filter: `user_id=eq.${userId}`,
+        },
+        (payload: any) => {
+          const eventType: string | undefined = payload?.eventType;
+          const newRow = payload?.new as any | undefined;
+          const oldRow = payload?.old as any | undefined;
+
+          const idFromOld = oldRow?.id as string | undefined;
+          const idFromNew = newRow?.id as string | undefined;
+          const id = idFromNew || idFromOld;
+
+          if (!eventType || !id) {
+            // best effort fallback
+            loadRef.current({ silent: true });
+            return;
+          }
+
+          const toBill = (r: any): Bill => ({
+            id: r.id,
+            user_id: r.user_id,
+            merchant_key: r.merchant_key ?? "",
+            nickname: r.nickname ?? null,
+            due_day_or_date: r.due_day_or_date ?? "",
+            expected_amount: r.expected_amount ?? null,
+            status: r.status ?? "active",
+            created_at: r.created_at ?? null,
+            updated_at: r.updated_at ?? null,
+          });
+
+          setBills((prev) => {
+            if (eventType === "INSERT") {
+              if (!newRow) return prev;
+              const b = toBill(newRow);
+              const exists = prev.some((x) => x.id === b.id);
+              return exists ? prev.map((x) => (x.id === b.id ? { ...x, ...b } : x)) : [b, ...prev];
+            }
+
+            if (eventType === "UPDATE") {
+              if (!newRow) return prev;
+              const b = toBill(newRow);
+              const exists = prev.some((x) => x.id === b.id);
+              return exists ? prev.map((x) => (x.id === b.id ? { ...x, ...b } : x)) : [b, ...prev];
+            }
+
+            if (eventType === "DELETE") {
+              return prev.filter((x) => x.id !== id);
+            }
+
+            return prev;
+          });
+
+          setLastLoadedAt(new Date());
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId]);
+
   // Focus refresh (silent) — no polling
   useEffect(() => {
     const onFocus = () => loadRef.current({ silent: true });
@@ -1763,7 +1837,7 @@ export default function InboxPage() {
                   </Button>
                 </div>
 
-                <div className="text-xs text-zinc-700">Top 5 bills (active).</div>
+                <div className="text-xs text-zinc-700">Your next 5 active bills.</div>
               </div>
 
               <div className="flex flex-wrap items-center justify-end gap-2">
