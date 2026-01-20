@@ -1525,17 +1525,6 @@ export default function InboxPage() {
                             Review decisions
                           </Button>
 
-                          <Button
-                          variant="secondary"
-                           onClick={async () => {
-                           await autoResolveWithUndo(it, "Done.");
-                           router.push("/decisions?tab=review");
-                           }}
-                          >
-                          Review decisions
-                          </Button>
-
-
                           <Button variant="secondary" onClick={() => snooze24h(it.id)}>
                             Snooze 24h
                           </Button>
@@ -1778,7 +1767,7 @@ export default function InboxPage() {
             <div className="flex items-center justify-between gap-2">
               <div>
                 <div className="text-sm font-semibold text-zinc-900">Capture</div>
-                <div className="text-xs text-zinc-700">Add something you don’t want to forget.</div>
+                <div className="text-xs text-zinc-700">Add something you don’t want to forget. Get's saved to notes.</div>
               </div>
             </div>
 
