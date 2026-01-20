@@ -1767,7 +1767,7 @@ export default function InboxPage() {
             <div className="flex items-center justify-between gap-2">
               <div>
                 <div className="text-sm font-semibold text-zinc-900">Capture</div>
-                <div className="text-xs text-zinc-700">Add something you don’t want to forget. Get's saved to notes.</div>
+                <div className="text-xs text-zinc-700">Add something you don’t want to forget. Saves to Notes.</div>
               </div>
             </div>
 
@@ -1864,7 +1864,7 @@ export default function InboxPage() {
 
         <div className="grid gap-3">
           <SectionHeader
-            title="Priority Items"
+            title="Priority items"
             count={buckets.recommended.length}
             description="Look at these first."
             tone="brand"
@@ -1902,7 +1902,7 @@ export default function InboxPage() {
           <SectionHeader
             title="Housekeeping"
             count={buckets.maintenance.length}
-            description="Quick checks to keep things running smoothly and prevent bigger issues later. Not a priority, do these when you have time."
+            description="Check when you have time. Keeps things running smoothly and prevents bigger issues later."
             tone="brand"
             open={openMaintenance}
             onToggle={() => setOpenMaintenance((v) => !v)}
