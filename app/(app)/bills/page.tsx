@@ -507,7 +507,11 @@ export default function BillsPage() {
     setBills((prev) => prev.map((x) => (x.id === b.id ? { ...x, active: newValue } : x)));
 
     try {
-      const { error } = await supabase.from("recurring_bills").update({ active: newValue }).eq("id", b.id).eq("user_id", userId);
+      const { error } = await supabase
+        .from("recurring_bills")
+        .update({ active: newValue })
+        .eq("id", b.id)
+        .eq("user_id", userId);
 
       if (error) throw error;
 
@@ -653,8 +657,8 @@ export default function BillsPage() {
     live === "live"
       ? "border border-emerald-200 bg-emerald-50 text-emerald-700"
       : live === "offline"
-      ? "border border-rose-200 bg-rose-50 text-rose-700"
-      : "border border-zinc-200 bg-zinc-50 text-zinc-700";
+        ? "border border-rose-200 bg-rose-50 text-rose-700"
+        : "border border-zinc-200 bg-zinc-50 text-zinc-700";
 
   const liveChip = (
     <Chip className={liveChipClass}>{live === "live" ? "Live" : live === "offline" ? "Offline" : "Connecting"}</Chip>
@@ -672,9 +676,9 @@ export default function BillsPage() {
     filter && filterLabel ? (
       <div className="flex items-center gap-2">
         <Chip className="border border-zinc-200 bg-zinc-50 text-zinc-700">{`Filtered: ${filterLabel}`}</Chip>
-        <Button variant="secondary" onClick={clearFilter}>
+        <Chip onClick={clearFilter} title="Clear filter">
           Clear
-        </Button>
+        </Chip>
       </div>
     ) : null;
 
@@ -695,14 +699,14 @@ export default function BillsPage() {
                 {error ? <Chip>{error}</Chip> : null}
                 {paymentsError ? <Chip>Receipts: {paymentsError}</Chip> : null}
                 {userId ? (
-                  <Button
-                    variant="secondary"
+                  <Chip
                     onClick={async () => {
                       await Promise.all([loadBills(userId), loadPayments(userId, { silent: true })]);
                     }}
+                    title="Refresh bills"
                   >
                     Refresh
-                  </Button>
+                  </Chip>
                 ) : null}
               </div>
             </div>
@@ -801,6 +805,7 @@ export default function BillsPage() {
                   </label>
                 </div>
 
+                {/* ✅ keep as Button (form submit / primary) */}
                 <Button disabled={saving || !userId} onClick={addBill}>
                   {saving ? "Saving…" : "Add bill"}
                 </Button>
@@ -950,34 +955,39 @@ export default function BillsPage() {
                         <div className="flex items-center gap-2 flex-wrap">
                           {!editing ? (
                             <>
-                              <Button
+                              <Chip
                                 onClick={() => markPaidWithReceipt(b)}
                                 disabled={saving || !userId || busyPaid}
                                 title="Writes a receipt + bumps next due date by cadence"
                               >
                                 {busyPaid ? "Marking…" : "Mark paid"}
-                              </Button>
+                              </Chip>
 
-                              <Button onClick={() => toggleActive(b)} disabled={saving}>
+                              <Chip onClick={() => toggleActive(b)} disabled={saving} title={b.active ? "Pause bill" : "Activate bill"}>
                                 {b.active ? "Pause" : "Activate"}
-                              </Button>
+                              </Chip>
 
-                              <Button onClick={() => beginEdit(b)} disabled={saving}>
+                              <Chip onClick={() => beginEdit(b)} disabled={saving} title="Edit bill">
                                 Edit
-                              </Button>
+                              </Chip>
 
-                              <Button onClick={() => deleteBill(b)} disabled={saving}>
+                              <Chip
+                                onClick={() => deleteBill(b)}
+                                disabled={saving}
+                                title="Remove bill (undo available)"
+                                className="border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100"
+                              >
                                 Delete
-                              </Button>
+                              </Chip>
                             </>
                           ) : (
                             <>
-                              <Button onClick={() => saveEdit(b.id)} disabled={saving}>
+                              <Chip onClick={() => saveEdit(b.id)} disabled={saving} title="Save changes">
                                 Save
-                              </Button>
-                              <Button onClick={() => cancelEdit(b.id)} disabled={saving}>
+                              </Chip>
+                              <Chip onClick={() => cancelEdit(b.id)} disabled={saving} title="Cancel editing">
                                 Cancel
-                              </Button>
+                              </Chip>
                             </>
                           )}
                         </div>
