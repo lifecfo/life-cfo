@@ -4,9 +4,8 @@
 import { ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
-import { Badge, Button, Card, CardContent, useToast, Chip } from "@/components/ui";
+import { Badge, Card, CardContent, useToast, Chip } from "@/components/ui";
 import { Page } from "@/components/Page";
-import type { ComponentProps } from "react";
 
 export const dynamic = "force-dynamic";
 
@@ -45,10 +44,6 @@ type Bill = {
   created_at: string | null;
   updated_at: string | null;
 };
-
-const SmallButton = ({ className = "", ...props }: ComponentProps<typeof Button>) => (
-  <Button size="sm" {...props} className={className} />
-);
 
 function isoNowPlusMinutes(mins: number) {
   const d = new Date(Date.now() + mins * 60 * 1000);
@@ -1317,9 +1312,9 @@ export default function InboxPage() {
                 <h2 className="m-0 text-lg font-semibold tracking-tight text-zinc-900">{title}</h2>
                 <Badge variant="muted">{count}</Badge>
 
-                <SmallButton variant="secondary" onClick={onToggle} title={open ? "Hide this section" : "Show this section"}>
+                <Chip onClick={onToggle} title={open ? "Hide this section" : "Show this section"}>
                   {open ? "Hide" : "Show"}
-                </SmallButton>
+                </Chip>
               </div>
 
               {description && <div className="text-xs text-zinc-700">{description}</div>}
@@ -1366,13 +1361,12 @@ export default function InboxPage() {
         {/* “How it’s calculated” (power-user) */}
         {truthLines.length > 0 ? (
           <div className="space-y-2">
-            <SmallButton
-              variant="secondary"
+            <Chip
               onClick={() => toggleFormula(it.id)}
               title={show ? "Hide how it's calculated" : "Show how it's calculated"}
             >
               {show ? "Hide how it’s calculated" : "Show how it’s calculated"}
-            </SmallButton>
+            </Chip>
 
             {show ? (
               <Card className="bg-zinc-50">
@@ -1411,18 +1405,19 @@ export default function InboxPage() {
     const expanded = !!openItem[it.id];
     const advOpen = !!showAdvanced[it.id];
 
-    const subtitle =
-      autopayAllClear
-        ? "All clear — nothing due soon."
-        : activelySnoozed && it.snoozed_until
-          ? `Snoozed until ${formatWhen(it.snoozed_until)}`
-         : isV2
-  ? "Worth a look when you’re ready."
-  : isV1
-    ? "A quick check to keep things tidy."
-              : it.body
-                ? snippet(it.body, 120)
-                : "Note you captured.";
+const subtitle =
+  autopayAllClear
+    ? "All clear — nothing due soon."
+    : activelySnoozed && it.snoozed_until
+      ? `Snoozed until ${formatWhen(it.snoozed_until)}`
+      : isV2
+        ? "Worth a look when you’re ready."
+        : isV1
+          ? "A quick check to keep things tidy."
+          : it.body
+            ? snippet(it.body, 120)
+            : "Note you captured.";
+
 
     const shortcutLabel = it.action_href ? normalizeActionLabel(it) : null;
 
@@ -1471,8 +1466,7 @@ export default function InboxPage() {
 
               <div className="flex flex-wrap items-center justify-end gap-2">
                 {it.action_href && (
-                  <SmallButton
-                    variant="secondary"
+                  <Chip
                     onClick={async (e) => {
                       e.stopPropagation?.();
                       await autoResolveWithUndo(it, "Opened.");
@@ -1481,11 +1475,10 @@ export default function InboxPage() {
                     title="Open the right place (this will clear the item)"
                   >
                     {shortcutLabel}
-                  </SmallButton>
+                  </Chip>
                 )}
 
-                <SmallButton
-                  variant="secondary"
+                <Chip
                   onClick={(e) => {
                     e.stopPropagation?.();
                     toggleItem(it.id);
@@ -1493,10 +1486,9 @@ export default function InboxPage() {
                   title={expanded ? "Collapse details" : "Expand details"}
                 >
                   {expanded ? "Collapse" : "Expand"}
-                </SmallButton>
+                </Chip>
 
-                <SmallButton
-                  variant="secondary"
+                <Chip
                   onClick={(e) => {
                     e.stopPropagation?.();
                     snooze24h(it.id);
@@ -1504,16 +1496,16 @@ export default function InboxPage() {
                   title="Hide until tomorrow"
                 >
                   Snooze 24h
-                </SmallButton>
+                </Chip>
               </div>
             </div>
 
             {expanded ? (
               <div className="space-y-4">
                 <div className="flex items-center justify-end">
-                  <SmallButton variant="secondary" onClick={() => setItemOpen(it.id, false)} title="Collapse details">
+                  <Chip onClick={() => setItemOpen(it.id, false)} title="Collapse details">
                     Hide details
-                  </SmallButton>
+                  </Chip>
                 </div>
 
                 {renderBodySmart(it)}
@@ -1528,18 +1520,18 @@ export default function InboxPage() {
 
 
                         <div className="flex flex-wrap gap-2">
-                          <SmallButton
+                          <Chip
                             onClick={async () => {
                               await autoResolveWithUndo(it, "Done.");
                               router.push("/decisions?tab=review");
                             }}
                           >
                             Review decisions
-                          </SmallButton>
+                          </Chip>
 
-                          <SmallButton variant="secondary" onClick={() => snooze24h(it.id)}>
+                          <Chip onClick={() => snooze24h(it.id)}>
                             Snooze 24h
-                          </SmallButton>
+                          </Chip>
                         </div>
                       </div>
                     </CardContent>
@@ -1552,26 +1544,25 @@ export default function InboxPage() {
                      <div className="text-sm font-semibold text-zinc-900">Actions</div>
 
                       <div className="flex flex-wrap items-center gap-2">
-                        <SmallButton onClick={() => decideNowAndCloseInboxItem(it)} title="Save a decision and clear this item">
+                        <Chip onClick={() => decideNowAndCloseInboxItem(it)} title="Save a decision and clear this item">
                           Save decision
-                        </SmallButton>
+                        </Chip>
 
-                        <SmallButton variant="secondary" onClick={() => snooze24h(it.id)} title="Hide this until tomorrow">
+                        <Chip onClick={() => snooze24h(it.id)} title="Hide this until tomorrow">
                           Snooze
-                        </SmallButton>
+                        </Chip>
 
-                        <SmallButton
-                          variant="secondary"
+                        <Chip
                           onClick={() => toggleAdvanced(it.id)}
                           title={advOpen ? "Hide advanced actions" : "Show advanced actions"}
                         >
                           {advOpen ? "Hide advanced" : "Advanced"}
-                        </SmallButton>
+                        </Chip>
 
                         {activelySnoozed && (
-                          <SmallButton variant="secondary" onClick={() => unsnoozeToOpen(it.id)} title="Bring back now">
+                          <Chip onClick={() => unsnoozeToOpen(it.id)} title="Bring back now">
                             Unsnooze
-                          </SmallButton>
+                          </Chip>
                         )}
                       </div>
 
@@ -1588,49 +1579,47 @@ export default function InboxPage() {
                       <div className="space-y-3">
                         <div className="flex flex-wrap items-center justify-between gap-2">
                           <div className="text-sm font-semibold text-zinc-900">Advanced</div>
-                          <SmallButton variant="secondary" onClick={() => setAdvancedOpen(it.id, false)}>
+                          <Chip onClick={() => setAdvancedOpen(it.id, false)}>
                             Hide
-                          </SmallButton>
+                          </Chip>
                         </div>
 
                         <div className="flex flex-wrap gap-2">
-                          <SmallButton variant="secondary" onClick={() => promoteInboxItemToDecision(it)}>
+                          <Chip onClick={() => promoteInboxItemToDecision(it)}>
                             Promote to Decisions
-                          </SmallButton>
+                          </Chip>
 
-                          <SmallButton variant="secondary" onClick={() => doneItem(it.id)}>
+                          <Chip onClick={() => doneItem(it.id)}>
                             Mark done
-                          </SmallButton>
+                          </Chip>
 
-                          <SmallButton variant="secondary" onClick={() => snooze7d(it.id)} title="Hide this for a week">
+                          <Chip onClick={() => snooze7d(it.id)} title="Hide this for a week">
                             Snooze 7d
-                          </SmallButton>
+                          </Chip>
 
-                          <SmallButton variant="secondary" onClick={() => snoozeItemMinutes(it.id, 10)} title="Short snooze">
+                          <Chip onClick={() => snoozeItemMinutes(it.id, 10)} title="Short snooze">
                             Snooze 10m
-                          </SmallButton>
+                          </Chip>
 
-                          <SmallButton
-                            variant="secondary"
+                          <Chip
                             onClick={() => updateSeverity(it.id, (it.severity ?? 2) - 1)}
                             title="Raise priority (towards Top)"
                           >
                             Raise priority
-                          </SmallButton>
+                          </Chip>
 
-                          <SmallButton
-                            variant="secondary"
+                          <Chip
                             onClick={() => updateSeverity(it.id, (it.severity ?? 2) + 1)}
                             title="Lower priority (towards Low)"
                           >
                             Lower priority
-                          </SmallButton>
+                          </Chip>
                         </div>
 
                         <div className="space-y-2">
-                          <SmallButton variant="secondary" onClick={() => analyzeItem(it)} disabled={loading}>
+                          <Chip onClick={() => analyzeItem(it)} disabled={loading}>
                             {loading ? "Analyzing…" : analysis ? "Re-analyze with AI" : "Analyze with AI"}
-                          </SmallButton>
+                          </Chip>
 
                           {err && <div className="text-xs text-red-700">AI error: {err}</div>}
 
@@ -1754,14 +1743,14 @@ export default function InboxPage() {
         <div className="flex items-center gap-2">
           <Badge variant={badge.variant}>● {badge.text}</Badge>
 
-          <SmallButton variant="secondary" onClick={() => router.push("/decisions?tab=review")}>
+          <Chip onClick={() => router.push("/decisions?tab=review")}>
             Review decisions
-          </SmallButton>
+          </Chip>
 
           {process.env.NODE_ENV === "development" && (
-            <SmallButton variant="secondary" onClick={forceUnsnoozeAll}>
+            <Chip onClick={forceUnsnoozeAll}>
               Force Unsnooze (dev)
-            </SmallButton>
+            </Chip>
           )}
         </div>
       }
@@ -1794,9 +1783,9 @@ export default function InboxPage() {
                 }}
               />
 
-              <SmallButton onClick={addManualInboxItem} disabled={adding}>
+              <Chip onClick={addManualInboxItem} disabled={adding}>
                 {adding ? "Adding…" : "Add"}
-              </SmallButton>
+              </Chip>
             </div>
           </div>
         </CardContent>
@@ -1812,22 +1801,21 @@ export default function InboxPage() {
                   <h2 className="m-0 text-lg font-semibold tracking-tight text-zinc-900">Coming up</h2>
                   <Badge variant="muted">{upcomingBills.length}</Badge>
 
-                  <SmallButton
-                    variant="secondary"
+                  <Chip
                     onClick={() => setOpenComingUp((v) => !v)}
                     title={openComingUp ? "Hide coming up" : "Show coming up"}
                   >
                     {openComingUp ? "Hide" : "Show"}
-                  </SmallButton>
+                  </Chip>
                 </div>
 
                 <div className="text-xs text-zinc-700">Your next bills.</div>
               </div>
 
               <div className="flex flex-wrap items-center justify-end gap-2">
-                <SmallButton variant="secondary" onClick={() => router.push("/bills")} title="Open bills">
+                <Chip onClick={() => router.push("/bills")} title="Open bills">
                   View bills
-                </SmallButton>
+                </Chip>
               </div>
             </div>
 
@@ -1884,14 +1872,13 @@ export default function InboxPage() {
             onToggle={() => setOpenRecommended((v) => !v)}
             actions={
               <>
-                <SmallButton
-                  variant="secondary"
+                <Chip
                   onClick={dismissAllRecommended}
                   disabled={buckets.recommended.length === 0}
                   title="Clear all recommended items (you can undo)"
                 >
                   Clear all
-                </SmallButton>
+                </Chip>
               </>
             }
           />

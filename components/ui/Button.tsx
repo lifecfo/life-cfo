@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { cn } from "./cn";
+import { cn } from "@/lib/cn";
 
 type Variant = "primary" | "secondary" | "ghost" | "danger";
 type Size = "sm" | "md" | "lg";
@@ -27,15 +27,21 @@ const variants: Record<Variant, string> = {
 };
 
 const sizes: Record<Size, string> = {
-  sm: "h-9 px-3 text-sm",
+  sm: "h-8 px-3 text-sm",
   md: "h-10 px-4 text-sm",
   lg: "h-11 px-5 text-base",
 };
 
 export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
-  ({ className, variant = "secondary", size = "md", ...props }, ref) => (
-    <button ref={ref} className={cn(base, variants[variant], sizes[size], className)} {...props} />
-  )
+  ({ className, variant = "secondary", size = "md", ...props }, ref) => {
+    return (
+      <button
+        ref={ref}
+        className={cn(base, variants[variant], sizes[size], className)}
+        {...props}
+      />
+    );
+  }
 );
 
 Button.displayName = "Button";
