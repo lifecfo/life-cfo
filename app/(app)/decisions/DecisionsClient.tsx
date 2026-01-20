@@ -1197,29 +1197,29 @@ export default function DecisionsClient() {
 
         <div className="flex flex-wrap items-center gap-2">
           {REVIEW_PRESETS_DAYS.map((days) => (
-            <Button
-              key={`${decisionId}-nr-${days}`}
-              variant="secondary"
-              onClick={(e) => {
-                e.stopPropagation();
-                onPickDays(days);
-              }}
-              title={`Mark reviewed and set next review in ${days} days`}
-            >
-              {days}d
-            </Button>
-          ))}
+  <Chip
+    key={`${decisionId}-nr-${days}`}
+    onClick={(e) => {
+      e.stopPropagation();
+      onPickDays(days);
+    }}
+    title={`Mark reviewed and set next review in ${days} days`}
+  >
+    {days}d
+  </Chip>
+))}
 
-          <Button
-            variant="secondary"
-            onClick={(e) => {
-              e.stopPropagation();
-              setShowCustomNextReview((prev) => ({ ...prev, [decisionId]: !prev[decisionId] }));
-            }}
-            title="Pick a custom number of days"
-          >
-            Custom…
-          </Button>
+<Chip
+  active={showCustom}
+  onClick={(e) => {
+    e.stopPropagation();
+    setShowCustomNextReview((prev) => ({ ...prev, [decisionId]: !prev[decisionId] }));
+  }}
+  title="Pick a custom number of days"
+>
+  Custom…
+</Chip>
+
         </div>
 
         {showCustom && (
@@ -1240,28 +1240,27 @@ export default function DecisionsClient() {
 
             <div className="text-sm text-zinc-600">days</div>
 
-            <Button
-              onClick={(e) => {
-                e.stopPropagation();
-                const n = Number(customStr);
-                if (!Number.isFinite(n) || n <= 0) return;
-                onPickDays(clampInt(n, 1, 3650));
-              }}
-              disabled={!customStr.trim()}
-              title="Apply custom cadence"
-            >
-              Set
-            </Button>
+           <Chip
+  onClick={(e) => {
+    e.stopPropagation();
+    const n = Number(customStr);
+    if (!Number.isFinite(n) || n <= 0) return;
+    onPickDays(clampInt(n, 1, 3650));
+  }}
+  title="Apply custom cadence"
+>
+  Set
+</Chip>
 
-            <Button
-              variant="secondary"
-              onClick={(e) => {
-                e.stopPropagation();
-                setShowCustomNextReview((prev) => ({ ...prev, [decisionId]: false }));
-              }}
-            >
-              Cancel
-            </Button>
+<Chip
+  active
+  onClick={(e) => {
+    e.stopPropagation();
+    setShowCustomNextReview((prev) => ({ ...prev, [decisionId]: false }));
+  }}
+>
+  Cancel
+</Chip>
 
             <div className="text-xs text-zinc-500">Max 3650 days.</div>
           </div>
@@ -1410,7 +1409,13 @@ export default function DecisionsClient() {
             <div className="flex flex-wrap justify-between gap-3">
               <div className="text-sm text-zinc-600">Filters {activeFiltersCount > 0 ? `• ${activeFiltersCount} active` : ""}</div>
 
-              <Chip onClick={clearFilters} disabled={activeFiltersCount === 0}>
+<Chip
+  onClick={() => {
+    if (activeFiltersCount === 0) return;
+    clearFilters();
+  }}
+  title={activeFiltersCount === 0 ? "No filters to clear" : "Clear filters"}
+>
   Clear
 </Chip>
 
@@ -1436,29 +1441,6 @@ export default function DecisionsClient() {
                 ] as Array<[TypeFilter, string]>
               ).map(([val, label]) => (
                 <Chip key={`type-${val}`} active={typeFilter === val} onClick={() => setTypeFilter(val)}>
-                  {label}
-                </Chip>
-              ))}
-            </div>
-
-            <div className="flex flex-wrap gap-2">
-              <Chip
-                active={stakesFilter === "high"}
-                onClick={() => setStakesFilter((v) => (v === "high" ? "all" : "high"))}
-                title="AI stakes = high"
-              >
-                High stakes
-              </Chip>
-
-              {(
-                [
-                  ["all", "All defaults"],
-                  ["decide_now", "AI: Decide now"],
-                  ["gather_info", "AI: Gather info"],
-                  ["delay", "AI: Delay"],
-                ] as Array<[SuggestedFilter, string]>
-              ).map(([val, label]) => (
-                <Chip key={`suggested-${val}`} active={suggestedFilter === val} onClick={() => setSuggestedFilter(val)}>
                   {label}
                 </Chip>
               ))}
@@ -1495,7 +1477,6 @@ export default function DecisionsClient() {
           const saving = !!draftSaving[d.id];
           const aiLoad = !!draftAiLoading[d.id];
           const aiErr = draftAiError[d.id];
-
           return (
             <Card
               key={d.id}
@@ -1503,10 +1484,10 @@ export default function DecisionsClient() {
                 isDraft
                   ? "border-zinc-200 bg-zinc-50"
                   : due
-                    ? "border-amber-200 bg-amber-50"
-                    : dueSoon
-                      ? "border-yellow-200 bg-yellow-50"
-                      : "bg-white"
+                  ? "border-amber-200 bg-amber-50"
+                  : dueSoon
+                  ? "border-yellow-200 bg-yellow-50"
+                  : "bg-white"
               }
             >
               <CardContent>
@@ -1555,23 +1536,21 @@ export default function DecisionsClient() {
 
                           {isDraft && <Badge variant="muted">Draft</Badge>}
                           {due && <Badge variant="warning">Due for review</Badge>}
-                                                    {dueSoon && <Badge variant="muted">Due soon</Badge>}
+                          {dueSoon && <Badge variant="muted">Due soon</Badge>}
                           {conf && <Badge variant="muted">Confidence: {conf}</Badge>}
                           {suggested && <Badge variant="muted">AI: {suggested}</Badge>}
                           {isDraft && d.inbox_item_id && <Badge variant="muted">Linked to Home</Badge>}
 
-                          {/* One-click review link (only when due) */}
                           {!isDraft && due && (
                             <Chip
-  onClick={(e) => {
-    e.stopPropagation();
-    router.push(`/decisions/${d.id}/review`);
-  }}
-  title="Open the review form"
->
-  Review
-</Chip>
-
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                router.push(`/decisions/${d.id}/review`);
+                              }}
+                              title="Open the review form"
+                            >
+                              Review
+                            </Chip>
                           )}
                         </div>
 
@@ -1585,59 +1564,110 @@ export default function DecisionsClient() {
                   </div>
                 </div>
 
+                {/* Expanded body */}
                 {isOpen && (
                   <div className="mt-4 grid gap-3">
+                    {/* Action pills */}
                     <div className="flex flex-wrap gap-2">
-                      <Button
-                        variant="secondary"
+                      {/* Pin */}
+                      <button
+                        type="button"
                         onClick={(e) => {
                           e.stopPropagation();
                           togglePinned(d.id, !d.pinned);
                         }}
+                        title={d.pinned ? "Pinned" : "Pin this decision"}
+                        className={
+                          "inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm transition " +
+                          (d.pinned
+                            ? "border-zinc-300 bg-zinc-900 text-white"
+                            : "border-zinc-200 bg-white text-zinc-900 hover:bg-zinc-50")
+                        }
                       >
-                        {d.pinned ? "⭐ Pinned" : "☆ Pin"}
-                      </Button>
+                        <span className="text-sm">{d.pinned ? "⭐" : "☆"}</span>
+                        {d.pinned ? "Pinned" : "Pin"}
+                      </button>
 
+                      {/* Reviewed */}
                       {!isDraft && (
-                        <Button
+                        <button
+                          type="button"
                           onClick={(e) => {
                             e.stopPropagation();
                             markReviewedNow(d.id);
                           }}
                           title={`Marks reviewed now; if overdue, bumps next review +${DEFAULT_REVIEW_BUMP_DAYS} days`}
+                          className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-sm text-emerald-900 transition hover:bg-emerald-100"
                         >
                           ✅ Reviewed
-                        </Button>
+                        </button>
                       )}
 
-                      <Button variant="secondary" onClick={() => reviewIn1Day(d.id)}>
-                        ⏳ Review in 1 day
-                      </Button>
-                      <Button variant="secondary" onClick={() => reviewIn3Days(d.id)}>
-                        ⏳ Review in 3 days
-                      </Button>
-                      <Button variant="secondary" onClick={() => reviewIn7Days(d.id)}>
-                        ⏳ Review in 7 days
-                      </Button>
-                      <Button variant="secondary" onClick={() => reviewIn30Days(d.id)}>
-                        ⏳ Review in 30 days
-                      </Button>
+                      {/* Review presets */}
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          reviewIn1Day(d.id);
+                        }}
+                        className="inline-flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-sm text-zinc-900 transition hover:bg-zinc-50"
+                      >
+                        ⏳ 1 day
+                      </button>
 
-                      <Button variant="secondary" onClick={() => clearReviewAt(d.id)}>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          reviewIn3Days(d.id);
+                        }}
+                        className="inline-flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-sm text-zinc-900 transition hover:bg-zinc-50"
+                      >
+                        ⏳ 3 days
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          reviewIn7Days(d.id);
+                        }}
+                        className="inline-flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-sm text-zinc-900 transition hover:bg-zinc-50"
+                      >
+                        ⏳ 7 days
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          reviewIn30Days(d.id);
+                        }}
+                        className="inline-flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-sm text-zinc-900 transition hover:bg-zinc-50"
+                      >
+                        ⏳ 30 days
+                      </button>
+
+                      {/* Clear */}
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          clearReviewAt(d.id);
+                        }}
+                        className="inline-flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-sm text-zinc-900 transition hover:bg-zinc-50"
+                      >
                         🧹 Clear review
-                      </Button>
+                      </button>
                     </div>
 
-                    {/* ✅ New: pick next review cadence right here */}
                     {!isDraft && (
                       <Card className="bg-white">
                         <CardContent>
                           <div className="flex flex-wrap items-start justify-between gap-3">
                             <div>
                               <div className="text-sm font-semibold">Set next review</div>
-                              <div className="text-xs text-zinc-500">
-                                Marks reviewed now and schedules the next check-in.
-                              </div>
+                              <div className="text-xs text-zinc-500">Marks reviewed now and schedules the next check-in.</div>
                             </div>
 
                             <NextReviewControls
@@ -1794,9 +1824,7 @@ export default function DecisionsClient() {
                           <div className="text-sm text-zinc-500">No review notes yet.</div>
                         )}
 
-                        <div className="mt-3 text-xs text-zinc-500">
-                          Add a new note (saved into history + marks reviewed)
-                        </div>
+                        <div className="mt-3 text-xs text-zinc-500">Add a new note (saved into history + marks reviewed)</div>
 
                         <textarea
                           value={reviewDraft[d.id] ?? ""}
@@ -1826,7 +1854,6 @@ export default function DecisionsClient() {
                             </Button>
                           </div>
 
-                          {/* ✅ New: optionally set next review while saving note */}
                           {!isDraft && (
                             <div className="min-w-[260px]">
                               <NextReviewControls
@@ -1835,14 +1862,13 @@ export default function DecisionsClient() {
                                   saveReviewNote(d, days);
                                 }}
                               />
-                              <div className="mt-1 text-xs text-zinc-500">
-                                Optional — if not set, overdue bumps +{DEFAULT_REVIEW_BUMP_DAYS}d.
-                              </div>
+                              <div className="mt-1 text-xs text-zinc-500">Optional — if not set, overdue bumps +{DEFAULT_REVIEW_BUMP_DAYS}d.</div>
                             </div>
                           )}
                         </div>
                       </CardContent>
                     </Card>
+
                     {history.length > 0 && (
                       <Card className="bg-white">
                         <CardContent>
@@ -1854,9 +1880,7 @@ export default function DecisionsClient() {
                               .map((h, idx) => (
                                 <div key={`${d.id}-rh-${idx}`} className="text-sm">
                                   <div className="text-xs text-zinc-500">{formatLocal(h.at)}</div>
-                                  <div className="mt-1 whitespace-pre-wrap leading-relaxed text-zinc-800">
-                                    {h.note}
-                                  </div>
+                                  <div className="mt-1 whitespace-pre-wrap leading-relaxed text-zinc-800">{h.note}</div>
                                 </div>
                               ))}
                           </div>
@@ -1865,9 +1889,7 @@ export default function DecisionsClient() {
                     )}
 
                     {showAIJson && d.ai_json && (
-                      <pre className="overflow-x-auto rounded-xl bg-zinc-900 p-3 text-xs text-zinc-100">
-                        {JSON.stringify(d.ai_json, null, 2)}
-                      </pre>
+                      <pre className="overflow-x-auto rounded-xl bg-zinc-900 p-3 text-xs text-zinc-100">{JSON.stringify(d.ai_json, null, 2)}</pre>
                     )}
 
                     <div className="text-xs text-zinc-500">status: {d.status}</div>
@@ -1880,15 +1902,10 @@ export default function DecisionsClient() {
 
         {filtered.length === 0 && (
           <div className="text-sm text-zinc-600">
-            {tab === "review"
-              ? "No reviews due (or due soon)."
-              : tab === "drafts"
-              ? "No drafts found."
-              : "No decisions found."}
+            {tab === "review" ? "No reviews due (or due soon)." : tab === "drafts" ? "No drafts found." : "No decisions found."}
           </div>
         )}
       </div>
     </Page>
   );
 }
-
