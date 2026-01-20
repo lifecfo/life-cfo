@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { Badge, Button, Card, CardContent, useToast, Chip } from "@/components/ui";
 import { Page } from "@/components/Page";
+import type { ComponentProps } from "react";
 
 // ---- CONFIG ----
 const PROMOTED_STATUS: "decided" | "draft" = "decided";
@@ -42,6 +43,13 @@ type Bill = {
   created_at: string | null;
   updated_at: string | null;
 };
+
+const SmallButton = (props: ComponentProps<typeof Button>) => (
+  <SmallButton
+    {...props}
+    className={`h-8 px-3 py-1 text-sm ${props.className ?? ""}`}
+  />
+);
 
 function isoNowPlusMinutes(mins: number) {
   const d = new Date(Date.now() + mins * 60 * 1000);
@@ -1305,9 +1313,9 @@ export default function InboxPage() {
                 <h2 className="m-0 text-lg font-semibold tracking-tight text-zinc-900">{title}</h2>
                 <Badge variant="muted">{count}</Badge>
 
-                <Button variant="secondary" onClick={onToggle} title={open ? "Hide this section" : "Show this section"}>
+                <SmallButton variant="secondary" onClick={onToggle} title={open ? "Hide this section" : "Show this section"}>
                   {open ? "Hide" : "Show"}
-                </Button>
+                </SmallButton>
               </div>
 
               {description && <div className="text-xs text-zinc-700">{description}</div>}
@@ -1354,13 +1362,13 @@ export default function InboxPage() {
         {/* “How it’s calculated” (power-user) */}
         {truthLines.length > 0 ? (
           <div className="space-y-2">
-            <Button
+            <SmallButton
               variant="secondary"
               onClick={() => toggleFormula(it.id)}
               title={show ? "Hide how it's calculated" : "Show how it's calculated"}
             >
               {show ? "Hide how it’s calculated" : "Show how it’s calculated"}
-            </Button>
+            </SmallButton>
 
             {show ? (
               <Card className="bg-zinc-50">
@@ -1459,7 +1467,7 @@ export default function InboxPage() {
 
               <div className="flex flex-wrap items-center justify-end gap-2">
                 {it.action_href && (
-                  <Button
+                  <SmallButton
                     variant="secondary"
                     onClick={async (e) => {
                       e.stopPropagation?.();
@@ -1469,10 +1477,10 @@ export default function InboxPage() {
                     title="Open the right place (this will clear the item)"
                   >
                     {shortcutLabel}
-                  </Button>
+                  </SmallButton>
                 )}
 
-                <Button
+                <SmallButton
                   variant="secondary"
                   onClick={(e) => {
                     e.stopPropagation?.();
@@ -1481,9 +1489,9 @@ export default function InboxPage() {
                   title={expanded ? "Collapse details" : "Expand details"}
                 >
                   {expanded ? "Collapse" : "Expand"}
-                </Button>
+                </SmallButton>
 
-                <Button
+                <SmallButton
                   variant="secondary"
                   onClick={(e) => {
                     e.stopPropagation?.();
@@ -1492,16 +1500,16 @@ export default function InboxPage() {
                   title="Hide until tomorrow"
                 >
                   Snooze 24h
-                </Button>
+                </SmallButton>
               </div>
             </div>
 
             {expanded ? (
               <div className="space-y-4">
                 <div className="flex items-center justify-end">
-                  <Button variant="secondary" onClick={() => setItemOpen(it.id, false)} title="Collapse details">
+                  <SmallButton variant="secondary" onClick={() => setItemOpen(it.id, false)} title="Collapse details">
                     Hide details
-                  </Button>
+                  </SmallButton>
                 </div>
 
                 {renderBodySmart(it)}
@@ -1516,18 +1524,18 @@ export default function InboxPage() {
 
 
                         <div className="flex flex-wrap gap-2">
-                          <Button
+                          <SmallButton
                             onClick={async () => {
                               await autoResolveWithUndo(it, "Done.");
                               router.push("/decisions?tab=review");
                             }}
                           >
                             Review decisions
-                          </Button>
+                          </SmallButton>
 
-                          <Button variant="secondary" onClick={() => snooze24h(it.id)}>
+                          <SmallButton variant="secondary" onClick={() => snooze24h(it.id)}>
                             Snooze 24h
-                          </Button>
+                          </SmallButton>
                         </div>
                       </div>
                     </CardContent>
@@ -1540,26 +1548,26 @@ export default function InboxPage() {
                      <div className="text-sm font-semibold text-zinc-900">Actions</div>
 
                       <div className="flex flex-wrap items-center gap-2">
-                        <Button onClick={() => decideNowAndCloseInboxItem(it)} title="Save a decision and clear this item">
+                        <SmallButton onClick={() => decideNowAndCloseInboxItem(it)} title="Save a decision and clear this item">
                           Save decision
-                        </Button>
+                        </SmallButton>
 
-                        <Button variant="secondary" onClick={() => snooze24h(it.id)} title="Hide this until tomorrow">
+                        <SmallButton variant="secondary" onClick={() => snooze24h(it.id)} title="Hide this until tomorrow">
                           Snooze
-                        </Button>
+                        </SmallButton>
 
-                        <Button
+                        <SmallButton
                           variant="secondary"
                           onClick={() => toggleAdvanced(it.id)}
                           title={advOpen ? "Hide advanced actions" : "Show advanced actions"}
                         >
                           {advOpen ? "Hide advanced" : "Advanced"}
-                        </Button>
+                        </SmallButton>
 
                         {activelySnoozed && (
-                          <Button variant="secondary" onClick={() => unsnoozeToOpen(it.id)} title="Bring back now">
+                          <SmallButton variant="secondary" onClick={() => unsnoozeToOpen(it.id)} title="Bring back now">
                             Unsnooze
-                          </Button>
+                          </SmallButton>
                         )}
                       </div>
 
@@ -1576,49 +1584,49 @@ export default function InboxPage() {
                       <div className="space-y-3">
                         <div className="flex flex-wrap items-center justify-between gap-2">
                           <div className="text-sm font-semibold text-zinc-900">Advanced</div>
-                          <Button variant="secondary" onClick={() => setAdvancedOpen(it.id, false)}>
+                          <SmallButton variant="secondary" onClick={() => setAdvancedOpen(it.id, false)}>
                             Hide
-                          </Button>
+                          </SmallButton>
                         </div>
 
                         <div className="flex flex-wrap gap-2">
-                          <Button variant="secondary" onClick={() => promoteInboxItemToDecision(it)}>
+                          <SmallButton variant="secondary" onClick={() => promoteInboxItemToDecision(it)}>
                             Promote to Decisions
-                          </Button>
+                          </SmallButton>
 
-                          <Button variant="secondary" onClick={() => doneItem(it.id)}>
+                          <SmallButton variant="secondary" onClick={() => doneItem(it.id)}>
                             Mark done
-                          </Button>
+                          </SmallButton>
 
-                          <Button variant="secondary" onClick={() => snooze7d(it.id)} title="Hide this for a week">
+                          <SmallButton variant="secondary" onClick={() => snooze7d(it.id)} title="Hide this for a week">
                             Snooze 7d
-                          </Button>
+                          </SmallButton>
 
-                          <Button variant="secondary" onClick={() => snoozeItemMinutes(it.id, 10)} title="Short snooze">
+                          <SmallButton variant="secondary" onClick={() => snoozeItemMinutes(it.id, 10)} title="Short snooze">
                             Snooze 10m
-                          </Button>
+                          </SmallButton>
 
-                          <Button
+                          <SmallButton
                             variant="secondary"
                             onClick={() => updateSeverity(it.id, (it.severity ?? 2) - 1)}
                             title="Raise priority (towards Top)"
                           >
                             Raise priority
-                          </Button>
+                          </SmallButton>
 
-                          <Button
+                          <SmallButton
                             variant="secondary"
                             onClick={() => updateSeverity(it.id, (it.severity ?? 2) + 1)}
                             title="Lower priority (towards Low)"
                           >
                             Lower priority
-                          </Button>
+                          </SmallButton>
                         </div>
 
                         <div className="space-y-2">
-                          <Button variant="secondary" onClick={() => analyzeItem(it)} disabled={loading}>
+                          <SmallButton variant="secondary" onClick={() => analyzeItem(it)} disabled={loading}>
                             {loading ? "Analyzing…" : analysis ? "Re-analyze with AI" : "Analyze with AI"}
-                          </Button>
+                          </SmallButton>
 
                           {err && <div className="text-xs text-red-700">AI error: {err}</div>}
 
@@ -1742,14 +1750,14 @@ export default function InboxPage() {
         <div className="flex items-center gap-2">
           <Badge variant={badge.variant}>● {badge.text}</Badge>
 
-          <Button variant="secondary" onClick={() => router.push("/decisions?tab=review")}>
+          <SmallButton variant="secondary" onClick={() => router.push("/decisions?tab=review")}>
             Review decisions
-          </Button>
+          </SmallButton>
 
           {process.env.NODE_ENV === "development" && (
-            <Button variant="secondary" onClick={forceUnsnoozeAll}>
+            <SmallButton variant="secondary" onClick={forceUnsnoozeAll}>
               Force Unsnooze (dev)
-            </Button>
+            </SmallButton>
           )}
         </div>
       }
@@ -1782,9 +1790,9 @@ export default function InboxPage() {
                 }}
               />
 
-              <Button onClick={addManualInboxItem} disabled={adding}>
+              <SmallButton onClick={addManualInboxItem} disabled={adding}>
                 {adding ? "Adding…" : "Add"}
-              </Button>
+              </SmallButton>
             </div>
           </div>
         </CardContent>
@@ -1800,22 +1808,22 @@ export default function InboxPage() {
                   <h2 className="m-0 text-lg font-semibold tracking-tight text-zinc-900">Coming up</h2>
                   <Badge variant="muted">{upcomingBills.length}</Badge>
 
-                  <Button
+                  <SmallButton
                     variant="secondary"
                     onClick={() => setOpenComingUp((v) => !v)}
                     title={openComingUp ? "Hide coming up" : "Show coming up"}
                   >
                     {openComingUp ? "Hide" : "Show"}
-                  </Button>
+                  </SmallButton>
                 </div>
 
                 <div className="text-xs text-zinc-700">Your next bills.</div>
               </div>
 
               <div className="flex flex-wrap items-center justify-end gap-2">
-                <Button variant="secondary" onClick={() => router.push("/bills")} title="Open bills">
+                <SmallButton variant="secondary" onClick={() => router.push("/bills")} title="Open bills">
                   View bills
-                </Button>
+                </SmallButton>
               </div>
             </div>
 
@@ -1872,14 +1880,14 @@ export default function InboxPage() {
             onToggle={() => setOpenRecommended((v) => !v)}
             actions={
               <>
-                <Button
+                <SmallButton
                   variant="secondary"
                   onClick={dismissAllRecommended}
                   disabled={buckets.recommended.length === 0}
                   title="Clear all recommended items (you can undo)"
                 >
                   Clear all
-                </Button>
+                </SmallButton>
               </>
             }
           />
