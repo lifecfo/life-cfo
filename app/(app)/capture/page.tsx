@@ -1,197 +1,145 @@
 // app/(app)/capture/page.tsx
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { Page } from "@/components/Page";
-import { Card, CardContent, Button, Chip, Badge, useToast } from "@/components/ui";
+import { useCaptureSubmit } from "@/lib/capture/useCaptureSubmit";
 
-type Severity = 1 | 2 | 3;
-
-function safeUUID() {
-  try {
-    // modern browsers
-    if (typeof crypto !== "undefined" && "randomUUID" in crypto) return (crypto as any).randomUUID();
-  } catch {
-    // ignore
-  }
-  // fallback
-  return `m_${Date.now()}_${Math.random().toString(16).slice(2)}`;
-}
+export const dynamic = "force-dynamic";
 
 export default function CapturePage() {
-  const toastApi: any = useToast();
-  const showToast =
-    toastApi?.showToast ??
-    ((args: any) => {
-      if (toastApi?.toast) {
-        toastApi.toast({
-          title: args?.title ?? "Done",
-          description: args?.description ?? args?.message ?? "",
-          variant: args?.variant,
-          action: args?.action,
-        });
-      }
-    });
-
-  const notify = (opts: { title?: string; description?: string }) => {
-    const msg = [opts.title, opts.description].filter(Boolean).join(" — ");
-    showToast({ message: msg || "Done." });
-  };
-
   const [userId, setUserId] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
 
-  const [title, setTitle] = useState("");
-  const [body, setBody] = useState("");
-  const [severity, setSeverity] = useState<Severity>(2);
+  const [text, setText] = useState("");
+  const [files, setFiles] = useState<File[]>([]);
+  const [affirmation, setAffirmation] = useState<"Saved." | "Held." | null>(null);
 
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const affirmationTimerRef = useRef<number | null>(null);
+  const inputRef = useRef<HTMLTextAreaElement | null>(null);
 
   useEffect(() => {
-    (async () => {
-      setLoading(true);
-      setError(null);
+    let mounted = true;
 
-      const { data, error: userErr } = await supabase.auth.getUser();
-      if (userErr || !data.user) {
-        setError("Not signed in.");
+    (async () => {
+      const { data, error } = await supabase.auth.getUser();
+      if (!mounted) return;
+
+      if (error || !data?.user) {
         setUserId(null);
-        setLoading(false);
         return;
       }
-
       setUserId(data.user.id);
-      setLoading(false);
     })();
+
+    return () => {
+      mounted = false;
+    };
   }, []);
 
-  const canSave = useMemo(() => {
-    return !!userId && title.trim().length > 0 && !saving;
-  }, [userId, title, saving]);
+  const capture = useCaptureSubmit({ userId });
 
-  async function createInboxItem() {
-    if (!userId) return;
+  const flashAffirmation = (v: "Saved." | "Held.") => {
+    setAffirmation(v);
+    if (affirmationTimerRef.current) window.clearTimeout(affirmationTimerRef.current);
+    affirmationTimerRef.current = window.setTimeout(() => setAffirmation(null), 1300);
+  };
 
-    const t = title.trim();
-    const b = body.trim();
-    if (!t) {
-      notify({ title: "Capture", description: "Please enter a title." });
-      return;
-    }
+  useEffect(() => {
+    return () => {
+      if (affirmationTimerRef.current) window.clearTimeout(affirmationTimerRef.current);
+      affirmationTimerRef.current = null;
+    };
+  }, []);
 
-    setSaving(true);
-    setError(null);
+  const onPickFiles = (picked: FileList | null) => {
+    if (!picked) return;
+    setFiles((prev) => [...prev, ...Array.from(picked)]);
+  };
 
-    try {
-      const runId = safeUUID();
+  const removeFile = (idx: number) => {
+    setFiles((prev) => prev.filter((_, i) => i !== idx));
+  };
 
-      // IMPORTANT: your schema has dedupe_key NOT NULL.
-      // For manual items we use a unique dedupe key that will never collide with Engine.
-      const dedupe_key = `manual:${runId}`;
+  const submit = async () => {
+    const raw = text.trim();
+    const hasFiles = files.length > 0;
 
-      const { error: insErr } = await supabase.from("decision_inbox").insert({
-        user_id: userId,
-        run_id: runId,
-        type: "manual",
-        title: t,
-        body: b ? b : null,
-        severity,
-        status: "open",
-        snoozed_until: null,
+    if (!raw && !hasFiles) return;
 
-        dedupe_key,
+    // Release moment: clear immediately
+    setText("");
+    setFiles([]);
+    flashAffirmation("Saved.");
+    window.setTimeout(() => inputRef.current?.focus(), 0);
 
-        action_label: null,
-        action_href: null,
-      } as any);
-
-      if (insErr) throw insErr;
-
-      setTitle("");
-      setBody("");
-      setSeverity(2);
-
-      notify({ title: "Captured", description: "Added to Home." });
-    } catch (e: any) {
-      const msg = e?.message ?? "Failed to capture.";
-      setError(msg);
-      notify({ title: "Error", description: msg });
-    } finally {
-      setSaving(false);
-    }
-  }
+    await capture.submit({ text: raw, files });
+  };
 
   return (
-    <Page title="Capture" subtitle="A calm place to record something for Home. No nudges, no loops.">
-      <div className="grid gap-4">
-        <Card>
-          <CardContent>
-            <div className="flex items-center justify-between gap-3 flex-wrap">
-              <div className="flex items-center gap-2 flex-wrap">
-                {loading ? <Chip>Loading…</Chip> : <Chip>Ready</Chip>}
-                {userId ? <Badge>Signed in</Badge> : <Badge>Signed out</Badge>}
-                {error ? <Chip>{error}</Chip> : null}
-              </div>
-              <div className="flex items-center gap-2">
-                <Chip>Manual capture</Chip>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+    <Page title="Capture">
+      <div className="mx-auto w-full max-w-[680px] space-y-6">
+        <textarea
+          ref={inputRef}
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          placeholder="Drop anything you want safely held."
+          className="w-full min-h-[180px] resize-y rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-[15px] leading-relaxed text-zinc-900 outline-none focus:ring-2 focus:ring-zinc-200"
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              void submit();
+            }
+          }}
+          aria-label="Capture"
+        />
 
-        <Card>
-          <CardContent>
-            <div className="font-semibold mb-2">New note</div>
+        <div className="space-y-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <label className="cursor-pointer rounded-full border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800 hover:border-zinc-300">
+              Add files
+              <input type="file" multiple className="hidden" onChange={(e) => onPickFiles(e.target.files)} />
+            </label>
 
-            <div className="grid gap-3">
-              <div>
-                <div className="text-sm mb-1 opacity-70">Title</div>
-                <input
-                  className="w-full rounded-md border px-3 py-2 bg-transparent"
-                  placeholder="What needs attention?"
-                  value={title}
-                  onChange={(e) => setTitle(e.target.value)}
-                />
-              </div>
+            {files.length > 0 ? (
+              <div className="text-sm text-zinc-600">{files.length} attached</div>
+            ) : (
+              <div className="text-sm text-zinc-500">Optional.</div>
+            )}
+          </div>
 
-              <div>
-                <div className="text-sm mb-1 opacity-70">Notes (optional)</div>
-                <textarea
-                  className="w-full min-h-[120px] rounded-md border px-3 py-2 bg-transparent"
-                  placeholder="Context you don’t want to lose."
-                  value={body}
-                  onChange={(e) => setBody(e.target.value)}
-                />
-              </div>
+          {files.length > 0 ? (
+            <div className="space-y-2">
+              {files.map((f, idx) => (
+                <div
+                  key={`${f.name}-${idx}`}
+                  className="flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-white px-4 py-2"
+                >
+                  <div className="min-w-0">
+                    <div className="truncate text-sm text-zinc-900">{f.name}</div>
+                    <div className="text-xs text-zinc-500">{Math.max(1, Math.round(f.size / 1024))} KB</div>
+                  </div>
 
-              <div className="flex items-center justify-between gap-3 flex-wrap">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <div className="text-sm opacity-70">Severity</div>
-                  <select
-                    className="rounded-md border px-3 py-2 bg-transparent"
-                    value={String(severity)}
-                    onChange={(e) => setSeverity(Number(e.target.value) as Severity)}
+                  <button
+                    type="button"
+                    onClick={() => removeFile(idx)}
+                    className="rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs text-zinc-700 hover:border-zinc-300"
                   >
-                    <option value="1">1 — Low</option>
-                    <option value="2">2 — Normal</option>
-                    <option value="3">3 — High</option>
-                  </select>
-                  <Chip>{severity === 3 ? "High signal" : severity === 2 ? "Normal" : "Low signal"}</Chip>
+                    Remove
+                  </button>
                 </div>
-
-                <Button onClick={createInboxItem} disabled={!canSave}>
-                  {saving ? "Saving…" : "Add"}
-                </Button>
-              </div>
-
-              <div className="text-xs text-zinc-500">
-                Tip: capture fast here, then decide on Home. Manual items use unique dedupe keys (never collide with Engine).
-              </div>
+              ))}
             </div>
-          </CardContent>
-        </Card>
+          ) : null}
+        </div>
+
+        {affirmation ? (
+          <div className="text-sm text-zinc-600" aria-live="polite">
+            {affirmation}
+          </div>
+        ) : (
+          <div className="h-5" aria-hidden="true" />
+        )}
       </div>
     </Page>
   );
