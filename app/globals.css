@@ -1,21 +1,18 @@
 @import "tailwindcss";
 
-@layer base {
-  html,
-  body {
-    height: 100%;
-  }
+html,
+body {
+  height: 100%;
+}
 
-  body {
-    margin: 0;
-    @apply bg-neutral-bg text-neutral-text;
-  }
+body {
+  margin: 0;
+}
 
-  /* Optional: make form elements feel consistent */
-  input,
-  textarea,
-  select,
-  button {
-    font: inherit;
-  }
+/* Optional: make form elements feel consistent */
+input,
+textarea,
+select,
+button {
+  font: inherit;
 }
