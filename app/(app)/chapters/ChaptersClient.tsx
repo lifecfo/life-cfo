@@ -2,34 +2,33 @@
 "use client";
 
 import { Page } from "@/components/Page";
+import { Card, CardContent, Chip } from "@/components/ui";
+import { useRouter } from "next/navigation";
 
 export default function ChaptersClient() {
+  const router = useRouter();
+
   return (
-    <Page title="Chapters">
-      <div className="mx-auto w-full max-w-[680px] space-y-10">
-        {/* Ceremony-first frame */}
-        <div className="space-y-3">
-          <div className="text-[15px] leading-relaxed text-zinc-800">
-            Chapters are honoured and closed.
-          </div>
-          <div className="text-sm leading-relaxed text-zinc-600">
-            This is where completed seasons of life live — not as archives, but as stories with closure.
-          </div>
+    <Page
+      title="Chapters"
+      subtitle="Honoured and closed. No action needed."
+      right={
+        <div className="flex items-center gap-2">
+          <Chip onClick={() => router.push("/home")}>Back to Home</Chip>
         </div>
-
-        {/* Empty state (v1-safe) */}
-        <div className="rounded-2xl border border-zinc-200 bg-white p-5">
-          <div className="space-y-2">
-            <div className="text-sm font-semibold text-zinc-900">No chapters yet.</div>
-            <div className="text-sm leading-relaxed text-zinc-600">
-              When a season is complete, Keystone will help you honour it here.
+      }
+    >
+      <div className="mx-auto w-full max-w-[760px] space-y-3">
+        <Card className="border-zinc-200 bg-white">
+          <CardContent>
+            <div className="space-y-2">
+              <div className="text-sm font-semibold text-zinc-900">Nothing here yet.</div>
+              <div className="text-sm text-zinc-600">
+                When a season of life is complete, we’ll honour it here with a quiet summary and key decisions.
+              </div>
             </div>
-
-            <div className="pt-2 text-xs text-zinc-500">
-              Chapters are intentionally not editable or actionable.
-            </div>
-          </div>
-        </div>
+          </CardContent>
+        </Card>
       </div>
     </Page>
   );
