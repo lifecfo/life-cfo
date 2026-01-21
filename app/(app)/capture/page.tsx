@@ -15,9 +15,13 @@ export default function CapturePage() {
   const [files, setFiles] = useState<File[]>([]);
   const [affirmation, setAffirmation] = useState<"Saved." | "Held." | null>(null);
 
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
   const affirmationTimerRef = useRef<number | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
+  // --- Auth (quiet) ---
   useEffect(() => {
     let mounted = true;
 
@@ -52,9 +56,25 @@ export default function CapturePage() {
     };
   }, []);
 
-  const onPickFiles = (picked: FileList | null) => {
+  const addPickedFiles = (picked: FileList | null) => {
     if (!picked) return;
-    setFiles((prev) => [...prev, ...Array.from(picked)]);
+
+    const incoming = Array.from(picked);
+
+    // Light dedupe (name+size+lastModified) so drag/pick doesn’t double-add accidentally
+    setFiles((prev) => {
+      const seen = new Set(prev.map((f) => `${f.name}:${f.size}:${f.lastModified}`));
+      const next = [...prev];
+
+      for (const f of incoming) {
+        const k = `${f.name}:${f.size}:${f.lastModified}`;
+        if (seen.has(k)) continue;
+        seen.add(k);
+        next.push(f);
+      }
+
+      return next;
+    });
   };
 
   const removeFile = (idx: number) => {
@@ -62,18 +82,35 @@ export default function CapturePage() {
   };
 
   const submit = async () => {
+    if (isSubmitting) return;
+
     const raw = text.trim();
     const hasFiles = files.length > 0;
 
     if (!raw && !hasFiles) return;
 
-    // Release moment: clear immediately
+    // Snapshot values BEFORE clearing UI (so we always submit what the user had)
+    const textSnapshot = raw;
+    const filesSnapshot = [...files];
+
+    // Release moment: clear immediately (critical)
     setText("");
     setFiles([]);
     flashAffirmation("Saved.");
+
+    // Keep focus available for continued capture
     window.setTimeout(() => inputRef.current?.focus(), 0);
 
-    await capture.submit({ text: raw, files });
+    setIsSubmitting(true);
+    try {
+      await capture.submit({ text: textSnapshot, files: filesSnapshot });
+      // no extra UI needed; "Saved." already flashed
+    } catch {
+      // Quietly convey safety without error noise
+      flashAffirmation("Held.");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -86,6 +123,7 @@ export default function CapturePage() {
           placeholder="Drop anything you want safely held."
           className="w-full min-h-[180px] resize-y rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-[15px] leading-relaxed text-zinc-900 outline-none focus:ring-2 focus:ring-zinc-200"
           onKeyDown={(e) => {
+            // Enter submits; Shift+Enter newline
             if (e.key === "Enter" && !e.shiftKey) {
               e.preventDefault();
               void submit();
@@ -94,17 +132,38 @@ export default function CapturePage() {
           aria-label="Capture"
         />
 
-        <div className="space-y-2">
+        {/* Files (optional) */}
+        <div
+          className="space-y-2"
+          onDragOver={(e) => {
+            e.preventDefault();
+          }}
+          onDrop={(e) => {
+            e.preventDefault();
+            addPickedFiles(e.dataTransfer.files);
+          }}
+        >
           <div className="flex flex-wrap items-center gap-2">
-            <label className="cursor-pointer rounded-full border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800 hover:border-zinc-300">
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className="rounded-full border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800 hover:border-zinc-300"
+            >
               Add files
-              <input type="file" multiple className="hidden" onChange={(e) => onPickFiles(e.target.files)} />
-            </label>
+            </button>
+
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              className="hidden"
+              onChange={(e) => addPickedFiles(e.target.files)}
+            />
 
             {files.length > 0 ? (
               <div className="text-sm text-zinc-600">{files.length} attached</div>
             ) : (
-              <div className="text-sm text-zinc-500">Optional.</div>
+              <div className="text-sm text-zinc-500">Optional. You can also drag & drop here.</div>
             )}
           </div>
 
@@ -112,7 +171,7 @@ export default function CapturePage() {
             <div className="space-y-2">
               {files.map((f, idx) => (
                 <div
-                  key={`${f.name}-${idx}`}
+                  key={`${f.name}-${f.size}-${f.lastModified}-${idx}`}
                   className="flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-white px-4 py-2"
                 >
                   <div className="min-w-0">
@@ -124,6 +183,7 @@ export default function CapturePage() {
                     type="button"
                     onClick={() => removeFile(idx)}
                     className="rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs text-zinc-700 hover:border-zinc-300"
+                    aria-label={`Remove ${f.name}`}
                   >
                     Remove
                   </button>
@@ -133,6 +193,7 @@ export default function CapturePage() {
           ) : null}
         </div>
 
+        {/* Soft confirmation (brief, fades) */}
         {affirmation ? (
           <div className="text-sm text-zinc-600" aria-live="polite">
             {affirmation}
