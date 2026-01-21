@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { cn } from "@/lib/cn";
 
 type ToastItem = {
   id: string;
@@ -11,8 +12,6 @@ type ToastItem = {
 
 export type ToastContextValue = {
   showToast: (t: Omit<ToastItem, "id">, ms?: number) => void;
-
-  // Optional convenience API (keeps other pages simple)
   toast: (opts: { title?: string; description?: string }, ms?: number) => void;
 };
 
@@ -52,9 +51,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   );
 
   React.useEffect(() => {
-    return () => {
-      clearTimer();
-    };
+    return () => clearTimer();
   }, [clearTimer]);
 
   return (
@@ -63,64 +60,50 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
 
       {toastItem && (
         <div
-          style={{
-            position: "fixed",
-            left: "50%",
-            bottom: 18,
-            transform: "translateX(-50%)",
-            zIndex: 9999,
-            background: "#111827",
-            color: "#fff",
-            borderRadius: 14,
-            padding: "10px 12px",
-            boxShadow: "0 10px 30px rgba(0,0,0,0.25)",
-            display: "flex",
-            gap: 10,
-            alignItems: "center",
-            maxWidth: 520,
-            width: "calc(100% - 24px)",
-          }}
-        >
-          <div style={{ fontSize: 13, opacity: 0.95, lineHeight: 1.3, flex: "1 1 auto" }}>
-            {toastItem.message}
-          </div>
-
-          {toastItem.onUndo && (
-            <button
-              onClick={() => {
-                toastItem.onUndo?.();
-                dismiss();
-              }}
-              style={{
-                background: "#fff",
-                color: "#111827",
-                border: "none",
-                borderRadius: 10,
-                padding: "8px 10px",
-                cursor: "pointer",
-                fontSize: 13,
-                whiteSpace: "nowrap",
-              }}
-            >
-              {toastItem.undoLabel ?? "Undo"}
-            </button>
+          className={cn(
+            "fixed left-1/2 bottom-4 z-[9999] w-[calc(100%-24px)] max-w-xl",
+            "-translate-x-1/2"
           )}
-
-          <button
-            onClick={dismiss}
-            style={{
-              background: "transparent",
-              color: "#fff",
-              border: "1px solid rgba(255,255,255,0.25)",
-              borderRadius: 10,
-              padding: "8px 10px",
-              cursor: "pointer",
-              fontSize: 13,
-            }}
-            title="Dismiss"
+        >
+          <div
+            className={cn(
+              "flex items-center gap-3 rounded-2xl border shadow-lg",
+              "bg-neutral-surface border-neutral-border",
+              "px-4 py-3"
+            )}
           >
-            ✕
-          </button>
+            <div className="flex-1 text-sm text-neutral-text leading-snug">
+              {toastItem.message}
+            </div>
+
+            {toastItem.onUndo && (
+              <button
+                onClick={() => {
+                  toastItem.onUndo?.();
+                  dismiss();
+                }}
+                className={cn(
+                  "rounded-xl px-3 py-1.5 text-sm font-medium",
+                  "bg-btn-secondary text-btn-secondaryText",
+                  "hover:bg-btn-secondaryHover"
+                )}
+              >
+                {toastItem.undoLabel ?? "Undo"}
+              </button>
+            )}
+
+            <button
+              onClick={dismiss}
+              title="Dismiss"
+              className={cn(
+                "rounded-xl px-2.5 py-1.5 text-sm",
+                "border border-neutral-border text-neutral-text-2",
+                "hover:bg-neutral-bg"
+              )}
+            >
+              ✕
+            </button>
+          </div>
         </div>
       )}
     </ToastContext.Provider>

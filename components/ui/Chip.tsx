@@ -22,9 +22,9 @@ export function Chip({ className, active = false, ...props }: ChipProps) {
   const classes = cn(
     "inline-flex select-none items-center rounded-full border px-3 py-1 text-sm transition",
     active
-      ? "border-zinc-900 bg-zinc-900 text-white"
-      : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50",
-    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900/20",
+      ? "border-brand-teal bg-brand-teal text-white"
+      : "border-neutral-border bg-neutral-surface text-neutral-text-2 hover:bg-neutral-bg",
+    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-aqua/30 focus-visible:ring-offset-2",
     className
   );
 

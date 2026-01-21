@@ -11,16 +11,25 @@ export function Badge({
   ...props
 }: React.HTMLAttributes<HTMLSpanElement> & { variant?: BadgeVariant }) {
   const styles: Record<BadgeVariant, string> = {
+    /** Neutral label — informational */
     default:
-      "bg-zinc-900 text-white dark:bg-white dark:text-black",
+      "bg-neutral-surface text-neutral-text border border-neutral-border",
+
+    /** De-emphasised / background info */
     muted:
-      "bg-zinc-100 text-zinc-800 dark:bg-zinc-800 dark:text-zinc-100",
+      "bg-neutral-bg text-neutral-text-2 border border-neutral-border",
+
+    /** Positive system state */
     success:
-      "bg-emerald-600 text-white",
+      "bg-alert-successBg text-alert-successText border border-semantic-success",
+
+    /** Gentle heads-up */
     warning:
-      "bg-amber-500 text-black",
+      "bg-alert-warningBg text-alert-warningText border border-semantic-warning",
+
+    /** Destructive / error state */
     danger:
-      "bg-red-600 text-white",
+      "bg-alert-errorBg text-alert-errorText border border-semantic-error",
   };
 
   return (

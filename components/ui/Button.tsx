@@ -16,14 +16,25 @@ const base =
   "focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed select-none";
 
 const variants: Record<Variant, string> = {
+  /** Calm authority — main actions */
   primary:
-    "bg-zinc-900 text-white hover:bg-zinc-900/90 focus:ring-zinc-900/30",
+    "bg-btn-primary text-btn-primaryText " +
+    "hover:bg-btn-primaryHover focus:ring-brand-teal/30",
+
+  /** Gentle, default action */
   secondary:
-    "bg-zinc-100 text-zinc-900 hover:bg-zinc-200 focus:ring-zinc-400/30 border border-zinc-200",
+    "bg-btn-secondary text-btn-secondaryText border border-neutral-border " +
+    "hover:bg-btn-secondaryHover focus:ring-brand-aqua/30",
+
+  /** Minimal affordance */
   ghost:
-    "bg-transparent text-zinc-900 hover:bg-zinc-100 focus:ring-zinc-400/30",
+    "bg-transparent text-brand-teal " +
+    "hover:bg-btn-ghostHover focus:ring-brand-aqua/30",
+
+  /** Destructive (system state, not emotional) */
   danger:
-    "bg-red-600 text-white hover:bg-red-700 focus:ring-red-500/30",
+    "bg-semantic-error text-white " +
+    "hover:bg-semantic-error/90 focus:ring-semantic-error/30",
 };
 
 const sizes: Record<Size, string> = {
