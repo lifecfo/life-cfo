@@ -45,7 +45,7 @@ export function AppShell({ children }: AppShellProps) {
   };
 
   return (
-    <div className="min-h-screen bg-white">
+    <div className="min-h-screen">
       <header className="sticky top-0 z-20 border-b border-zinc-200 bg-white/80 backdrop-blur">
         <div className="mx-auto flex max-w-[900px] flex-wrap items-center justify-between gap-3 p-4">
           <Link
