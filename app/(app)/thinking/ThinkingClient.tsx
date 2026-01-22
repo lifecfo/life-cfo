@@ -18,10 +18,13 @@ type Decision = {
   created_at: string;
   decided_at: string | null;
   review_at: string | null;
+  origin: string | null;
+  framed_at: string | null;
 };
 
 type DecisionSummary = {
   id: string;
+  user_id: string;
   decision_id: string;
   summary_text: string;
   created_at: string;
@@ -86,7 +89,7 @@ export default function ThinkingClient() {
 
     const { data, error } = await supabase
       .from("decisions")
-      .select("id,user_id,title,context,status,created_at,decided_at,review_at")
+      .select("id,user_id,title,context,status,created_at,decided_at,review_at,origin,framed_at")
       .eq("user_id", auth.user.id)
       .eq("status", "draft")
       .order("created_at", { ascending: false });
@@ -117,14 +120,14 @@ export default function ThinkingClient() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Keep chat only for the open card
-  useEffect(() => {
-    setChatForId((cur) => {
-      if (!cur) return null;
-      if (!openId) return null;
-      return cur === openId ? cur : null;
-    });
-  }, [openId]);
+// Keep chat only for the open card
+useEffect(() => {
+  setChatForId((cur) => {
+    if (!cur) return null;
+    if (!openId) return null;
+    return cur === openId ? cur : null;
+  });
+}, [openId]);
 
   // Load summaries for the open draft (capped; no lists)
   useEffect(() => {
@@ -208,6 +211,8 @@ export default function ThinkingClient() {
               created_at: r.created_at ?? new Date().toISOString(),
               decided_at: r.decided_at ?? null,
               review_at: r.review_at ?? null,
+              origin: r.origin ?? null,
+              framed_at: r.framed_at ?? null,
             });
 
             const patch = toDecision(next ?? prev);
@@ -396,6 +401,9 @@ export default function ThinkingClient() {
 
                     {isOpen ? (
                       <div className="mt-4 space-y-4">
+                        {d.origin === "framing" ? (
+                      <div className="mt-1 text-xs text-zinc-500">Prepared in Framing.</div>
+                        ) : null}
                         {d.context ? (
                           <div className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-700">{d.context}</div>
                         ) : (
