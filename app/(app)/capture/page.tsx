@@ -41,6 +41,13 @@ export default function CapturePage() {
     };
   }, []);
 
+  /**
+   * Capture submit contract:
+   * - Writes ONLY to decision_inbox
+   * - Does NOT create decisions
+   * - Does NOT route to Thinking
+   * - Framing is the explicit consent gate that turns capture into a decision
+   */
   const capture = useCaptureSubmit({ userId });
 
   const flashAffirmation = (v: "Saved." | "Held.") => {
@@ -104,7 +111,7 @@ export default function CapturePage() {
     setIsSubmitting(true);
     try {
       await capture.submit({ text: textSnapshot, files: filesSnapshot });
-      // no extra UI needed; "Saved." already flashed
+      // No extra UI needed; "Saved." already flashed
     } catch {
       // Quietly convey safety without error noise
       flashAffirmation("Held.");
@@ -176,7 +183,9 @@ export default function CapturePage() {
                 >
                   <div className="min-w-0">
                     <div className="truncate text-sm text-zinc-900">{f.name}</div>
-                    <div className="text-xs text-zinc-500">{Math.max(1, Math.round(f.size / 1024))} KB</div>
+                    <div className="text-xs text-zinc-500">
+                      {Math.max(1, Math.round(f.size / 1024))} KB
+                    </div>
                   </div>
 
                   <button
