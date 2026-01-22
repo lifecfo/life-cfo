@@ -4,6 +4,7 @@
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { Page } from "@/components/Page";
+import { Chip } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
 
@@ -15,13 +16,15 @@ type AttachmentMeta = {
 };
 
 function safeTitleFromText(text: string) {
-  const firstLine = (text || "").split("\n").map((s) => s.trim()).find(Boolean) ?? "";
+  const firstLine = (text || "")
+    .split("\n")
+    .map((s) => s.trim())
+    .find(Boolean) ?? "";
   const t = firstLine.slice(0, 80);
   return t || "Captured";
 }
 
 function safeFileName(name: string) {
-  // keep it simple + storage-safe
   return name.replace(/[^\w.\-()+ ]/g, "_");
 }
 
@@ -30,7 +33,7 @@ export default function CapturePage() {
 
   const [text, setText] = useState("");
   const [files, setFiles] = useState<File[]>([]);
-  const [affirmation, setAffirmation] = useState<"Saved." | "Held." | null>(null);
+  const [affirmation, setAffirmation] = useState<string | null>(null);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -58,10 +61,10 @@ export default function CapturePage() {
     };
   }, []);
 
-  const flashAffirmation = (v: "Saved." | "Held.") => {
-    setAffirmation(v);
+  const flashAffirmation = (msg: string, ms = 1500) => {
+    setAffirmation(msg);
     if (affirmationTimerRef.current) window.clearTimeout(affirmationTimerRef.current);
-    affirmationTimerRef.current = window.setTimeout(() => setAffirmation(null), 1300);
+    affirmationTimerRef.current = window.setTimeout(() => setAffirmation(null), ms);
   };
 
   useEffect(() => {
@@ -76,7 +79,6 @@ export default function CapturePage() {
 
     const incoming = Array.from(picked);
 
-    // Light dedupe (name+size+lastModified) so drag/pick doesn’t double-add accidentally
     setFiles((prev) => {
       const seen = new Set(prev.map((f) => `${f.name}:${f.size}:${f.lastModified}`));
       const next = [...prev];
@@ -96,12 +98,13 @@ export default function CapturePage() {
     setFiles((prev) => prev.filter((_, i) => i !== idx));
   };
 
+  const canSubmit = !!userId && (!!text.trim() || files.length > 0);
+
   /**
    * Capture submit contract:
    * - Writes ONLY to decision_inbox
    * - Does NOT create decisions
    * - Does NOT route to Thinking
-   * - Framing is the explicit consent gate that turns capture into a decision
    *
    * Attachment contract:
    * - Uploads files to Supabase Storage bucket: "captures"
@@ -109,14 +112,13 @@ export default function CapturePage() {
    */
   const submit = async () => {
     if (isSubmitting) return;
+    if (!canSubmit) return;
 
     const raw = text.trim();
     const hasFiles = files.length > 0;
 
-    if (!raw && !hasFiles) return;
-
     if (!userId) {
-      flashAffirmation("Held.");
+      flashAffirmation("Held.", 1600);
       return;
     }
 
@@ -127,7 +129,7 @@ export default function CapturePage() {
     // Release moment: clear immediately (critical)
     setText("");
     setFiles([]);
-    flashAffirmation("Saved.");
+    setAffirmation(null);
 
     // Keep focus available for continued capture
     window.setTimeout(() => inputRef.current?.focus(), 0);
@@ -163,12 +165,11 @@ export default function CapturePage() {
       const inboxId = String(created?.id);
 
       // 2) Upload attachments (if any)
-      let attachments: AttachmentMeta[] = [];
+      let uploaded: AttachmentMeta[] = [];
+      let uploadFailures = 0;
 
       if (hasFiles) {
         const bucket = supabase.storage.from("captures");
-
-        const uploaded: AttachmentMeta[] = [];
 
         for (const f of filesSnapshot) {
           const safeName = safeFileName(f.name);
@@ -181,7 +182,7 @@ export default function CapturePage() {
           });
 
           if (upErr) {
-            // keep going; we’ll save whatever did upload
+            uploadFailures += 1;
             continue;
           }
 
@@ -193,10 +194,8 @@ export default function CapturePage() {
           });
         }
 
-        attachments = uploaded;
-
-        // 3) Persist JSON body with text + attachments
-        const bodyJson = JSON.stringify({ text: textSnapshot, attachments });
+        // 3) Persist JSON body with text + attachments (even if some failed)
+        const bodyJson = JSON.stringify({ text: textSnapshot, attachments: uploaded });
 
         const { error: updErr } = await supabase
           .from("decision_inbox")
@@ -205,13 +204,28 @@ export default function CapturePage() {
           .eq("user_id", userId);
 
         if (updErr) {
-          // The capture exists; worst case body stays null/plain.
-          // Keep calm; don’t throw noisy errors.
+          // The capture exists; attachments may still be uploaded, but body didn’t get updated.
+          // Surface gently so you’re not guessing.
+          flashAffirmation("Saved (details couldn’t update).", 2200);
+          return;
+        }
+
+        if (uploaded.length === 0 && filesSnapshot.length > 0) {
+          // DB save succeeded, but attachments didn’t.
+          flashAffirmation("Saved (attachments didn’t upload).", 2400);
+          return;
+        }
+
+        if (uploadFailures > 0) {
+          flashAffirmation("Saved (some attachments didn’t upload).", 2400);
+          return;
         }
       }
+
+      flashAffirmation("Saved.", 1300);
     } catch {
       // Quietly convey safety without error noise
-      flashAffirmation("Held.");
+      flashAffirmation("Held.", 1800);
     } finally {
       setIsSubmitting(false);
     }
@@ -239,9 +253,7 @@ export default function CapturePage() {
         {/* Files (optional) */}
         <div
           className="space-y-2"
-          onDragOver={(e) => {
-            e.preventDefault();
-          }}
+          onDragOver={(e) => e.preventDefault()}
           onDrop={(e) => {
             e.preventDefault();
             addPickedFiles(e.dataTransfer.files);
@@ -280,7 +292,9 @@ export default function CapturePage() {
                 >
                   <div className="min-w-0">
                     <div className="truncate text-sm text-zinc-900">{f.name}</div>
-                    <div className="text-xs text-zinc-500">{Math.max(1, Math.round(f.size / 1024))} KB</div>
+                    <div className="text-xs text-zinc-500">
+                      {Math.max(1, Math.round(f.size / 1024))} KB
+                    </div>
                   </div>
 
                   <button
@@ -295,6 +309,22 @@ export default function CapturePage() {
               ))}
             </div>
           ) : null}
+        </div>
+
+        {/* Explicit save */}
+        <div className="flex items-center justify-between gap-3 pt-1">
+          <div className="text-xs text-zinc-500">
+            Enter saves • Shift+Enter adds a new line
+          </div>
+
+          <div className="flex items-center gap-2">
+            <Chip
+              onClick={() => void submit()}
+              title={!canSubmit ? "Add text or a file" : isSubmitting ? "Working…" : "Save capture"}
+            >
+              {isSubmitting ? "Saving…" : "Save"}
+            </Chip>
+          </div>
         </div>
 
         {/* Soft confirmation (brief, fades) */}
