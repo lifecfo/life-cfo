@@ -4,9 +4,26 @@
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { Page } from "@/components/Page";
-import { useCaptureSubmit } from "@/lib/capture/useCaptureSubmit";
 
 export const dynamic = "force-dynamic";
+
+type AttachmentMeta = {
+  name: string;
+  path: string; // storage path inside bucket
+  type: string;
+  size: number;
+};
+
+function safeTitleFromText(text: string) {
+  const firstLine = (text || "").split("\n").map((s) => s.trim()).find(Boolean) ?? "";
+  const t = firstLine.slice(0, 80);
+  return t || "Captured";
+}
+
+function safeFileName(name: string) {
+  // keep it simple + storage-safe
+  return name.replace(/[^\w.\-()+ ]/g, "_");
+}
 
 export default function CapturePage() {
   const [userId, setUserId] = useState<string | null>(null);
@@ -40,15 +57,6 @@ export default function CapturePage() {
       mounted = false;
     };
   }, []);
-
-  /**
-   * Capture submit contract:
-   * - Writes ONLY to decision_inbox
-   * - Does NOT create decisions
-   * - Does NOT route to Thinking
-   * - Framing is the explicit consent gate that turns capture into a decision
-   */
-  const capture = useCaptureSubmit({ userId });
 
   const flashAffirmation = (v: "Saved." | "Held.") => {
     setAffirmation(v);
@@ -88,6 +96,17 @@ export default function CapturePage() {
     setFiles((prev) => prev.filter((_, i) => i !== idx));
   };
 
+  /**
+   * Capture submit contract:
+   * - Writes ONLY to decision_inbox
+   * - Does NOT create decisions
+   * - Does NOT route to Thinking
+   * - Framing is the explicit consent gate that turns capture into a decision
+   *
+   * Attachment contract:
+   * - Uploads files to Supabase Storage bucket: "captures"
+   * - Writes decision_inbox.body as JSON string: { text, attachments: [...] }
+   */
   const submit = async () => {
     if (isSubmitting) return;
 
@@ -95,6 +114,11 @@ export default function CapturePage() {
     const hasFiles = files.length > 0;
 
     if (!raw && !hasFiles) return;
+
+    if (!userId) {
+      flashAffirmation("Held.");
+      return;
+    }
 
     // Snapshot values BEFORE clearing UI (so we always submit what the user had)
     const textSnapshot = raw;
@@ -109,9 +133,82 @@ export default function CapturePage() {
     window.setTimeout(() => inputRef.current?.focus(), 0);
 
     setIsSubmitting(true);
+
     try {
-      await capture.submit({ text: textSnapshot, files: filesSnapshot });
-      // No extra UI needed; "Saved." already flashed
+      // 1) Create inbox row first (so we have an id for attachment paths)
+      const title =
+        textSnapshot
+          ? safeTitleFromText(textSnapshot)
+          : filesSnapshot[0]?.name
+          ? `File: ${filesSnapshot[0].name}`
+          : "Captured";
+
+      // If no files, keep body as plain text (simple + backward compatible)
+      const initialBody = hasFiles ? null : textSnapshot;
+
+      const { data: created, error: createErr } = await supabase
+        .from("decision_inbox")
+        .insert({
+          user_id: userId,
+          type: "capture",
+          status: "open",
+          title,
+          body: initialBody,
+        })
+        .select("id")
+        .single();
+
+      if (createErr) throw createErr;
+
+      const inboxId = String(created?.id);
+
+      // 2) Upload attachments (if any)
+      let attachments: AttachmentMeta[] = [];
+
+      if (hasFiles) {
+        const bucket = supabase.storage.from("captures");
+
+        const uploaded: AttachmentMeta[] = [];
+
+        for (const f of filesSnapshot) {
+          const safeName = safeFileName(f.name);
+          const stamp = Date.now();
+          const path = `${userId}/${inboxId}/${stamp}-${safeName}`;
+
+          const { error: upErr } = await bucket.upload(path, f, {
+            upsert: false,
+            contentType: f.type || undefined,
+          });
+
+          if (upErr) {
+            // keep going; we’ll save whatever did upload
+            continue;
+          }
+
+          uploaded.push({
+            name: f.name,
+            path,
+            type: f.type || "application/octet-stream",
+            size: f.size,
+          });
+        }
+
+        attachments = uploaded;
+
+        // 3) Persist JSON body with text + attachments
+        const bodyJson = JSON.stringify({ text: textSnapshot, attachments });
+
+        const { error: updErr } = await supabase
+          .from("decision_inbox")
+          .update({ body: bodyJson })
+          .eq("id", inboxId)
+          .eq("user_id", userId);
+
+        if (updErr) {
+          // The capture exists; worst case body stays null/plain.
+          // Keep calm; don’t throw noisy errors.
+        }
+      }
     } catch {
       // Quietly convey safety without error noise
       flashAffirmation("Held.");
@@ -183,9 +280,7 @@ export default function CapturePage() {
                 >
                   <div className="min-w-0">
                     <div className="truncate text-sm text-zinc-900">{f.name}</div>
-                    <div className="text-xs text-zinc-500">
-                      {Math.max(1, Math.round(f.size / 1024))} KB
-                    </div>
+                    <div className="text-xs text-zinc-500">{Math.max(1, Math.round(f.size / 1024))} KB</div>
                   </div>
 
                   <button
