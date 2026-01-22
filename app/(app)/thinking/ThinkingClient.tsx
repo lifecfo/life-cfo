@@ -1,4 +1,3 @@
-// app/(app)/thinking/ThinkingClient.tsx
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -19,6 +18,13 @@ type Decision = {
   created_at: string;
   decided_at: string | null;
   review_at: string | null;
+};
+
+type DecisionSummary = {
+  id: string;
+  decision_id: string;
+  summary_text: string;
+  created_at: string;
 };
 
 function safeMs(iso: string | null | undefined) {
@@ -47,6 +53,10 @@ export default function ThinkingClient() {
   const [drafts, setDrafts] = useState<Decision[]>([]);
   const [openId, setOpenId] = useState<string | null>(null);
   const [chatForId, setChatForId] = useState<string | null>(null);
+
+  // Summaries for the currently open draft (small, capped)
+  const [summaryStatus, setSummaryStatus] = useState<string>("");
+  const [summaries, setSummaries] = useState<DecisionSummary[]>([]);
 
   const loadRef = useRef<(opts?: { silent?: boolean }) => void>(() => {});
   const reloadTimerRef = useRef<number | null>(null);
@@ -89,7 +99,7 @@ export default function ThinkingClient() {
 
     const list = (data ?? []) as Decision[];
     setDrafts(list);
-    setStatusLine(list.length === 0 ? "No drafts right now." : `Loaded ${list.length}.`);
+    setStatusLine(list.length === 0 ? "No drafts right now." : "Loaded.");
   };
 
   useEffect(() => {
@@ -107,7 +117,7 @@ export default function ThinkingClient() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Close chat when focus changes (safe because conversation is persisted)
+  // Keep chat only for the open card
   useEffect(() => {
     setChatForId((cur) => {
       if (!cur) return null;
@@ -115,6 +125,43 @@ export default function ThinkingClient() {
       return cur === openId ? cur : null;
     });
   }, [openId]);
+
+  // Load summaries for the open draft (capped; no lists)
+  useEffect(() => {
+    let mounted = true;
+
+    (async () => {
+      setSummaries([]);
+      setSummaryStatus("");
+
+      if (!userId || !openDraft) return;
+
+      setSummaryStatus("Loading memory…");
+
+      const { data, error } = await supabase
+        .from("decision_summaries")
+        .select("id,decision_id,summary_text,created_at")
+        .eq("user_id", userId)
+        .eq("decision_id", openDraft.id)
+        .order("created_at", { ascending: false })
+        .limit(3);
+
+      if (!mounted) return;
+
+      if (error) {
+        setSummaryStatus("");
+        setSummaries([]);
+        return;
+      }
+
+      setSummaries((data ?? []) as DecisionSummary[]);
+      setSummaryStatus("");
+    })();
+
+    return () => {
+      mounted = false;
+    };
+  }, [userId, openDraft?.id]);
 
   // Realtime: draft decisions
   useEffect(() => {
@@ -136,21 +183,17 @@ export default function ThinkingClient() {
             return;
           }
 
-          // We only care about drafts.
           const rowStatus = String(next?.status ?? prev?.status ?? "");
           const isDraft = rowStatus === "draft";
 
           setDrafts((current) => {
-            // DELETE
             if (eventType === "DELETE") {
               if (openId === id) setOpenId(null);
               if (chatForId === id) setChatForId(null);
               return current.filter((d) => d.id !== id);
             }
 
-            // INSERT/UPDATE
             if (!isDraft) {
-              // If it stopped being a draft, remove it from this page
               if (openId === id) setOpenId(null);
               if (chatForId === id) setChatForId(null);
               return current.filter((d) => d.id !== id);
@@ -170,9 +213,7 @@ export default function ThinkingClient() {
             const patch = toDecision(next ?? prev);
 
             const exists = current.some((d) => d.id === patch.id);
-            const merged = exists
-              ? current.map((d) => (d.id === patch.id ? { ...d, ...patch } : d))
-              : [patch, ...current];
+            const merged = exists ? current.map((d) => (d.id === patch.id ? { ...d, ...patch } : d)) : [patch, ...current];
 
             merged.sort((a, b) => {
               const ta = safeMs(a.created_at) ?? 0;
@@ -195,7 +236,6 @@ export default function ThinkingClient() {
   const decideNow = async (d: Decision) => {
     if (!userId) return;
 
-    // Optimistic UI: remove immediately
     setDrafts((prev) => prev.filter((x) => x.id !== d.id));
     if (openId === d.id) setOpenId(null);
     if (chatForId === d.id) setChatForId(null);
@@ -239,14 +279,9 @@ export default function ThinkingClient() {
 
     const review_at = isoNowPlusDays(days);
 
-    // Optimistic: update locally
     setDrafts((prev) => prev.map((x) => (x.id === d.id ? { ...x, review_at } : x)));
 
-    const { error } = await supabase
-      .from("decisions")
-      .update({ review_at })
-      .eq("id", d.id)
-      .eq("user_id", userId);
+    const { error } = await supabase.from("decisions").update({ review_at }).eq("id", d.id).eq("user_id", userId);
 
     if (error) {
       showToast({ message: `Couldn’t schedule: ${error.message}` }, 3500);
@@ -260,18 +295,12 @@ export default function ThinkingClient() {
   const deleteDraft = async (d: Decision) => {
     if (!userId) return;
 
-    // Optimistic: remove
     const prev = drafts;
     setDrafts((p) => p.filter((x) => x.id !== d.id));
     if (openId === d.id) setOpenId(null);
     if (chatForId === d.id) setChatForId(null);
 
-    const { error } = await supabase
-      .from("decisions")
-      .delete()
-      .eq("id", d.id)
-      .eq("user_id", userId)
-      .eq("status", "draft");
+    const { error } = await supabase.from("decisions").delete().eq("id", d.id).eq("user_id", userId).eq("status", "draft");
 
     if (error) {
       showToast({ message: `Couldn’t delete: ${error.message}` }, 3500);
@@ -279,17 +308,31 @@ export default function ThinkingClient() {
       return;
     }
 
-    showToast(
-      {
-        message: "Draft deleted.",
-        undoLabel: "Undo",
-        onUndo: async () => {
-          // Undoing a delete would require re-insert; keep it simple for v1.
-          showToast({ message: "Undo isn’t available for deletes yet." }, 3000);
-        },
-      },
-      6000
-    );
+    showToast({ message: "Draft deleted." }, 4000);
+  };
+
+  const useSummaryAsContext = async (d: Decision, summary: DecisionSummary) => {
+    if (!userId) return;
+
+    const existing = (d.context ?? "").trim();
+    const chunk = summary.summary_text.trim();
+
+    const nextContext = existing
+      ? `${existing}\n\n---\nSummary added (${softWhen(summary.created_at)}):\n${chunk}`
+      : `Summary added (${softWhen(summary.created_at)}):\n${chunk}`;
+
+    // Optimistic local update
+    setDrafts((prev) => prev.map((x) => (x.id === d.id ? { ...x, context: nextContext } : x)));
+
+    const { error } = await supabase.from("decisions").update({ context: nextContext }).eq("id", d.id).eq("user_id", userId);
+
+    if (error) {
+      showToast({ message: `Couldn’t update context: ${error.message}` }, 3500);
+      loadRef.current({ silent: true });
+      return;
+    }
+
+    showToast({ message: "Added to context." }, 2500);
   };
 
   return (
@@ -311,9 +354,7 @@ export default function ThinkingClient() {
             <CardContent>
               <div className="space-y-2">
                 <div className="text-sm font-semibold text-zinc-900">All clear.</div>
-                <div className="text-sm text-zinc-600">
-                  When something needs thinking time, it can live here without pressure.
-                </div>
+                <div className="text-sm text-zinc-600">When something needs thinking time, it can live here without pressure.</div>
               </div>
             </CardContent>
           </Card>
@@ -361,6 +402,28 @@ export default function ThinkingClient() {
                           <div className="text-sm text-zinc-600">No extra context yet.</div>
                         )}
 
+                        {/* Memory strip (capped, calm) */}
+                        <div className="rounded-xl border border-zinc-200 bg-white p-3 space-y-2">
+                          <div className="text-xs font-semibold text-zinc-700">Memory</div>
+                          {summaryStatus ? <div className="text-xs text-zinc-500">{summaryStatus}</div> : null}
+
+                          {!summaryStatus && summaries.length === 0 ? (
+                            <div className="text-sm text-zinc-600">No saved summaries yet.</div>
+                          ) : null}
+
+                          {summaries.map((s) => (
+                            <div key={s.id} className="space-y-2">
+                              <div className="text-xs text-zinc-500">Saved {softWhen(s.created_at)}</div>
+                              <div className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-800">{s.summary_text}</div>
+                              <div className="flex flex-wrap items-center gap-2">
+                                <Chip onClick={() => useSummaryAsContext(d, s)} title="Append this summary into the draft context">
+                                  Use as context
+                                </Chip>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+
                         <div className="flex flex-wrap items-center gap-2">
                           <Chip onClick={() => decideNow(d)} title="Move to Decisions (decided)">
                             Decide
@@ -383,7 +446,9 @@ export default function ThinkingClient() {
                           </Chip>
 
                           <Chip
-                            onClick={() => setChatForId((cur) => (cur === d.id ? null : d.id))}
+                            onClick={() => {
+                              setChatForId((cur) => (cur === d.id ? null : d.id));
+                            }}
                             title="Have a conversation with Keystone about this decision"
                           >
                             {isChatOpen ? "Hide chat" : "Talk this through"}
