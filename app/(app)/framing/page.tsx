@@ -19,6 +19,40 @@ type InboxItem = {
   created_at: string | null;
 };
 
+function extractCaptureText(body: unknown, fallbackTitle: string) {
+  if (body == null) return (fallbackTitle ?? "").trim();
+
+  // If body is an object already (some clients may send JSON directly)
+  if (typeof body === "object") {
+    const anyBody = body as any;
+    const t = typeof anyBody?.text === "string" ? anyBody.text : "";
+    return (t || fallbackTitle || "").trim();
+  }
+
+  // If body is a string: could be plain text OR JSON stringified { text, ... }
+  if (typeof body === "string") {
+    const raw = body.trim();
+    if (!raw) return (fallbackTitle ?? "").trim();
+
+    // Only attempt JSON parse when it looks like JSON
+    const looksJson = (raw.startsWith("{") && raw.endsWith("}")) || (raw.startsWith("[") && raw.endsWith("]"));
+    if (!looksJson) return raw;
+
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === "object") {
+        const t = typeof (parsed as any)?.text === "string" ? String((parsed as any).text) : "";
+        return (t || raw).trim();
+      }
+      return raw;
+    } catch {
+      return raw;
+    }
+  }
+
+  return (fallbackTitle ?? "").trim();
+}
+
 export default function FramingPage() {
   const router = useRouter();
   const { showToast } = useToast();
@@ -78,7 +112,7 @@ export default function FramingPage() {
 
       setStatusLine("Ready.");
       setDecisionTitle(next.title ?? "");
-      setDecisionStatement((next.body ?? next.title ?? "").trim());
+      setDecisionStatement(extractCaptureText(next.body, next.title ?? ""));
 
       window.setTimeout(() => titleRef.current?.focus(), 0);
     })();
@@ -123,7 +157,7 @@ export default function FramingPage() {
     }
 
     setDecisionTitle(next.title ?? "");
-    setDecisionStatement((next.body ?? next.title ?? "").trim());
+    setDecisionStatement(extractCaptureText(next.body, next.title ?? ""));
     setStatusLine("Ready.");
     window.setTimeout(() => titleRef.current?.focus(), 0);
   };
@@ -168,10 +202,7 @@ export default function FramingPage() {
 
       // One toast only
       if (closeErr) {
-        showToast(
-          { message: `Sent to Thinking, but couldn’t close capture: ${closeErr.message}` },
-          4500
-        );
+        showToast({ message: `Sent to Thinking, but couldn’t close capture: ${closeErr.message}` }, 4500);
       } else {
         showToast(
           {
@@ -188,10 +219,7 @@ export default function FramingPage() {
       // 3) Load next
       await reloadNext();
     } catch (e: any) {
-      showToast(
-        { message: e?.message ? String(e.message) : "Couldn’t send to Thinking." },
-        4000
-      );
+      showToast({ message: e?.message ? String(e.message) : "Couldn’t send to Thinking." }, 4000);
     } finally {
       setWorking(false);
     }
