@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { Page } from "@/components/Page";
 import { Chip, Card, CardContent, useToast } from "@/components/ui";
@@ -50,6 +50,10 @@ function isoNowPlusDays(days: number) {
 export default function ThinkingClient() {
   const router = useRouter();
   const { showToast } = useToast();
+  const searchParams = useSearchParams();
+  const openFromQuery = searchParams.get("open");
+
+  const [highlightId, setHighlightId] = useState<string | null>(null);
 
   const [userId, setUserId] = useState<string | null>(null);
   const [statusLine, setStatusLine] = useState<string>("Loading…");
@@ -119,6 +123,22 @@ export default function ThinkingClient() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Auto-open draft from query (?open=...)
+useEffect(() => {
+  if (!openFromQuery) return;
+  if (drafts.length === 0) return;
+
+  const match = drafts.find((d) => d.id === openFromQuery);
+  if (!match) return;
+
+  setOpenId(match.id);
+  setHighlightId(match.id);
+
+  // Clear highlight after a moment
+  const t = window.setTimeout(() => setHighlightId(null), 1600);
+  return () => window.clearTimeout(t);
+}, [openFromQuery, drafts]);
 
 // Keep chat only for the open card
 useEffect(() => {
@@ -370,7 +390,12 @@ useEffect(() => {
               const isChatOpen = chatForId === d.id;
 
               return (
-                <Card key={d.id} className="border-zinc-200 bg-white">
+                <Card
+                   key={d.id}
+                   className={`border-zinc-200 bg-white transition ${
+                    highlightId === d.id ? "ring-2 ring-zinc-300" : ""
+                   }`}
+                >
                   <CardContent>
                     <button
                       type="button"
