@@ -1,3 +1,4 @@
+// app/(app)/thinking/ThinkingClient.tsx
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -30,6 +31,17 @@ type DecisionSummary = {
   created_at: string;
 };
 
+type DecisionAttachment = {
+  id: string;
+  user_id: string;
+  decision_id: string;
+  name: string;
+  path: string;
+  type: string | null;
+  size: number | null;
+  created_at: string;
+};
+
 function safeMs(iso: string | null | undefined) {
   if (!iso) return null;
   const ms = Date.parse(iso);
@@ -47,6 +59,11 @@ function isoNowPlusDays(days: number) {
   return d.toISOString();
 }
 
+function softKB(bytes?: number | null) {
+  if (!bytes || bytes <= 0) return "";
+  return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+}
+
 export default function ThinkingClient() {
   const router = useRouter();
   const { showToast } = useToast();
@@ -54,7 +71,6 @@ export default function ThinkingClient() {
   const openFromQuery = searchParams.get("open");
 
   const [highlightId, setHighlightId] = useState<string | null>(null);
-  const [didAutoOpen, setDidAutoOpen] = useState(false);
 
   const [userId, setUserId] = useState<string | null>(null);
   const [statusLine, setStatusLine] = useState<string>("Loading…");
@@ -65,6 +81,10 @@ export default function ThinkingClient() {
   // Summaries for the currently open draft (small, capped)
   const [summaryStatus, setSummaryStatus] = useState<string>("");
   const [summaries, setSummaries] = useState<DecisionSummary[]>([]);
+
+  // Attachments for currently open draft
+  const [attachmentStatus, setAttachmentStatus] = useState<string>("");
+  const [attachments, setAttachments] = useState<DecisionAttachment[]>([]);
 
   const loadRef = useRef<(opts?: { silent?: boolean }) => void>(() => {});
   const reloadTimerRef = useRef<number | null>(null);
@@ -125,9 +145,8 @@ export default function ThinkingClient() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Auto-open draft from query (?open=...) exactly once.
+  // Auto-open draft from query (?open=...)
   useEffect(() => {
-    if (didAutoOpen) return;
     if (!openFromQuery) return;
     if (drafts.length === 0) return;
 
@@ -135,32 +154,11 @@ export default function ThinkingClient() {
     if (!match) return;
 
     setOpenId(match.id);
-    setChatForId(null);
     setHighlightId(match.id);
-    setDidAutoOpen(true);
 
-    // Calmly clear the query param so refresh doesn't keep re-opening
-    router.replace("/thinking");
-
-    // Clear highlight after a moment
     const t = window.setTimeout(() => setHighlightId(null), 1600);
     return () => window.clearTimeout(t);
-  }, [didAutoOpen, openFromQuery, drafts, router]);
-
-  // Scroll the opened card into view (calm, one-time)
-  useEffect(() => {
-    if (!didAutoOpen) return;
-    if (!openFromQuery) return;
-    if (openId !== openFromQuery) return;
-
-    // Give the DOM a tick to render the expanded card
-    const t = window.setTimeout(() => {
-      const el = document.getElementById(`decision-${openFromQuery}`);
-      if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
-    }, 60);
-
-    return () => window.clearTimeout(t);
-  }, [didAutoOpen, openFromQuery, openId]);
+  }, [openFromQuery, drafts]);
 
   // Keep chat only for the open card
   useEffect(() => {
@@ -207,6 +205,51 @@ export default function ThinkingClient() {
       mounted = false;
     };
   }, [userId, openDraft?.id]);
+
+  // Load attachments for open draft
+  useEffect(() => {
+    let mounted = true;
+
+    (async () => {
+      setAttachments([]);
+      setAttachmentStatus("");
+
+      if (!userId || !openDraft) return;
+
+      setAttachmentStatus("Loading attachments…");
+
+      const { data, error } = await supabase
+        .from("decision_attachments")
+        .select("id,user_id,decision_id,name,path,type,size,created_at")
+        .eq("user_id", userId)
+        .eq("decision_id", openDraft.id)
+        .order("created_at", { ascending: true });
+
+      if (!mounted) return;
+
+      if (error) {
+        setAttachmentStatus("");
+        setAttachments([]);
+        return;
+      }
+
+      setAttachments((data ?? []) as DecisionAttachment[]);
+      setAttachmentStatus("");
+    })();
+
+    return () => {
+      mounted = false;
+    };
+  }, [userId, openDraft?.id]);
+
+  const openAttachment = async (att: DecisionAttachment) => {
+    const { data, error } = await supabase.storage.from("captures").createSignedUrl(att.path, 60);
+    if (error || !data?.signedUrl) {
+      showToast({ message: "Couldn’t open attachment." }, 2500);
+      return;
+    }
+    window.open(data.signedUrl, "_blank", "noopener,noreferrer");
+  };
 
   // Realtime: draft decisions
   useEffect(() => {
@@ -370,7 +413,6 @@ export default function ThinkingClient() {
       ? `${existing}\n\n---\nSummary added (${softWhen(summary.created_at)}):\n${chunk}`
       : `Summary added (${softWhen(summary.created_at)}):\n${chunk}`;
 
-    // Optimistic local update
     setDrafts((prev) => prev.map((x) => (x.id === d.id ? { ...x, context: nextContext } : x)));
 
     const { error } = await supabase.from("decisions").update({ context: nextContext }).eq("id", d.id).eq("user_id", userId);
@@ -403,9 +445,7 @@ export default function ThinkingClient() {
             <CardContent>
               <div className="space-y-2">
                 <div className="text-sm font-semibold text-zinc-900">All clear.</div>
-                <div className="text-sm text-zinc-600">
-                  When something needs thinking time, it can live here without pressure.
-                </div>
+                <div className="text-sm text-zinc-600">When something needs thinking time, it can live here without pressure.</div>
               </div>
             </CardContent>
           </Card>
@@ -418,7 +458,6 @@ export default function ThinkingClient() {
               return (
                 <Card
                   key={d.id}
-                  id={`decision-${d.id}`}
                   className={`border-zinc-200 bg-white transition ${highlightId === d.id ? "ring-2 ring-zinc-300" : ""}`}
                 >
                   <CardContent>
@@ -451,9 +490,7 @@ export default function ThinkingClient() {
 
                     {isOpen ? (
                       <div className="mt-4 space-y-4">
-                        {d.origin === "framing" ? (
-                          <div className="mt-1 text-xs text-zinc-500">Prepared in Framing.</div>
-                        ) : null}
+                        {d.origin === "framing" ? <div className="mt-1 text-xs text-zinc-500">Prepared in Framing.</div> : null}
 
                         {d.context ? (
                           <div className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-700">{d.context}</div>
@@ -461,14 +498,36 @@ export default function ThinkingClient() {
                           <div className="text-sm text-zinc-600">No extra context yet.</div>
                         )}
 
+                        {/* Attachments strip (calm) */}
+                        <div className="rounded-xl border border-zinc-200 bg-white p-3 space-y-2">
+                          <div className="text-xs font-semibold text-zinc-700">Attachments</div>
+                          {attachmentStatus ? <div className="text-xs text-zinc-500">{attachmentStatus}</div> : null}
+
+                          {!attachmentStatus && attachments.length === 0 ? (
+                            <div className="text-sm text-zinc-600">No attachments.</div>
+                          ) : null}
+
+                          {attachments.length > 0 ? (
+                            <div className="flex flex-wrap items-center gap-2">
+                              {attachments.map((a) => (
+                                <Chip
+                                  key={a.id}
+                                  onClick={() => openAttachment(a)}
+                                  title={`${a.type ?? "file"}${a.size ? ` • ${softKB(a.size)}` : ""}`}
+                                >
+                                  {a.name}
+                                </Chip>
+                              ))}
+                            </div>
+                          ) : null}
+                        </div>
+
                         {/* Memory strip (capped, calm) */}
                         <div className="rounded-xl border border-zinc-200 bg-white p-3 space-y-2">
                           <div className="text-xs font-semibold text-zinc-700">Memory</div>
                           {summaryStatus ? <div className="text-xs text-zinc-500">{summaryStatus}</div> : null}
 
-                          {!summaryStatus && summaries.length === 0 ? (
-                            <div className="text-sm text-zinc-600">No saved summaries yet.</div>
-                          ) : null}
+                          {!summaryStatus && summaries.length === 0 ? <div className="text-sm text-zinc-600">No saved summaries yet.</div> : null}
 
                           {summaries.map((s) => (
                             <div key={s.id} className="space-y-2">
@@ -505,9 +564,7 @@ export default function ThinkingClient() {
                           </Chip>
 
                           <Chip
-                            onClick={() => {
-                              setChatForId((cur) => (cur === d.id ? null : d.id));
-                            }}
+                            onClick={() => setChatForId((cur) => (cur === d.id ? null : d.id))}
                             title="Have a conversation with Keystone about this decision"
                           >
                             {isChatOpen ? "Hide chat" : "Talk this through"}

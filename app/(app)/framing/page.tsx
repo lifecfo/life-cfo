@@ -9,6 +9,20 @@ import { Card, CardContent, Chip, useToast } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
 
+type AttachmentMeta = {
+  name: string;
+  path: string; // storage path inside bucket
+  type: string;
+  size: number;
+};
+
+type CaptureBody =
+  | string
+  | {
+      text?: string;
+      attachments?: AttachmentMeta[];
+    };
+
 type InboxItem = {
   id: string;
   user_id: string;
@@ -19,38 +33,53 @@ type InboxItem = {
   created_at: string | null;
 };
 
-function extractCaptureText(body: unknown, fallbackTitle: string) {
-  if (body == null) return (fallbackTitle ?? "").trim();
+function safeTitleFromText(text: string) {
+  const firstLine =
+    (text || "")
+      .split("\n")
+      .map((s) => s.trim())
+      .find(Boolean) ?? "";
+  const t = firstLine.slice(0, 80);
+  return t || "Captured";
+}
 
-  // If body is an object already (some clients may send JSON directly)
-  if (typeof body === "object") {
-    const anyBody = body as any;
-    const t = typeof anyBody?.text === "string" ? anyBody.text : "";
-    return (t || fallbackTitle || "").trim();
-  }
+function tryParseCaptureBody(raw: string | null): { text: string; attachments: AttachmentMeta[] } {
+  if (!raw) return { text: "", attachments: [] };
 
-  // If body is a string: could be plain text OR JSON stringified { text, ... }
-  if (typeof body === "string") {
-    const raw = body.trim();
-    if (!raw) return (fallbackTitle ?? "").trim();
+  const trimmed = raw.trim();
+  if (!trimmed) return { text: "", attachments: [] };
 
-    // Only attempt JSON parse when it looks like JSON
-    const looksJson = (raw.startsWith("{") && raw.endsWith("}")) || (raw.startsWith("[") && raw.endsWith("]"));
-    if (!looksJson) return raw;
-
+  // If it looks like JSON, try parse
+  if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
     try {
-      const parsed = JSON.parse(raw);
+      const parsed = JSON.parse(trimmed) as CaptureBody;
       if (parsed && typeof parsed === "object") {
-        const t = typeof (parsed as any)?.text === "string" ? String((parsed as any).text) : "";
-        return (t || raw).trim();
+        const text = typeof (parsed as any).text === "string" ? String((parsed as any).text) : "";
+        const attsRaw = (parsed as any).attachments;
+        const attachments: AttachmentMeta[] = Array.isArray(attsRaw)
+          ? attsRaw
+              .filter((a) => a && typeof a.path === "string")
+              .map((a) => ({
+                name: typeof a.name === "string" ? a.name : "Attachment",
+                path: String(a.path),
+                type: typeof a.type === "string" ? a.type : "application/octet-stream",
+                size: typeof a.size === "number" ? a.size : 0,
+              }))
+          : [];
+        return { text, attachments };
       }
-      return raw;
     } catch {
-      return raw;
+      // fall through to plain text
     }
   }
 
-  return (fallbackTitle ?? "").trim();
+  // Plain text fallback
+  return { text: trimmed, attachments: [] };
+}
+
+function kb(n: number) {
+  const v = Math.max(1, Math.round((n || 0) / 1024));
+  return `${v} KB`;
 }
 
 export default function FramingPage() {
@@ -67,6 +96,41 @@ export default function FramingPage() {
   const [working, setWorking] = useState<boolean>(false);
 
   const titleRef = useRef<HTMLInputElement | null>(null);
+
+  // attachment open cache (signed urls)
+  const [signed, setSigned] = useState<Record<string, string>>({});
+  const signingRef = useRef<Record<string, boolean>>({});
+
+  const parsed = useMemo(() => {
+    if (!item) return { text: "", attachments: [] as AttachmentMeta[] };
+    return tryParseCaptureBody(item.body);
+  }, [item?.id, item?.body]);
+
+  const ensureSignedUrl = async (path: string) => {
+    if (!path) return null;
+    if (signed[path]) return signed[path];
+    if (signingRef.current[path]) return null;
+
+    signingRef.current[path] = true;
+    try {
+      const { data, error } = await supabase.storage.from("captures").createSignedUrl(path, 60 * 10);
+      if (error || !data?.signedUrl) return null;
+
+      setSigned((prev) => ({ ...prev, [path]: data.signedUrl }));
+      return data.signedUrl;
+    } finally {
+      signingRef.current[path] = false;
+    }
+  };
+
+  const openAttachment = async (a: AttachmentMeta) => {
+    const url = await ensureSignedUrl(a.path);
+    if (!url) {
+      showToast({ message: "Couldn’t open attachment." }, 2500);
+      return;
+    }
+    window.open(url, "_blank", "noopener,noreferrer");
+  };
 
   // --- Auth + load next capture ---
   useEffect(() => {
@@ -110,9 +174,12 @@ export default function FramingPage() {
         return;
       }
 
+      const p = tryParseCaptureBody(next.body);
+      const base = (p.text || next.title || "").trim();
+
       setStatusLine("Ready.");
-      setDecisionTitle(next.title ?? "");
-      setDecisionStatement(extractCaptureText(next.body, next.title ?? ""));
+      setDecisionTitle(next.title ?? safeTitleFromText(base));
+      setDecisionStatement(base);
 
       window.setTimeout(() => titleRef.current?.focus(), 0);
     })();
@@ -156,8 +223,11 @@ export default function FramingPage() {
       return;
     }
 
-    setDecisionTitle(next.title ?? "");
-    setDecisionStatement(extractCaptureText(next.body, next.title ?? ""));
+    const p = tryParseCaptureBody(next.body);
+    const base = (p.text || next.title || "").trim();
+
+    setDecisionTitle(next.title ?? safeTitleFromText(base));
+    setDecisionStatement(base);
     setStatusLine("Ready.");
     window.setTimeout(() => titleRef.current?.focus(), 0);
   };
@@ -171,8 +241,10 @@ export default function FramingPage() {
     const title = decisionTitle.trim();
     const statement = decisionStatement.trim();
 
+    const attachments = parsed.attachments ?? [];
+
     try {
-      // 1) Create draft decision
+      // 1) Create draft decision (attachments travel forward)
       const { data: created, error: createErr } = await supabase
         .from("decisions")
         .insert({
@@ -182,8 +254,8 @@ export default function FramingPage() {
           status: "draft",
           origin: "framing",
           framed_at: new Date().toISOString(),
-          // If your schema includes inbox_item_id, uncomment:
-          // inbox_item_id: item.id,
+          attachments: attachments.length > 0 ? attachments : null,
+          // inbox_item_id: undefined, (optional if you later add it)
         })
         .select("id")
         .single();
@@ -192,7 +264,7 @@ export default function FramingPage() {
 
       const decisionId = created?.id as string | undefined;
 
-      // 2) Close the capture item (so it doesn’t keep showing up)
+      // 2) Close the capture item
       const { error: closeErr } = await supabase
         .from("decision_inbox")
         .update({ status: "closed" })
@@ -200,7 +272,6 @@ export default function FramingPage() {
         .eq("user_id", userId)
         .eq("status", "open");
 
-      // One toast only
       if (closeErr) {
         showToast({ message: `Sent to Thinking, but couldn’t close capture: ${closeErr.message}` }, 4500);
       } else {
@@ -216,7 +287,6 @@ export default function FramingPage() {
         );
       }
 
-      // 3) Load next
       await reloadNext();
     } catch (e: any) {
       showToast({ message: e?.message ? String(e.message) : "Couldn’t send to Thinking." }, 4000);
@@ -277,7 +347,32 @@ export default function FramingPage() {
               <div className="space-y-4">
                 <div className="space-y-1">
                   <div className="text-xs font-semibold text-zinc-700">Captured</div>
-                  <div className="text-sm text-zinc-900">{item.title}</div>
+                  <div className="text-sm text-zinc-900">{parsed.text || item.title}</div>
+
+                  {parsed.attachments.length > 0 ? (
+                    <div className="mt-3 space-y-2">
+                      <div className="text-xs font-semibold text-zinc-700">Attachments</div>
+                      <div className="space-y-2">
+                        {parsed.attachments.map((a) => (
+                          <div
+                            key={a.path}
+                            className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-2"
+                          >
+                            <div className="min-w-0">
+                              <div className="truncate text-sm text-zinc-900">{a.name}</div>
+                              <div className="text-xs text-zinc-500">{kb(a.size)}</div>
+                            </div>
+
+                            <div className="flex items-center gap-2">
+                              <Chip onClick={() => void openAttachment(a)} title="Open attachment">
+                                Open
+                              </Chip>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
 
                 <div className="space-y-2">
