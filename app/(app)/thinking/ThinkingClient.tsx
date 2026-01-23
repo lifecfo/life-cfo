@@ -10,6 +10,13 @@ import { ConversationPanel } from "./ConversationPanel";
 
 export const dynamic = "force-dynamic";
 
+type AttachmentMeta = {
+  name: string;
+  path: string; // storage path inside bucket
+  type: string;
+  size: number;
+};
+
 type Decision = {
   id: string;
   user_id: string;
@@ -21,6 +28,7 @@ type Decision = {
   review_at: string | null;
   origin: string | null;
   framed_at: string | null;
+  attachments: AttachmentMeta[] | null; // ✅ new (from decisions.attachments jsonb)
 };
 
 type DecisionSummary = {
@@ -28,17 +36,6 @@ type DecisionSummary = {
   user_id: string;
   decision_id: string;
   summary_text: string;
-  created_at: string;
-};
-
-type DecisionAttachment = {
-  id: string;
-  user_id: string;
-  decision_id: string;
-  name: string;
-  path: string;
-  type: string | null;
-  size: number | null;
   created_at: string;
 };
 
@@ -64,6 +61,19 @@ function softKB(bytes?: number | null) {
   return `${Math.max(1, Math.round(bytes / 1024))} KB`;
 }
 
+function normalizeAttachments(raw: any): AttachmentMeta[] {
+  if (!raw) return [];
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((a) => a && typeof a.path === "string")
+    .map((a) => ({
+      name: typeof a.name === "string" ? a.name : "Attachment",
+      path: String(a.path),
+      type: typeof a.type === "string" ? a.type : "application/octet-stream",
+      size: typeof a.size === "number" ? a.size : 0,
+    }));
+}
+
 export default function ThinkingClient() {
   const router = useRouter();
   const { showToast } = useToast();
@@ -82,9 +92,9 @@ export default function ThinkingClient() {
   const [summaryStatus, setSummaryStatus] = useState<string>("");
   const [summaries, setSummaries] = useState<DecisionSummary[]>([]);
 
-  // Attachments for currently open draft
-  const [attachmentStatus, setAttachmentStatus] = useState<string>("");
-  const [attachments, setAttachments] = useState<DecisionAttachment[]>([]);
+  // Signed url cache for attachments (path -> signedUrl)
+  const [signed, setSigned] = useState<Record<string, string>>({});
+  const signingRef = useRef<Record<string, boolean>>({});
 
   const loadRef = useRef<(opts?: { silent?: boolean }) => void>(() => {});
   const reloadTimerRef = useRef<number | null>(null);
@@ -97,6 +107,37 @@ export default function ThinkingClient() {
   };
 
   const openDraft = useMemo(() => drafts.find((d) => d.id === openId) ?? null, [drafts, openId]);
+
+  const openAttachments = useMemo(() => {
+    if (!openDraft) return [];
+    return normalizeAttachments(openDraft.attachments);
+  }, [openDraft?.id, openDraft?.attachments]);
+
+  const ensureSignedUrl = async (path: string) => {
+    if (!path) return null;
+    if (signed[path]) return signed[path];
+    if (signingRef.current[path]) return null;
+
+    signingRef.current[path] = true;
+    try {
+      const { data, error } = await supabase.storage.from("captures").createSignedUrl(path, 60 * 10);
+      if (error || !data?.signedUrl) return null;
+
+      setSigned((prev) => ({ ...prev, [path]: data.signedUrl }));
+      return data.signedUrl;
+    } finally {
+      signingRef.current[path] = false;
+    }
+  };
+
+  const openAttachment = async (att: AttachmentMeta) => {
+    const url = await ensureSignedUrl(att.path);
+    if (!url) {
+      showToast({ message: "Couldn’t open attachment." }, 2500);
+      return;
+    }
+    window.open(url, "_blank", "noopener,noreferrer");
+  };
 
   const load = async (opts?: { silent?: boolean }) => {
     const silent = !!opts?.silent;
@@ -114,7 +155,7 @@ export default function ThinkingClient() {
 
     const { data, error } = await supabase
       .from("decisions")
-      .select("id,user_id,title,context,status,created_at,decided_at,review_at,origin,framed_at")
+      .select("id,user_id,title,context,status,created_at,decided_at,review_at,origin,framed_at,attachments")
       .eq("user_id", auth.user.id)
       .eq("status", "draft")
       .order("created_at", { ascending: false });
@@ -125,9 +166,23 @@ export default function ThinkingClient() {
       return;
     }
 
-    const list = (data ?? []) as Decision[];
-    setDrafts(list);
-    setStatusLine(list.length === 0 ? "No drafts right now." : "Loaded.");
+    const list = (data ?? []) as any[];
+    const normalized: Decision[] = list.map((r) => ({
+      id: r.id,
+      user_id: r.user_id,
+      title: r.title ?? "",
+      context: r.context ?? null,
+      status: r.status ?? "draft",
+      created_at: r.created_at ?? new Date().toISOString(),
+      decided_at: r.decided_at ?? null,
+      review_at: r.review_at ?? null,
+      origin: r.origin ?? null,
+      framed_at: r.framed_at ?? null,
+      attachments: normalizeAttachments(r.attachments),
+    }));
+
+    setDrafts(normalized);
+    setStatusLine(normalized.length === 0 ? "No drafts right now." : "Loaded.");
   };
 
   useEffect(() => {
@@ -206,52 +261,7 @@ export default function ThinkingClient() {
     };
   }, [userId, openDraft?.id]);
 
-  // Load attachments for open draft
-  useEffect(() => {
-    let mounted = true;
-
-    (async () => {
-      setAttachments([]);
-      setAttachmentStatus("");
-
-      if (!userId || !openDraft) return;
-
-      setAttachmentStatus("Loading attachments…");
-
-      const { data, error } = await supabase
-        .from("decision_attachments")
-        .select("id,user_id,decision_id,name,path,type,size,created_at")
-        .eq("user_id", userId)
-        .eq("decision_id", openDraft.id)
-        .order("created_at", { ascending: true });
-
-      if (!mounted) return;
-
-      if (error) {
-        setAttachmentStatus("");
-        setAttachments([]);
-        return;
-      }
-
-      setAttachments((data ?? []) as DecisionAttachment[]);
-      setAttachmentStatus("");
-    })();
-
-    return () => {
-      mounted = false;
-    };
-  }, [userId, openDraft?.id]);
-
-  const openAttachment = async (att: DecisionAttachment) => {
-    const { data, error } = await supabase.storage.from("captures").createSignedUrl(att.path, 60);
-    if (error || !data?.signedUrl) {
-      showToast({ message: "Couldn’t open attachment." }, 2500);
-      return;
-    }
-    window.open(data.signedUrl, "_blank", "noopener,noreferrer");
-  };
-
-  // Realtime: draft decisions
+  // Realtime: draft decisions (includes attachments updates too)
   useEffect(() => {
     if (!userId) return;
 
@@ -298,6 +308,7 @@ export default function ThinkingClient() {
               review_at: r.review_at ?? null,
               origin: r.origin ?? null,
               framed_at: r.framed_at ?? null,
+              attachments: normalizeAttachments(r.attachments),
             });
 
             const patch = toDecision(next ?? prev);
@@ -501,25 +512,22 @@ export default function ThinkingClient() {
                         {/* Attachments strip (calm) */}
                         <div className="rounded-xl border border-zinc-200 bg-white p-3 space-y-2">
                           <div className="text-xs font-semibold text-zinc-700">Attachments</div>
-                          {attachmentStatus ? <div className="text-xs text-zinc-500">{attachmentStatus}</div> : null}
 
-                          {!attachmentStatus && attachments.length === 0 ? (
+                          {openAttachments.length === 0 ? (
                             <div className="text-sm text-zinc-600">No attachments.</div>
-                          ) : null}
-
-                          {attachments.length > 0 ? (
+                          ) : (
                             <div className="flex flex-wrap items-center gap-2">
-                              {attachments.map((a) => (
+                              {openAttachments.map((a) => (
                                 <Chip
-                                  key={a.id}
-                                  onClick={() => openAttachment(a)}
-                                  title={`${a.type ?? "file"}${a.size ? ` • ${softKB(a.size)}` : ""}`}
+                                  key={a.path}
+                                  onClick={() => void openAttachment(a)}
+                                  title={`${a.type}${a.size ? ` • ${softKB(a.size)}` : ""}`}
                                 >
                                   {a.name}
                                 </Chip>
                               ))}
                             </div>
-                          ) : null}
+                          )}
                         </div>
 
                         {/* Memory strip (capped, calm) */}
