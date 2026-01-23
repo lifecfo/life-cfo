@@ -16,13 +16,6 @@ type AttachmentMeta = {
   size: number;
 };
 
-type CaptureBody =
-  | string
-  | {
-      text?: string;
-      attachments?: AttachmentMeta[];
-    };
-
 type InboxItem = {
   id: string;
   user_id: string;
@@ -31,7 +24,10 @@ type InboxItem = {
   body: string | null;
   status: string;
   created_at: string | null;
+  framed_decision_id: string | null;
 };
+
+type CaptureBodyParsed = { text: string; attachments: AttachmentMeta[] };
 
 function safeTitleFromText(text: string) {
   const firstLine =
@@ -43,7 +39,19 @@ function safeTitleFromText(text: string) {
   return t || "Captured";
 }
 
-function tryParseCaptureBody(raw: string | null): { text: string; attachments: AttachmentMeta[] } {
+function normalizeAttachments(raw: any): AttachmentMeta[] {
+  if (!raw || !Array.isArray(raw)) return [];
+  return raw
+    .filter((a) => a && typeof a.path === "string")
+    .map((a) => ({
+      name: typeof a.name === "string" ? a.name : "Attachment",
+      path: String(a.path),
+      type: typeof a.type === "string" ? a.type : "application/octet-stream",
+      size: typeof a.size === "number" ? a.size : 0,
+    }));
+}
+
+function tryParseCaptureBody(raw: string | null): CaptureBodyParsed {
   if (!raw) return { text: "", attachments: [] };
 
   const trimmed = raw.trim();
@@ -52,24 +60,14 @@ function tryParseCaptureBody(raw: string | null): { text: string; attachments: A
   // If it looks like JSON, try parse
   if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
     try {
-      const parsed = JSON.parse(trimmed) as CaptureBody;
+      const parsed = JSON.parse(trimmed) as any;
       if (parsed && typeof parsed === "object") {
-        const text = typeof (parsed as any).text === "string" ? String((parsed as any).text) : "";
-        const attsRaw = (parsed as any).attachments;
-        const attachments: AttachmentMeta[] = Array.isArray(attsRaw)
-          ? attsRaw
-              .filter((a) => a && typeof a.path === "string")
-              .map((a) => ({
-                name: typeof a.name === "string" ? a.name : "Attachment",
-                path: String(a.path),
-                type: typeof a.type === "string" ? a.type : "application/octet-stream",
-                size: typeof a.size === "number" ? a.size : 0,
-              }))
-          : [];
+        const text = typeof parsed.text === "string" ? String(parsed.text) : "";
+        const attachments = normalizeAttachments(parsed.attachments);
         return { text, attachments };
       }
     } catch {
-      // fall through to plain text
+      // fall through
     }
   }
 
@@ -77,9 +75,9 @@ function tryParseCaptureBody(raw: string | null): { text: string; attachments: A
   return { text: trimmed, attachments: [] };
 }
 
-function kb(n: number) {
-  const v = Math.max(1, Math.round((n || 0) / 1024));
-  return `${v} KB`;
+function softKB(bytes?: number | null) {
+  if (!bytes || bytes <= 0) return "";
+  return `${Math.max(1, Math.round(bytes / 1024))} KB`;
 }
 
 export default function FramingPage() {
@@ -88,6 +86,7 @@ export default function FramingPage() {
 
   const [userId, setUserId] = useState<string | null>(null);
   const [statusLine, setStatusLine] = useState<string>("Loading…");
+
   const [item, setItem] = useState<InboxItem | null>(null);
 
   const [decisionTitle, setDecisionTitle] = useState<string>("");
@@ -97,7 +96,7 @@ export default function FramingPage() {
 
   const titleRef = useRef<HTMLInputElement | null>(null);
 
-  // attachment open cache (signed urls)
+  // Signed URL cache
   const [signed, setSigned] = useState<Record<string, string>>({});
   const signingRef = useRef<Record<string, boolean>>({});
 
@@ -132,77 +131,14 @@ export default function FramingPage() {
     window.open(url, "_blank", "noopener,noreferrer");
   };
 
-  // --- Auth + load next capture ---
-  useEffect(() => {
-    let mounted = true;
-
-    (async () => {
-      const { data: auth, error: authErr } = await supabase.auth.getUser();
-      if (!mounted) return;
-
-      if (authErr || !auth?.user) {
-        setUserId(null);
-        setItem(null);
-        setStatusLine("Not signed in.");
-        return;
-      }
-
-      setUserId(auth.user.id);
-
-      const { data, error } = await supabase
-        .from("decision_inbox")
-        .select("id,user_id,type,title,body,status,created_at")
-        .eq("user_id", auth.user.id)
-        .eq("type", "capture")
-        .eq("status", "open")
-        .order("created_at", { ascending: true })
-        .limit(1);
-
-      if (!mounted) return;
-
-      if (error) {
-        setItem(null);
-        setStatusLine(`Error: ${error.message}`);
-        return;
-      }
-
-      const next = (data?.[0] ?? null) as InboxItem | null;
-      setItem(next);
-
-      if (!next) {
-        setStatusLine("All framed.");
-        return;
-      }
-
-      const p = tryParseCaptureBody(next.body);
-      const base = (p.text || next.title || "").trim();
-
-      setStatusLine("Ready.");
-      setDecisionTitle(next.title ?? safeTitleFromText(base));
-      setDecisionStatement(base);
-
-      window.setTimeout(() => titleRef.current?.focus(), 0);
-    })();
-
-    return () => {
-      mounted = false;
-    };
-  }, []);
-
-  const canSend = useMemo(() => {
-    return !!userId && !!item && decisionTitle.trim().length > 0;
-  }, [userId, item, decisionTitle]);
-
-  const reloadNext = async () => {
-    if (!userId) return;
-
+  const loadNext = async (uid: string) => {
     setStatusLine("Loading…");
 
     const { data, error } = await supabase
       .from("decision_inbox")
-      .select("id,user_id,type,title,body,status,created_at")
-      .eq("user_id", userId)
-      .eq("type", "capture")
+      .select("id,user_id,type,title,body,status,created_at,framed_decision_id")
+      .eq("user_id", uid)
+      .is("framed_decision_id", null)
       .eq("status", "open")
       .order("created_at", { ascending: true })
       .limit(1);
@@ -219,29 +155,65 @@ export default function FramingPage() {
     if (!next) {
       setDecisionTitle("");
       setDecisionStatement("");
-      setStatusLine("All framed.");
+      setStatusLine("Nothing to frame right now.");
       return;
     }
 
     const p = tryParseCaptureBody(next.body);
     const base = (p.text || next.title || "").trim();
 
-    setDecisionTitle(next.title ?? safeTitleFromText(base));
-    setDecisionStatement(base);
+    setDecisionTitle((next.title || safeTitleFromText(base)).slice(0, 120));
+    setDecisionStatement(base.slice(0, 1000));
     setStatusLine("Ready.");
+
     window.setTimeout(() => titleRef.current?.focus(), 0);
   };
 
+  // Boot
+  useEffect(() => {
+    let mounted = true;
+
+    (async () => {
+      const { data: auth, error: authErr } = await supabase.auth.getUser();
+      if (!mounted) return;
+
+      if (authErr || !auth?.user) {
+        setUserId(null);
+        setItem(null);
+        setStatusLine("Not signed in.");
+        return;
+      }
+
+      const uid = auth.user.id;
+      setUserId(uid);
+      await loadNext(uid);
+    })();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const canSend = useMemo(() => {
+    return !!userId && !!item && decisionTitle.trim().length > 0 && !working;
+  }, [userId, item, decisionTitle, working]);
+
   const sendToThinking = async () => {
-    if (!canSend || working || !userId || !item) return;
+    if (!canSend || !userId || !item) return;
 
     setWorking(true);
-    setStatusLine("");
 
     const title = decisionTitle.trim();
     const statement = decisionStatement.trim();
-
     const attachments = parsed.attachments ?? [];
+
+    // Compose context: statement + original captured text (if different)
+    const contextPieces: string[] = [];
+    if (statement) contextPieces.push(statement);
+    if (parsed.text && parsed.text.trim() && parsed.text.trim() !== statement) {
+      contextPieces.push(`\n---\nCaptured:\n${parsed.text.trim()}`);
+    }
+    const context = contextPieces.length ? contextPieces.join("\n") : null;
 
     try {
       // 1) Create draft decision (attachments travel forward)
@@ -250,44 +222,41 @@ export default function FramingPage() {
         .insert({
           user_id: userId,
           title,
-          context: statement || null,
+          context,
           status: "draft",
           origin: "framing",
           framed_at: new Date().toISOString(),
           attachments: attachments.length > 0 ? attachments : null,
-          // inbox_item_id: undefined, (optional if you later add it)
         })
         .select("id")
         .single();
 
-      if (createErr) throw createErr;
+      if (createErr || !created?.id) throw createErr ?? new Error("Couldn’t create draft.");
 
-      const decisionId = created?.id as string | undefined;
+      const decisionId = String(created.id);
 
-      // 2) Close the capture item
-      const { error: closeErr } = await supabase
+      // 2) Mark inbox as framed + done (keeps audit trail)
+      const { error: updErr } = await supabase
         .from("decision_inbox")
-        .update({ status: "closed" })
+        .update({ framed_decision_id: decisionId, status: "done" })
         .eq("id", item.id)
         .eq("user_id", userId)
         .eq("status", "open");
 
-      if (closeErr) {
-        showToast({ message: `Sent to Thinking, but couldn’t close capture: ${closeErr.message}` }, 4500);
+      if (updErr) {
+        showToast({ message: `Draft created, but couldn’t close capture: ${updErr.message}` }, 4500);
       } else {
         showToast(
           {
             message: "Sent to Thinking.",
             undoLabel: "Open",
-            onUndo: () => {
-              if (decisionId) router.push(`/thinking?open=${decisionId}`);
-            },
+            onUndo: () => router.push(`/thinking?open=${decisionId}`),
           },
           7000
         );
       }
 
-      await reloadNext();
+      await loadNext(userId);
     } catch (e: any) {
       showToast({ message: e?.message ? String(e.message) : "Couldn’t send to Thinking." }, 4000);
     } finally {
@@ -302,15 +271,15 @@ export default function FramingPage() {
     try {
       const { error } = await supabase
         .from("decision_inbox")
-        .update({ status: "closed" })
+        .update({ status: "done" })
         .eq("id", item.id)
         .eq("user_id", userId)
         .eq("status", "open");
 
       if (error) throw error;
 
-      showToast({ message: "Okay — put aside." }, 2200);
-      await reloadNext();
+      showToast({ message: "Okay — not a decision." }, 2200);
+      await loadNext(userId);
     } catch (e: any) {
       showToast({ message: e?.message ? String(e.message) : "Couldn’t update." }, 3500);
     } finally {
@@ -337,7 +306,9 @@ export default function FramingPage() {
             <CardContent>
               <div className="space-y-2">
                 <div className="text-sm font-semibold text-zinc-900">Nothing to frame.</div>
-                <div className="text-sm text-zinc-600">Capture will show up here when it needs shaping.</div>
+                <div className="text-sm text-zinc-600">
+                  When you capture something that needs shaping, it will wait here quietly.
+                </div>
               </div>
             </CardContent>
           </Card>
@@ -347,28 +318,23 @@ export default function FramingPage() {
               <div className="space-y-4">
                 <div className="space-y-1">
                   <div className="text-xs font-semibold text-zinc-700">Captured</div>
-                  <div className="text-sm text-zinc-900">{parsed.text || item.title}</div>
+                  <div className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-900">
+                    {parsed.text || item.title}
+                  </div>
 
                   {parsed.attachments.length > 0 ? (
                     <div className="mt-3 space-y-2">
                       <div className="text-xs font-semibold text-zinc-700">Attachments</div>
-                      <div className="space-y-2">
-                        {parsed.attachments.map((a) => (
-                          <div
-                            key={a.path}
-                            className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-2"
-                          >
-                            <div className="min-w-0">
-                              <div className="truncate text-sm text-zinc-900">{a.name}</div>
-                              <div className="text-xs text-zinc-500">{kb(a.size)}</div>
-                            </div>
 
-                            <div className="flex items-center gap-2">
-                              <Chip onClick={() => void openAttachment(a)} title="Open attachment">
-                                Open
-                              </Chip>
-                            </div>
-                          </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        {parsed.attachments.map((a) => (
+                          <Chip
+                            key={a.path}
+                            onClick={() => void openAttachment(a)}
+                            title={`${a.type}${a.size ? ` • ${softKB(a.size)}` : ""}`}
+                          >
+                            {a.name}
+                          </Chip>
                         ))}
                       </div>
                     </div>
@@ -387,7 +353,7 @@ export default function FramingPage() {
                 </div>
 
                 <div className="space-y-2">
-                  <div className="text-xs font-semibold text-zinc-700">Decision statement (optional)</div>
+                  <div className="text-xs font-semibold text-zinc-700">Decision statement</div>
                   <textarea
                     value={decisionStatement}
                     onChange={(e) => setDecisionStatement(e.target.value)}
@@ -398,11 +364,11 @@ export default function FramingPage() {
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2 pt-1">
-                  <Chip onClick={sendToThinking} title="Create a draft in Thinking">
+                  <Chip onClick={() => void sendToThinking()} title="Create a draft in Thinking">
                     {working ? "Working…" : "Send to Thinking"}
                   </Chip>
 
-                  <Chip onClick={notADecision} title="Close as not-a-decision">
+                  <Chip onClick={() => void notADecision()} title="Close as not-a-decision">
                     Not a decision
                   </Chip>
 
