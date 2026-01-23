@@ -16,10 +16,11 @@ type AttachmentMeta = {
 };
 
 function safeTitleFromText(text: string) {
-  const firstLine = (text || "")
-    .split("\n")
-    .map((s) => s.trim())
-    .find(Boolean) ?? "";
+  const firstLine =
+    (text || "")
+      .split("\n")
+      .map((s) => s.trim())
+      .find(Boolean) ?? "";
   const t = firstLine.slice(0, 80);
   return t || "Captured";
 }
@@ -138,10 +139,9 @@ export default function CapturePage() {
 
     try {
       // 1) Create inbox row first (so we have an id for attachment paths)
-      const title =
-        textSnapshot
-          ? safeTitleFromText(textSnapshot)
-          : filesSnapshot[0]?.name
+      const title = textSnapshot
+        ? safeTitleFromText(textSnapshot)
+        : filesSnapshot[0]?.name
           ? `File: ${filesSnapshot[0].name}`
           : "Captured";
 
@@ -204,14 +204,11 @@ export default function CapturePage() {
           .eq("user_id", userId);
 
         if (updErr) {
-          // The capture exists; attachments may still be uploaded, but body didn’t get updated.
-          // Surface gently so you’re not guessing.
           flashAffirmation("Saved (details couldn’t update).", 2200);
           return;
         }
 
         if (uploaded.length === 0 && filesSnapshot.length > 0) {
-          // DB save succeeded, but attachments didn’t.
           flashAffirmation("Saved (attachments didn’t upload).", 2400);
           return;
         }
@@ -224,7 +221,6 @@ export default function CapturePage() {
 
       flashAffirmation("Saved.", 1300);
     } catch {
-      // Quietly convey safety without error noise
       flashAffirmation("Held.", 1800);
     } finally {
       setIsSubmitting(false);
@@ -262,7 +258,11 @@ export default function CapturePage() {
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
-              onClick={() => fileInputRef.current?.click()}
+              onClick={() => {
+                // ✅ Step 1: allow re-picking the same file(s) without refreshing
+                if (fileInputRef.current) fileInputRef.current.value = "";
+                fileInputRef.current?.click();
+              }}
               className="rounded-full border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800 hover:border-zinc-300"
             >
               Add files
@@ -273,7 +273,11 @@ export default function CapturePage() {
               type="file"
               multiple
               className="hidden"
-              onChange={(e) => addPickedFiles(e.target.files)}
+              onChange={(e) => {
+                addPickedFiles(e.target.files);
+                // ✅ Step 1: reset so selecting the same file again triggers onChange
+                e.currentTarget.value = "";
+              }}
             />
 
             {files.length > 0 ? (
@@ -292,9 +296,7 @@ export default function CapturePage() {
                 >
                   <div className="min-w-0">
                     <div className="truncate text-sm text-zinc-900">{f.name}</div>
-                    <div className="text-xs text-zinc-500">
-                      {Math.max(1, Math.round(f.size / 1024))} KB
-                    </div>
+                    <div className="text-xs text-zinc-500">{Math.max(1, Math.round(f.size / 1024))} KB</div>
                   </div>
 
                   <button
@@ -313,9 +315,7 @@ export default function CapturePage() {
 
         {/* Explicit save */}
         <div className="flex items-center justify-between gap-3 pt-1">
-          <div className="text-xs text-zinc-500">
-            Enter saves • Shift+Enter adds a new line
-          </div>
+          <div className="text-xs text-zinc-500">Enter saves • Shift+Enter adds a new line</div>
 
           <div className="flex items-center gap-2">
             <Chip

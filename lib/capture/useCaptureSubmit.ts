@@ -1,67 +1,147 @@
 // lib/capture/useCaptureSubmit.ts
 "use client";
 
-import { useCallback, useMemo } from "react";
 import { supabase } from "@/lib/supabaseClient";
 
-export type CaptureSubmitPayload = {
+type SubmitArgs = {
   text: string;
   files: File[];
 };
 
-export type UseCaptureSubmitOptions = {
-  userId: string | null;
+type AttachmentMeta = {
+  name: string;
+  size: number;
+  type: string;
+  path: string; // storage object path (bucket-relative)
 };
 
+function isDev() {
+  return process.env.NODE_ENV === "development";
+}
+
+function safeFirstLine(text: string) {
+  const t = (text || "").trim();
+  if (!t) return "";
+  return t.split("\n")[0].trim();
+}
+
+function fallbackId() {
+  return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function uid() {
+  // Browser crypto UUID when available
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const c: any = globalThis.crypto;
+  return typeof c?.randomUUID === "function" ? c.randomUUID() : fallbackId();
+}
+
+function sanitizeFilename(name: string) {
+  return (name || "file")
+    .replace(/[^a-zA-Z0-9._-]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 140);
+}
+
 /**
- * Capture is raw intake (material), not thinking.
- * V1: we store the text + file metadata in decision_inbox.
- * File upload (Supabase Storage) can be added later without changing the page contract.
+ * Capture submit contract:
+ * - Writes ONLY to decision_inbox
+ * - Does NOT create decisions
+ * - Does NOT route
+ * - Stores body as { text, attachments: [...] } (JSON string)
  */
-export function useCaptureSubmit(opts: UseCaptureSubmitOptions) {
-  const { userId } = opts;
+export function useCaptureSubmit({ userId }: { userId: string | null }) {
+  const submit = async ({ text, files }: SubmitArgs) => {
+    if (!userId) throw new Error("Not signed in.");
 
-  const submit = useCallback(
-    async ({ text, files }: CaptureSubmitPayload) => {
-      if (!userId) return;
+    const trimmed = (text || "").trim();
+    const hasFiles = Array.isArray(files) && files.length > 0;
 
-      const cleaned = (text ?? "").trim();
+    if (!trimmed && !hasFiles) return;
 
-      const attachments = (files ?? []).map((f) => ({
-        name: f.name,
-        size: f.size,
-        type: f.type || null,
-      }));
+    // Title: first line of text, else a gentle fallback
+    const title =
+      safeFirstLine(trimmed) ||
+      (hasFiles ? `Captured with ${files.length} attachment${files.length === 1 ? "" : "s"}` : "Captured");
 
-      // Title: calm + neutral, derived, not user-facing on Capture
-      const title =
-        cleaned.length > 0
-          ? cleaned.split("\n")[0].slice(0, 80) + (cleaned.split("\n")[0].length > 80 ? "…" : "")
-          : attachments.length > 0
-            ? "Capture (files)"
-            : "Capture";
+    // 1) Create inbox row first to get an ID (needed to namespace uploads)
+    const initialBody = {
+      text: trimmed,
+      attachments: [] as AttachmentMeta[],
+    };
 
-      // Body: store text + attachment metadata (upload comes later)
-      const bodyObj = {
-        text: cleaned || null,
-        attachments: attachments.length ? attachments : [],
-      };
-
-      await supabase.from("decision_inbox").insert({
+    const { data: created, error: insertErr } = await supabase
+      .from("decision_inbox")
+      .insert({
         user_id: userId,
         type: "capture",
-        title,
-        body: JSON.stringify(bodyObj),
-        severity: null,
         status: "open",
-        snoozed_until: null,
-        dedupe_key: `capture_${Date.now()}`,
-        action_label: null,
-        action_href: null,
-      });
-    },
-    [userId]
-  );
+        title,
+        body: JSON.stringify(initialBody),
+      })
+      .select("id")
+      .single();
 
-  return useMemo(() => ({ submit }), [submit]);
+    if (insertErr || !created?.id) {
+      if (isDev()) console.error("[capture] insert decision_inbox failed", insertErr);
+      throw insertErr ?? new Error("Capture insert failed.");
+    }
+
+    const inboxId = String(created.id);
+
+    // 2) Upload attachments (if any)
+    const attachments: AttachmentMeta[] = [];
+    if (hasFiles) {
+      for (const f of files) {
+        try {
+          const objectPath = `${userId}/${inboxId}/${uid()}-${sanitizeFilename(f.name)}`;
+
+          const { error: upErr } = await supabase.storage
+            .from("captures")
+            .upload(objectPath, f, {
+              cacheControl: "3600",
+              upsert: false,
+              contentType: f.type || undefined,
+            });
+
+          if (upErr) {
+            if (isDev()) console.error("[capture] storage upload failed", { file: f?.name, error: upErr });
+            // Keep going: we still want the text capture to exist
+            continue;
+          }
+
+          attachments.push({
+            name: f.name,
+            size: f.size,
+            type: f.type || "",
+            path: objectPath,
+          });
+        } catch (e) {
+          if (isDev()) console.error("[capture] storage upload exception", e);
+          // Keep going
+        }
+      }
+    }
+
+    // 3) Update inbox row body with attachments metadata (and keep text)
+    const finalBody = {
+      text: trimmed,
+      attachments,
+    };
+
+    const { error: updateErr } = await supabase
+      .from("decision_inbox")
+      .update({ body: JSON.stringify(finalBody) })
+      .eq("id", inboxId)
+      .eq("user_id", userId);
+
+    if (updateErr) {
+      // Not fatal for capture; text row exists. But log in dev.
+      if (isDev()) console.error("[capture] update decision_inbox body failed", updateErr);
+    }
+
+    return { inboxId, attachmentsCount: attachments.length };
+  };
+
+  return { submit };
 }
