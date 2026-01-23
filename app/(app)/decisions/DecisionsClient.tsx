@@ -8,6 +8,13 @@ import { Card, CardContent, Chip } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
 
+type AttachmentMeta = {
+  name: string;
+  path: string; // storage path inside bucket
+  type: string;
+  size: number;
+};
+
 type Decision = {
   id: string;
   user_id: string;
@@ -23,6 +30,8 @@ type Decision = {
 
   review_notes: string | null;
   review_history: any[] | null;
+
+  attachments: AttachmentMeta[] | null; // ✅ from decisions.attachments (jsonb)
 };
 
 function safeMs(iso: string | null | undefined) {
@@ -46,6 +55,24 @@ function nextReviewFromPreset(preset: "1w" | "1m" | "3m" | "6m") {
   return d.toISOString();
 }
 
+function softKB(bytes?: number | null) {
+  if (!bytes || bytes <= 0) return "";
+  return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+}
+
+function normalizeAttachments(raw: any): AttachmentMeta[] {
+  if (!raw) return [];
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((a) => a && typeof a.path === "string")
+    .map((a) => ({
+      name: typeof a.name === "string" ? a.name : "Attachment",
+      path: String(a.path),
+      type: typeof a.type === "string" ? a.type : "application/octet-stream",
+      size: typeof a.size === "number" ? a.size : 0,
+    }));
+}
+
 export default function DecisionsClient() {
   const router = useRouter();
 
@@ -55,6 +82,10 @@ export default function DecisionsClient() {
   const [items, setItems] = useState<Decision[]>([]);
   const [openId, setOpenId] = useState<string | null>(null);
 
+  // signed url cache (path -> signedUrl)
+  const [signed, setSigned] = useState<Record<string, string>>({});
+  const signingRef = useRef<Record<string, boolean>>({});
+
   // throttle / reload protection
   const isMountedRef = useRef(true);
   const inFlightRef = useRef(false);
@@ -62,6 +93,37 @@ export default function DecisionsClient() {
   const queuedRefetchRef = useRef(false);
 
   const openItem = useMemo(() => items.find((x) => x.id === openId) ?? null, [items, openId]);
+
+  const openAttachments = useMemo(() => {
+    if (!openItem) return [];
+    return normalizeAttachments(openItem.attachments);
+  }, [openItem?.id, openItem?.attachments]);
+
+  const ensureSignedUrl = async (path: string) => {
+    if (!path) return null;
+    if (signed[path]) return signed[path];
+    if (signingRef.current[path]) return null;
+
+    signingRef.current[path] = true;
+    try {
+      const { data, error } = await supabase.storage.from("captures").createSignedUrl(path, 60 * 10);
+      if (error || !data?.signedUrl) return null;
+
+      setSigned((prev) => ({ ...prev, [path]: data.signedUrl }));
+      return data.signedUrl;
+    } finally {
+      signingRef.current[path] = false;
+    }
+  };
+
+  const openAttachment = async (att: AttachmentMeta) => {
+    const url = await ensureSignedUrl(att.path);
+    if (!url) {
+      setStatusLine("Couldn’t open attachment.");
+      return;
+    }
+    window.open(url, "_blank", "noopener,noreferrer");
+  };
 
   const load = async (uid: string) => {
     const now = Date.now();
@@ -89,7 +151,7 @@ export default function DecisionsClient() {
     const { data, error } = await supabase
       .from("decisions")
       .select(
-        "id,user_id,title,context,status,created_at,decided_at,review_at,reviewed_at,review_notes,review_history"
+        "id,user_id,title,context,status,created_at,decided_at,review_at,reviewed_at,review_notes,review_history,attachments"
       )
       .eq("user_id", uid)
       .neq("status", "draft")
@@ -106,9 +168,24 @@ export default function DecisionsClient() {
       return;
     }
 
-    const rows = (data ?? []) as Decision[];
-    setItems(rows);
-    setStatusLine(rows.length === 0 ? "Nothing committed yet." : `Loaded ${rows.length}.`);
+    const rows = (data ?? []) as any[];
+    const normalized: Decision[] = rows.map((r) => ({
+      id: r.id,
+      user_id: r.user_id,
+      title: r.title ?? "",
+      context: r.context ?? null,
+      status: r.status ?? "",
+      created_at: r.created_at ?? new Date().toISOString(),
+      decided_at: r.decided_at ?? null,
+      review_at: r.review_at ?? null,
+      reviewed_at: r.reviewed_at ?? null,
+      review_notes: r.review_notes ?? null,
+      review_history: r.review_history ?? null,
+      attachments: normalizeAttachments(r.attachments),
+    }));
+
+    setItems(normalized);
+    setStatusLine(normalized.length === 0 ? "Nothing committed yet." : `Loaded ${normalized.length}.`);
   };
 
   // ----- boot -----
@@ -174,7 +251,6 @@ export default function DecisionsClient() {
 
     if (error) {
       setStatusLine(`Update failed: ${error.message}`);
-      // revert by reloading (quiet + throttled)
       void load(userId);
       return;
     }
@@ -239,6 +315,29 @@ export default function DecisionsClient() {
                         ) : (
                           <div className="text-sm text-zinc-600">No extra context saved.</div>
                         )}
+
+                        {/* Attachments strip (calm) */}
+                        <div className="rounded-xl border border-zinc-200 bg-white p-3 space-y-2">
+                          <div className="text-xs font-semibold text-zinc-700">Attachments</div>
+
+                          {openId === d.id && openAttachments.length === 0 ? (
+                            <div className="text-sm text-zinc-600">No attachments.</div>
+                          ) : null}
+
+                          {openId === d.id && openAttachments.length > 0 ? (
+                            <div className="flex flex-wrap items-center gap-2">
+                              {openAttachments.map((a) => (
+                                <Chip
+                                  key={a.path}
+                                  onClick={() => void openAttachment(a)}
+                                  title={`${a.type}${a.size ? ` • ${softKB(a.size)}` : ""}`}
+                                >
+                                  {a.name}
+                                </Chip>
+                              ))}
+                            </div>
+                          ) : null}
+                        </div>
 
                         <div className="space-y-2">
                           <div className="text-xs text-zinc-500">Optional: schedule a revisit</div>
