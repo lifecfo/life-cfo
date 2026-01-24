@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { Page } from "@/components/Page";
 import { Card, CardContent, Button, Chip, Badge, useToast } from "@/components/ui";
+import { AssistedSearch } from "@/components/AssistedSearch";
 
 type LiveState = "connecting" | "live" | "offline";
 type Cadence = "weekly" | "fortnightly" | "monthly" | "yearly";
@@ -459,6 +460,15 @@ export default function BillsPage() {
     return bills;
   }, [bills, filter]);
 
+  const VISIBLE_LIMIT = 5;
+
+const visibleBills = useMemo(
+  () => filteredBills.slice(0, VISIBLE_LIMIT),
+  [filteredBills]
+);
+
+const hiddenBillsCount = Math.max(0, filteredBills.length - visibleBills.length);
+
   async function addBill() {
     if (!userId) return;
 
@@ -787,6 +797,13 @@ export default function BillsPage() {
           </CardContent>
         </Card>
 
+{/* Search bills (escape hatch) */}
+<Card>
+  <CardContent>
+    <AssistedSearch scope="bills" placeholder="Search bills…" />
+  </CardContent>
+</Card>
+
         {/* Quick add suggestions */}
         <Card>
           <CardContent>
@@ -876,10 +893,10 @@ export default function BillsPage() {
             </div>
 
             <div className="grid gap-2">
-              {filteredBills.length === 0 ? (
+              {visibleBills.length === 0 ? (
                 <div className="opacity-70 text-sm">{bills.length === 0 ? "No bills yet." : "No bills match this filter."}</div>
               ) : (
-                filteredBills.map((b) => {
+                visibleBills.map((b) => {
                   const editing = !!drafts[b.id];
                   const d = drafts[b.id];
                   const busyPaid = !!markingPaid[b.id];
@@ -1019,6 +1036,11 @@ export default function BillsPage() {
                 })
               )}
             </div>
+{hiddenBillsCount > 0 ? (
+  <div className="mt-2 text-xs text-zinc-500">
+    {hiddenBillsCount} more hidden — use search to find anything.
+  </div>
+) : null}
           </CardContent>
         </Card>
 
