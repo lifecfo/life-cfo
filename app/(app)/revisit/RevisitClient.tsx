@@ -342,7 +342,6 @@ export default function RevisitClient() {
     setItems(normalized);
     setStatusLine(normalized.length === 0 ? "Nothing scheduled." : `Loaded ${normalized.length}.`);
 
-    void loadTiles(uid);
     void loadMeaningMaps(uid, normalized.map((x) => x.id));
   };
 
@@ -361,6 +360,9 @@ export default function RevisitClient() {
 
       const uid = auth.user.id;
       setUserId(uid);
+
+      // tiles load once at boot
+      await loadTiles(uid);
       await load(uid);
     })();
 
@@ -375,24 +377,25 @@ export default function RevisitClient() {
 
     const channel = supabase
       .channel(`revisit_decisions_${userId}`)
-      .on("postgres_changes", { event: "*", schema: "public", table: "decisions", filter: `user_id=eq.${userId}` }, () => {
-        void load(userId);
-      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "decisions", filter: `user_id=eq.${userId}` }, () => void load(userId))
       .subscribe();
 
     const channel2 = supabase
       .channel(`revisit_meaning_${userId}`)
-      .on("postgres_changes", { event: "*", schema: "public", table: "decision_domains", filter: `user_id=eq.${userId}` }, () =>
-        void load(userId)
-      )
-      .on("postgres_changes", { event: "*", schema: "public", table: "constellation_items", filter: `user_id=eq.${userId}` }, () =>
-        void load(userId)
-      )
+      .on("postgres_changes", { event: "*", schema: "public", table: "decision_domains", filter: `user_id=eq.${userId}` }, () => void load(userId))
+      .on("postgres_changes", { event: "*", schema: "public", table: "constellation_items", filter: `user_id=eq.${userId}` }, () => void load(userId))
+      .subscribe();
+
+    const channel3 = supabase
+      .channel(`revisit_tiles_${userId}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "domains", filter: `user_id=eq.${userId}` }, () => void loadTiles(userId))
+      .on("postgres_changes", { event: "*", schema: "public", table: "constellations", filter: `user_id=eq.${userId}` }, () => void loadTiles(userId))
       .subscribe();
 
     return () => {
       void supabase.removeChannel(channel);
       void supabase.removeChannel(channel2);
+      void supabase.removeChannel(channel3);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId]);
@@ -497,6 +500,7 @@ export default function RevisitClient() {
   const setDecisionDomain = async (decisionId: string, domainId: string | null) => {
     if (!userId) return;
 
+    // optimistic
     setDomainByDecision((prev) => ({ ...prev, [decisionId]: domainId }));
 
     try {
@@ -507,9 +511,10 @@ export default function RevisitClient() {
         return;
       }
 
+      // IMPORTANT: conflict target should match unique(user_id, decision_id)
       const { error } = await supabase
         .from("decision_domains")
-        .upsert({ user_id: userId, decision_id: decisionId, domain_id: domainId }, { onConflict: "decision_id" });
+        .upsert({ user_id: userId, decision_id: decisionId, domain_id: domainId }, { onConflict: "user_id,decision_id" });
 
       if (error) throw error;
       setStatusLine("Domain set.");
@@ -527,6 +532,7 @@ export default function RevisitClient() {
     const has = current.includes(constellationId);
     const next = has ? current.filter((x) => x !== constellationId) : [...current, constellationId];
 
+    // optimistic
     setConstellationsByDecision((prev) => ({ ...prev, [decisionId]: next }));
 
     try {
@@ -600,12 +606,12 @@ export default function RevisitClient() {
     const isOpen = openId === d.id;
 
     const domainId = domainByDecision[d.id] ?? null;
-    const domainName = domainId ? domains.find((x) => x.id === domainId)?.name ?? null : null;
+    const domainObj = domainId ? domains.find((x) => x.id === domainId) ?? null : null;
 
     const memberIds = constellationsByDecision[d.id] ?? [];
-    const memberNames = memberIds
-      .map((cid) => constellations.find((c) => c.id === cid)?.name)
-      .filter(Boolean) as string[];
+    const memberObjs = memberIds
+      .map((cid) => constellations.find((c) => c.id === cid) ?? null)
+      .filter(Boolean) as Constellation[];
 
     return (
       <Card key={d.id} className="border-zinc-200 bg-white">
@@ -620,13 +626,21 @@ export default function RevisitClient() {
 
                 {/* Quiet meaning hints */}
                 <div className="mt-2 flex flex-wrap gap-2">
-                  {domainName ? <Chip title="Domain">{domainName}</Chip> : null}
-                  {memberNames.slice(0, 2).map((n) => (
-                    <Chip key={n} title="Constellation">
-                      {n}
+                  {domainObj ? (
+                    <Chip title="Domain">
+                      {domainObj.emoji ? `${domainObj.emoji} ` : ""}
+                      {domainObj.name}
+                    </Chip>
+                  ) : null}
+
+                  {memberObjs.slice(0, 2).map((c) => (
+                    <Chip key={c.id} title="Constellation">
+                      {c.emoji ? `${c.emoji} ` : ""}
+                      {c.name}
                     </Chip>
                   ))}
-                  {memberNames.length > 2 ? <Chip title="More constellations">+{memberNames.length - 2}</Chip> : null}
+
+                  {memberObjs.length > 2 ? <Chip title="More constellations">+{memberObjs.length - 2}</Chip> : null}
                 </div>
               </div>
 
@@ -656,6 +670,7 @@ export default function RevisitClient() {
                     </Chip>
                     {domains.map((dom) => (
                       <Chip key={dom.id} active={domainId === dom.id} onClick={() => void setDecisionDomain(d.id, dom.id)}>
+                        {dom.emoji ? `${dom.emoji} ` : ""}
                         {dom.name}
                       </Chip>
                     ))}
@@ -672,6 +687,7 @@ export default function RevisitClient() {
                         const active = memberIds.includes(c.id);
                         return (
                           <Chip key={c.id} active={active} onClick={() => void toggleConstellation(d.id, c.id)}>
+                            {c.emoji ? `${c.emoji} ` : ""}
                             {c.name}
                           </Chip>
                         );
@@ -730,6 +746,10 @@ export default function RevisitClient() {
     );
   };
 
+  // ✅ Tile filter UX: toggle off if you click the active tile again
+  const onSelectDomainTile = (id: string | null) => setActiveDomainId((cur) => (cur === id ? null : id));
+  const onSelectConstellationTile = (id: string | null) => setActiveConstellationId((cur) => (cur === id ? null : id));
+
   return (
     <Page
       title="Revisit"
@@ -751,13 +771,8 @@ export default function RevisitClient() {
 
         {/* ✅ Calm tiles */}
         <div className="space-y-4">
-          <TilesRow title="Domains" items={domains} activeId={activeDomainId} onSelect={(id) => setActiveDomainId(id)} />
-          <TilesRow
-            title="Constellations"
-            items={constellations}
-            activeId={activeConstellationId}
-            onSelect={(id) => setActiveConstellationId(id)}
-          />
+          <TilesRow title="Domains" items={domains} activeId={activeDomainId} onSelect={onSelectDomainTile} />
+          <TilesRow title="Constellations" items={constellations} activeId={activeConstellationId} onSelect={onSelectConstellationTile} />
         </div>
 
         <div className="text-xs text-zinc-500">{statusLine}</div>

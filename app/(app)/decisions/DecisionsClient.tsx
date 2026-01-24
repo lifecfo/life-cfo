@@ -37,12 +37,14 @@ type Decision = {
 type Domain = {
   id: string;
   name: string;
+  emoji?: string | null;
   sort_order?: number | null;
 };
 
 type Constellation = {
   id: string;
   name: string;
+  emoji?: string | null;
   sort_order?: number | null;
 };
 
@@ -173,10 +175,10 @@ export default function DecisionsClient() {
 
   const loadTiles = async (uid: string) => {
     const [domRes, conRes] = await Promise.all([
-      supabase.from("domains").select("id,name,sort_order").eq("user_id", uid).order("sort_order", { ascending: true }),
+      supabase.from("domains").select("id,name,emoji,sort_order").eq("user_id", uid).order("sort_order", { ascending: true }),
       supabase
         .from("constellations")
-        .select("id,name,sort_order")
+        .select("id,name,emoji,sort_order")
         .eq("user_id", uid)
         .order("sort_order", { ascending: true }),
     ]);
@@ -188,6 +190,7 @@ export default function DecisionsClient() {
         .map((r) => ({
           id: String(r.id),
           name: String(r.name),
+          emoji: typeof r.emoji === "string" ? r.emoji : null,
           sort_order: typeof r.sort_order === "number" ? r.sort_order : null,
         }));
       setDomains(sortByName(next));
@@ -200,6 +203,7 @@ export default function DecisionsClient() {
         .map((r) => ({
           id: String(r.id),
           name: String(r.name),
+          emoji: typeof r.emoji === "string" ? r.emoji : null,
           sort_order: typeof r.sort_order === "number" ? r.sort_order : null,
         }));
       setConstellations(sortByName(next));
@@ -271,7 +275,6 @@ export default function DecisionsClient() {
     setStatusLine(normalized.length === 0 ? "Nothing committed yet." : `Loaded ${normalized.length}.`);
 
     // ✅ refresh meaning maps for this set (cheap + trustworthy)
-    void loadTiles(uid);
     void loadMeaningMaps(uid, normalized.map((x) => x.id));
   };
 
@@ -291,6 +294,9 @@ export default function DecisionsClient() {
 
       const uid = auth.user.id;
       setUserId(uid);
+
+      // Tiles load once at boot (realtime keeps them fresh)
+      await loadTiles(uid);
       await load(uid);
     })();
 
@@ -306,27 +312,27 @@ export default function DecisionsClient() {
 
     const channel = supabase
       .channel(`decisions_ledger_${userId}`)
-      .on("postgres_changes", { event: "*", schema: "public", table: "decisions", filter: `user_id=eq.${userId}` }, () =>
-        void load(userId)
-      )
+      .on("postgres_changes", { event: "*", schema: "public", table: "decisions", filter: `user_id=eq.${userId}` }, () => void load(userId))
       .subscribe();
 
     // membership changes need to reflect too
     const channel2 = supabase
       .channel(`decisions_meaning_${userId}`)
-      .on("postgres_changes", { event: "*", schema: "public", table: "decision_domains", filter: `user_id=eq.${userId}` }, () =>
-        void load(userId)
-      )
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "constellation_items", filter: `user_id=eq.${userId}` },
-        () => void load(userId)
-      )
+      .on("postgres_changes", { event: "*", schema: "public", table: "decision_domains", filter: `user_id=eq.${userId}` }, () => void load(userId))
+      .on("postgres_changes", { event: "*", schema: "public", table: "constellation_items", filter: `user_id=eq.${userId}` }, () => void load(userId))
+      .subscribe();
+
+    // tiles changes
+    const channel3 = supabase
+      .channel(`decisions_tiles_${userId}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "domains", filter: `user_id=eq.${userId}` }, () => void loadTiles(userId))
+      .on("postgres_changes", { event: "*", schema: "public", table: "constellations", filter: `user_id=eq.${userId}` }, () => void loadTiles(userId))
       .subscribe();
 
     return () => {
       void supabase.removeChannel(channel);
       void supabase.removeChannel(channel2);
+      void supabase.removeChannel(channel3);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId]);
@@ -394,9 +400,10 @@ export default function DecisionsClient() {
         return;
       }
 
+      // IMPORTANT: conflict target should match unique(user_id, decision_id)
       const { error } = await supabase
         .from("decision_domains")
-        .upsert({ user_id: userId, decision_id: decisionId, domain_id: domainId }, { onConflict: "decision_id" });
+        .upsert({ user_id: userId, decision_id: decisionId, domain_id: domainId }, { onConflict: "user_id,decision_id" });
 
       if (error) throw error;
       setStatusLine("Domain set.");
@@ -476,12 +483,17 @@ export default function DecisionsClient() {
 
         {/* ✅ Calm tiles */}
         <div className="space-y-4">
-          <TilesRow title="Domains" items={domains} activeId={activeDomainId} onSelect={(id) => setActiveDomainId(id)} />
+          <TilesRow
+            title="Domains"
+            items={domains}
+            activeId={activeDomainId}
+            onSelect={(id) => setActiveDomainId((cur) => (cur === id ? null : id))}
+          />
           <TilesRow
             title="Constellations"
             items={constellations}
             activeId={activeConstellationId}
-            onSelect={(id) => setActiveConstellationId(id)}
+            onSelect={(id) => setActiveConstellationId((cur) => (cur === id ? null : id))}
           />
         </div>
 
@@ -503,12 +515,12 @@ export default function DecisionsClient() {
               const atts = isOpen ? normalizeAttachments(d.attachments) : [];
 
               const domainId = domainByDecision[d.id] ?? null;
-              const domainName = domainId ? domains.find((x) => x.id === domainId)?.name ?? null : null;
+              const domainObj = domainId ? domains.find((x) => x.id === domainId) ?? null : null;
 
               const memberIds = constellationsByDecision[d.id] ?? [];
-              const memberNames = memberIds
-                .map((cid) => constellations.find((c) => c.id === cid)?.name)
-                .filter(Boolean) as string[];
+              const memberObjs = memberIds
+                .map((cid) => constellations.find((c) => c.id === cid) ?? null)
+                .filter(Boolean) as Constellation[];
 
               return (
                 <Card key={d.id} className="border-zinc-200 bg-white">
@@ -524,13 +536,21 @@ export default function DecisionsClient() {
 
                           {/* Quiet meaning hints */}
                           <div className="mt-2 flex flex-wrap gap-2">
-                            {domainName ? <Chip title="Domain">{domainName}</Chip> : null}
-                            {memberNames.slice(0, 2).map((n) => (
-                              <Chip key={n} title="Constellation">
-                                {n}
+                            {domainObj ? (
+                              <Chip title="Domain">
+                                {domainObj.emoji ? `${domainObj.emoji} ` : ""}
+                                {domainObj.name}
+                              </Chip>
+                            ) : null}
+
+                            {memberObjs.slice(0, 2).map((c) => (
+                              <Chip key={c.id} title="Constellation">
+                                {c.emoji ? `${c.emoji} ` : ""}
+                                {c.name}
                               </Chip>
                             ))}
-                            {memberNames.length > 2 ? <Chip title="More constellations">+{memberNames.length - 2}</Chip> : null}
+
+                            {memberObjs.length > 2 ? <Chip title="More constellations">+{memberObjs.length - 2}</Chip> : null}
                           </div>
                         </div>
                         <div className="flex items-center gap-2">
@@ -559,6 +579,7 @@ export default function DecisionsClient() {
                               </Chip>
                               {domains.map((dom) => (
                                 <Chip key={dom.id} active={domainId === dom.id} onClick={() => void setDecisionDomain(d.id, dom.id)}>
+                                  {dom.emoji ? `${dom.emoji} ` : ""}
                                   {dom.name}
                                 </Chip>
                               ))}
@@ -575,6 +596,7 @@ export default function DecisionsClient() {
                                   const active = memberIds.includes(c.id);
                                   return (
                                     <Chip key={c.id} active={active} onClick={() => void toggleConstellation(d.id, c.id)}>
+                                      {c.emoji ? `${c.emoji} ` : ""}
                                       {c.name}
                                     </Chip>
                                   );
