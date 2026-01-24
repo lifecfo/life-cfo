@@ -1,3 +1,4 @@
+// app/(app)/revisit/RevisitClient.tsx
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -6,6 +7,10 @@ import { supabase } from "@/lib/supabaseClient";
 import { Page } from "@/components/Page";
 import { Card, CardContent, Chip } from "@/components/ui";
 import { createSignedUrl, normalizeAttachments, softKB, type AttachmentMeta } from "@/lib/attachments";
+
+// ✅ Assisted retrieval + tiles
+import { AssistedSearch } from "@/components/AssistedSearch";
+import { TilesRow } from "@/components/TilesRow";
 
 export const dynamic = "force-dynamic";
 
@@ -53,6 +58,20 @@ type DecisionPatch = {
   review_history?: unknown[] | null;
 };
 
+type Domain = {
+  id: string;
+  name: string;
+  sort_order?: number | null;
+  emoji?: string | null;
+};
+
+type Constellation = {
+  id: string;
+  name: string;
+  sort_order?: number | null;
+  emoji?: string | null;
+};
+
 const SOON_DAYS = 7;
 
 function safeMs(iso: string | null | undefined) {
@@ -96,6 +115,15 @@ function toDateInputValue(iso: string | null) {
   return `${yyyy}-${mm}-${dd}`;
 }
 
+function sortByName<T extends { name: string; sort_order?: number | null }>(items: T[]): T[] {
+  return [...items].sort((a, b) => {
+    const ao = typeof a.sort_order === "number" ? a.sort_order : 9999;
+    const bo = typeof b.sort_order === "number" ? b.sort_order : 9999;
+    if (ao !== bo) return ao - bo;
+    return a.name.localeCompare(b.name);
+  });
+}
+
 export default function RevisitClient() {
   const router = useRouter();
 
@@ -106,6 +134,15 @@ export default function RevisitClient() {
   const [openId, setOpenId] = useState<string | null>(null);
 
   const [lastUndo, setLastUndo] = useState<LastUndo | null>(null);
+
+  // ✅ Domains + Constellations (tiles + meaning)
+  const [domains, setDomains] = useState<Domain[]>([]);
+  const [constellations, setConstellations] = useState<Constellation[]>([]);
+  const [activeDomainId, setActiveDomainId] = useState<string | null>(null);
+  const [activeConstellationId, setActiveConstellationId] = useState<string | null>(null);
+
+  const [domainByDecision, setDomainByDecision] = useState<Record<string, string | null>>({});
+  const [constellationsByDecision, setConstellationsByDecision] = useState<Record<string, string[]>>({});
 
   // signed url cache (path -> signedUrl)
   const [signed, setSigned] = useState<Record<string, string>>({});
@@ -143,7 +180,83 @@ export default function RevisitClient() {
     window.open(url, "_blank", "noopener,noreferrer");
   };
 
-  const dueItems = useMemo(() => {
+  const loadTiles = async (uid: string) => {
+    const [domRes, conRes] = await Promise.all([
+      supabase.from("domains").select("id,name,sort_order,emoji").eq("user_id", uid).order("sort_order", { ascending: true }),
+      supabase
+        .from("constellations")
+        .select("id,name,sort_order,emoji")
+        .eq("user_id", uid)
+        .order("sort_order", { ascending: true }),
+    ]);
+
+    if (!domRes.error) {
+      const rows = (domRes.data ?? []) as any[];
+      const next: Domain[] = rows
+        .filter((r) => r && r.id && r.name)
+        .map((r) => ({
+          id: String(r.id),
+          name: String(r.name),
+          sort_order: typeof r.sort_order === "number" ? r.sort_order : null,
+          emoji: typeof r.emoji === "string" ? r.emoji : null,
+        }));
+      setDomains(sortByName(next));
+    }
+
+    if (!conRes.error) {
+      const rows = (conRes.data ?? []) as any[];
+      const next: Constellation[] = rows
+        .filter((r) => r && r.id && r.name)
+        .map((r) => ({
+          id: String(r.id),
+          name: String(r.name),
+          sort_order: typeof r.sort_order === "number" ? r.sort_order : null,
+          emoji: typeof r.emoji === "string" ? r.emoji : null,
+        }));
+      setConstellations(sortByName(next));
+    }
+  };
+
+  const loadMeaningMaps = async (uid: string, decisionIds: string[]) => {
+    if (decisionIds.length === 0) {
+      setDomainByDecision({});
+      setConstellationsByDecision({});
+      return;
+    }
+
+    const [ddRes, ciRes] = await Promise.all([
+      supabase.from("decision_domains").select("decision_id,domain_id").eq("user_id", uid).in("decision_id", decisionIds),
+      supabase
+        .from("constellation_items")
+        .select("decision_id,constellation_id")
+        .eq("user_id", uid)
+        .in("decision_id", decisionIds),
+    ]);
+
+    if (!ddRes.error) {
+      const next: Record<string, string | null> = {};
+      for (const row of ddRes.data ?? []) {
+        next[String((row as any).decision_id)] = String((row as any).domain_id);
+      }
+      setDomainByDecision(next);
+    } else {
+      setDomainByDecision({});
+    }
+
+    if (!ciRes.error) {
+      const next: Record<string, string[]> = {};
+      for (const row of ciRes.data ?? []) {
+        const did = String((row as any).decision_id);
+        const cid = String((row as any).constellation_id);
+        next[did] = next[did] ? [...next[did], cid] : [cid];
+      }
+      setConstellationsByDecision(next);
+    } else {
+      setConstellationsByDecision({});
+    }
+  };
+
+  const dueItemsRaw = useMemo(() => {
     const now = Date.now();
     const soonCutoff = addDaysMs(SOON_DAYS);
 
@@ -194,9 +307,7 @@ export default function RevisitClient() {
 
     const { data, error } = await supabase
       .from("decisions")
-      .select(
-        "id,user_id,title,context,status,created_at,decided_at,review_at,review_notes,review_history,reviewed_at,attachments"
-      )
+      .select("id,user_id,title,context,status,created_at,decided_at,review_at,review_notes,review_history,reviewed_at,attachments")
       .eq("user_id", uid)
       .neq("status", "draft")
       .not("review_at", "is", null)
@@ -230,6 +341,9 @@ export default function RevisitClient() {
 
     setItems(normalized);
     setStatusLine(normalized.length === 0 ? "Nothing scheduled." : `Loaded ${normalized.length}.`);
+
+    void loadTiles(uid);
+    void loadMeaningMaps(uid, normalized.map((x) => x.id));
   };
 
   useEffect(() => {
@@ -266,8 +380,19 @@ export default function RevisitClient() {
       })
       .subscribe();
 
+    const channel2 = supabase
+      .channel(`revisit_meaning_${userId}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "decision_domains", filter: `user_id=eq.${userId}` }, () =>
+        void load(userId)
+      )
+      .on("postgres_changes", { event: "*", schema: "public", table: "constellation_items", filter: `user_id=eq.${userId}` }, () =>
+        void load(userId)
+      )
+      .subscribe();
+
     return () => {
       void supabase.removeChannel(channel);
+      void supabase.removeChannel(channel2);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId]);
@@ -368,6 +493,87 @@ export default function RevisitClient() {
     return `Due in ${diff}d`;
   };
 
+  // ✅ Domain assignment (single domain per decision)
+  const setDecisionDomain = async (decisionId: string, domainId: string | null) => {
+    if (!userId) return;
+
+    setDomainByDecision((prev) => ({ ...prev, [decisionId]: domainId }));
+
+    try {
+      if (!domainId) {
+        const { error } = await supabase.from("decision_domains").delete().eq("user_id", userId).eq("decision_id", decisionId);
+        if (error) throw error;
+        setStatusLine("Domain cleared.");
+        return;
+      }
+
+      const { error } = await supabase
+        .from("decision_domains")
+        .upsert({ user_id: userId, decision_id: decisionId, domain_id: domainId }, { onConflict: "decision_id" });
+
+      if (error) throw error;
+      setStatusLine("Domain set.");
+    } catch {
+      setStatusLine("Couldn’t update domain.");
+      void load(userId);
+    }
+  };
+
+  // ✅ Constellation toggle (multi)
+  const toggleConstellation = async (decisionId: string, constellationId: string) => {
+    if (!userId) return;
+
+    const current = constellationsByDecision[decisionId] ?? [];
+    const has = current.includes(constellationId);
+    const next = has ? current.filter((x) => x !== constellationId) : [...current, constellationId];
+
+    setConstellationsByDecision((prev) => ({ ...prev, [decisionId]: next }));
+
+    try {
+      if (has) {
+        const { error } = await supabase
+          .from("constellation_items")
+          .delete()
+          .eq("user_id", userId)
+          .eq("decision_id", decisionId)
+          .eq("constellation_id", constellationId);
+
+        if (error) throw error;
+        setStatusLine("Removed.");
+        return;
+      }
+
+      const { error } = await supabase.from("constellation_items").insert({
+        user_id: userId,
+        decision_id: decisionId,
+        constellation_id: constellationId,
+      });
+
+      if (error) throw error;
+      setStatusLine("Added.");
+    } catch {
+      setStatusLine("Couldn’t update constellation.");
+      void load(userId);
+    }
+  };
+
+  // ✅ Apply calm filters
+  const filteredDueItems = useMemo(() => {
+    const apply = (list: Decision[]) => {
+      let out = list;
+
+      if (activeDomainId) out = out.filter((d) => (domainByDecision[d.id] ?? null) === activeDomainId);
+      if (activeConstellationId) out = out.filter((d) => (constellationsByDecision[d.id] ?? []).includes(activeConstellationId));
+
+      return out;
+    };
+
+    return {
+      due: apply(dueItemsRaw.due),
+      soon: apply(dueItemsRaw.soon),
+    };
+  }, [dueItemsRaw, activeDomainId, activeConstellationId, domainByDecision, constellationsByDecision]);
+
   const AttachmentsStrip = ({ decision }: { decision: Decision }) => {
     const atts = normalizeAttachments(decision.attachments);
 
@@ -393,6 +599,14 @@ export default function RevisitClient() {
   const DecisionCard = ({ d }: { d: Decision }) => {
     const isOpen = openId === d.id;
 
+    const domainId = domainByDecision[d.id] ?? null;
+    const domainName = domainId ? domains.find((x) => x.id === domainId)?.name ?? null : null;
+
+    const memberIds = constellationsByDecision[d.id] ?? [];
+    const memberNames = memberIds
+      .map((cid) => constellations.find((c) => c.id === cid)?.name)
+      .filter(Boolean) as string[];
+
     return (
       <Card key={d.id} className="border-zinc-200 bg-white">
         <CardContent>
@@ -403,7 +617,19 @@ export default function RevisitClient() {
                 <div className="mt-1 text-xs text-zinc-500">
                   {dueLabel(d)} • Review date: {softDate(d.review_at)}
                 </div>
+
+                {/* Quiet meaning hints */}
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {domainName ? <Chip title="Domain">{domainName}</Chip> : null}
+                  {memberNames.slice(0, 2).map((n) => (
+                    <Chip key={n} title="Constellation">
+                      {n}
+                    </Chip>
+                  ))}
+                  {memberNames.length > 2 ? <Chip title="More constellations">+{memberNames.length - 2}</Chip> : null}
+                </div>
               </div>
+
               <div className="flex items-center gap-2">
                 <Chip>{isOpen ? "Hide" : "Open"}</Chip>
               </div>
@@ -417,6 +643,43 @@ export default function RevisitClient() {
               ) : (
                 <div className="text-sm text-zinc-600">No extra context saved.</div>
               )}
+
+              {/* ✅ Meaning assignment (quiet, optional) */}
+              <div className="rounded-xl border border-zinc-200 bg-white p-3 space-y-3">
+                <div className="text-xs font-semibold text-zinc-700">Meaning</div>
+
+                <div className="space-y-2">
+                  <div className="text-xs text-zinc-500">Domain</div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Chip active={!domainId} onClick={() => void setDecisionDomain(d.id, null)}>
+                      None
+                    </Chip>
+                    {domains.map((dom) => (
+                      <Chip key={dom.id} active={domainId === dom.id} onClick={() => void setDecisionDomain(d.id, dom.id)}>
+                        {dom.name}
+                      </Chip>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <div className="text-xs text-zinc-500">Constellations</div>
+                  {constellations.length === 0 ? (
+                    <div className="text-sm text-zinc-600">No constellations yet.</div>
+                  ) : (
+                    <div className="flex flex-wrap items-center gap-2">
+                      {constellations.map((c) => {
+                        const active = memberIds.includes(c.id);
+                        return (
+                          <Chip key={c.id} active={active} onClick={() => void toggleConstellation(d.id, c.id)}>
+                            {c.name}
+                          </Chip>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
 
               <AttachmentsStrip decision={d} />
 
@@ -483,9 +746,23 @@ export default function RevisitClient() {
       }
     >
       <div className="mx-auto w-full max-w-[760px] space-y-6">
+        {/* ✅ Assisted retrieval */}
+        <AssistedSearch scope="revisit" placeholder="Search decisions…" />
+
+        {/* ✅ Calm tiles */}
+        <div className="space-y-4">
+          <TilesRow title="Domains" items={domains} activeId={activeDomainId} onSelect={(id) => setActiveDomainId(id)} />
+          <TilesRow
+            title="Constellations"
+            items={constellations}
+            activeId={activeConstellationId}
+            onSelect={(id) => setActiveConstellationId(id)}
+          />
+        </div>
+
         <div className="text-xs text-zinc-500">{statusLine}</div>
 
-        {dueItems.due.length === 0 && dueItems.soon.length === 0 ? (
+        {filteredDueItems.due.length === 0 && filteredDueItems.soon.length === 0 ? (
           <Card className="border-zinc-200 bg-white">
             <CardContent>
               <div className="space-y-2">
@@ -496,90 +773,21 @@ export default function RevisitClient() {
           </Card>
         ) : (
           <div className="grid gap-3">
-            {dueItems.due.length > 0 ? (
+            {filteredDueItems.due.length > 0 ? (
               <div className="space-y-3">
                 <div className="text-sm font-semibold text-zinc-900">Due</div>
-                {dueItems.due.map((d) => (
+                {filteredDueItems.due.map((d) => (
                   <DecisionCard key={d.id} d={d} />
                 ))}
               </div>
             ) : null}
 
-            {dueItems.soon.length > 0 ? (
+            {filteredDueItems.soon.length > 0 ? (
               <div className="space-y-3 pt-2">
                 <div className="text-sm font-semibold text-zinc-900">Due soon</div>
-
-                {dueItems.soon.map((d) => {
-                  const isOpen = openId === d.id;
-
-                  return (
-                    <Card key={d.id} className="border-zinc-200 bg-white">
-                      <CardContent>
-                        <button
-                          type="button"
-                          onClick={() => setOpenId(isOpen ? null : d.id)}
-                          className="w-full text-left"
-                          aria-expanded={isOpen}
-                        >
-                          <div className="flex flex-wrap items-start justify-between gap-3">
-                            <div className="min-w-[240px] flex-1">
-                              <div className="text-base font-semibold text-zinc-900">{d.title}</div>
-                              <div className="mt-1 text-xs text-zinc-500">Review date: {softDate(d.review_at)}</div>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <Chip>{isOpen ? "Hide" : "Open"}</Chip>
-                            </div>
-                          </div>
-                        </button>
-
-                        {isOpen ? (
-                          <div className="mt-4 space-y-4">
-                            {d.context ? (
-                              <div className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-700">{d.context}</div>
-                            ) : (
-                              <div className="text-sm text-zinc-600">No extra context saved.</div>
-                            )}
-
-                            <AttachmentsStrip decision={d} />
-
-                            <div className="flex flex-wrap items-center gap-2">
-                              <Chip onClick={() => void markReviewed(d)} title="Reviewed (keep cadence)">
-                                Reviewed
-                              </Chip>
-                              <Chip onClick={() => void markReviewed(d, "1m")} title="Review again in a month">
-                                1m
-                              </Chip>
-                              <Chip onClick={() => void markReviewed(d, "3m")} title="Review again in 3 months">
-                                3m
-                              </Chip>
-                              <Chip onClick={() => void markReviewed(d, "clear")} title="Stop resurfacing this decision">
-                                Clear review
-                              </Chip>
-                            </div>
-
-                            <div className="space-y-2">
-                              <div className="text-xs text-zinc-500">Or set a custom date:</div>
-                              <div className="flex flex-wrap items-center gap-2">
-                                <input
-                                  type="date"
-                                  className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800 outline-none focus:ring-2 focus:ring-zinc-200"
-                                  value={toDateInputValue(d.review_at)}
-                                  onChange={(e) => {
-                                    const v = e.target.value;
-                                    if (!v) return void setCustomReviewAt(d, null);
-                                    const iso = new Date(`${v}T09:00:00`).toISOString();
-                                    void setCustomReviewAt(d, iso);
-                                  }}
-                                />
-                                <Chip onClick={() => setOpenId(null)}>Done</Chip>
-                              </div>
-                            </div>
-                          </div>
-                        ) : null}
-                      </CardContent>
-                    </Card>
-                  );
-                })}
+                {filteredDueItems.soon.map((d) => (
+                  <DecisionCard key={d.id} d={d} />
+                ))}
               </div>
             ) : null}
           </div>

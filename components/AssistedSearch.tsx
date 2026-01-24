@@ -13,95 +13,169 @@ type Suggestion = {
   id: string;
   title: string;
   subtitle?: string;
-  href: string; // where to navigate
+  href: string;
 };
 
 function safeStr(v: unknown) {
   return typeof v === "string" ? v : "";
 }
 
-function routeForDecision(scope: Scope, decisionId: string) {
-  // For V1: open in Thinking when it’s draft; otherwise go to Decisions/Revisit/Chapters pages but still allow open param.
-  // We’ll keep it simple: always route to /thinking?open= for deep open, because Thinking is the safe intelligence workspace.
-  // Pages can later honor ?open= too if you want.
+function routeForDecision(_scope: Scope, decisionId: string) {
+  // V1: Always deep-open in Thinking (safe intelligence workspace)
   return `/thinking?open=${encodeURIComponent(decisionId)}`;
 }
 
-function routeForInbox(scope: Scope, inboxId: string) {
-  // Inbox items are worked through Capture/Framing; keep it calm:
-  // - Capture items: /framing (loads oldest open capture) — we don’t deep-link yet.
+function routeForInbox(_scope: Scope, _inboxId: string) {
+  // V1: keep calm. No deep-link yet.
   return `/framing`;
 }
 
+type DecisionRow = {
+  id: string;
+  title: string | null;
+  context: string | null;
+  status: string | null;
+  created_at: string | null;
+  decided_at: string | null;
+  review_at: string | null;
+  chaptered_at: string | null;
+};
+
+function scopeDecisionFilter(scope: Scope) {
+  // Returns a PostgREST filter string to use via .or(...) or separate clauses.
+  // We keep it simple + predictable.
+  //
+  // thinking: only drafts
+  // decisions: anything not draft and not chapter
+  // revisit: anything not draft with review_at present
+  // chapters: only chapter
+  // capture/framing: decisions search is still useful but not primary (we keep broad)
+  if (scope === "thinking") return { statusEq: "draft" as const };
+
+  if (scope === "chapters") return { statusEq: "chapter" as const };
+
+  if (scope === "revisit") return { notDraft: true, requireReviewAt: true };
+
+  if (scope === "decisions") return { notDraft: true, notChapter: true };
+
+  return { any: true };
+}
+
+async function getUserId(): Promise<string | null> {
+  const { data: auth, error } = await supabase.auth.getUser();
+  if (error || !auth?.user?.id) return null;
+  return auth.user.id;
+}
+
 async function fetchTopSuggestions(scope: Scope): Promise<Suggestion[]> {
-  // Calm defaults: recent drafts + recent decisions (capped)
-  // You can tune per scope later without changing UI behavior.
+  const uid = await getUserId();
+  if (!uid) return [];
+
   const out: Suggestion[] = [];
 
-  // Recent draft decisions
-  const drafts = await supabase
-    .from("decisions")
-    .select("id,title,created_at,status")
-    .eq("status", "draft")
-    .order("created_at", { ascending: false })
-    .limit(4);
+  const filter = scopeDecisionFilter(scope);
 
-  if (!drafts.error) {
-    for (const d of drafts.data ?? []) {
-      out.push({
-        kind: "decision",
-        id: d.id,
-        title: safeStr(d.title) || "Untitled",
-        subtitle: "Draft",
-        href: routeForDecision(scope, d.id),
-      });
-    }
+  // --- Top suggestions should feel "of this place" ---
+  // Thinking: recent drafts
+  // Chapters: recent chaptered
+  // Revisit: due soon (review_at)
+  // Decisions: recent decided/created non-draft non-chapter
+  // Capture/Framing: recent drafts + recent decisions (broad, calm)
+
+  let q = supabase
+    .from("decisions")
+    .select("id,title,status,created_at,decided_at,review_at,chaptered_at")
+    .eq("user_id", uid);
+
+  if ("statusEq" in filter) {
+    q = q.eq("status", filter.statusEq);
+  } else if ("notDraft" in filter && filter.notDraft) {
+    q = q.neq("status", "draft");
+    if ("notChapter" in filter && filter.notChapter) q = q.neq("status", "chapter");
+    if ("requireReviewAt" in filter && filter.requireReviewAt) q = q.not("review_at", "is", null);
   }
 
-  // Recent non-draft decisions (ledger memory)
-  const recent = await supabase
-    .from("decisions")
-    .select("id,title,created_at,status")
-    .neq("status", "draft")
-    .order("created_at", { ascending: false })
-    .limit(3);
+  // Ordering per scope
+  if (scope === "revisit") {
+    q = q.order("review_at", { ascending: true }).limit(7);
+  } else if (scope === "chapters") {
+    q = q.order("chaptered_at", { ascending: false, nullsFirst: false }).order("decided_at", { ascending: false, nullsFirst: false }).limit(7);
+  } else if (scope === "decisions") {
+    q = q.order("decided_at", { ascending: false, nullsFirst: false }).order("created_at", { ascending: false }).limit(7);
+  } else {
+    q = q.order("created_at", { ascending: false }).limit(7);
+  }
 
-  if (!recent.error) {
-    for (const d of recent.data ?? []) {
-      out.push({
-        kind: "decision",
-        id: d.id,
-        title: safeStr(d.title) || "Untitled",
-        subtitle: "Decision",
-        href: routeForDecision(scope, d.id),
-      });
-    }
+  const res = await q;
+  if (res.error) return [];
+
+  for (const d of res.data ?? []) {
+    const status = safeStr((d as any).status);
+    const subtitle =
+      status === "draft" ? "Draft" : status === "chapter" ? "Chapter" : "Decision";
+
+    out.push({
+      kind: "decision",
+      id: String((d as any).id),
+      title: safeStr((d as any).title) || "Untitled",
+      subtitle,
+      href: routeForDecision(scope, String((d as any).id)),
+    });
   }
 
   return out.slice(0, 7);
 }
 
 async function fetchMatches(scope: Scope, q: string): Promise<Suggestion[]> {
+  const uid = await getUserId();
+  if (!uid) return [];
+
   const query = q.trim();
   if (!query) return fetchTopSuggestions(scope);
 
-  // Decisions: title-first, then context
-  const { data: decisions, error } = await supabase
-    .from("decisions")
-    .select("id,title,context,status,created_at")
-    .or(`title.ilike.%${query}%,context.ilike.%${query}%`)
-    .order("created_at", { ascending: false })
-    .limit(8);
+  const filter = scopeDecisionFilter(scope);
 
+  let db = supabase
+    .from("decisions")
+    .select("id,title,context,status,created_at,decided_at,review_at,chaptered_at")
+    .eq("user_id", uid)
+    .or(`title.ilike.%${query}%,context.ilike.%${query}%`);
+
+  if ("statusEq" in filter) {
+    db = db.eq("status", filter.statusEq);
+  } else if ("notDraft" in filter && filter.notDraft) {
+    db = db.neq("status", "draft");
+    if ("notChapter" in filter && filter.notChapter) db = db.neq("status", "chapter");
+    if ("requireReviewAt" in filter && filter.requireReviewAt) db = db.not("review_at", "is", null);
+  }
+
+  // Order per scope for relevance
+  if (scope === "revisit") {
+    db = db.order("review_at", { ascending: true }).limit(10);
+  } else if (scope === "chapters") {
+    db = db.order("chaptered_at", { ascending: false, nullsFirst: false }).order("decided_at", { ascending: false, nullsFirst: false }).limit(10);
+  } else if (scope === "decisions") {
+    db = db.order("decided_at", { ascending: false, nullsFirst: false }).order("created_at", { ascending: false }).limit(10);
+  } else {
+    db = db.order("created_at", { ascending: false }).limit(10);
+  }
+
+  const { data, error } = await db;
   if (error) return [];
 
-  return (decisions ?? []).map((d) => ({
-    kind: "decision",
-    id: d.id,
-    title: safeStr(d.title) || "Untitled",
-    subtitle: d.status === "draft" ? "Draft" : "Decision",
-    href: routeForDecision(scope, d.id),
-  }));
+  return (data ?? []).map((d: DecisionRow) => {
+    const status = safeStr(d.status);
+    const subtitle =
+      status === "draft" ? "Draft" : status === "chapter" ? "Chapter" : "Decision";
+
+    return {
+      kind: "decision",
+      id: String(d.id),
+      title: safeStr(d.title) || "Untitled",
+      subtitle,
+      href: routeForDecision(scope, String(d.id)),
+    };
+  });
 }
 
 export function AssistedSearch({
@@ -126,7 +200,7 @@ export function AssistedSearch({
     let alive = true;
     setLoading(true);
 
-    const t = setTimeout(async () => {
+    const t = window.setTimeout(async () => {
       const next = debouncedQ.trim()
         ? await fetchMatches(scope, debouncedQ)
         : await fetchTopSuggestions(scope);
@@ -134,11 +208,11 @@ export function AssistedSearch({
       if (!alive) return;
       setItems(next);
       setLoading(false);
-    }, 120);
+    }, 140);
 
     return () => {
       alive = false;
-      clearTimeout(t);
+      window.clearTimeout(t);
     };
   }, [debouncedQ, scope]);
 
@@ -168,7 +242,7 @@ export function AssistedSearch({
         )}
       </div>
 
-      {open && (
+      {open ? (
         <div className="absolute z-50 mt-2 w-full overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm">
           <div className="px-3 py-2 text-xs text-zinc-500">
             {q.trim() ? "Matches" : "Suggestions"}
@@ -195,13 +269,15 @@ export function AssistedSearch({
                       <div className="truncate text-xs text-zinc-500">{it.subtitle}</div>
                     ) : null}
                   </div>
-                  <Chip className="shrink-0 text-xs">{it.kind === "decision" ? "Decision" : "Inbox"}</Chip>
+                  <Chip className="shrink-0 text-xs">
+                    {it.kind === "decision" ? "Decision" : "Inbox"}
+                  </Chip>
                 </button>
               ))
             )}
           </div>
         </div>
-      )}
+      ) : null}
     </div>
   );
 }

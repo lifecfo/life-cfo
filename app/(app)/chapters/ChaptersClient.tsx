@@ -1,3 +1,4 @@
+// app/(app)/chapters/ChaptersClient.tsx
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -5,7 +6,11 @@ import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { Page } from "@/components/Page";
 import { Card, CardContent, Chip } from "@/components/ui";
-import { normalizeAttachments, softKB, type AttachmentMeta } from "@/lib/attachments";
+import { createSignedUrl, normalizeAttachments, softKB, type AttachmentMeta } from "@/lib/attachments";
+
+// ✅ Assisted retrieval + tiles
+import { AssistedSearch } from "@/components/AssistedSearch";
+import { TilesRow } from "@/components/TilesRow";
 
 export const dynamic = "force-dynamic";
 
@@ -30,6 +35,20 @@ type Decision = {
   attachments: AttachmentMeta[] | null;
 };
 
+type Domain = {
+  id: string;
+  name: string;
+  sort_order?: number | null;
+  emoji?: string | null;
+};
+
+type Constellation = {
+  id: string;
+  name: string;
+  sort_order?: number | null;
+  emoji?: string | null;
+};
+
 function safeMs(iso: string | null | undefined) {
   if (!iso) return null;
   const ms = Date.parse(iso);
@@ -42,6 +61,15 @@ function softDate(iso: string | null) {
   return new Date(ms).toLocaleDateString();
 }
 
+function sortByName<T extends { name: string; sort_order?: number | null }>(items: T[]): T[] {
+  return [...items].sort((a, b) => {
+    const ao = typeof a.sort_order === "number" ? a.sort_order : 9999;
+    const bo = typeof b.sort_order === "number" ? b.sort_order : 9999;
+    if (ao !== bo) return ao - bo;
+    return a.name.localeCompare(b.name);
+  });
+}
+
 export default function ChaptersClient() {
   const router = useRouter();
 
@@ -50,6 +78,15 @@ export default function ChaptersClient() {
 
   const [items, setItems] = useState<Decision[]>([]);
   const [openId, setOpenId] = useState<string | null>(null);
+
+  // ✅ Domains + Constellations (tiles + meaning)
+  const [domains, setDomains] = useState<Domain[]>([]);
+  const [constellations, setConstellations] = useState<Constellation[]>([]);
+  const [activeDomainId, setActiveDomainId] = useState<string | null>(null);
+  const [activeConstellationId, setActiveConstellationId] = useState<string | null>(null);
+
+  const [domainByDecision, setDomainByDecision] = useState<Record<string, string | null>>({});
+  const [constellationsByDecision, setConstellationsByDecision] = useState<Record<string, string[]>>({});
 
   // signed url cache (path -> signedUrl)
   const [signed, setSigned] = useState<Record<string, string>>({});
@@ -61,8 +98,6 @@ export default function ChaptersClient() {
   const lastFetchAtRef = useRef(0);
   const queuedRefetchRef = useRef(false);
 
-  const openItem = useMemo(() => items.find((x) => x.id === openId) ?? null, [items, openId]);
-
   const ensureSignedUrl = async (path: string) => {
     if (!path) return null;
     if (signed[path]) return signed[path];
@@ -70,11 +105,11 @@ export default function ChaptersClient() {
 
     signingRef.current[path] = true;
     try {
-      const { data, error } = await supabase.storage.from("captures").createSignedUrl(path, 60 * 10);
-      if (error || !data?.signedUrl) return null;
+      const url = await createSignedUrl(supabase, path, { bucket: "captures", expiresInSec: 60 * 10 });
+      if (!url) return null;
 
-      setSigned((prev) => ({ ...prev, [path]: data.signedUrl }));
-      return data.signedUrl;
+      setSigned((prev) => ({ ...prev, [path]: url }));
+      return url;
     } finally {
       signingRef.current[path] = false;
     }
@@ -87,6 +122,82 @@ export default function ChaptersClient() {
       return;
     }
     window.open(url, "_blank", "noopener,noreferrer");
+  };
+
+  const loadTiles = async (uid: string) => {
+    const [domRes, conRes] = await Promise.all([
+      supabase.from("domains").select("id,name,sort_order,emoji").eq("user_id", uid).order("sort_order", { ascending: true }),
+      supabase
+        .from("constellations")
+        .select("id,name,sort_order,emoji")
+        .eq("user_id", uid)
+        .order("sort_order", { ascending: true }),
+    ]);
+
+    if (!domRes.error) {
+      const rows = (domRes.data ?? []) as any[];
+      const next: Domain[] = rows
+        .filter((r) => r && r.id && r.name)
+        .map((r) => ({
+          id: String(r.id),
+          name: String(r.name),
+          sort_order: typeof r.sort_order === "number" ? r.sort_order : null,
+          emoji: typeof r.emoji === "string" ? r.emoji : null,
+        }));
+      setDomains(sortByName(next));
+    }
+
+    if (!conRes.error) {
+      const rows = (conRes.data ?? []) as any[];
+      const next: Constellation[] = rows
+        .filter((r) => r && r.id && r.name)
+        .map((r) => ({
+          id: String(r.id),
+          name: String(r.name),
+          sort_order: typeof r.sort_order === "number" ? r.sort_order : null,
+          emoji: typeof r.emoji === "string" ? r.emoji : null,
+        }));
+      setConstellations(sortByName(next));
+    }
+  };
+
+  const loadMeaningMaps = async (uid: string, decisionIds: string[]) => {
+    if (decisionIds.length === 0) {
+      setDomainByDecision({});
+      setConstellationsByDecision({});
+      return;
+    }
+
+    const [ddRes, ciRes] = await Promise.all([
+      supabase.from("decision_domains").select("decision_id,domain_id").eq("user_id", uid).in("decision_id", decisionIds),
+      supabase
+        .from("constellation_items")
+        .select("decision_id,constellation_id")
+        .eq("user_id", uid)
+        .in("decision_id", decisionIds),
+    ]);
+
+    if (!ddRes.error) {
+      const next: Record<string, string | null> = {};
+      for (const row of ddRes.data ?? []) {
+        next[String((row as any).decision_id)] = String((row as any).domain_id);
+      }
+      setDomainByDecision(next);
+    } else {
+      setDomainByDecision({});
+    }
+
+    if (!ciRes.error) {
+      const next: Record<string, string[]> = {};
+      for (const row of ciRes.data ?? []) {
+        const did = String((row as any).decision_id);
+        const cid = String((row as any).constellation_id);
+        next[did] = next[did] ? [...next[did], cid] : [cid];
+      }
+      setConstellationsByDecision(next);
+    } else {
+      setConstellationsByDecision({});
+    }
   };
 
   const load = async (uid: string) => {
@@ -114,9 +225,7 @@ export default function ChaptersClient() {
 
     const { data, error } = await supabase
       .from("decisions")
-      .select(
-        "id,user_id,title,context,status,created_at,decided_at,review_at,reviewed_at,review_notes,review_history,attachments,chaptered_at"
-      )
+      .select("id,user_id,title,context,status,created_at,decided_at,review_at,reviewed_at,review_notes,review_history,attachments,chaptered_at")
       .eq("user_id", uid)
       .eq("status", "chapter")
       .order("chaptered_at", { ascending: false, nullsFirst: false })
@@ -152,6 +261,9 @@ export default function ChaptersClient() {
 
     setItems(normalized);
     setStatusLine(normalized.length === 0 ? "Nothing here yet." : `Loaded ${normalized.length}.`);
+
+    void loadTiles(uid);
+    void loadMeaningMaps(uid, normalized.map((x) => x.id));
   };
 
   // ----- boot -----
@@ -185,15 +297,22 @@ export default function ChaptersClient() {
 
     const channel = supabase
       .channel(`chapters_${userId}`)
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "decisions", filter: `user_id=eq.${userId}` },
-        () => void load(userId)
+      .on("postgres_changes", { event: "*", schema: "public", table: "decisions", filter: `user_id=eq.${userId}` }, () => void load(userId))
+      .subscribe();
+
+    const channel2 = supabase
+      .channel(`chapters_meaning_${userId}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "decision_domains", filter: `user_id=eq.${userId}` }, () =>
+        void load(userId)
+      )
+      .on("postgres_changes", { event: "*", schema: "public", table: "constellation_items", filter: `user_id=eq.${userId}` }, () =>
+        void load(userId)
       )
       .subscribe();
 
     return () => {
       void supabase.removeChannel(channel);
+      void supabase.removeChannel(channel2);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId]);
@@ -224,6 +343,80 @@ export default function ChaptersClient() {
     setStatusLine("Reopened.");
   };
 
+  // ✅ Domain assignment (single domain per decision)
+  const setDecisionDomain = async (decisionId: string, domainId: string | null) => {
+    if (!userId) return;
+
+    setDomainByDecision((prev) => ({ ...prev, [decisionId]: domainId }));
+
+    try {
+      if (!domainId) {
+        const { error } = await supabase.from("decision_domains").delete().eq("user_id", userId).eq("decision_id", decisionId);
+        if (error) throw error;
+        setStatusLine("Domain cleared.");
+        return;
+      }
+
+      const { error } = await supabase
+        .from("decision_domains")
+        .upsert({ user_id: userId, decision_id: decisionId, domain_id: domainId }, { onConflict: "decision_id" });
+
+      if (error) throw error;
+      setStatusLine("Domain set.");
+    } catch {
+      setStatusLine("Couldn’t update domain.");
+      void load(userId);
+    }
+  };
+
+  // ✅ Constellation toggle (multi)
+  const toggleConstellation = async (decisionId: string, constellationId: string) => {
+    if (!userId) return;
+
+    const current = constellationsByDecision[decisionId] ?? [];
+    const has = current.includes(constellationId);
+    const next = has ? current.filter((x) => x !== constellationId) : [...current, constellationId];
+
+    setConstellationsByDecision((prev) => ({ ...prev, [decisionId]: next }));
+
+    try {
+      if (has) {
+        const { error } = await supabase
+          .from("constellation_items")
+          .delete()
+          .eq("user_id", userId)
+          .eq("decision_id", decisionId)
+          .eq("constellation_id", constellationId);
+
+        if (error) throw error;
+        setStatusLine("Removed.");
+        return;
+      }
+
+      const { error } = await supabase.from("constellation_items").insert({
+        user_id: userId,
+        decision_id: decisionId,
+        constellation_id: constellationId,
+      });
+
+      if (error) throw error;
+      setStatusLine("Added.");
+    } catch {
+      setStatusLine("Couldn’t update constellation.");
+      void load(userId);
+    }
+  };
+
+  // ✅ Apply calm filters
+  const filteredItems = useMemo(() => {
+    let out = items;
+
+    if (activeDomainId) out = out.filter((d) => (domainByDecision[d.id] ?? null) === activeDomainId);
+    if (activeConstellationId) out = out.filter((d) => (constellationsByDecision[d.id] ?? []).includes(activeConstellationId));
+
+    return out;
+  }, [items, activeDomainId, activeConstellationId, domainByDecision, constellationsByDecision]);
+
   return (
     <Page
       title="Chapters"
@@ -235,9 +428,23 @@ export default function ChaptersClient() {
       }
     >
       <div className="mx-auto w-full max-w-[760px] space-y-6">
+        {/* ✅ Assisted retrieval */}
+        <AssistedSearch scope="chapters" placeholder="Search chapters…" />
+
+        {/* ✅ Calm tiles */}
+        <div className="space-y-4">
+          <TilesRow title="Domains" items={domains} activeId={activeDomainId} onSelect={(id) => setActiveDomainId(id)} />
+          <TilesRow
+            title="Constellations"
+            items={constellations}
+            activeId={activeConstellationId}
+            onSelect={(id) => setActiveConstellationId(id)}
+          />
+        </div>
+
         <div className="text-xs text-zinc-500">{statusLine}</div>
 
-        {items.length === 0 ? (
+        {filteredItems.length === 0 ? (
           <Card className="border-zinc-200 bg-white">
             <CardContent>
               <div className="space-y-2">
@@ -250,9 +457,17 @@ export default function ChaptersClient() {
           </Card>
         ) : (
           <div className="grid gap-3">
-            {items.map((d) => {
+            {filteredItems.map((d) => {
               const isOpen = openId === d.id;
               const atts = isOpen ? normalizeAttachments(d.attachments) : [];
+
+              const domainId = domainByDecision[d.id] ?? null;
+              const domainName = domainId ? domains.find((x) => x.id === domainId)?.name ?? null : null;
+
+              const memberIds = constellationsByDecision[d.id] ?? [];
+              const memberNames = memberIds
+                .map((cid) => constellations.find((c) => c.id === cid)?.name)
+                .filter(Boolean) as string[];
 
               return (
                 <Card key={d.id} className="border-zinc-200 bg-white">
@@ -270,7 +485,19 @@ export default function ChaptersClient() {
                             {d.chaptered_at ? `Closed: ${softDate(d.chaptered_at)}` : ""}
                             {d.decided_at ? `${d.chaptered_at ? " • " : ""}Decided: ${softDate(d.decided_at)}` : ""}
                           </div>
+
+                          {/* Quiet meaning hints */}
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            {domainName ? <Chip title="Domain">{domainName}</Chip> : null}
+                            {memberNames.slice(0, 2).map((n) => (
+                              <Chip key={n} title="Constellation">
+                                {n}
+                              </Chip>
+                            ))}
+                            {memberNames.length > 2 ? <Chip title="More constellations">+{memberNames.length - 2}</Chip> : null}
+                          </div>
                         </div>
+
                         <div className="flex items-center gap-2">
                           <Chip>{isOpen ? "Hide" : "Open"}</Chip>
                         </div>
@@ -284,6 +511,43 @@ export default function ChaptersClient() {
                         ) : (
                           <div className="text-sm text-zinc-600">No extra context saved.</div>
                         )}
+
+                        {/* ✅ Meaning assignment (quiet, optional) */}
+                        <div className="rounded-xl border border-zinc-200 bg-white p-3 space-y-3">
+                          <div className="text-xs font-semibold text-zinc-700">Meaning</div>
+
+                          <div className="space-y-2">
+                            <div className="text-xs text-zinc-500">Domain</div>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <Chip active={!domainId} onClick={() => void setDecisionDomain(d.id, null)}>
+                                None
+                              </Chip>
+                              {domains.map((dom) => (
+                                <Chip key={dom.id} active={domainId === dom.id} onClick={() => void setDecisionDomain(d.id, dom.id)}>
+                                  {dom.name}
+                                </Chip>
+                              ))}
+                            </div>
+                          </div>
+
+                          <div className="space-y-2">
+                            <div className="text-xs text-zinc-500">Constellations</div>
+                            {constellations.length === 0 ? (
+                              <div className="text-sm text-zinc-600">No constellations yet.</div>
+                            ) : (
+                              <div className="flex flex-wrap items-center gap-2">
+                                {constellations.map((c) => {
+                                  const active = memberIds.includes(c.id);
+                                  return (
+                                    <Chip key={c.id} active={active} onClick={() => void toggleConstellation(d.id, c.id)}>
+                                      {c.name}
+                                    </Chip>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </div>
+                        </div>
 
                         <div className="rounded-xl border border-zinc-200 bg-white p-3 space-y-2">
                           <div className="text-xs font-semibold text-zinc-700">Attachments</div>

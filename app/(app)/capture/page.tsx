@@ -2,18 +2,13 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { Page } from "@/components/Page";
 import { Chip } from "@/components/ui";
+import { softKB, type AttachmentMeta } from "@/lib/attachments";
 
 export const dynamic = "force-dynamic";
-
-type AttachmentMeta = {
-  name: string;
-  path: string; // storage path inside bucket
-  type: string;
-  size: number;
-};
 
 function safeTitleFromText(text: string) {
   const firstLine =
@@ -30,6 +25,8 @@ function safeFileName(name: string) {
 }
 
 export default function CapturePage() {
+  const router = useRouter();
+
   const [userId, setUserId] = useState<string | null>(null);
 
   const [text, setText] = useState("");
@@ -228,7 +225,14 @@ export default function CapturePage() {
   };
 
   return (
-    <Page title="Capture">
+    <Page
+      title="Capture"
+      right={
+        <div className="flex items-center gap-2">
+          <Chip onClick={() => router.push("/home")}>Back to Home</Chip>
+        </div>
+      }
+    >
       <div className="mx-auto w-full max-w-[680px] space-y-6">
         <textarea
           ref={inputRef}
@@ -259,7 +263,7 @@ export default function CapturePage() {
             <button
               type="button"
               onClick={() => {
-                // ✅ Step 1: allow re-picking the same file(s) without refreshing
+                // allow re-picking the same file(s) without refreshing
                 if (fileInputRef.current) fileInputRef.current.value = "";
                 fileInputRef.current?.click();
               }}
@@ -275,7 +279,7 @@ export default function CapturePage() {
               className="hidden"
               onChange={(e) => {
                 addPickedFiles(e.target.files);
-                // ✅ Step 1: reset so selecting the same file again triggers onChange
+                // reset so selecting the same file again triggers onChange
                 e.currentTarget.value = "";
               }}
             />
@@ -296,7 +300,7 @@ export default function CapturePage() {
                 >
                   <div className="min-w-0">
                     <div className="truncate text-sm text-zinc-900">{f.name}</div>
-                    <div className="text-xs text-zinc-500">{Math.max(1, Math.round(f.size / 1024))} KB</div>
+                    <div className="text-xs text-zinc-500">{softKB(f.size)}</div>
                   </div>
 
                   <button
