@@ -1,19 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { Page } from "@/components/Page";
 import { Card, CardContent, Chip } from "@/components/ui";
+import { createSignedUrl, normalizeAttachments, softKB, type AttachmentMeta } from "@/lib/attachments";
 
 export const dynamic = "force-dynamic";
-
-type AttachmentMeta = {
-  name: string;
-  path: string; // storage path inside bucket
-  type: string;
-  size: number;
-};
 
 type Decision = {
   id: string;
@@ -29,9 +23,24 @@ type Decision = {
   reviewed_at: string | null;
 
   review_notes: string | null;
-  review_history: any[] | null;
+  review_history: unknown[] | null;
 
-  attachments: AttachmentMeta[] | null; // decisions.attachments (jsonb)
+  attachments: AttachmentMeta[] | null;
+};
+
+type DecisionsRow = {
+  id: string;
+  user_id: string;
+  title: string | null;
+  context: string | null;
+  status: string | null;
+  created_at: string | null;
+  decided_at: string | null;
+  review_at: string | null;
+  reviewed_at: string | null;
+  review_notes: string | null;
+  review_history: unknown[] | null;
+  attachments: unknown;
 };
 
 function safeMs(iso: string | null | undefined) {
@@ -55,30 +64,11 @@ function nextReviewFromPreset(preset: "1w" | "1m" | "3m" | "6m") {
   return d.toISOString();
 }
 
-function softKB(bytes?: number | null) {
-  if (!bytes || bytes <= 0) return "";
-  return `${Math.max(1, Math.round(bytes / 1024))} KB`;
-}
-
-function normalizeAttachments(raw: any): AttachmentMeta[] {
-  if (!raw) return [];
-  if (!Array.isArray(raw)) return [];
-  return raw
-    .filter((a) => a && typeof a.path === "string")
-    .map((a) => ({
-      name: typeof a.name === "string" ? a.name : "Attachment",
-      path: String(a.path),
-      type: typeof a.type === "string" ? a.type : "application/octet-stream",
-      size: typeof a.size === "number" ? a.size : 0,
-    }));
-}
-
 export default function DecisionsClient() {
   const router = useRouter();
 
   const [userId, setUserId] = useState<string | null>(null);
   const [statusLine, setStatusLine] = useState<string>("Loading…");
-
   const [items, setItems] = useState<Decision[]>([]);
   const [openId, setOpenId] = useState<string | null>(null);
 
@@ -92,8 +82,6 @@ export default function DecisionsClient() {
   const lastFetchAtRef = useRef(0);
   const queuedRefetchRef = useRef(false);
 
-  const openItem = useMemo(() => items.find((x) => x.id === openId) ?? null, [items, openId]);
-
   const ensureSignedUrl = async (path: string) => {
     if (!path) return null;
     if (signed[path]) return signed[path];
@@ -101,11 +89,11 @@ export default function DecisionsClient() {
 
     signingRef.current[path] = true;
     try {
-      const { data, error } = await supabase.storage.from("captures").createSignedUrl(path, 60 * 10);
-      if (error || !data?.signedUrl) return null;
+      const url = await createSignedUrl(supabase, path, { bucket: "captures", expiresInSec: 60 * 10 });
+      if (!url) return null;
 
-      setSigned((prev) => ({ ...prev, [path]: data.signedUrl }));
-      return data.signedUrl;
+      setSigned((prev) => ({ ...prev, [path]: url }));
+      return url;
     } finally {
       signingRef.current[path] = false;
     }
@@ -163,7 +151,8 @@ export default function DecisionsClient() {
       return;
     }
 
-    const rows = (data ?? []) as any[];
+    const rows = (data ?? []) as DecisionsRow[];
+
     const normalized: Decision[] = rows.map((r) => ({
       id: r.id,
       user_id: r.user_id,
@@ -183,7 +172,6 @@ export default function DecisionsClient() {
     setStatusLine(normalized.length === 0 ? "Nothing committed yet." : `Loaded ${normalized.length}.`);
   };
 
-  // ----- boot -----
   useEffect(() => {
     isMountedRef.current = true;
 
@@ -208,19 +196,14 @@ export default function DecisionsClient() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ----- realtime -----
   useEffect(() => {
     if (!userId) return;
 
     const channel = supabase
       .channel(`decisions_ledger_${userId}`)
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "decisions", filter: `user_id=eq.${userId}` },
-        () => {
-          void load(userId);
-        }
-      )
+      .on("postgres_changes", { event: "*", schema: "public", table: "decisions", filter: `user_id=eq.${userId}` }, () => {
+        void load(userId);
+      })
       .subscribe();
 
     return () => {
@@ -229,7 +212,6 @@ export default function DecisionsClient() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId]);
 
-  // ----- actions -----
   const setReviewAt = async (d: Decision, preset: "1w" | "1m" | "3m" | "6m" | "clear") => {
     if (!userId) return;
 

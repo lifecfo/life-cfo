@@ -5,15 +5,9 @@ import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { Page } from "@/components/Page";
 import { Card, CardContent, Chip } from "@/components/ui";
+import { createSignedUrl, normalizeAttachments, softKB, type AttachmentMeta } from "@/lib/attachments";
 
 export const dynamic = "force-dynamic";
-
-type AttachmentMeta = {
-  name: string;
-  path: string; // storage path inside bucket
-  type: string;
-  size: number;
-};
 
 type Decision = {
   id: string;
@@ -26,10 +20,37 @@ type Decision = {
   review_at: string | null;
 
   review_notes: string | null;
-  review_history: any[] | null;
+  review_history: unknown[] | null;
   reviewed_at?: string | null;
 
   attachments: AttachmentMeta[] | null; // decisions.attachments (jsonb)
+};
+
+type DecisionsRow = {
+  id: string;
+  user_id: string;
+  title: string | null;
+  context: string | null;
+  status: string | null;
+  created_at: string | null;
+  decided_at: string | null;
+  review_at: string | null;
+  review_notes: string | null;
+  review_history: unknown[] | null;
+  reviewed_at: string | null;
+  attachments: unknown;
+};
+
+type LastUndo = {
+  label: string;
+  decisionId: string;
+  prev: Partial<Decision>;
+};
+
+type DecisionPatch = {
+  review_at?: string | null;
+  reviewed_at?: string | null;
+  review_history?: unknown[] | null;
 };
 
 const SOON_DAYS = 7;
@@ -75,30 +96,6 @@ function toDateInputValue(iso: string | null) {
   return `${yyyy}-${mm}-${dd}`;
 }
 
-function softKB(bytes?: number | null) {
-  if (!bytes || bytes <= 0) return "";
-  return `${Math.max(1, Math.round(bytes / 1024))} KB`;
-}
-
-function normalizeAttachments(raw: any): AttachmentMeta[] {
-  if (!raw) return [];
-  if (!Array.isArray(raw)) return [];
-  return raw
-    .filter((a) => a && typeof a.path === "string")
-    .map((a) => ({
-      name: typeof a.name === "string" ? a.name : "Attachment",
-      path: String(a.path),
-      type: typeof a.type === "string" ? a.type : "application/octet-stream",
-      size: typeof a.size === "number" ? a.size : 0,
-    }));
-}
-
-type LastUndo = {
-  label: string;
-  decisionId: string;
-  prev: Partial<Decision>;
-};
-
 export default function RevisitClient() {
   const router = useRouter();
 
@@ -127,11 +124,11 @@ export default function RevisitClient() {
 
     signingRef.current[path] = true;
     try {
-      const { data, error } = await supabase.storage.from("captures").createSignedUrl(path, 60 * 10);
-      if (error || !data?.signedUrl) return null;
+      const url = await createSignedUrl(supabase, path, { bucket: "captures", expiresInSec: 60 * 10 });
+      if (!url) return null;
 
-      setSigned((prev) => ({ ...prev, [path]: data.signedUrl }));
-      return data.signedUrl;
+      setSigned((prev) => ({ ...prev, [path]: url }));
+      return url;
     } finally {
       signingRef.current[path] = false;
     }
@@ -215,7 +212,7 @@ export default function RevisitClient() {
       return;
     }
 
-    const rows = (data ?? []) as any[];
+    const rows = (data ?? []) as DecisionsRow[];
     const normalized: Decision[] = rows.map((r) => ({
       id: r.id,
       user_id: r.user_id,
@@ -264,11 +261,9 @@ export default function RevisitClient() {
 
     const channel = supabase
       .channel(`revisit_decisions_${userId}`)
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "decisions", filter: `user_id=eq.${userId}` },
-        () => void load(userId)
-      )
+      .on("postgres_changes", { event: "*", schema: "public", table: "decisions", filter: `user_id=eq.${userId}` }, () => {
+        void load(userId);
+      })
       .subscribe();
 
     return () => {
@@ -290,10 +285,10 @@ export default function RevisitClient() {
 
     const { decisionId, prev } = lastUndo;
 
-    const patch: any = {};
-    if ("review_at" in prev) patch.review_at = prev.review_at ?? null;
-    if ("reviewed_at" in prev) patch.reviewed_at = prev.reviewed_at ?? null;
-    if ("review_history" in prev) patch.review_history = prev.review_history ?? null;
+    const patch: DecisionPatch = {};
+    if (prev.review_at !== undefined) patch.review_at = prev.review_at ?? null;
+    if (prev.reviewed_at !== undefined) patch.reviewed_at = prev.reviewed_at ?? null;
+    if (prev.review_history !== undefined) patch.review_history = prev.review_history ?? null;
 
     const { error } = await supabase.from("decisions").update(patch).eq("id", decisionId).eq("user_id", userId);
 
@@ -302,7 +297,7 @@ export default function RevisitClient() {
       return;
     }
 
-    setItems((prevItems) => prevItems.map((x) => (x.id === decisionId ? { ...x, ...(prev as any) } : x)));
+    setItems((prevItems) => prevItems.map((x) => (x.id === decisionId ? { ...x, ...(prev as Partial<Decision>) } : x)));
     setLastUndo(null);
     setStatusLine("Undone.");
   };
@@ -314,9 +309,9 @@ export default function RevisitClient() {
     const nextReview = preset === "clear" ? null : preset ? nextReviewFromPreset(preset) : d.review_at;
 
     const prevHistory = Array.isArray(d.review_history) ? d.review_history : [];
-    const entry = { at: nowIso, kind: "reviewed", next_review_at: nextReview };
+    const entry: Record<string, unknown> = { at: nowIso, kind: "reviewed", next_review_at: nextReview };
 
-    const patch: any = {
+    const patch: DecisionPatch = {
       reviewed_at: nowIso,
       review_history: [...prevHistory, entry],
       review_at: nextReview,
@@ -329,9 +324,7 @@ export default function RevisitClient() {
     });
 
     setItems((prev) =>
-      prev.map((x) =>
-        x.id === d.id ? { ...x, reviewed_at: nowIso, review_at: nextReview, review_history: [...prevHistory, entry] } : x
-      )
+      prev.map((x) => (x.id === d.id ? { ...x, reviewed_at: nowIso, review_at: nextReview, review_history: [...prevHistory, entry] } : x))
     );
 
     const { error } = await supabase.from("decisions").update(patch).eq("id", d.id).eq("user_id", userId);
@@ -387,11 +380,7 @@ export default function RevisitClient() {
         ) : (
           <div className="flex flex-wrap items-center gap-2">
             {atts.map((a) => (
-              <Chip
-                key={a.path}
-                onClick={() => void openAttachment(a)}
-                title={`${a.type}${a.size ? ` • ${softKB(a.size)}` : ""}`}
-              >
+              <Chip key={a.path} onClick={() => void openAttachment(a)} title={`${a.type}${a.size ? ` • ${softKB(a.size)}` : ""}`}>
                 {a.name}
               </Chip>
             ))}
@@ -407,12 +396,7 @@ export default function RevisitClient() {
     return (
       <Card key={d.id} className="border-zinc-200 bg-white">
         <CardContent>
-          <button
-            type="button"
-            onClick={() => setOpenId(isOpen ? null : d.id)}
-            className="w-full text-left"
-            aria-expanded={isOpen}
-          >
+          <button type="button" onClick={() => setOpenId(isOpen ? null : d.id)} className="w-full text-left" aria-expanded={isOpen}>
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="min-w-[240px] flex-1">
                 <div className="text-base font-semibold text-zinc-900">{d.title}</div>
