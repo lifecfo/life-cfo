@@ -1,4 +1,3 @@
-// app/(app)/revisit/RevisitClient.tsx
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -140,7 +139,10 @@ export default function RevisitClient() {
 
   const openAttachment = async (att: AttachmentMeta) => {
     const url = await ensureSignedUrl(att.path);
-    if (!url) return; // keep calm
+    if (!url) {
+      setStatusLine("Couldn’t open attachment.");
+      return;
+    }
     window.open(url, "_blank", "noopener,noreferrer");
   };
 
@@ -162,7 +164,7 @@ export default function RevisitClient() {
     const sortByReview = (a: Decision, b: Decision) => {
       const am = safeMs(a.review_at) ?? 0;
       const bm = safeMs(b.review_at) ?? 0;
-      return am - bm; // earliest first
+      return am - bm;
     };
 
     due.sort(sortByReview);
@@ -172,9 +174,9 @@ export default function RevisitClient() {
   }, [items]);
 
   const load = async (uid: string) => {
-    // safe reload throttle: at most ~1 fetch per 700ms, and coalesce bursts
     const now = Date.now();
     const elapsed = now - lastFetchAtRef.current;
+
     if (inFlightRef.current) {
       queuedRefetchRef.current = true;
       return;
@@ -233,7 +235,6 @@ export default function RevisitClient() {
     setStatusLine(normalized.length === 0 ? "Nothing scheduled." : `Loaded ${normalized.length}.`);
   };
 
-  // ----- boot -----
   useEffect(() => {
     isMountedRef.current = true;
 
@@ -258,7 +259,6 @@ export default function RevisitClient() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ----- realtime -----
   useEffect(() => {
     if (!userId) return;
 
@@ -267,9 +267,7 @@ export default function RevisitClient() {
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "decisions", filter: `user_id=eq.${userId}` },
-        () => {
-          void load(userId);
-        }
+        () => void load(userId)
       )
       .subscribe();
 
@@ -279,7 +277,6 @@ export default function RevisitClient() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId]);
 
-  // ----- actions -----
   const pushUndo = (decisionId: string, label: string, prev: Partial<Decision>) => {
     setLastUndo({ decisionId, label, prev });
     window.setTimeout(() => {
@@ -306,7 +303,6 @@ export default function RevisitClient() {
     }
 
     setItems((prevItems) => prevItems.map((x) => (x.id === decisionId ? { ...x, ...(prev as any) } : x)));
-
     setLastUndo(null);
     setStatusLine("Undone.");
   };
@@ -315,8 +311,7 @@ export default function RevisitClient() {
     if (!userId) return;
 
     const nowIso = new Date().toISOString();
-    const nextReview =
-      preset === "clear" ? null : preset ? nextReviewFromPreset(preset) : d.review_at;
+    const nextReview = preset === "clear" ? null : preset ? nextReviewFromPreset(preset) : d.review_at;
 
     const prevHistory = Array.isArray(d.review_history) ? d.review_history : [];
     const entry = { at: nowIso, kind: "reviewed", next_review_at: nextReview };
@@ -355,7 +350,6 @@ export default function RevisitClient() {
     if (!userId) return;
 
     pushUndo(d.id, "Undo", { review_at: d.review_at ?? null });
-
     setItems((prev) => prev.map((x) => (x.id === d.id ? { ...x, review_at: iso } : x)));
 
     const { error } = await supabase.from("decisions").update({ review_at: iso }).eq("id", d.id).eq("user_id", userId);
@@ -407,6 +401,88 @@ export default function RevisitClient() {
     );
   };
 
+  const DecisionCard = ({ d }: { d: Decision }) => {
+    const isOpen = openId === d.id;
+
+    return (
+      <Card key={d.id} className="border-zinc-200 bg-white">
+        <CardContent>
+          <button
+            type="button"
+            onClick={() => setOpenId(isOpen ? null : d.id)}
+            className="w-full text-left"
+            aria-expanded={isOpen}
+          >
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="min-w-[240px] flex-1">
+                <div className="text-base font-semibold text-zinc-900">{d.title}</div>
+                <div className="mt-1 text-xs text-zinc-500">
+                  {dueLabel(d)} • Review date: {softDate(d.review_at)}
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <Chip>{isOpen ? "Hide" : "Open"}</Chip>
+              </div>
+            </div>
+          </button>
+
+          {isOpen ? (
+            <div className="mt-4 space-y-4">
+              {d.context ? (
+                <div className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-700">{d.context}</div>
+              ) : (
+                <div className="text-sm text-zinc-600">No extra context saved.</div>
+              )}
+
+              <AttachmentsStrip decision={d} />
+
+              <div className="flex flex-wrap items-center gap-2">
+                <Chip onClick={() => void markReviewed(d)} title="Mark reviewed (keep the same cadence)">
+                  Reviewed
+                </Chip>
+
+                <Chip onClick={() => void markReviewed(d, "1w")} title="Review again in a week">
+                  1w
+                </Chip>
+                <Chip onClick={() => void markReviewed(d, "1m")} title="Review again in a month">
+                  1m
+                </Chip>
+                <Chip onClick={() => void markReviewed(d, "3m")} title="Review again in 3 months">
+                  3m
+                </Chip>
+                <Chip onClick={() => void markReviewed(d, "6m")} title="Review again in 6 months">
+                  6m
+                </Chip>
+
+                <Chip onClick={() => void markReviewed(d, "clear")} title="Stop resurfacing this decision">
+                  Clear review
+                </Chip>
+              </div>
+
+              <div className="space-y-2">
+                <div className="text-xs text-zinc-500">Or set a custom date:</div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <input
+                    type="date"
+                    className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800 outline-none focus:ring-2 focus:ring-zinc-200"
+                    value={toDateInputValue(d.review_at)}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      if (!v) return void setCustomReviewAt(d, null);
+                      const iso = new Date(`${v}T09:00:00`).toISOString();
+                      void setCustomReviewAt(d, iso);
+                    }}
+                  />
+                  <Chip onClick={() => setOpenId(null)}>Done</Chip>
+                </div>
+              </div>
+            </div>
+          ) : null}
+        </CardContent>
+      </Card>
+    );
+  };
+
   return (
     <Page
       title="Revisit"
@@ -439,88 +515,9 @@ export default function RevisitClient() {
             {dueItems.due.length > 0 ? (
               <div className="space-y-3">
                 <div className="text-sm font-semibold text-zinc-900">Due</div>
-
-                {dueItems.due.map((d) => {
-                  const isOpen = openId === d.id;
-
-                  return (
-                    <Card key={d.id} className="border-zinc-200 bg-white">
-                      <CardContent>
-                        <button
-                          type="button"
-                          onClick={() => setOpenId(isOpen ? null : d.id)}
-                          className="w-full text-left"
-                          aria-expanded={isOpen}
-                        >
-                          <div className="flex flex-wrap items-start justify-between gap-3">
-                            <div className="min-w-[240px] flex-1">
-                              <div className="text-base font-semibold text-zinc-900">{d.title}</div>
-                              <div className="mt-1 text-xs text-zinc-500">
-                                {dueLabel(d)} • Review date: {softDate(d.review_at)}
-                              </div>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <Chip>{isOpen ? "Hide" : "Open"}</Chip>
-                            </div>
-                          </div>
-                        </button>
-
-                        {isOpen ? (
-                          <div className="mt-4 space-y-4">
-                            {d.context ? (
-                              <div className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-700">{d.context}</div>
-                            ) : (
-                              <div className="text-sm text-zinc-600">No extra context saved.</div>
-                            )}
-
-                            <AttachmentsStrip decision={d} />
-
-                            <div className="flex flex-wrap items-center gap-2">
-                              <Chip onClick={() => void markReviewed(d)} title="Mark reviewed (keep the same cadence)">
-                                Reviewed
-                              </Chip>
-
-                              <Chip onClick={() => void markReviewed(d, "1w")} title="Review again in a week">
-                                1w
-                              </Chip>
-                              <Chip onClick={() => void markReviewed(d, "1m")} title="Review again in a month">
-                                1m
-                              </Chip>
-                              <Chip onClick={() => void markReviewed(d, "3m")} title="Review again in 3 months">
-                                3m
-                              </Chip>
-                              <Chip onClick={() => void markReviewed(d, "6m")} title="Review again in 6 months">
-                                6m
-                              </Chip>
-
-                              <Chip onClick={() => void markReviewed(d, "clear")} title="Stop resurfacing this decision">
-                                Clear review
-                              </Chip>
-                            </div>
-
-                            <div className="space-y-2">
-                              <div className="text-xs text-zinc-500">Or set a custom date:</div>
-                              <div className="flex flex-wrap items-center gap-2">
-                                <input
-                                  type="date"
-                                  className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800 outline-none focus:ring-2 focus:ring-zinc-200"
-                                  value={toDateInputValue(d.review_at)}
-                                  onChange={(e) => {
-                                    const v = e.target.value;
-                                    if (!v) return void setCustomReviewAt(d, null);
-                                    const iso = new Date(`${v}T09:00:00`).toISOString();
-                                    void setCustomReviewAt(d, iso);
-                                  }}
-                                />
-                                <Chip onClick={() => setOpenId(null)}>Done</Chip>
-                              </div>
-                            </div>
-                          </div>
-                        ) : null}
-                      </CardContent>
-                    </Card>
-                  );
-                })}
+                {dueItems.due.map((d) => (
+                  <DecisionCard key={d.id} d={d} />
+                ))}
               </div>
             ) : null}
 

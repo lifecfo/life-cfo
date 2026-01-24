@@ -31,7 +31,7 @@ type Decision = {
   review_notes: string | null;
   review_history: any[] | null;
 
-  attachments: AttachmentMeta[] | null; // ✅ from decisions.attachments (jsonb)
+  attachments: AttachmentMeta[] | null; // decisions.attachments (jsonb)
 };
 
 function safeMs(iso: string | null | undefined) {
@@ -94,11 +94,6 @@ export default function DecisionsClient() {
 
   const openItem = useMemo(() => items.find((x) => x.id === openId) ?? null, [items, openId]);
 
-  const openAttachments = useMemo(() => {
-    if (!openItem) return [];
-    return normalizeAttachments(openItem.attachments);
-  }, [openItem?.id, openItem?.attachments]);
-
   const ensureSignedUrl = async (path: string) => {
     if (!path) return null;
     if (signed[path]) return signed[path];
@@ -119,7 +114,7 @@ export default function DecisionsClient() {
   const openAttachment = async (att: AttachmentMeta) => {
     const url = await ensureSignedUrl(att.path);
     if (!url) {
-      setStatusLine((s) => s); // no-op (keep calm)
+      setStatusLine("Couldn’t open attachment.");
       return;
     }
     window.open(url, "_blank", "noopener,noreferrer");
@@ -234,20 +229,15 @@ export default function DecisionsClient() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId]);
 
-  // ----- actions (quiet, optional) -----
+  // ----- actions -----
   const setReviewAt = async (d: Decision, preset: "1w" | "1m" | "3m" | "6m" | "clear") => {
     if (!userId) return;
 
     const next = preset === "clear" ? null : nextReviewFromPreset(preset);
 
-    // optimistic
     setItems((prev) => prev.map((x) => (x.id === d.id ? { ...x, review_at: next } : x)));
 
-    const { error } = await supabase
-      .from("decisions")
-      .update({ review_at: next })
-      .eq("id", d.id)
-      .eq("user_id", userId);
+    const { error } = await supabase.from("decisions").update({ review_at: next }).eq("id", d.id).eq("user_id", userId);
 
     if (error) {
       setStatusLine(`Update failed: ${error.message}`);
@@ -284,6 +274,7 @@ export default function DecisionsClient() {
           <div className="grid gap-3">
             {items.map((d) => {
               const isOpen = openId === d.id;
+              const atts = isOpen ? normalizeAttachments(d.attachments) : [];
 
               return (
                 <Card key={d.id} className="border-zinc-200 bg-white">
@@ -316,17 +307,13 @@ export default function DecisionsClient() {
                           <div className="text-sm text-zinc-600">No extra context saved.</div>
                         )}
 
-                        {/* Attachments strip (calm) */}
                         <div className="rounded-xl border border-zinc-200 bg-white p-3 space-y-2">
                           <div className="text-xs font-semibold text-zinc-700">Attachments</div>
-
-                          {openId === d.id && openAttachments.length === 0 ? (
+                          {atts.length === 0 ? (
                             <div className="text-sm text-zinc-600">No attachments.</div>
-                          ) : null}
-
-                          {openId === d.id && openAttachments.length > 0 ? (
+                          ) : (
                             <div className="flex flex-wrap items-center gap-2">
-                              {openAttachments.map((a) => (
+                              {atts.map((a) => (
                                 <Chip
                                   key={a.path}
                                   onClick={() => void openAttachment(a)}
@@ -336,7 +323,7 @@ export default function DecisionsClient() {
                                 </Chip>
                               ))}
                             </div>
-                          ) : null}
+                          )}
                         </div>
 
                         <div className="space-y-2">
@@ -357,7 +344,6 @@ export default function DecisionsClient() {
                             <Chip onClick={() => void setReviewAt(d, "clear")} title="Stop resurfacing this decision">
                               Clear revisit
                             </Chip>
-
                             <Chip onClick={() => setOpenId(null)}>Done</Chip>
                           </div>
                         </div>
