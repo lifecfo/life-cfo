@@ -6,10 +6,10 @@ import { supabase } from "@/lib/supabaseClient";
 import { cn } from "@/lib/cn";
 import { Chip } from "@/components/ui";
 
-type Scope = "thinking" | "decisions" | "revisit" | "chapters" | "capture" | "framing";
+type Scope = "thinking" | "decisions" | "revisit" | "chapters" | "capture" | "framing" | "investments";
 
 type Suggestion = {
-  kind: "decision" | "inbox";
+  kind: "decision" | "inbox" | "investment";
   id: string;
   title: string;
   subtitle?: string;
@@ -30,6 +30,11 @@ function routeForInbox(_scope: Scope, _inboxId: string) {
   return `/framing`;
 }
 
+function routeForInvestment(_scope: Scope, _investmentId: string) {
+  // V1: keep calm. No deep-link yet (open-on-id can come later).
+  return `/investments`;
+}
+
 type DecisionRow = {
   id: string;
   title: string | null;
@@ -41,23 +46,22 @@ type DecisionRow = {
   chaptered_at: string | null;
 };
 
+// Only what we actually select in investment match queries
+type InvestmentRowLite = {
+  id: string;
+  name: string | null;
+  kind: string | null;
+  institution: string | null;
+  notes: string | null;
+  updated_at: string | null;
+  created_at: string | null;
+};
+
 function scopeDecisionFilter(scope: Scope) {
-  // Returns a PostgREST filter string to use via .or(...) or separate clauses.
-  // We keep it simple + predictable.
-  //
-  // thinking: only drafts
-  // decisions: anything not draft and not chapter
-  // revisit: anything not draft with review_at present
-  // chapters: only chapter
-  // capture/framing: decisions search is still useful but not primary (we keep broad)
   if (scope === "thinking") return { statusEq: "draft" as const };
-
   if (scope === "chapters") return { statusEq: "chapter" as const };
-
   if (scope === "revisit") return { notDraft: true, requireReviewAt: true };
-
   if (scope === "decisions") return { notDraft: true, notChapter: true };
-
   return { any: true };
 }
 
@@ -67,20 +71,15 @@ async function getUserId(): Promise<string | null> {
   return auth.user.id;
 }
 
-async function fetchTopSuggestions(scope: Scope): Promise<Suggestion[]> {
+// --------------------
+// Decisions (existing)
+// --------------------
+async function fetchTopDecisionSuggestions(scope: Scope): Promise<Suggestion[]> {
   const uid = await getUserId();
   if (!uid) return [];
 
   const out: Suggestion[] = [];
-
   const filter = scopeDecisionFilter(scope);
-
-  // --- Top suggestions should feel "of this place" ---
-  // Thinking: recent drafts
-  // Chapters: recent chaptered
-  // Revisit: due soon (review_at)
-  // Decisions: recent decided/created non-draft non-chapter
-  // Capture/Framing: recent drafts + recent decisions (broad, calm)
 
   let q = supabase
     .from("decisions")
@@ -95,11 +94,13 @@ async function fetchTopSuggestions(scope: Scope): Promise<Suggestion[]> {
     if ("requireReviewAt" in filter && filter.requireReviewAt) q = q.not("review_at", "is", null);
   }
 
-  // Ordering per scope
   if (scope === "revisit") {
     q = q.order("review_at", { ascending: true }).limit(7);
   } else if (scope === "chapters") {
-    q = q.order("chaptered_at", { ascending: false, nullsFirst: false }).order("decided_at", { ascending: false, nullsFirst: false }).limit(7);
+    q = q
+      .order("chaptered_at", { ascending: false, nullsFirst: false })
+      .order("decided_at", { ascending: false, nullsFirst: false })
+      .limit(7);
   } else if (scope === "decisions") {
     q = q.order("decided_at", { ascending: false, nullsFirst: false }).order("created_at", { ascending: false }).limit(7);
   } else {
@@ -111,8 +112,7 @@ async function fetchTopSuggestions(scope: Scope): Promise<Suggestion[]> {
 
   for (const d of res.data ?? []) {
     const status = safeStr((d as any).status);
-    const subtitle =
-      status === "draft" ? "Draft" : status === "chapter" ? "Chapter" : "Decision";
+    const subtitle = status === "draft" ? "Draft" : status === "chapter" ? "Chapter" : "Decision";
 
     out.push({
       kind: "decision",
@@ -126,12 +126,12 @@ async function fetchTopSuggestions(scope: Scope): Promise<Suggestion[]> {
   return out.slice(0, 7);
 }
 
-async function fetchMatches(scope: Scope, q: string): Promise<Suggestion[]> {
+async function fetchDecisionMatches(scope: Scope, q: string): Promise<Suggestion[]> {
   const uid = await getUserId();
   if (!uid) return [];
 
   const query = q.trim();
-  if (!query) return fetchTopSuggestions(scope);
+  if (!query) return fetchTopDecisionSuggestions(scope);
 
   const filter = scopeDecisionFilter(scope);
 
@@ -149,11 +149,13 @@ async function fetchMatches(scope: Scope, q: string): Promise<Suggestion[]> {
     if ("requireReviewAt" in filter && filter.requireReviewAt) db = db.not("review_at", "is", null);
   }
 
-  // Order per scope for relevance
   if (scope === "revisit") {
     db = db.order("review_at", { ascending: true }).limit(10);
   } else if (scope === "chapters") {
-    db = db.order("chaptered_at", { ascending: false, nullsFirst: false }).order("decided_at", { ascending: false, nullsFirst: false }).limit(10);
+    db = db
+      .order("chaptered_at", { ascending: false, nullsFirst: false })
+      .order("decided_at", { ascending: false, nullsFirst: false })
+      .limit(10);
   } else if (scope === "decisions") {
     db = db.order("decided_at", { ascending: false, nullsFirst: false }).order("created_at", { ascending: false }).limit(10);
   } else {
@@ -165,8 +167,7 @@ async function fetchMatches(scope: Scope, q: string): Promise<Suggestion[]> {
 
   return (data ?? []).map((d: DecisionRow) => {
     const status = safeStr(d.status);
-    const subtitle =
-      status === "draft" ? "Draft" : status === "chapter" ? "Chapter" : "Decision";
+    const subtitle = status === "draft" ? "Draft" : status === "chapter" ? "Chapter" : "Decision";
 
     return {
       kind: "decision",
@@ -176,6 +177,82 @@ async function fetchMatches(scope: Scope, q: string): Promise<Suggestion[]> {
       href: routeForDecision(scope, String(d.id)),
     };
   });
+}
+
+// --------------------
+// Investments (new)
+// --------------------
+async function fetchTopInvestmentSuggestions(_scope: Scope): Promise<Suggestion[]> {
+  const uid = await getUserId();
+  if (!uid) return [];
+
+  const { data, error } = await supabase
+    .from("investment_accounts")
+    .select("id,name,kind,institution,updated_at,created_at")
+    .eq("user_id", uid)
+    .order("updated_at", { ascending: false, nullsFirst: false })
+    .order("created_at", { ascending: false })
+    .limit(7);
+
+  if (error) return [];
+
+  return (data ?? []).map((r: any) => {
+    const title = safeStr(r.name) || "Investment";
+    const subtitle = [safeStr(r.kind) || null, safeStr(r.institution) || null].filter(Boolean).join(" • ") || "Investment";
+
+    return {
+      kind: "investment",
+      id: String(r.id),
+      title,
+      subtitle,
+      href: routeForInvestment("investments", String(r.id)),
+    };
+  });
+}
+
+async function fetchInvestmentMatches(_scope: Scope, q: string): Promise<Suggestion[]> {
+  const uid = await getUserId();
+  if (!uid) return [];
+
+  const query = q.trim();
+  if (!query) return fetchTopInvestmentSuggestions("investments");
+
+  const { data, error } = await supabase
+    .from("investment_accounts")
+    .select("id,name,kind,institution,notes,updated_at,created_at")
+    .eq("user_id", uid)
+    .or(`name.ilike.%${query}%,institution.ilike.%${query}%,notes.ilike.%${query}%`)
+    .order("updated_at", { ascending: false, nullsFirst: false })
+    .order("created_at", { ascending: false })
+    .limit(10);
+
+  if (error) return [];
+
+  return (data ?? []).map((r: InvestmentRowLite) => {
+    const title = safeStr(r.name) || "Investment";
+    const subtitle = [safeStr(r.kind) || null, safeStr(r.institution) || null].filter(Boolean).join(" • ") || "Investment";
+
+    return {
+      kind: "investment",
+      id: String(r.id),
+      title,
+      subtitle,
+      href: routeForInvestment("investments", String(r.id)),
+    };
+  });
+}
+
+// --------------------
+// Router for search
+// --------------------
+async function fetchTopSuggestions(scope: Scope): Promise<Suggestion[]> {
+  if (scope === "investments") return fetchTopInvestmentSuggestions(scope);
+  return fetchTopDecisionSuggestions(scope);
+}
+
+async function fetchMatches(scope: Scope, q: string): Promise<Suggestion[]> {
+  if (scope === "investments") return fetchInvestmentMatches(scope, q);
+  return fetchDecisionMatches(scope, q);
 }
 
 export function AssistedSearch({
@@ -201,9 +278,7 @@ export function AssistedSearch({
     setLoading(true);
 
     const t = window.setTimeout(async () => {
-      const next = debouncedQ.trim()
-        ? await fetchMatches(scope, debouncedQ)
-        : await fetchTopSuggestions(scope);
+      const next = debouncedQ.trim() ? await fetchMatches(scope, debouncedQ) : await fetchTopSuggestions(scope);
 
       if (!alive) return;
       setItems(next);
@@ -235,18 +310,12 @@ export function AssistedSearch({
           placeholder={placeholder}
           className="w-full bg-transparent text-sm text-zinc-900 outline-none placeholder:text-zinc-400"
         />
-        {loading ? (
-          <span className="text-xs text-zinc-400">…</span>
-        ) : (
-          <span className="text-xs text-zinc-400">⌘K</span>
-        )}
+        {loading ? <span className="text-xs text-zinc-400">…</span> : <span className="text-xs text-zinc-400">⌘K</span>}
       </div>
 
       {open ? (
         <div className="absolute z-50 mt-2 w-full overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm">
-          <div className="px-3 py-2 text-xs text-zinc-500">
-            {q.trim() ? "Matches" : "Suggestions"}
-          </div>
+          <div className="px-3 py-2 text-xs text-zinc-500">{q.trim() ? "Matches" : "Suggestions"}</div>
 
           <div className="max-h-72 overflow-auto">
             {items.length === 0 ? (
@@ -262,15 +331,11 @@ export function AssistedSearch({
                   }}
                 >
                   <div className="min-w-0">
-                    <div className="truncate text-sm font-medium text-zinc-900">
-                      {it.title}
-                    </div>
-                    {it.subtitle ? (
-                      <div className="truncate text-xs text-zinc-500">{it.subtitle}</div>
-                    ) : null}
+                    <div className="truncate text-sm font-medium text-zinc-900">{it.title}</div>
+                    {it.subtitle ? <div className="truncate text-xs text-zinc-500">{it.subtitle}</div> : null}
                   </div>
                   <Chip className="shrink-0 text-xs">
-                    {it.kind === "decision" ? "Decision" : "Inbox"}
+                    {it.kind === "decision" ? "Decision" : it.kind === "investment" ? "Investment" : "Inbox"}
                   </Chip>
                 </button>
               ))
