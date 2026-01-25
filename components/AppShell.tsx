@@ -44,6 +44,9 @@ export function AppShell({ children }: AppShellProps) {
     router.refresh();
   };
 
+  const howHref = "/how-keystone-works";
+  const howActive = isActive(howHref);
+
   return (
     <div className="min-h-screen">
       <header className="sticky top-0 z-20 border-b border-zinc-200 bg-white/80 backdrop-blur">
@@ -80,9 +83,15 @@ export function AppShell({ children }: AppShellProps) {
           </nav>
 
           <div className="flex items-center gap-2">
-            {/* ✅ Global trust explainer link (item #2) */}
-            <Link href="/how-keystone-works" className="no-underline">
-              <Chip active={isActive("/how-keystone-works")} aria-current={isActive("/how-keystone-works") ? "page" : undefined}>
+            {/* Global trust explainer link (quiet + optional) */}
+            <Link href={howHref} className="no-underline">
+              <Chip
+                // keep it softer than primary nav chips
+                className={howActive ? "" : "border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50"}
+                active={howActive}
+                aria-current={howActive ? "page" : undefined}
+                title="How Keystone works"
+              >
                 How it works
               </Chip>
             </Link>
