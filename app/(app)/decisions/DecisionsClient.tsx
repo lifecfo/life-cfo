@@ -87,6 +87,10 @@ export default function DecisionsClient() {
   const [items, setItems] = useState<Decision[]>([]);
   const [openId, setOpenId] = useState<string | null>(null);
 
+  // ✅ Top-5 default (V1 pattern)
+  const DEFAULT_LIMIT = 5;
+  const [showAll, setShowAll] = useState(false);
+
   // ✅ Domains + Constellations (tiles + meaning)
   const [domains, setDomains] = useState<Domain[]>([]);
   const [constellations, setConstellations] = useState<Constellation[]>([]);
@@ -483,7 +487,7 @@ export default function DecisionsClient() {
   };
 
   // ✅ Apply calm filters from tiles
-  const visibleItems = useMemo(() => {
+  const filteredItems = useMemo(() => {
     let list = items;
 
     if (activeDomainId) {
@@ -496,6 +500,14 @@ export default function DecisionsClient() {
 
     return list;
   }, [items, activeDomainId, activeConstellationId, domainByDecision, constellationsByDecision]);
+
+  // ✅ V1: show top 5 by default (after filters)
+  const visibleItems = useMemo(() => {
+    if (showAll) return filteredItems;
+    return filteredItems.slice(0, DEFAULT_LIMIT);
+  }, [filteredItems, showAll]);
+
+  const hasMore = filteredItems.length > DEFAULT_LIMIT;
 
   return (
     <Page
@@ -517,19 +529,32 @@ export default function DecisionsClient() {
             title="Domains"
             items={domains}
             activeId={activeDomainId}
-            onSelect={(id) => setActiveDomainId((cur) => (cur === id ? null : id))}
+            onSelect={(id) => {
+              setActiveDomainId((cur) => (cur === id ? null : id));
+              setShowAll(false);
+            }}
           />
           <TilesRow
             title="Constellations"
             items={constellations}
             activeId={activeConstellationId}
-            onSelect={(id) => setActiveConstellationId((cur) => (cur === id ? null : id))}
+            onSelect={(id) => {
+              setActiveConstellationId((cur) => (cur === id ? null : id));
+              setShowAll(false);
+            }}
           />
         </div>
 
         <div className="text-xs text-zinc-500">{statusLine}</div>
 
-        {visibleItems.length === 0 ? (
+        {filteredItems.length > 0 && hasMore ? (
+          <div className="flex items-center gap-2">
+            <Chip onClick={() => setShowAll((v) => !v)}>{showAll ? "Show less" : "Show all"}</Chip>
+            {!showAll ? <div className="text-xs text-zinc-500">Showing {DEFAULT_LIMIT} of {filteredItems.length}</div> : null}
+          </div>
+        ) : null}
+
+        {filteredItems.length === 0 ? (
           <Card className="border-zinc-200 bg-white">
             <CardContent>
               <div className="space-y-2">
