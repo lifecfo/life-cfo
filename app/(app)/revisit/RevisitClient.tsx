@@ -135,6 +135,11 @@ export default function RevisitClient() {
 
   const [lastUndo, setLastUndo] = useState<LastUndo | null>(null);
 
+  // ✅ V1: top-5 default per section
+  const DEFAULT_LIMIT = 5;
+  const [showAllDue, setShowAllDue] = useState(false);
+  const [showAllSoon, setShowAllSoon] = useState(false);
+
   // ✅ Domains + Constellations (tiles + meaning)
   const [domains, setDomains] = useState<Domain[]>([]);
   const [constellations, setConstellations] = useState<Constellation[]>([]);
@@ -580,6 +585,13 @@ export default function RevisitClient() {
     };
   }, [dueItemsRaw, activeDomainId, activeConstellationId, domainByDecision, constellationsByDecision]);
 
+  // ✅ V1: top-5 default per section
+  const dueVisible = useMemo(() => (showAllDue ? filteredDueItems.due : filteredDueItems.due.slice(0, DEFAULT_LIMIT)), [filteredDueItems.due, showAllDue]);
+  const soonVisible = useMemo(
+    () => (showAllSoon ? filteredDueItems.soon : filteredDueItems.soon.slice(0, DEFAULT_LIMIT)),
+    [filteredDueItems.soon, showAllSoon]
+  );
+
   const AttachmentsStrip = ({ decision }: { decision: Decision }) => {
     const atts = normalizeAttachments(decision.attachments);
 
@@ -747,8 +759,16 @@ export default function RevisitClient() {
   };
 
   // ✅ Tile filter UX: toggle off if you click the active tile again
-  const onSelectDomainTile = (id: string | null) => setActiveDomainId((cur) => (cur === id ? null : id));
-  const onSelectConstellationTile = (id: string | null) => setActiveConstellationId((cur) => (cur === id ? null : id));
+  const onSelectDomainTile = (id: string | null) => {
+    setActiveDomainId((cur) => (cur === id ? null : id));
+    setShowAllDue(false);
+    setShowAllSoon(false);
+  };
+  const onSelectConstellationTile = (id: string | null) => {
+    setActiveConstellationId((cur) => (cur === id ? null : id));
+    setShowAllDue(false);
+    setShowAllSoon(false);
+  };
 
   return (
     <Page
@@ -790,8 +810,21 @@ export default function RevisitClient() {
           <div className="grid gap-3">
             {filteredDueItems.due.length > 0 ? (
               <div className="space-y-3">
-                <div className="text-sm font-semibold text-zinc-900">Due</div>
-                {filteredDueItems.due.map((d) => (
+                <div className="flex items-center justify-between gap-2">
+                  <div className="text-sm font-semibold text-zinc-900">Due</div>
+                  {filteredDueItems.due.length > DEFAULT_LIMIT ? (
+                    <div className="flex items-center gap-2">
+                      <Chip onClick={() => setShowAllDue((v) => !v)}>{showAllDue ? "Show less" : "Show all"}</Chip>
+                      {!showAllDue ? (
+                        <div className="text-xs text-zinc-500">
+                          Showing {DEFAULT_LIMIT} of {filteredDueItems.due.length}
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </div>
+
+                {dueVisible.map((d) => (
                   <DecisionCard key={d.id} d={d} />
                 ))}
               </div>
@@ -799,8 +832,21 @@ export default function RevisitClient() {
 
             {filteredDueItems.soon.length > 0 ? (
               <div className="space-y-3 pt-2">
-                <div className="text-sm font-semibold text-zinc-900">Due soon</div>
-                {filteredDueItems.soon.map((d) => (
+                <div className="flex items-center justify-between gap-2">
+                  <div className="text-sm font-semibold text-zinc-900">Due soon</div>
+                  {filteredDueItems.soon.length > DEFAULT_LIMIT ? (
+                    <div className="flex items-center gap-2">
+                      <Chip onClick={() => setShowAllSoon((v) => !v)}>{showAllSoon ? "Show less" : "Show all"}</Chip>
+                      {!showAllSoon ? (
+                        <div className="text-xs text-zinc-500">
+                          Showing {DEFAULT_LIMIT} of {filteredDueItems.soon.length}
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </div>
+
+                {soonVisible.map((d) => (
                   <DecisionCard key={d.id} d={d} />
                 ))}
               </div>
