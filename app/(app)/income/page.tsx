@@ -10,21 +10,19 @@ type Cadence = "weekly" | "fortnightly" | "monthly" | "yearly";
 type RecurringIncome = {
   id: string;
   user_id: string;
-
   name: string;
   amount_cents: number;
   currency: string;
-
   cadence: Cadence;
   next_pay_at: string;
-
   active: boolean;
-
   created_at: string;
   updated_at: string;
 };
 
 type LiveStatus = "connecting" | "live" | "offline";
+
+/* ---------- helpers ---------- */
 
 function formatMoneyFromCents(cents: number, currency = "AUD") {
   const value = (cents || 0) / 100;
@@ -33,7 +31,6 @@ function formatMoneyFromCents(cents: number, currency = "AUD") {
       style: "currency",
       currency,
       minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
     }).format(value);
   } catch {
     return `${currency} ${value.toFixed(2)}`;
@@ -43,14 +40,8 @@ function formatMoneyFromCents(cents: number, currency = "AUD") {
 function centsFromInput(input: string): number {
   const cleaned = input.replace(/[^\d.]/g, "");
   if (!cleaned) return 0;
-
-  const parts = cleaned.split(".");
-  const whole = parts[0] || "0";
-  const frac = (parts[1] || "").slice(0, 2);
-  const fracPadded = (frac + "00").slice(0, 2);
-
-  const cents = parseInt(whole, 10) * 100 + parseInt(fracPadded, 10);
-  return Number.isFinite(cents) ? cents : 0;
+  const [whole, frac = ""] = cleaned.split(".");
+  return parseInt(whole || "0", 10) * 100 + parseInt((frac + "00").slice(0, 2), 10);
 }
 
 function toLocalInputValue(iso: string) {
@@ -60,49 +51,32 @@ function toLocalInputValue(iso: string) {
 }
 
 function fromLocalInputValue(localValue: string) {
-  const d = new Date(localValue);
-  return d.toISOString();
+  return new Date(localValue).toISOString();
 }
 
 function sortIncome(rows: RecurringIncome[]) {
-  const copy = [...rows];
-  // match loadIncome ordering: active desc, next_pay_at asc
-  copy.sort((a, b) => {
+  return [...rows].sort((a, b) => {
     if (a.active !== b.active) return a.active ? -1 : 1;
-    const ta = a.next_pay_at ? Date.parse(a.next_pay_at) : 0;
-    const tb = b.next_pay_at ? Date.parse(b.next_pay_at) : 0;
-    const va = Number.isNaN(ta) ? 0 : ta;
-    const vb = Number.isNaN(tb) ? 0 : tb;
-    return va - vb;
+    return Date.parse(a.next_pay_at) - Date.parse(b.next_pay_at);
   });
-  return copy;
 }
 
-const LOAD_THROTTLE_MS = 1500;
+/* ---------- page ---------- */
+
+export const dynamic = "force-dynamic";
 
 export default function IncomePage() {
   const { showToast } = useToast();
 
-  const notify = (opts: { title?: string; description?: string }) => {
-    const msg = [opts.title, opts.description].filter(Boolean).join(" — ");
-    showToast({ message: msg || "Done." });
-  };
-
   const [userId, setUserId] = useState<string | null>(null);
+  const [items, setItems] = useState<RecurringIncome[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-
-  const [items, setItems] = useState<RecurringIncome[]>([]);
   const [error, setError] = useState<string | null>(null);
 
-  // Live indicator
   const [liveStatus, setLiveStatus] = useState<LiveStatus>("connecting");
 
-  // Silent reload throttle
-  const lastLoadAtRef = useRef<number>(0);
-  const pendingSilentReloadRef = useRef<number | null>(null);
-
-  // Add form
+  /* add form */
   const [name, setName] = useState("");
   const [amount, setAmount] = useState("");
   const [cadence, setCadence] = useState<Cadence>("fortnightly");
@@ -114,47 +88,12 @@ export default function IncomePage() {
   });
   const [active, setActive] = useState(true);
 
-  // Inline edit drafts
-  const [drafts, setDrafts] = useState<
-    Record<string, Partial<RecurringIncome> & { amount_input?: string; next_pay_local?: string }>
-  >({});
+  /* inline edit drafts */
+  const [drafts, setDrafts] = useState<Record<string, any>>({});
 
-  useEffect(() => {
-    (async () => {
-      setLoading(true);
-      setError(null);
+  /* ---------- load ---------- */
 
-      const { data, error: userErr } = await supabase.auth.getUser();
-      if (userErr || !data.user) {
-        setError("Not signed in.");
-        setLoading(false);
-        setLiveStatus("offline");
-        return;
-      }
-
-      setUserId(data.user.id);
-      await loadIncome(data.user.id);
-      setLoading(false);
-    })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  async function loadIncome(uid: string, opts?: { silent?: boolean }) {
-    const silent = !!opts?.silent;
-
-    const now = Date.now();
-    if (silent) {
-      if (now - lastLoadAtRef.current < LOAD_THROTTLE_MS) {
-        if (pendingSilentReloadRef.current) window.clearTimeout(pendingSilentReloadRef.current);
-        pendingSilentReloadRef.current = window.setTimeout(() => {
-          pendingSilentReloadRef.current = null;
-          loadIncome(uid, { silent: true });
-        }, LOAD_THROTTLE_MS);
-        return;
-      }
-    }
-    lastLoadAtRef.current = now;
-
+  async function loadIncome(uid: string, silent = false) {
     if (!silent) setError(null);
 
     const { data, error } = await supabase
@@ -168,63 +107,42 @@ export default function IncomePage() {
       setError(error.message);
       return;
     }
-    setItems((data || []) as RecurringIncome[]);
+
+    setItems(sortIncome((data || []) as RecurringIncome[]));
   }
 
-  // Realtime patching
+  useEffect(() => {
+    (async () => {
+      const { data, error } = await supabase.auth.getUser();
+      if (error || !data.user) {
+        setError("Not signed in.");
+        setLoading(false);
+        setLiveStatus("offline");
+        return;
+      }
+
+      setUserId(data.user.id);
+      await loadIncome(data.user.id);
+      setLoading(false);
+    })();
+  }, []);
+
+  /* realtime */
   useEffect(() => {
     if (!userId) return;
 
     setLiveStatus("connecting");
 
     const channel = supabase
-      .channel(`income-realtime-${userId}`)
+      .channel(`income-${userId}`)
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "recurring_income", filter: `user_id=eq.${userId}` },
-        (payload) => {
-          try {
-            const eventType: string | undefined = (payload as any)?.eventType;
-            const newRow = (payload as any)?.new as RecurringIncome | undefined;
-            const oldRow = (payload as any)?.old as Partial<RecurringIncome> | undefined;
-            const id = (newRow as any)?.id || (oldRow as any)?.id;
-
-            if (!eventType || !id) {
-              loadIncome(userId, { silent: true });
-              return;
-            }
-
-            setItems((prev) => {
-              if (eventType === "INSERT") {
-                if (!newRow) return prev;
-                const exists = prev.some((x) => x.id === newRow.id);
-                const merged = exists
-                  ? prev.map((x) => (x.id === newRow.id ? { ...x, ...newRow } : x))
-                  : [...prev, newRow];
-                return sortIncome(merged);
-              }
-
-              if (eventType === "UPDATE") {
-                if (!newRow) return prev;
-                const merged = prev.map((x) => (x.id === newRow.id ? { ...x, ...newRow } : x));
-                return sortIncome(merged);
-              }
-
-              if (eventType === "DELETE") {
-                return prev.filter((x) => x.id !== id);
-              }
-
-              return prev;
-            });
-          } catch {
-            loadIncome(userId, { silent: true });
-          }
-        }
+        () => loadIncome(userId, true)
       )
       .subscribe((status) => {
         if (status === "SUBSCRIBED") setLiveStatus("live");
-        else if (status === "CLOSED" || status === "CHANNEL_ERROR" || status === "TIMED_OUT") setLiveStatus("offline");
-        else setLiveStatus("connecting");
+        else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") setLiveStatus("offline");
       });
 
     return () => {
@@ -233,33 +151,11 @@ export default function IncomePage() {
     };
   }, [userId]);
 
-  // Focus refresh (silent)
-  useEffect(() => {
-    const onFocus = () => {
-      if (!userId) return;
-      loadIncome(userId, { silent: true });
-    };
-    window.addEventListener("focus", onFocus);
-    return () => window.removeEventListener("focus", onFocus);
-  }, [userId]);
-
-  const activeIncome = useMemo(() => items.filter((i) => i.active), [items]);
-
-  const nextPaySoon = useMemo(() => {
-    const now = Date.now();
-    const in14 = now + 14 * 24 * 60 * 60 * 1000;
-    return activeIncome.filter((i) => {
-      const t = new Date(i.next_pay_at).getTime();
-      return t >= now && t <= in14;
-    });
-  }, [activeIncome]);
+  /* ---------- actions ---------- */
 
   async function addIncome() {
-    if (!userId) return;
-
-    const trimmed = name.trim();
-    if (!trimmed) {
-      notify({ title: "Add income", description: "Please enter an income name." });
+    if (!userId || !name.trim()) {
+      showToast({ message: "Please enter an income name." });
       return;
     }
 
@@ -267,7 +163,7 @@ export default function IncomePage() {
     try {
       const payload = {
         user_id: userId,
-        name: trimmed,
+        name: name.trim(),
         amount_cents: centsFromInput(amount),
         currency: "AUD",
         cadence,
@@ -283,75 +179,10 @@ export default function IncomePage() {
       setCadence("fortnightly");
       setActive(true);
 
-      notify({ title: "Saved", description: "Recurring income added." });
-
-      // allow realtime to pick it up, but also ensure correctness
-      await loadIncome(userId, { silent: true });
+      showToast({ message: "Income added." });
+      await loadIncome(userId, true);
     } catch (e: any) {
-      notify({ title: "Error", description: e?.message ?? "Failed to add income." });
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  function beginEdit(i: RecurringIncome) {
-    setDrafts((prev) => ({
-      ...prev,
-      [i.id]: {
-        ...i,
-        amount_input: ((i.amount_cents || 0) / 100).toFixed(2),
-        next_pay_local: toLocalInputValue(i.next_pay_at),
-      },
-    }));
-  }
-
-  function cancelEdit(id: string) {
-    setDrafts((prev) => {
-      const copy = { ...prev };
-      delete copy[id];
-      return copy;
-    });
-  }
-
-  async function saveEdit(id: string) {
-    if (!userId) return;
-    const d = drafts[id];
-    if (!d) return;
-
-    setSaving(true);
-    try {
-      const updatePayload: any = {
-        name: (d.name || "").trim(),
-        cadence: d.cadence,
-        active: !!d.active,
-      };
-
-      if (!updatePayload.name) {
-        notify({ title: "Update", description: "Name can’t be empty." });
-        setSaving(false);
-        return;
-      }
-
-      if (typeof d.amount_input === "string") {
-        updatePayload.amount_cents = centsFromInput(d.amount_input);
-      } else if (typeof d.amount_cents === "number") {
-        updatePayload.amount_cents = d.amount_cents;
-      }
-
-      if (typeof d.next_pay_local === "string") {
-        updatePayload.next_pay_at = fromLocalInputValue(d.next_pay_local);
-      }
-
-      const { error } = await supabase.from("recurring_income").update(updatePayload).eq("id", id).eq("user_id", userId);
-
-      if (error) throw error;
-
-      notify({ title: "Saved", description: "Income updated." });
-      cancelEdit(id);
-
-      await loadIncome(userId, { silent: true });
-    } catch (e: any) {
-      notify({ title: "Error", description: e?.message ?? "Failed to update income." });
+      showToast({ message: e?.message ?? "Failed to add income." });
     } finally {
       setSaving(false);
     }
@@ -359,24 +190,19 @@ export default function IncomePage() {
 
   async function toggleActive(i: RecurringIncome) {
     if (!userId) return;
+    const next = !i.active;
 
-    const newValue = !i.active;
-    const previous = i.active;
+    setItems((prev) => prev.map((x) => (x.id === i.id ? { ...x, active: next } : x)));
 
-    setItems((prev) => prev.map((x) => (x.id === i.id ? { ...x, active: newValue } : x)));
+    const { error } = await supabase
+      .from("recurring_income")
+      .update({ active: next })
+      .eq("id", i.id)
+      .eq("user_id", userId);
 
-    try {
-      const { error } = await supabase.from("recurring_income").update({ active: newValue }).eq("id", i.id).eq("user_id", userId);
-
-      if (error) throw error;
-
-      notify({
-        title: newValue ? "Active" : "Paused",
-        description: `"${i.name}" is now ${newValue ? "active" : "paused"}.`,
-      });
-    } catch (e: any) {
-      setItems((prev) => prev.map((x) => (x.id === i.id ? { ...x, active: previous } : x)));
-      notify({ title: "Error", description: e?.message ?? "Failed to toggle." });
+    if (error) {
+      setItems((prev) => prev.map((x) => (x.id === i.id ? { ...x, active: i.active } : x)));
+      showToast({ message: error.message });
     }
   }
 
@@ -391,130 +217,95 @@ export default function IncomePage() {
       undoLabel: "Undo",
       onUndo: async () => {
         setItems(snapshot);
-        try {
-          const payload = {
-            user_id: userId,
-            name: i.name,
-            amount_cents: i.amount_cents,
-            currency: i.currency,
-            cadence: i.cadence,
-            next_pay_at: i.next_pay_at,
-            active: i.active,
-          };
-          const { error } = await supabase.from("recurring_income").insert(payload);
-          if (error) throw error;
-
-          await loadIncome(userId, { silent: true });
-          showToast({ message: "Restored." });
-        } catch (e: any) {
-          showToast({ message: e?.message ?? "Failed to restore." });
-        }
+        await loadIncome(userId, true);
       },
     });
 
-    const { error } = await supabase.from("recurring_income").delete().eq("id", i.id).eq("user_id", userId);
-
-    if (error) {
-      setItems(snapshot);
-      showToast({ message: error.message });
-    }
+    await supabase.from("recurring_income").delete().eq("id", i.id).eq("user_id", userId);
   }
+
+  const activeIncome = items.filter((i) => i.active);
 
   const liveChipClass =
     liveStatus === "live"
-      ? "border border-emerald-200 bg-emerald-50 text-emerald-700"
+      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
       : liveStatus === "offline"
-      ? "border border-rose-200 bg-rose-50 text-rose-700"
-      : "border border-zinc-200 bg-zinc-50 text-zinc-700";
+      ? "border-rose-200 bg-rose-50 text-rose-700"
+      : "border-zinc-200 bg-zinc-50 text-zinc-700";
+
+  /* ---------- render ---------- */
 
   return (
     <Page
       title="Income"
-      subtitle="Recurring income you’ve told Keystone is true. Used by the Engine later."
+      subtitle="Income you’ve told Keystone is true. No estimates, no assumptions."
       right={
         <div className="flex items-center gap-2">
           <Chip className={liveChipClass}>
             {liveStatus === "live" ? "Live" : liveStatus === "offline" ? "Offline" : "Connecting"}
           </Chip>
-          <Button variant="secondary" onClick={() => userId && loadIncome(userId)}>
-            Refresh
-          </Button>
+          <Chip onClick={() => userId && loadIncome(userId)}>Refresh</Chip>
         </div>
       }
     >
-      <div className="grid gap-4">
+      <div className="grid gap-4 max-w-[760px] mx-auto">
         <Card>
-          <CardContent>
-            <div className="flex items-center justify-between gap-3 flex-wrap">
-              <div className="flex items-center gap-2">
-                <Badge>Active: {activeIncome.length}</Badge>
-                <Badge>Pay in 14d: {nextPaySoon.length}</Badge>
-              </div>
-              <div className="flex items-center gap-2">
-                {loading ? <Chip>Loading…</Chip> : <Chip>{items.length} total</Chip>}
-                {error ? <Chip>{error}</Chip> : null}
-              </div>
-            </div>
+          <CardContent className="flex items-center justify-between gap-3 flex-wrap">
+            <Badge>Active: {activeIncome.length}</Badge>
+            <Badge>Total sources: {items.length}</Badge>
+            {error ? <Chip>{error}</Chip> : null}
           </CardContent>
         </Card>
 
         <Card>
-          <CardContent>
-            <div className="font-semibold mb-2">Add recurring income</div>
+          <CardContent className="space-y-3">
+            <div className="font-semibold">Add income</div>
 
             <div className="grid gap-3 md:grid-cols-6">
               <div className="md:col-span-2">
-                <div className="text-sm mb-1 opacity-70">Name</div>
                 <input
                   className="w-full rounded-md border px-3 py-2 bg-transparent"
-                  placeholder="Wages, Family Tax Benefit, Rent income…"
+                  placeholder="Wages, Centrelink, Rent…"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                 />
               </div>
 
-              <div>
-                <div className="text-sm mb-1 opacity-70">Amount (AUD)</div>
-                <input
-                  className="w-full rounded-md border px-3 py-2 bg-transparent"
-                  placeholder="e.g. 2400.00"
-                  value={amount}
-                  onChange={(e) => setAmount(e.target.value)}
-                />
-              </div>
+              <input
+                className="rounded-md border px-3 py-2 bg-transparent"
+                placeholder="Amount"
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+              />
 
-              <div>
-                <div className="text-sm mb-1 opacity-70">Cadence</div>
-                <select
-                  className="w-full rounded-md border px-3 py-2 bg-transparent"
-                  value={cadence}
-                  onChange={(e) => setCadence(e.target.value as Cadence)}
-                >
-                  <option value="weekly">Weekly</option>
-                  <option value="fortnightly">Fortnightly</option>
-                  <option value="monthly">Monthly</option>
-                  <option value="yearly">Yearly</option>
-                </select>
-              </div>
+              <select
+                className="rounded-md border px-3 py-2 bg-transparent"
+                value={cadence}
+                onChange={(e) => setCadence(e.target.value as Cadence)}
+              >
+                <option value="weekly">Weekly</option>
+                <option value="fortnightly">Fortnightly</option>
+                <option value="monthly">Monthly</option>
+                <option value="yearly">Yearly</option>
+              </select>
 
               <div className="md:col-span-2">
-                <div className="text-sm mb-1 opacity-70">Next pay</div>
                 <input
-                  className="w-full rounded-md border px-3 py-2 bg-transparent"
                   type="datetime-local"
+                  className="w-full rounded-md border px-3 py-2 bg-transparent"
                   value={nextPayLocal}
                   onChange={(e) => setNextPayLocal(e.target.value)}
                 />
               </div>
 
-              <div className="md:col-span-6 flex items-center justify-between gap-3 flex-wrap">
+              <div className="md:col-span-6 flex items-center justify-between">
                 <label className="flex items-center gap-2 text-sm">
                   <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} />
                   Active
                 </label>
 
-                <Button disabled={saving || !userId} onClick={addIncome}>
-                  {saving ? "Saving…" : "Add income"}
+                <Button disabled={saving} onClick={addIncome}>
+                  {saving ? "Saving…" : "Add"}
                 </Button>
               </div>
             </div>
@@ -522,149 +313,32 @@ export default function IncomePage() {
         </Card>
 
         <Card>
-          <CardContent>
-            <div className="flex items-center justify-between gap-3 flex-wrap mb-2">
-              <div className="font-semibold">Your recurring income</div>
-              <div className="text-sm opacity-70">Stored as cents. Keystone doesn’t guess — it only reminds.</div>
-            </div>
+          <CardContent className="space-y-2">
+            <div className="font-semibold">Your income</div>
 
-            <div className="grid gap-2">
-              {items.length === 0 ? (
-                <div className="opacity-70 text-sm">No income items yet.</div>
-              ) : (
-                items.map((i) => {
-                  const editing = !!drafts[i.id];
-                  const d = drafts[i.id];
-
-                  return (
-                    <div key={i.id} className="rounded-lg border p-3">
-                      <div className="flex items-start justify-between gap-3 flex-wrap">
-                        <div className="min-w-[240px] flex-1">
-                          {!editing ? (
-                            <>
-                              <div className="font-semibold flex items-center gap-2 flex-wrap">
-                                {i.name}
-                                {i.active ? <Badge>Active</Badge> : <Badge>Paused</Badge>}
-                                <Chip>{i.cadence}</Chip>
-                              </div>
-                              <div className="text-sm opacity-75 mt-1">
-                                {formatMoneyFromCents(i.amount_cents, i.currency)} • Next pay{" "}
-                                {new Date(i.next_pay_at).toLocaleString()}
-                              </div>
-                            </>
-                          ) : (
-                            <div className="grid gap-2 md:grid-cols-6">
-                              <div className="md:col-span-2">
-                                <div className="text-xs opacity-70 mb-1">Name</div>
-                                <input
-                                  className="w-full rounded-md border px-3 py-2 bg-transparent"
-                                  value={String(d?.name ?? "")}
-                                  onChange={(e) =>
-                                    setDrafts((prev) => ({
-                                      ...prev,
-                                      [i.id]: { ...prev[i.id], name: e.target.value },
-                                    }))
-                                  }
-                                />
-                              </div>
-
-                              <div>
-                                <div className="text-xs opacity-70 mb-1">Amount</div>
-                                <input
-                                  className="w-full rounded-md border px-3 py-2 bg-transparent"
-                                  value={String(d?.amount_input ?? "")}
-                                  onChange={(e) =>
-                                    setDrafts((prev) => ({
-                                      ...prev,
-                                      [i.id]: { ...prev[i.id], amount_input: e.target.value },
-                                    }))
-                                  }
-                                />
-                              </div>
-
-                              <div>
-                                <div className="text-xs opacity-70 mb-1">Cadence</div>
-                                <select
-                                  className="w-full rounded-md border px-3 py-2 bg-transparent"
-                                  value={(d?.cadence as Cadence) ?? i.cadence}
-                                  onChange={(e) =>
-                                    setDrafts((prev) => ({
-                                      ...prev,
-                                      [i.id]: { ...prev[i.id], cadence: e.target.value as Cadence },
-                                    }))
-                                  }
-                                >
-                                  <option value="weekly">Weekly</option>
-                                  <option value="fortnightly">Fortnightly</option>
-                                  <option value="monthly">Monthly</option>
-                                  <option value="yearly">Yearly</option>
-                                </select>
-                              </div>
-
-                              <div className="md:col-span-2">
-                                <div className="text-xs opacity-70 mb-1">Next pay</div>
-                                <input
-                                  className="w-full rounded-md border px-3 py-2 bg-transparent"
-                                  type="datetime-local"
-                                  value={String(d?.next_pay_local ?? toLocalInputValue(i.next_pay_at))}
-                                  onChange={(e) =>
-                                    setDrafts((prev) => ({
-                                      ...prev,
-                                      [i.id]: { ...prev[i.id], next_pay_local: e.target.value },
-                                    }))
-                                  }
-                                />
-                              </div>
-
-                              <div className="md:col-span-6 flex items-center gap-4 flex-wrap">
-                                <label className="flex items-center gap-2 text-sm">
-                                  <input
-                                    type="checkbox"
-                                    checked={!!d?.active}
-                                    onChange={(e) =>
-                                      setDrafts((prev) => ({
-                                        ...prev,
-                                        [i.id]: { ...prev[i.id], active: e.target.checked },
-                                      }))
-                                    }
-                                  />
-                                  Active
-                                </label>
-                              </div>
-                            </div>
-                          )}
-                        </div>
-
-                        <div className="flex items-center gap-2">
-                          {!editing ? (
-                            <>
-                              <Button onClick={() => toggleActive(i)} disabled={saving}>
-                                {i.active ? "Pause" : "Activate"}
-                              </Button>
-                              <Button onClick={() => beginEdit(i)} disabled={saving}>
-                                Edit
-                              </Button>
-                              <Button onClick={() => deleteIncome(i)} disabled={saving}>
-                                Delete
-                              </Button>
-                            </>
-                          ) : (
-                            <>
-                              <Button onClick={() => saveEdit(i.id)} disabled={saving}>
-                                Save
-                              </Button>
-                              <Button onClick={() => cancelEdit(i.id)} disabled={saving}>
-                                Cancel
-                              </Button>
-                            </>
-                          )}
-                        </div>
-                      </div>
+            {items.length === 0 ? (
+              <div className="text-sm opacity-70">Nothing added yet.</div>
+            ) : (
+              items.map((i) => (
+                <div key={i.id} className="rounded-lg border p-3 flex items-center justify-between gap-3 flex-wrap">
+                  <div>
+                    <div className="font-semibold flex items-center gap-2">
+                      {i.name}
+                      {i.active ? <Badge>Active</Badge> : <Badge>Paused</Badge>}
+                      <Chip>{i.cadence}</Chip>
                     </div>
-                  );
-                })
-              )}
-            </div>
+                    <div className="text-sm opacity-75">
+                      {formatMoneyFromCents(i.amount_cents)} • Next {new Date(i.next_pay_at).toLocaleString()}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <Button onClick={() => toggleActive(i)}>{i.active ? "Pause" : "Activate"}</Button>
+                    <Button onClick={() => deleteIncome(i)}>Delete</Button>
+                  </div>
+                </div>
+              ))
+            )}
           </CardContent>
         </Card>
       </div>

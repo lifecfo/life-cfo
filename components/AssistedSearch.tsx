@@ -6,10 +6,19 @@ import { supabase } from "@/lib/supabaseClient";
 import { cn } from "@/lib/cn";
 import { Chip } from "@/components/ui";
 
-type Scope = "thinking" | "decisions" | "revisit" | "chapters" | "capture" | "framing" | "investments";
+type Scope =
+  | "thinking"
+  | "decisions"
+  | "revisit"
+  | "chapters"
+  | "capture"
+  | "framing"
+  | "bills"
+  | "accounts"
+  | "investments";
 
 type Suggestion = {
-  kind: "decision" | "inbox" | "investment";
+  kind: "decision" | "inbox" | "bill" | "account" | "investment";
   id: string;
   title: string;
   subtitle?: string;
@@ -18,6 +27,18 @@ type Suggestion = {
 
 function safeStr(v: unknown) {
   return typeof v === "string" ? v : "";
+}
+
+function safeMs(iso: unknown) {
+  if (typeof iso !== "string") return null;
+  const ms = Date.parse(iso);
+  return Number.isNaN(ms) ? null : ms;
+}
+
+function softDate(iso: unknown) {
+  const ms = safeMs(iso);
+  if (!ms) return "";
+  return new Date(ms).toLocaleDateString();
 }
 
 function routeForDecision(_scope: Scope, decisionId: string) {
@@ -30,8 +51,18 @@ function routeForInbox(_scope: Scope, _inboxId: string) {
   return `/framing`;
 }
 
+function routeForBill(_scope: Scope, _billId: string) {
+  // V1: keep calm. We land on Bills page (no deep-open yet).
+  return `/bills`;
+}
+
+function routeForAccount(_scope: Scope, _accountId: string) {
+  // V1: keep calm. We land on Accounts page.
+  return `/accounts`;
+}
+
 function routeForInvestment(_scope: Scope, _investmentId: string) {
-  // V1: keep calm. No deep-link yet (open-on-id can come later).
+  // V1: keep calm. We land on Investments page.
   return `/investments`;
 }
 
@@ -46,22 +77,38 @@ type DecisionRow = {
   chaptered_at: string | null;
 };
 
-// Only what we actually select in investment match queries
-type InvestmentRowLite = {
+type BillRow = {
   id: string;
   name: string | null;
-  kind: string | null;
-  institution: string | null;
-  notes: string | null;
-  updated_at: string | null;
-  created_at: string | null;
+  active: boolean | null;
+  autopay: boolean | null;
+  next_due_at: string | null;
+  amount_cents: number | null;
+  currency: string | null;
+};
+
+type AccountRow = {
+  id: string;
+  name: string | null;
+  current_balance_cents: number | null;
+  currency: string | null;
+  archived: boolean | null;
 };
 
 function scopeDecisionFilter(scope: Scope) {
+  // thinking: only drafts
+  // decisions: anything not draft and not chapter
+  // revisit: anything not draft with review_at present
+  // chapters: only chapter
+  // capture/framing: broad
   if (scope === "thinking") return { statusEq: "draft" as const };
+
   if (scope === "chapters") return { statusEq: "chapter" as const };
+
   if (scope === "revisit") return { notDraft: true, requireReviewAt: true };
+
   if (scope === "decisions") return { notDraft: true, notChapter: true };
+
   return { any: true };
 }
 
@@ -71,9 +118,150 @@ async function getUserId(): Promise<string | null> {
   return auth.user.id;
 }
 
-// --------------------
-// Decisions (existing)
-// --------------------
+// ----------------------- BILLS -----------------------
+async function fetchTopBillSuggestions(scope: Scope): Promise<Suggestion[]> {
+  const uid = await getUserId();
+  if (!uid) return [];
+
+  const { data, error } = await supabase
+    .from("recurring_bills")
+    .select("id,name,active,autopay,next_due_at,amount_cents,currency")
+    .eq("user_id", uid)
+    .order("active", { ascending: false })
+    .order("next_due_at", { ascending: true })
+    .limit(7);
+
+  if (error) return [];
+
+  return (data ?? []).map((b: any) => {
+    const title = safeStr(b?.name) || "Untitled bill";
+    const active = !!b?.active;
+    const autopay = !!b?.autopay;
+    const due = b?.next_due_at ? softDate(b.next_due_at) : "";
+    const subtitleParts = [active ? "Active" : "Paused", autopay ? "Autopay" : "Manual", due ? `Due: ${due}` : null].filter(Boolean);
+
+    return {
+      kind: "bill",
+      id: String(b?.id),
+      title,
+      subtitle: subtitleParts.join(" • "),
+      href: routeForBill(scope, String(b?.id)),
+    };
+  });
+}
+
+async function fetchBillMatches(scope: Scope, q: string): Promise<Suggestion[]> {
+  const uid = await getUserId();
+  if (!uid) return [];
+
+  const query = q.trim();
+  if (!query) return fetchTopBillSuggestions(scope);
+
+  const { data, error } = await supabase
+    .from("recurring_bills")
+    .select("id,name,active,autopay,next_due_at,amount_cents,currency")
+    .eq("user_id", uid)
+    .ilike("name", `%${query}%`)
+    .order("active", { ascending: false })
+    .order("next_due_at", { ascending: true })
+    .limit(10);
+
+  if (error) return [];
+
+  return (data ?? []).map((b: BillRow) => {
+    const title = safeStr(b?.name) || "Untitled bill";
+    const active = !!b?.active;
+    const autopay = !!b?.autopay;
+    const due = b?.next_due_at ? softDate(b.next_due_at) : "";
+    const subtitleParts = [active ? "Active" : "Paused", autopay ? "Autopay" : "Manual", due ? `Due: ${due}` : null].filter(Boolean);
+
+    return {
+      kind: "bill",
+      id: String(b.id),
+      title,
+      subtitle: subtitleParts.join(" • "),
+      href: routeForBill(scope, String(b.id)),
+    };
+  });
+}
+
+// ---------------------- ACCOUNTS ----------------------
+async function fetchTopAccountSuggestions(scope: Scope): Promise<Suggestion[]> {
+  const uid = await getUserId();
+  if (!uid) return [];
+
+  const { data, error } = await supabase
+    .from("accounts")
+    .select("id,name,current_balance_cents,currency,archived")
+    .eq("user_id", uid)
+    .order("created_at", { ascending: false })
+    .limit(7);
+
+  if (error) return [];
+
+  return (data ?? []).map((a: any) => {
+    const title = safeStr(a?.name) || "Untitled account";
+    const archived = !!a?.archived;
+    const cents = typeof a?.current_balance_cents === "number" ? a.current_balance_cents : 0;
+    const currency = safeStr(a?.currency) || "AUD";
+    const subtitleParts = [archived ? "Archived" : "Active", `${currency} ${(cents / 100).toFixed(2)}`].filter(Boolean);
+
+    return {
+      kind: "account",
+      id: String(a?.id),
+      title,
+      subtitle: subtitleParts.join(" • "),
+      href: routeForAccount(scope, String(a?.id)),
+    };
+  });
+}
+
+async function fetchAccountMatches(scope: Scope, q: string): Promise<Suggestion[]> {
+  const uid = await getUserId();
+  if (!uid) return [];
+
+  const query = q.trim();
+  if (!query) return fetchTopAccountSuggestions(scope);
+
+  const { data, error } = await supabase
+    .from("accounts")
+    .select("id,name,current_balance_cents,currency,archived")
+    .eq("user_id", uid)
+    .ilike("name", `%${query}%`)
+    .order("created_at", { ascending: false })
+    .limit(10);
+
+  if (error) return [];
+
+  return (data ?? []).map((a: AccountRow) => {
+    const title = safeStr(a?.name) || "Untitled account";
+    const archived = !!a?.archived;
+    const cents = typeof a?.current_balance_cents === "number" ? a.current_balance_cents : 0;
+    const currency = safeStr(a?.currency) || "AUD";
+    const subtitleParts = [archived ? "Archived" : "Active", `${currency} ${(cents / 100).toFixed(2)}`].filter(Boolean);
+
+    return {
+      kind: "account",
+      id: String(a.id),
+      title,
+      subtitle: subtitleParts.join(" • "),
+      href: routeForAccount(scope, String(a.id)),
+    };
+  });
+}
+
+// -------------------- INVESTMENTS (SAFE STUB) --------------------
+// We only add the scope right now so the app compiles.
+// We’ll wire real DB search once we confirm your investments table schema.
+async function fetchTopInvestmentSuggestions(_scope: Scope): Promise<Suggestion[]> {
+  return [];
+}
+
+async function fetchInvestmentMatches(_scope: Scope, _q: string): Promise<Suggestion[]> {
+  return [];
+}
+
+// --------------------- DECISIONS ---------------------
 async function fetchTopDecisionSuggestions(scope: Scope): Promise<Suggestion[]> {
   const uid = await getUserId();
   if (!uid) return [];
@@ -81,10 +269,7 @@ async function fetchTopDecisionSuggestions(scope: Scope): Promise<Suggestion[]> 
   const out: Suggestion[] = [];
   const filter = scopeDecisionFilter(scope);
 
-  let q = supabase
-    .from("decisions")
-    .select("id,title,status,created_at,decided_at,review_at,chaptered_at")
-    .eq("user_id", uid);
+  let q = supabase.from("decisions").select("id,title,status,created_at,decided_at,review_at,chaptered_at").eq("user_id", uid);
 
   if ("statusEq" in filter) {
     q = q.eq("status", filter.statusEq);
@@ -97,10 +282,7 @@ async function fetchTopDecisionSuggestions(scope: Scope): Promise<Suggestion[]> 
   if (scope === "revisit") {
     q = q.order("review_at", { ascending: true }).limit(7);
   } else if (scope === "chapters") {
-    q = q
-      .order("chaptered_at", { ascending: false, nullsFirst: false })
-      .order("decided_at", { ascending: false, nullsFirst: false })
-      .limit(7);
+    q = q.order("chaptered_at", { ascending: false, nullsFirst: false }).order("decided_at", { ascending: false, nullsFirst: false }).limit(7);
   } else if (scope === "decisions") {
     q = q.order("decided_at", { ascending: false, nullsFirst: false }).order("created_at", { ascending: false }).limit(7);
   } else {
@@ -152,10 +334,7 @@ async function fetchDecisionMatches(scope: Scope, q: string): Promise<Suggestion
   if (scope === "revisit") {
     db = db.order("review_at", { ascending: true }).limit(10);
   } else if (scope === "chapters") {
-    db = db
-      .order("chaptered_at", { ascending: false, nullsFirst: false })
-      .order("decided_at", { ascending: false, nullsFirst: false })
-      .limit(10);
+    db = db.order("chaptered_at", { ascending: false, nullsFirst: false }).order("decided_at", { ascending: false, nullsFirst: false }).limit(10);
   } else if (scope === "decisions") {
     db = db.order("decided_at", { ascending: false, nullsFirst: false }).order("created_at", { ascending: false }).limit(10);
   } else {
@@ -179,78 +358,17 @@ async function fetchDecisionMatches(scope: Scope, q: string): Promise<Suggestion
   });
 }
 
-// --------------------
-// Investments (new)
-// --------------------
-async function fetchTopInvestmentSuggestions(_scope: Scope): Promise<Suggestion[]> {
-  const uid = await getUserId();
-  if (!uid) return [];
-
-  const { data, error } = await supabase
-    .from("investment_accounts")
-    .select("id,name,kind,institution,updated_at,created_at")
-    .eq("user_id", uid)
-    .order("updated_at", { ascending: false, nullsFirst: false })
-    .order("created_at", { ascending: false })
-    .limit(7);
-
-  if (error) return [];
-
-  return (data ?? []).map((r: any) => {
-    const title = safeStr(r.name) || "Investment";
-    const subtitle = [safeStr(r.kind) || null, safeStr(r.institution) || null].filter(Boolean).join(" • ") || "Investment";
-
-    return {
-      kind: "investment",
-      id: String(r.id),
-      title,
-      subtitle,
-      href: routeForInvestment("investments", String(r.id)),
-    };
-  });
-}
-
-async function fetchInvestmentMatches(_scope: Scope, q: string): Promise<Suggestion[]> {
-  const uid = await getUserId();
-  if (!uid) return [];
-
-  const query = q.trim();
-  if (!query) return fetchTopInvestmentSuggestions("investments");
-
-  const { data, error } = await supabase
-    .from("investment_accounts")
-    .select("id,name,kind,institution,notes,updated_at,created_at")
-    .eq("user_id", uid)
-    .or(`name.ilike.%${query}%,institution.ilike.%${query}%,notes.ilike.%${query}%`)
-    .order("updated_at", { ascending: false, nullsFirst: false })
-    .order("created_at", { ascending: false })
-    .limit(10);
-
-  if (error) return [];
-
-  return (data ?? []).map((r: InvestmentRowLite) => {
-    const title = safeStr(r.name) || "Investment";
-    const subtitle = [safeStr(r.kind) || null, safeStr(r.institution) || null].filter(Boolean).join(" • ") || "Investment";
-
-    return {
-      kind: "investment",
-      id: String(r.id),
-      title,
-      subtitle,
-      href: routeForInvestment("investments", String(r.id)),
-    };
-  });
-}
-
-// --------------------
-// Router for search
-// --------------------
+// ---------------------- ROUTER -----------------------
 async function fetchTopSuggestions(scope: Scope): Promise<Suggestion[]> {
+  if (scope === "bills") return fetchTopBillSuggestions(scope);
+  if (scope === "accounts") return fetchTopAccountSuggestions(scope);
   if (scope === "investments") return fetchTopInvestmentSuggestions(scope);
   return fetchTopDecisionSuggestions(scope);
 }
 
 async function fetchMatches(scope: Scope, q: string): Promise<Suggestion[]> {
+  if (scope === "bills") return fetchBillMatches(scope, q);
+  if (scope === "accounts") return fetchAccountMatches(scope, q);
   if (scope === "investments") return fetchInvestmentMatches(scope, q);
   return fetchDecisionMatches(scope, q);
 }
@@ -335,7 +453,15 @@ export function AssistedSearch({
                     {it.subtitle ? <div className="truncate text-xs text-zinc-500">{it.subtitle}</div> : null}
                   </div>
                   <Chip className="shrink-0 text-xs">
-                    {it.kind === "decision" ? "Decision" : it.kind === "investment" ? "Investment" : "Inbox"}
+                    {it.kind === "decision"
+                      ? "Decision"
+                      : it.kind === "bill"
+                      ? "Bill"
+                      : it.kind === "account"
+                      ? "Account"
+                      : it.kind === "investment"
+                      ? "Investment"
+                      : "Inbox"}
                   </Chip>
                 </button>
               ))
