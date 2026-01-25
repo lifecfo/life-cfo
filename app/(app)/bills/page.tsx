@@ -752,6 +752,12 @@ const hiddenBillsCount = Math.max(0, filteredBills.length - visibleBills.length)
   return (
     <Page title="Bills" subtitle="Inputs only. Keystone doesn’t guess — it only reminds." right={right}>
       <div className="grid gap-4">
+        {/* Search bills (escape hatch) */}
+<Card>
+  <CardContent>
+    <AssistedSearch scope="bills" placeholder="Search bills…" />
+  </CardContent>
+</Card>
         {/* Summary + calm filters */}
         <Card>
           <CardContent>
@@ -796,13 +802,6 @@ const hiddenBillsCount = Math.max(0, filteredBills.length - visibleBills.length)
             </div>
           </CardContent>
         </Card>
-
-{/* Search bills (escape hatch) */}
-<Card>
-  <CardContent>
-    <AssistedSearch scope="bills" placeholder="Search bills…" />
-  </CardContent>
-</Card>
 
         {/* Quick add suggestions */}
         <Card>

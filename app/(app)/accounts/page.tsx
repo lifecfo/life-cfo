@@ -1,9 +1,11 @@
+// app/(app)/accounts/page.tsx
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { Button, Card, CardContent, Badge, Chip, useToast } from "@/components/ui";
 import { Page } from "@/components/Page";
+import { AssistedSearch } from "@/components/AssistedSearch";
 
 type LiveState = "connecting" | "live" | "offline";
 
@@ -72,7 +74,7 @@ export default function AccountsPage() {
   const [savingRow, setSavingRow] = useState<Record<string, boolean>>({});
   const [deletingRow, setDeletingRow] = useState<Record<string, boolean>>({});
 
-  // Search + calm visibility limit
+  // Search + calm visibility limit (kept for V1)
   const [query, setQuery] = useState("");
   const [showAll, setShowAll] = useState(false);
   const VISIBLE_LIMIT = 5;
@@ -402,6 +404,13 @@ export default function AccountsPage() {
         </div>
       }
     >
+      {/* Assisted search (top) */}
+      <Card>
+        <CardContent>
+          <AssistedSearch scope="accounts" placeholder="Search accounts…" />
+        </CardContent>
+      </Card>
+
       <div className="space-y-6">
         {/* Create */}
         <Card>
@@ -435,12 +444,12 @@ export default function AccountsPage() {
           </CardContent>
         </Card>
 
-        {/* Search (recognition-first) */}
+        {/* (Optional) Local filter + visibility limit */}
         <Card>
           <CardContent>
             <div className="flex items-center justify-between gap-3 flex-wrap">
-              <div className="font-semibold">Search</div>
-              <div className="text-sm opacity-70">Find accounts by name, currency, or id.</div>
+              <div className="font-semibold">List</div>
+              <div className="text-sm opacity-70">Showing a small set by default. Use search to find anything.</div>
             </div>
 
             <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -450,7 +459,7 @@ export default function AccountsPage() {
                   setQuery(e.target.value);
                   setShowAll(false);
                 }}
-                placeholder="Search accounts…"
+                placeholder="Filter this page…"
                 className="min-w-[260px] flex-1 rounded-xl border border-zinc-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200"
               />
 
@@ -460,7 +469,7 @@ export default function AccountsPage() {
                     setQuery("");
                     setShowAll(false);
                   }}
-                  title="Clear search"
+                  title="Clear filter"
                 >
                   Clear
                 </Chip>
@@ -470,14 +479,10 @@ export default function AccountsPage() {
                 </Chip>
               )}
 
-              <Badge variant="muted">
-                {query ? `${filteredRows.length} match(es)` : `${visibleRows.length}/${rows.length} shown`}
-              </Badge>
+              <Badge variant="muted">{query ? `${filteredRows.length} match(es)` : `${visibleRows.length}/${rows.length} shown`}</Badge>
             </div>
 
-            {!query && hiddenCount > 0 ? (
-              <div className="mt-3 text-sm text-zinc-600">{hiddenCount} more hidden — use search to find anything.</div>
-            ) : null}
+            {!query && hiddenCount > 0 ? <div className="mt-3 text-sm text-zinc-600">{hiddenCount} more hidden — use search to find anything.</div> : null}
           </CardContent>
         </Card>
 
@@ -487,8 +492,7 @@ export default function AccountsPage() {
             const saving = !!savingRow[a.id];
             const deleting = !!deletingRow[a.id];
             const changed =
-              (editName[a.id] ?? "").trim() !== a.name ||
-              toCents((editBalance[a.id] ?? "").trim()) !== (a.current_balance_cents ?? 0);
+              (editName[a.id] ?? "").trim() !== a.name || toCents((editBalance[a.id] ?? "").trim()) !== (a.current_balance_cents ?? 0);
 
             return (
               <Card key={a.id}>

@@ -895,3 +895,4 @@ export default function ThinkingClient() {
     </Page>
   );
 }
+
