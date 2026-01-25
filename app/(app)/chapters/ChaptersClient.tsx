@@ -79,6 +79,10 @@ export default function ChaptersClient() {
   const [items, setItems] = useState<Decision[]>([]);
   const [openId, setOpenId] = useState<string | null>(null);
 
+  // ✅ V1: top-5 default list
+  const DEFAULT_LIMIT = 5;
+  const [showAll, setShowAll] = useState(false);
+
   // ✅ Domains + Constellations (tiles + meaning)
   const [domains, setDomains] = useState<Domain[]>([]);
   const [constellations, setConstellations] = useState<Constellation[]>([]);
@@ -329,6 +333,7 @@ export default function ChaptersClient() {
     // optimistic: remove it from Chapters
     setItems((prev) => prev.filter((x) => x.id !== d.id));
     setOpenId((cur) => (cur === d.id ? null : cur));
+    setStatusLine("Reopened.");
 
     const { error } = await supabase
       .from("decisions")
@@ -344,8 +349,6 @@ export default function ChaptersClient() {
       void load(userId);
       return;
     }
-
-    setStatusLine("Reopened.");
   };
 
   // ✅ Domain assignment (single domain per decision)
@@ -425,9 +428,21 @@ export default function ChaptersClient() {
     return out;
   }, [items, activeDomainId, activeConstellationId, domainByDecision, constellationsByDecision]);
 
+  // ✅ V1: top-5 default list (after filters)
+  const visibleItems = useMemo(
+    () => (showAll ? filteredItems : filteredItems.slice(0, DEFAULT_LIMIT)),
+    [filteredItems, showAll]
+  );
+
   // ✅ tile UX: toggle off when clicking again
-  const onSelectDomainTile = (id: string | null) => setActiveDomainId((cur) => (cur === id ? null : id));
-  const onSelectConstellationTile = (id: string | null) => setActiveConstellationId((cur) => (cur === id ? null : id));
+  const onSelectDomainTile = (id: string | null) => {
+    setActiveDomainId((cur) => (cur === id ? null : id));
+    setShowAll(false);
+  };
+  const onSelectConstellationTile = (id: string | null) => {
+    setActiveConstellationId((cur) => (cur === id ? null : id));
+    setShowAll(false);
+  };
 
   return (
     <Page
@@ -462,7 +477,17 @@ export default function ChaptersClient() {
           </Card>
         ) : (
           <div className="grid gap-3">
-            {filteredItems.map((d) => {
+            {/* ✅ V1: show all / show less */}
+            {filteredItems.length > DEFAULT_LIMIT ? (
+              <div className="flex items-center justify-between gap-2">
+                <div className="text-xs text-zinc-500">
+                  {showAll ? `Showing all ${filteredItems.length}.` : `Showing ${DEFAULT_LIMIT} of ${filteredItems.length}.`}
+                </div>
+                <Chip onClick={() => setShowAll((v) => !v)}>{showAll ? "Show less" : "Show all"}</Chip>
+              </div>
+            ) : null}
+
+            {visibleItems.map((d) => {
               const isOpen = openId === d.id;
               const atts = isOpen ? normalizeAttachments(d.attachments) : [];
 
