@@ -98,8 +98,8 @@ function snippetFromText(text: string, max = 120) {
 
 /**
  * ✅ IMPORTANT
- * The build error you saw is fixed by wrapping the entire client render in Suspense.
- * If any child uses useSearchParams(), Next needs a Suspense boundary.
+ * Next.js needs a Suspense boundary if anything in the tree uses useSearchParams().
+ * Keeping this wrapper prevents the prerender build error.
  */
 export default function FramingPage() {
   return (
@@ -319,7 +319,10 @@ function FramingClient() {
       if (note.length > 0) {
         await supabase
           .from("decision_notes")
-          .upsert({ user_id: userId, decision_id: decisionId, kind: "framing", body: note }, { onConflict: "user_id,decision_id,kind" });
+          .upsert(
+            { user_id: userId, decision_id: decisionId, kind: "framing", body: note },
+            { onConflict: "user_id,decision_id,kind" }
+          );
       }
 
       const { error: updErr } = await supabase
@@ -334,7 +337,7 @@ function FramingClient() {
       } else {
         showToast(
           {
-            message: "Sent to Thinking.",
+            message: "Draft created in Thinking.",
             undoLabel: "Open",
             onUndo: () => router.push(`/thinking?open=${decisionId}`),
           },
@@ -350,15 +353,21 @@ function FramingClient() {
     }
   };
 
-  const notADecision = async () => {
+  const closeAsNotADecision = async () => {
     if (!userId || !item || working) return;
 
     setWorking(true);
     try {
-      const { error } = await supabase.from("decision_inbox").update({ status: "done" }).eq("id", item.id).eq("user_id", userId).eq("status", "open");
+      const { error } = await supabase
+        .from("decision_inbox")
+        .update({ status: "done" })
+        .eq("id", item.id)
+        .eq("user_id", userId)
+        .eq("status", "open");
+
       if (error) throw error;
 
-      showToast({ message: "Okay — not a decision." }, 2200);
+      showToast({ message: "Closed. Kept as a capture only.", undoLabel: "Go to Capture", onUndo: () => router.push("/capture") }, 5000);
       await Promise.all([loadOpenList(userId), loadNextSuggested(userId)]);
     } catch (e: any) {
       showToast({ message: e?.message ? String(e.message) : "Couldn’t update." }, 3500);
@@ -370,11 +379,11 @@ function FramingClient() {
   return (
     <Page
       title="Framing"
-      subtitle="Turn raw capture into a clear draft — only if it’s truly a decision."
+      subtitle="Capture your thoughts in Capture. Framing turns one capture into a clear decision draft."
       right={
         <div className="flex items-center gap-2">
-          <Chip onClick={() => router.push("/home")}>Back to Home</Chip>
-          <Chip onClick={() => router.push("/thinking")}>Go to Thinking</Chip>
+          <Chip onClick={() => router.push("/capture")}>Capture</Chip>
+          <Chip onClick={() => router.push("/thinking")}>Thinking</Chip>
           <Chip
             onClick={() => {
               if (!userId) return;
@@ -400,7 +409,7 @@ function FramingClient() {
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="space-y-1">
                 <div className="text-sm font-semibold text-zinc-900">Open captures</div>
-                <div className="text-sm text-zinc-600">Select one to frame. Or stay with the suggested capture below.</div>
+                <div className="text-sm text-zinc-600">Pick one to frame, or use the suggested capture below.</div>
               </div>
 
               <div className="flex items-center gap-2">
@@ -409,6 +418,7 @@ function FramingClient() {
                     {showAll ? "Show less" : "Show all"}
                   </Chip>
                 ) : null}
+
                 <Chip
                   onClick={() => {
                     if (!userId) return;
@@ -471,7 +481,11 @@ function FramingClient() {
             <CardContent>
               <div className="space-y-2">
                 <div className="text-sm font-semibold text-zinc-900">Nothing to frame.</div>
-                <div className="text-sm text-zinc-600">When you capture something that needs shaping, it will wait here quietly.</div>
+                <div className="text-sm text-zinc-600">Capture something first — it will appear here when it’s ready.</div>
+                <div className="flex flex-wrap items-center gap-2 pt-1">
+                  <Chip onClick={() => router.push("/capture")}>Go to Capture</Chip>
+                  <Chip onClick={() => router.push("/home")}>Back to Home</Chip>
+                </div>
               </div>
             </CardContent>
           </Card>
@@ -488,7 +502,11 @@ function FramingClient() {
                       <div className="text-xs font-semibold text-zinc-700">Attachments</div>
                       <div className="flex flex-wrap items-center gap-2">
                         {parsed.attachments.map((a) => (
-                          <Chip key={a.path} onClick={() => void openAttachment(a)} title={`${a.type}${a.size ? ` • ${softKB(a.size)}` : ""}`}>
+                          <Chip
+                            key={a.path}
+                            onClick={() => void openAttachment(a)}
+                            title={`${a.type}${a.size ? ` • ${softKB(a.size)}` : ""}`}
+                          >
                             {a.name}
                           </Chip>
                         ))}
@@ -517,6 +535,9 @@ function FramingClient() {
                     className="w-full resize-y rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-[15px] leading-relaxed text-zinc-900 outline-none focus:ring-2 focus:ring-zinc-200"
                     placeholder="What are you deciding, exactly?"
                   />
+                  <div className="text-xs text-zinc-500">
+                    When you send this to Thinking, Keystone creates a <span className="font-medium">draft</span>. Nothing is final yet.
+                  </div>
                 </div>
 
                 <div className="space-y-2">
@@ -528,7 +549,7 @@ function FramingClient() {
                     className="w-full resize-y rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-[15px] leading-relaxed text-zinc-900 outline-none focus:ring-2 focus:ring-zinc-200"
                     placeholder="Why it matters, constraints, values signals…"
                   />
-                  <div className="text-xs text-zinc-500">This stays quiet — it’s just for you.</div>
+                  <div className="text-xs text-zinc-500">Quiet notes, just for you.</div>
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2 pt-1">
@@ -536,12 +557,12 @@ function FramingClient() {
                     {working ? "Working…" : "Send to Thinking"}
                   </Chip>
 
-                  <Chip onClick={() => void notADecision()} title="Close as not-a-decision">
-                    Not a decision
+                  <Chip onClick={() => void closeAsNotADecision()} title="Close this capture without creating a decision">
+                    Keep as capture
                   </Chip>
 
                   <Chip onClick={() => router.push("/home")} title="Return to Home">
-                    Put this down
+                    Back to Home
                   </Chip>
                 </div>
               </div>

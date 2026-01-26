@@ -366,7 +366,6 @@ export default function RevisitClient() {
       const uid = auth.user.id;
       setUserId(uid);
 
-      // tiles load once at boot
       await loadTiles(uid);
       await load(uid);
     })();
@@ -505,7 +504,6 @@ export default function RevisitClient() {
   const setDecisionDomain = async (decisionId: string, domainId: string | null) => {
     if (!userId) return;
 
-    // optimistic
     setDomainByDecision((prev) => ({ ...prev, [decisionId]: domainId }));
 
     try {
@@ -516,7 +514,6 @@ export default function RevisitClient() {
         return;
       }
 
-      // IMPORTANT: conflict target should match unique(user_id, decision_id)
       const { error } = await supabase
         .from("decision_domains")
         .upsert({ user_id: userId, decision_id: decisionId, domain_id: domainId }, { onConflict: "user_id,decision_id" });
@@ -537,7 +534,6 @@ export default function RevisitClient() {
     const has = current.includes(constellationId);
     const next = has ? current.filter((x) => x !== constellationId) : [...current, constellationId];
 
-    // optimistic
     setConstellationsByDecision((prev) => ({ ...prev, [decisionId]: next }));
 
     try {
@@ -585,7 +581,6 @@ export default function RevisitClient() {
     };
   }, [dueItemsRaw, activeDomainId, activeConstellationId, domainByDecision, constellationsByDecision]);
 
-  // ✅ V1: top-5 default per section
   const dueVisible = useMemo(() => (showAllDue ? filteredDueItems.due : filteredDueItems.due.slice(0, DEFAULT_LIMIT)), [filteredDueItems.due, showAllDue]);
   const soonVisible = useMemo(
     () => (showAllSoon ? filteredDueItems.soon : filteredDueItems.soon.slice(0, DEFAULT_LIMIT)),
@@ -636,7 +631,6 @@ export default function RevisitClient() {
                   {dueLabel(d)} • Review date: {softDate(d.review_at)}
                 </div>
 
-                {/* Quiet meaning hints */}
                 <div className="mt-2 flex flex-wrap gap-2">
                   {domainObj ? (
                     <Chip title="Domain">
@@ -670,7 +664,6 @@ export default function RevisitClient() {
                 <div className="text-sm text-zinc-600">No extra context saved.</div>
               )}
 
-              {/* ✅ Meaning assignment (quiet, optional) */}
               <div className="rounded-xl border border-zinc-200 bg-white p-3 space-y-3">
                 <div className="text-xs font-semibold text-zinc-700">Meaning</div>
 
@@ -711,31 +704,34 @@ export default function RevisitClient() {
 
               <AttachmentsStrip decision={d} />
 
-              <div className="flex flex-wrap items-center gap-2">
-                <Chip onClick={() => void markReviewed(d)} title="Mark reviewed (keep the same cadence)">
-                  Reviewed
-                </Chip>
+              <div className="space-y-2">
+                <div className="text-xs text-zinc-500">Bring this back later (optional)</div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Chip onClick={() => void markReviewed(d)} title="Mark as reviewed (keep the same date)">
+                    Reviewed
+                  </Chip>
 
-                <Chip onClick={() => void markReviewed(d, "1w")} title="Review again in a week">
-                  1w
-                </Chip>
-                <Chip onClick={() => void markReviewed(d, "1m")} title="Review again in a month">
-                  1m
-                </Chip>
-                <Chip onClick={() => void markReviewed(d, "3m")} title="Review again in 3 months">
-                  3m
-                </Chip>
-                <Chip onClick={() => void markReviewed(d, "6m")} title="Review again in 6 months">
-                  6m
-                </Chip>
+                  <Chip onClick={() => void markReviewed(d, "1w")} title="Bring back in 1 week">
+                    1w
+                  </Chip>
+                  <Chip onClick={() => void markReviewed(d, "1m")} title="Bring back in 1 month">
+                    1m
+                  </Chip>
+                  <Chip onClick={() => void markReviewed(d, "3m")} title="Bring back in 3 months">
+                    3m
+                  </Chip>
+                  <Chip onClick={() => void markReviewed(d, "6m")} title="Bring back in 6 months">
+                    6m
+                  </Chip>
 
-                <Chip onClick={() => void markReviewed(d, "clear")} title="Stop resurfacing this decision">
-                  Clear review
-                </Chip>
+                  <Chip onClick={() => void markReviewed(d, "clear")} title="Stop resurfacing this decision">
+                    Clear revisit
+                  </Chip>
+                </div>
               </div>
 
               <div className="space-y-2">
-                <div className="text-xs text-zinc-500">Or set a custom date:</div>
+                <div className="text-xs text-zinc-500">Or choose a date:</div>
                 <div className="flex flex-wrap items-center gap-2">
                   <input
                     type="date"
@@ -748,7 +744,9 @@ export default function RevisitClient() {
                       void setCustomReviewAt(d, iso);
                     }}
                   />
-                  <Chip onClick={() => setOpenId(null)}>Done</Chip>
+                  <Chip onClick={() => setOpenId(null)} title="Close this card">
+                    Done
+                  </Chip>
                 </div>
               </div>
             </div>
@@ -758,7 +756,6 @@ export default function RevisitClient() {
     );
   };
 
-  // ✅ Tile filter UX: toggle off if you click the active tile again
   const onSelectDomainTile = (id: string | null) => {
     setActiveDomainId((cur) => (cur === id ? null : id));
     setShowAllDue(false);
@@ -773,7 +770,7 @@ export default function RevisitClient() {
   return (
     <Page
       title="Revisit"
-      subtitle="Only what’s due, or due soon."
+      subtitle="Only what’s due, or due soon. Nothing else."
       right={
         <div className="flex items-center gap-2">
           {lastUndo ? (
@@ -786,10 +783,8 @@ export default function RevisitClient() {
       }
     >
       <div className="mx-auto w-full max-w-[760px] space-y-6">
-        {/* ✅ Assisted retrieval */}
         <AssistedSearch scope="revisit" placeholder="Search decisions…" />
 
-        {/* ✅ Calm tiles */}
         <div className="space-y-4">
           <TilesRow title="Domains" items={domains} activeId={activeDomainId} onSelect={onSelectDomainTile} />
           <TilesRow title="Constellations" items={constellations} activeId={activeConstellationId} onSelect={onSelectConstellationTile} />
@@ -802,7 +797,7 @@ export default function RevisitClient() {
             <CardContent>
               <div className="space-y-2">
                 <div className="text-sm font-semibold text-zinc-900">Nothing needs to come back right now.</div>
-                <div className="text-sm text-zinc-600">When something is scheduled, it will show up here quietly.</div>
+                <div className="text-sm text-zinc-600">When you schedule a revisit, it will show up here quietly.</div>
               </div>
             </CardContent>
           </Card>

@@ -239,9 +239,7 @@ export default function DecisionsClient() {
 
     const { data, error } = await supabase
       .from("decisions")
-      .select(
-        "id,user_id,title,context,status,created_at,decided_at,review_at,reviewed_at,review_notes,review_history,attachments,chaptered_at"
-      )
+      .select("id,user_id,title,context,status,created_at,decided_at,review_at,reviewed_at,review_notes,review_history,attachments,chaptered_at")
       .eq("user_id", uid)
       .neq("status", "draft")
       .neq("status", "chapter") // ✅ hide chaptered decisions from this list
@@ -278,7 +276,7 @@ export default function DecisionsClient() {
     setItems(normalized);
     setStatusLine(normalized.length === 0 ? "Nothing committed yet." : `Loaded ${normalized.length}.`);
 
-    // ✅ refresh meaning maps for this set (cheap + trustworthy)
+    // ✅ refresh meaning maps for this set
     void loadMeaningMaps(uid, normalized.map((x) => x.id));
   };
 
@@ -299,7 +297,6 @@ export default function DecisionsClient() {
       const uid = auth.user.id;
       setUserId(uid);
 
-      // Tiles load once at boot (realtime keeps them fresh)
       await loadTiles(uid);
       await load(uid);
     })();
@@ -319,14 +316,12 @@ export default function DecisionsClient() {
       .on("postgres_changes", { event: "*", schema: "public", table: "decisions", filter: `user_id=eq.${userId}` }, () => void load(userId))
       .subscribe();
 
-    // membership changes need to reflect too
     const channel2 = supabase
       .channel(`decisions_meaning_${userId}`)
       .on("postgres_changes", { event: "*", schema: "public", table: "decision_domains", filter: `user_id=eq.${userId}` }, () => void load(userId))
       .on("postgres_changes", { event: "*", schema: "public", table: "constellation_items", filter: `user_id=eq.${userId}` }, () => void load(userId))
       .subscribe();
 
-    // tiles changes
     const channel3 = supabase
       .channel(`decisions_tiles_${userId}`)
       .on("postgres_changes", { event: "*", schema: "public", table: "domains", filter: `user_id=eq.${userId}` }, () => void loadTiles(userId))
@@ -365,7 +360,6 @@ export default function DecisionsClient() {
 
     const nowIso = new Date().toISOString();
 
-    // optimistic: remove from list & close card
     setItems((prev) => prev.filter((x) => x.id !== d.id));
     setOpenId((cur) => (cur === d.id ? null : cur));
 
@@ -374,7 +368,7 @@ export default function DecisionsClient() {
       .update({
         status: "chapter",
         chaptered_at: nowIso,
-        review_at: null, // once it’s honoured/closed, it shouldn’t resurface
+        review_at: null,
         reviewed_at: null,
       })
       .eq("id", d.id)
@@ -393,7 +387,6 @@ export default function DecisionsClient() {
   const reopenToThinking = async (d: Decision) => {
     if (!userId) return;
 
-    // optimistic: remove from list & close card
     setItems((prev) => prev.filter((x) => x.id !== d.id));
     setOpenId((cur) => (cur === d.id ? null : cur));
     setStatusLine("Reopened in Thinking.");
@@ -423,7 +416,6 @@ export default function DecisionsClient() {
   const setDecisionDomain = async (decisionId: string, domainId: string | null) => {
     if (!userId) return;
 
-    // optimistic
     setDomainByDecision((prev) => ({ ...prev, [decisionId]: domainId }));
 
     try {
@@ -434,7 +426,6 @@ export default function DecisionsClient() {
         return;
       }
 
-      // IMPORTANT: conflict target should match unique(user_id, decision_id)
       const { error } = await supabase
         .from("decision_domains")
         .upsert({ user_id: userId, decision_id: decisionId, domain_id: domainId }, { onConflict: "user_id,decision_id" });
@@ -455,7 +446,6 @@ export default function DecisionsClient() {
     const has = current.includes(constellationId);
     const next = has ? current.filter((x) => x !== constellationId) : [...current, constellationId];
 
-    // optimistic
     setConstellationsByDecision((prev) => ({ ...prev, [decisionId]: next }));
 
     try {
@@ -501,7 +491,6 @@ export default function DecisionsClient() {
     return list;
   }, [items, activeDomainId, activeConstellationId, domainByDecision, constellationsByDecision]);
 
-  // ✅ V1: show top 5 by default (after filters)
   const visibleItems = useMemo(() => {
     if (showAll) return filteredItems;
     return filteredItems.slice(0, DEFAULT_LIMIT);
@@ -512,7 +501,7 @@ export default function DecisionsClient() {
   return (
     <Page
       title="Decisions"
-      subtitle="A calm ledger of what you’ve already chosen."
+      subtitle="What you’ve confirmed. Drafts live in Thinking until you decide."
       right={
         <div className="flex items-center gap-2">
           <Chip onClick={() => router.push("/home")}>Back to Home</Chip>
@@ -520,10 +509,8 @@ export default function DecisionsClient() {
       }
     >
       <div className="mx-auto w-full max-w-[760px] space-y-6">
-        {/* ✅ Assisted retrieval */}
         <AssistedSearch scope="decisions" placeholder="Search decisions…" />
 
-        {/* ✅ Calm tiles */}
         <div className="space-y-4">
           <TilesRow
             title="Domains"
@@ -559,7 +546,7 @@ export default function DecisionsClient() {
             <CardContent>
               <div className="space-y-2">
                 <div className="text-sm font-semibold text-zinc-900">Nothing committed yet.</div>
-                <div className="text-sm text-zinc-600">Drafts live in Thinking. When you decide, they land here.</div>
+                <div className="text-sm text-zinc-600">Capture → Framing → Thinking. When you decide, it lands here.</div>
               </div>
             </CardContent>
           </Card>
@@ -589,7 +576,6 @@ export default function DecisionsClient() {
                             {d.review_at ? ` • Revisit: ${softDate(d.review_at)}` : ""}
                           </div>
 
-                          {/* Quiet meaning hints */}
                           <div className="mt-2 flex flex-wrap gap-2">
                             {domainObj ? (
                               <Chip title="Domain">
@@ -622,7 +608,6 @@ export default function DecisionsClient() {
                           <div className="text-sm text-zinc-600">No extra context saved.</div>
                         )}
 
-                        {/* ✅ Meaning assignment (quiet, optional) */}
                         <div className="rounded-xl border border-zinc-200 bg-white p-3 space-y-3">
                           <div className="text-xs font-semibold text-zinc-700">Meaning</div>
 
@@ -677,38 +662,44 @@ export default function DecisionsClient() {
                         </div>
 
                         <div className="space-y-2">
-                          <div className="text-xs text-zinc-500">Optional: schedule a revisit</div>
+                          <div className="text-xs text-zinc-500">Bring this back later (optional)</div>
                           <div className="flex flex-wrap items-center gap-2">
-                            <Chip onClick={() => void setReviewAt(d, "1w")} title="Bring back in 1 week">
+                            <Chip onClick={() => void setReviewAt(d, "1w")} title="Bring this back in 1 week">
                               1w
                             </Chip>
-                            <Chip onClick={() => void setReviewAt(d, "1m")} title="Bring back in 1 month">
+                            <Chip onClick={() => void setReviewAt(d, "1m")} title="Bring this back in 1 month">
                               1m
                             </Chip>
-                            <Chip onClick={() => void setReviewAt(d, "3m")} title="Bring back in 3 months">
+                            <Chip onClick={() => void setReviewAt(d, "3m")} title="Bring this back in 3 months">
                               3m
                             </Chip>
-                            <Chip onClick={() => void setReviewAt(d, "6m")} title="Bring back in 6 months">
+                            <Chip onClick={() => void setReviewAt(d, "6m")} title="Bring this back in 6 months">
                               6m
                             </Chip>
                             <Chip onClick={() => void setReviewAt(d, "clear")} title="Stop resurfacing this decision">
                               Clear revisit
                             </Chip>
-                            <Chip onClick={() => setOpenId(null)}>Done</Chip>
-                          </div>
-                        </div>
-
-                        <div className="space-y-2 pt-2">
-                          <div className="text-xs text-zinc-500">Optional: honour and close</div>
-                          <div className="flex flex-wrap items-center gap-2">
-                            <Chip onClick={() => void moveToChapters(d)} title="Move this decision into Chapters">
-                              Put this down
+                            <Chip onClick={() => setOpenId(null)} title="Close this card">
+                              Done
                             </Chip>
                           </div>
                         </div>
 
                         <div className="space-y-2 pt-2">
-                          <div className="text-xs text-zinc-500">Optional: reopen</div>
+                          <div className="text-xs text-zinc-500">Close this chapter (optional)</div>
+                          <div className="text-xs text-zinc-600">
+                            Chapters are finished decisions you don’t want resurfacing.
+                          </div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Chip onClick={() => void moveToChapters(d)} title="Move this decision into Chapters (finished)">
+                              Move to Chapters
+                            </Chip>
+                          </div>
+                        </div>
+
+                        <div className="space-y-2 pt-2">
+                          <div className="text-xs text-zinc-500">Change your mind (optional)</div>
+                          <div className="text-xs text-zinc-600">Reopen sends this back to Thinking as a draft.</div>
                           <div className="flex flex-wrap items-center gap-2">
                             <Chip onClick={() => void reopenToThinking(d)} title="Move back to Thinking (draft)">
                               Reopen

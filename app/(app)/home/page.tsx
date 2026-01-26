@@ -1,4 +1,3 @@
-// app/(app)/home/page.tsx
 "use client";
 
 import { useEffect, useRef, useState } from "react";
@@ -182,7 +181,16 @@ export default function HomePage() {
   const canOpenOrientation = Boolean(orientation.item?.href);
 
   return (
-    <Page title="Home">
+    <Page
+      title="Home"
+      right={
+        <div className="flex items-center gap-2">
+          <Chip onClick={() => router.push("/how-keystone-works")} title="How Keystone works">
+            How it works
+          </Chip>
+        </div>
+      }
+    >
       <div className="mx-auto w-full max-w-[680px] space-y-8">
         {/* Unload (primary) */}
         <div className="space-y-2">
@@ -202,6 +210,11 @@ export default function HomePage() {
             aria-label="What’s on your mind?"
             disabled={authStatus !== "signed_in"}
           />
+
+          {/* ✅ Tiny role clarity (Home ≠ Capture) */}
+          <div className="text-xs text-zinc-500">
+            Think out loud here. Use Capture when you want to shape something into a decision.
+          </div>
 
           {/* Soft confirmation (brief, fades) */}
           {affirmation ? (
@@ -231,9 +244,7 @@ export default function HomePage() {
                   ) : null}
 
                   {billsLine ? (
-                    <div className={orientation.item?.text ? "mt-2 text-[15px] leading-relaxed text-zinc-800" : "mt-2 text-[15px] leading-relaxed text-zinc-800"}>
-                      {billsLine}
-                    </div>
+                    <div className="mt-2 text-[15px] leading-relaxed text-zinc-800">{billsLine}</div>
                   ) : null}
                 </div>
 

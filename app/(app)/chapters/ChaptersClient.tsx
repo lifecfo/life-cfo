@@ -447,7 +447,7 @@ export default function ChaptersClient() {
   return (
     <Page
       title="Chapters"
-      subtitle="Honoured and closed. No action needed."
+      subtitle="Completed decisions, kept for reference."
       right={
         <div className="flex items-center gap-2">
           <Chip onClick={() => router.push("/home")}>Back to Home</Chip>
@@ -470,8 +470,8 @@ export default function ChaptersClient() {
           <Card className="border-zinc-200 bg-white">
             <CardContent>
               <div className="space-y-2">
-                <div className="text-sm font-semibold text-zinc-900">Nothing here yet.</div>
-                <div className="text-sm text-zinc-600">When a season is complete, “Put this down” and it will rest here quietly.</div>
+                <div className="text-sm font-semibold text-zinc-900">No completed decisions yet.</div>
+                <div className="text-sm text-zinc-600">When a decision is complete and no longer needs attention, it lives here.</div>
               </div>
             </CardContent>
           </Card>

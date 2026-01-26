@@ -8,7 +8,7 @@ import { Page } from "@/components/Page";
 import { Chip, Card, CardContent, useToast } from "@/components/ui";
 import { ConversationPanel } from "./ConversationPanel";
 
-// ✅ Assisted retrieval + tiles (you created these in steps 1–4)
+// ✅ Assisted retrieval + tiles
 import { AssistedSearch } from "@/components/AssistedSearch";
 import { TilesRow } from "@/components/TilesRow";
 
@@ -36,7 +36,7 @@ type Decision = {
   origin: string | null;
   framed_at: string | null;
 
-  attachments: AttachmentMeta[] | null; // ✅ decisions.attachments (jsonb)
+  attachments: AttachmentMeta[] | null; // decisions.attachments (jsonb)
 };
 
 type DecisionSummary = {
@@ -155,11 +155,6 @@ export default function ThinkingClient() {
 
   const openDraft = useMemo(() => drafts.find((d) => d.id === openId) ?? null, [drafts, openId]);
 
-  const openAttachments = useMemo(() => {
-    if (!openDraft) return [];
-    return normalizeAttachments(openDraft.attachments);
-  }, [openDraft?.id, openDraft?.attachments]);
-
   const ensureSignedUrl = async (path: string) => {
     if (!path) return null;
     if (signed[path]) return signed[path];
@@ -270,11 +265,7 @@ export default function ThinkingClient() {
     const decisionIds = list.map((d) => d.id);
     if (decisionIds.length > 0) {
       const [ddRes, ciRes] = await Promise.all([
-        supabase
-          .from("decision_domains")
-          .select("decision_id,domain_id")
-          .eq("user_id", uid)
-          .in("decision_id", decisionIds),
+        supabase.from("decision_domains").select("decision_id,domain_id").eq("user_id", uid).in("decision_id", decisionIds),
         supabase
           .from("constellation_items")
           .select("decision_id,constellation_id")
@@ -400,69 +391,63 @@ export default function ThinkingClient() {
 
     const channel = supabase
       .channel(`thinking-drafts-${userId}`)
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "decisions", filter: `user_id=eq.${userId}` },
-        (payload: any) => {
-          const eventType: string | undefined = payload?.eventType;
-          const next = payload?.new as any | undefined;
-          const prev = payload?.old as any | undefined;
+      .on("postgres_changes", { event: "*", schema: "public", table: "decisions", filter: `user_id=eq.${userId}` }, (payload: any) => {
+        const eventType: string | undefined = payload?.eventType;
+        const next = payload?.new as any | undefined;
+        const prev = payload?.old as any | undefined;
 
-          const id = (next?.id ?? prev?.id) as string | undefined;
-          if (!eventType || !id) {
-            scheduleReload();
-            return;
+        const id = (next?.id ?? prev?.id) as string | undefined;
+        if (!eventType || !id) {
+          scheduleReload();
+          return;
+        }
+
+        const rowStatus = String(next?.status ?? prev?.status ?? "");
+        const isDraft = rowStatus === "draft";
+
+        setDrafts((current) => {
+          if (eventType === "DELETE") {
+            if (openId === id) setOpenId(null);
+            if (chatForId === id) setChatForId(null);
+            return current.filter((d) => d.id !== id);
           }
 
-          const rowStatus = String(next?.status ?? prev?.status ?? "");
-          const isDraft = rowStatus === "draft";
+          if (!isDraft) {
+            if (openId === id) setOpenId(null);
+            if (chatForId === id) setChatForId(null);
+            return current.filter((d) => d.id !== id);
+          }
 
-          setDrafts((current) => {
-            if (eventType === "DELETE") {
-              if (openId === id) setOpenId(null);
-              if (chatForId === id) setChatForId(null);
-              return current.filter((d) => d.id !== id);
-            }
-
-            if (!isDraft) {
-              if (openId === id) setOpenId(null);
-              if (chatForId === id) setChatForId(null);
-              return current.filter((d) => d.id !== id);
-            }
-
-            const toDecision = (r: any): Decision => ({
-              id: r.id,
-              user_id: r.user_id,
-              title: r.title ?? "",
-              context: r.context ?? null,
-              status: r.status ?? "draft",
-              created_at: r.created_at ?? new Date().toISOString(),
-              decided_at: r.decided_at ?? null,
-              review_at: r.review_at ?? null,
-              origin: r.origin ?? null,
-              framed_at: r.framed_at ?? null,
-              attachments: normalizeAttachments(r.attachments),
-            });
-
-            const patch = toDecision(next ?? prev);
-
-            const exists = current.some((d) => d.id === patch.id);
-            const merged = exists
-              ? current.map((d) => (d.id === patch.id ? { ...d, ...patch } : d))
-              : [patch, ...current];
-
-            merged.sort((a, b) => {
-              const ta = safeMs(a.created_at) ?? 0;
-              const tb = safeMs(b.created_at) ?? 0;
-              return tb - ta;
-            });
-
-            return merged;
+          const toDecision = (r: any): Decision => ({
+            id: r.id,
+            user_id: r.user_id,
+            title: r.title ?? "",
+            context: r.context ?? null,
+            status: r.status ?? "draft",
+            created_at: r.created_at ?? new Date().toISOString(),
+            decided_at: r.decided_at ?? null,
+            review_at: r.review_at ?? null,
+            origin: r.origin ?? null,
+            framed_at: r.framed_at ?? null,
+            attachments: normalizeAttachments(r.attachments),
           });
 
-          scheduleReload();
-        }
-      )
+          const patch = toDecision(next ?? prev);
+
+          const exists = current.some((d) => d.id === patch.id);
+          const merged = exists ? current.map((d) => (d.id === patch.id ? { ...d, ...patch } : d)) : [patch, ...current];
+
+          merged.sort((a, b) => {
+            const ta = safeMs(a.created_at) ?? 0;
+            const tb = safeMs(b.created_at) ?? 0;
+            return tb - ta;
+          });
+
+          return merged;
+        });
+
+        scheduleReload();
+      })
       .subscribe();
 
     return () => {
@@ -492,7 +477,7 @@ export default function ThinkingClient() {
 
     showToast(
       {
-        message: "Moved to Decisions.",
+        message: "Saved to Decisions.",
         undoLabel: "Undo",
         onUndo: async () => {
           const { error: undoErr } = await supabase
@@ -527,7 +512,7 @@ export default function ThinkingClient() {
       return;
     }
 
-    showToast({ message: `Scheduled revisit in ${days}d.` }, 2500);
+    showToast({ message: `Revisit scheduled (${days}d).` }, 2500);
   };
 
   const deleteDraft = async (d: Decision) => {
@@ -580,18 +565,12 @@ export default function ThinkingClient() {
 
     try {
       if (!domainId) {
-        const { error } = await supabase
-          .from("decision_domains")
-          .delete()
-          .eq("user_id", userId)
-          .eq("decision_id", decisionId);
-
+        const { error } = await supabase.from("decision_domains").delete().eq("user_id", userId).eq("decision_id", decisionId);
         if (error) throw error;
         showToast({ message: "Domain cleared." }, 2000);
         return;
       }
 
-      // ✅ Correct conflict target
       const { error } = await supabase
         .from("decision_domains")
         .upsert({ user_id: userId, decision_id: decisionId, domain_id: domainId }, { onConflict: "user_id,decision_id" });
@@ -668,7 +647,7 @@ export default function ThinkingClient() {
   return (
     <Page
       title="Thinking"
-      subtitle="A safe space for drafts. Nothing needs to be decided yet."
+      subtitle="Work on drafts here. When you’re ready to commit, press Decide to save it into Decisions."
       right={
         <div className="flex items-center gap-2">
           <Chip onClick={() => router.push("/home")}>Back to Home</Chip>
@@ -694,7 +673,11 @@ export default function ThinkingClient() {
         {filteredDrafts.length > 0 && hasMore ? (
           <div className="flex items-center gap-2">
             <Chip onClick={() => setShowAll((v) => !v)}>{showAll ? "Show less" : "Show all"}</Chip>
-            {!showAll ? <div className="text-xs text-zinc-500">Showing {DEFAULT_LIMIT} of {filteredDrafts.length}</div> : null}
+            {!showAll ? (
+              <div className="text-xs text-zinc-500">
+                Showing {DEFAULT_LIMIT} of {filteredDrafts.length}
+              </div>
+            ) : null}
           </div>
         ) : null}
 
@@ -703,7 +686,7 @@ export default function ThinkingClient() {
             <CardContent>
               <div className="space-y-2">
                 <div className="text-sm font-semibold text-zinc-900">All clear.</div>
-                <div className="text-sm text-zinc-600">When something needs thinking time, it can live here without pressure.</div>
+                <div className="text-sm text-zinc-600">When something needs thinking time, it can live here quietly.</div>
               </div>
             </CardContent>
           </Card>
@@ -779,10 +762,10 @@ export default function ThinkingClient() {
                             <div className="text-sm text-zinc-600">No extra context yet.</div>
                           )}
 
-                          {/* ✅ Notes (quiet, optional) */}
+                          {/* ✅ Notes */}
                           <DecisionNotes decisionId={d.id} kind="thinking" />
 
-                          {/* ✅ Domain + Constellations (quiet assignment UI) */}
+                          {/* ✅ Meaning assignment */}
                           <div className="rounded-xl border border-zinc-200 bg-white p-3 space-y-3">
                             <div className="text-xs font-semibold text-zinc-700">Meaning</div>
 
@@ -819,7 +802,7 @@ export default function ThinkingClient() {
                             </div>
                           </div>
 
-                          {/* Attachments strip (calm) */}
+                          {/* Attachments */}
                           <div className="rounded-xl border border-zinc-200 bg-white p-3 space-y-2">
                             <div className="text-xs font-semibold text-zinc-700">Attachments</div>
 
@@ -836,7 +819,7 @@ export default function ThinkingClient() {
                             )}
                           </div>
 
-                          {/* Memory strip (capped, calm) */}
+                          {/* Memory */}
                           <div className="rounded-xl border border-zinc-200 bg-white p-3 space-y-2">
                             <div className="text-xs font-semibold text-zinc-700">Memory</div>
                             {summaryStatus ? <div className="text-xs text-zinc-500">{summaryStatus}</div> : null}
@@ -856,37 +839,44 @@ export default function ThinkingClient() {
                             ))}
                           </div>
 
-                          <div className="flex flex-wrap items-center gap-2">
-                            <Chip onClick={() => decideNow(d)} title="Move to Decisions (decided)">
-                              Decide
-                            </Chip>
+                          {/* Actions */}
+                          <div className="space-y-2">
+                            <div className="text-xs text-zinc-500">
+                              Decide saves this into <span className="font-medium">Decisions</span>. Revisit brings it back to mind later.
+                            </div>
 
-                            <Chip onClick={() => scheduleRevisit(d, 7)} title="Schedule a revisit in 7 days">
-                              Revisit 7d
-                            </Chip>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <Chip onClick={() => decideNow(d)} title="Confirm this decision and save it into Decisions">
+                                Decide
+                              </Chip>
 
-                            <Chip onClick={() => scheduleRevisit(d, 30)} title="Schedule a revisit in 30 days">
-                              Revisit 30d
-                            </Chip>
+                              <Chip onClick={() => scheduleRevisit(d, 7)} title="Bring this back in 7 days">
+                                Revisit 7d
+                              </Chip>
 
-                            <Chip onClick={() => router.push("/revisit")} title="Open the revisit page">
-                              Go to Revisit
-                            </Chip>
+                              <Chip onClick={() => scheduleRevisit(d, 30)} title="Bring this back in 30 days">
+                                Revisit 30d
+                              </Chip>
 
-                            <Chip onClick={() => deleteDraft(d)} title="Delete this draft">
-                              Delete
-                            </Chip>
+                              <Chip onClick={() => router.push("/revisit")} title="Open Revisit to see scheduled items">
+                                Go to Revisit
+                              </Chip>
 
-                            <Chip
-                              onClick={() => setChatForId((cur) => (cur === d.id ? null : d.id))}
-                              title="Have a conversation with Keystone about this decision"
-                            >
-                              {isChatOpen ? "Hide chat" : "Talk this through"}
-                            </Chip>
+                              <Chip onClick={() => deleteDraft(d)} title="Delete this draft">
+                                Delete
+                              </Chip>
 
-                            <Chip onClick={() => router.push("/home")} title="Return to Home">
-                              Put this down
-                            </Chip>
+                              <Chip
+                                onClick={() => setChatForId((cur) => (cur === d.id ? null : d.id))}
+                                title="Talk it through with Keystone"
+                              >
+                                {isChatOpen ? "Hide chat" : "Talk this through"}
+                              </Chip>
+
+                              <Chip onClick={() => router.push("/home")} title="Return to Home">
+                                Back to Home
+                              </Chip>
+                            </div>
                           </div>
 
                           {isChatOpen ? (
