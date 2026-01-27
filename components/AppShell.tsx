@@ -55,13 +55,7 @@ function Menu({
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement | null>(null);
 
-  useOutsideClick(
-    ref,
-    () => {
-      setOpen(false);
-    },
-    open
-  );
+  useOutsideClick(ref, () => setOpen(false), open);
 
   return (
     <div className="relative" ref={ref}>
@@ -108,27 +102,25 @@ export function AppShell({ children }: AppShellProps) {
   const pathname = usePathname();
   const router = useRouter();
 
-  const isActive = (href: string) => {
-    return pathname === href || (href !== "/" && pathname?.startsWith(href));
-  };
+  const isActive = (href: string) => pathname === href || (href !== "/" && pathname?.startsWith(href));
 
-  // Group definitions
   const home: NavItem = { href: "/home", label: "Home" };
 
-  // ✅ Split: “Work” (Capture/Framing/Thinking) vs “Library” (Decisions/Revisit/Chapters)
-  const workItems: NavItem[] = [
+  // Decide (Capture/Framing/Thinking)
+  const decideItems: NavItem[] = [
     { href: "/capture", label: "Capture" },
     { href: "/framing", label: "Framing" },
     { href: "/thinking", label: "Thinking" },
   ];
 
-  const libraryItems: NavItem[] = [
+  // Review (Decisions/Revisit/Chapters)
+  const reviewItems: NavItem[] = [
     { href: "/decisions", label: "Decisions" },
     { href: "/revisit", label: "Revisit" },
     { href: "/chapters", label: "Chapters" },
   ];
 
-  // ✅ Money
+  // Money
   const moneyItems: NavItem[] = [
     { href: "/accounts", label: "Accounts" },
     { href: "/bills", label: "Bills" },
@@ -143,12 +135,11 @@ export function AppShell({ children }: AppShellProps) {
     { href: "/fine-print", label: "Fine print" },
   ];
 
-  const workActive = useMemo(() => workItems.some((i) => isActive(i.href)), [pathname]); // eslint-disable-line react-hooks/exhaustive-deps
-  const libraryActive = useMemo(() => libraryItems.some((i) => isActive(i.href)), [pathname]); // eslint-disable-line react-hooks/exhaustive-deps
+  const decideActive = useMemo(() => decideItems.some((i) => isActive(i.href)), [pathname]); // eslint-disable-line react-hooks/exhaustive-deps
+  const reviewActive = useMemo(() => reviewItems.some((i) => isActive(i.href)), [pathname]); // eslint-disable-line react-hooks/exhaustive-deps
   const moneyActive = useMemo(() => moneyItems.some((i) => isActive(i.href)), [pathname]); // eslint-disable-line react-hooks/exhaustive-deps
   const helpActive = useMemo(() => helpItems.some((i) => isActive(i.href)), [pathname]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Close any open menus on route change (remount nav on path)
   const navKey = pathname ?? "";
 
   const signOut = async () => {
@@ -172,8 +163,8 @@ export function AppShell({ children }: AppShellProps) {
               </Chip>
             </Link>
 
-            <Menu label="Work" active={workActive} items={workItems} />
-            <Menu label="Library" active={libraryActive} items={libraryItems} />
+            <Menu label="Decide" active={decideActive} items={decideItems} />
+            <Menu label="Review" active={reviewActive} items={reviewItems} />
             <Menu label="Money" active={moneyActive} items={moneyItems} />
             <Menu label="Help" active={helpActive} items={helpItems} />
           </nav>
@@ -194,15 +185,7 @@ function AccountMenu({ onSignOut }: { onSignOut: () => void }) {
   const ref = useRef<HTMLDivElement | null>(null);
   const [open, setOpen] = useState(false);
 
-  useOutsideClick(
-    ref,
-    () => {
-      setOpen(false);
-    },
-    open
-  );
-
-  // Close if the route changes
+  useOutsideClick(ref, () => setOpen(false), open);
   useEffect(() => setOpen(false), [pathname]);
 
   return (
@@ -223,13 +206,10 @@ function AccountMenu({ onSignOut }: { onSignOut: () => void }) {
           className="absolute right-0 z-50 mt-2 min-w-[220px] overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm"
         >
           <div className="p-2">
-            {/* ✅ Settings belongs here (account-level) */}
             <Link
               href="/settings"
               className="block no-underline"
-              onClick={() => {
-                setOpen(false);
-              }}
+              onClick={() => setOpen(false)}
             >
               <div className="rounded-xl px-3 py-2 text-sm text-zinc-800 hover:bg-zinc-50">Settings</div>
             </Link>
@@ -237,9 +217,7 @@ function AccountMenu({ onSignOut }: { onSignOut: () => void }) {
             <Link
               href="/how-keystone-works"
               className="block no-underline"
-              onClick={() => {
-                setOpen(false);
-              }}
+              onClick={() => setOpen(false)}
             >
               <div className="rounded-xl px-3 py-2 text-sm text-zinc-800 hover:bg-zinc-50">How it works</div>
             </Link>
@@ -247,9 +225,7 @@ function AccountMenu({ onSignOut }: { onSignOut: () => void }) {
             <Link
               href="/fine-print"
               className="block no-underline"
-              onClick={() => {
-                setOpen(false);
-              }}
+              onClick={() => setOpen(false)}
             >
               <div className="rounded-xl px-3 py-2 text-sm text-zinc-800 hover:bg-zinc-50">Fine print</div>
             </Link>

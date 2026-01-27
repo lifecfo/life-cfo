@@ -187,9 +187,6 @@ export default function HomePage() {
       subtitle="Keystone Money helps you make everyday money decisions — simply and safely."
       right={
         <div className="flex items-center gap-2">
-          <Chip onClick={() => router.push("/how-keystone-works")} title="How Keystone works">
-            How it works
-          </Chip>
         </div>
       }
     >
