@@ -1,7 +1,7 @@
 // app/(app)/home/page.tsx
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { Page } from "@/components/Page";
@@ -32,7 +32,6 @@ function isWithinDays(iso: string, days: number) {
 }
 
 function billsOrientationSentence(o: BillsOrientation) {
-  // One sentence. Calm. No urgency language.
   if (o.autopayRisk > 0) {
     return o.autopayRisk === 1
       ? "One bill may need attention in the next two weeks."
@@ -50,13 +49,19 @@ function billsOrientationSentence(o: BillsOrientation) {
   return "Bills look quiet for now.";
 }
 
+function firstNameOf(full: string) {
+  const s = (full || "").trim();
+  if (!s) return "";
+  return s.split(/\s+/)[0] || "";
+}
+
 export default function HomePage() {
   const router = useRouter();
 
   const [userId, setUserId] = useState<string | null>(null);
   const [authStatus, setAuthStatus] = useState<"loading" | "signed_out" | "signed_in">("loading");
 
-  const [displayName, setDisplayName] = useState<string>("");
+  const [preferredName, setPreferredName] = useState<string>("");
 
   const [text, setText] = useState("");
   const [affirmation, setAffirmation] = useState<"Saved." | "Held." | null>(null);
@@ -89,10 +94,10 @@ export default function HomePage() {
     };
   }, []);
 
-  // --- Name (from Fine Print signature) ---
+  // --- Load name (from Fine Print signature) ---
   useEffect(() => {
     if (!userId) {
-      setDisplayName("");
+      setPreferredName("");
       return;
     }
 
@@ -106,10 +111,14 @@ export default function HomePage() {
         .maybeSingle();
 
       if (!alive) return;
-      if (error) return;
 
-      const n = typeof (data as any)?.fine_print_signed_name === "string" ? (data as any).fine_print_signed_name.trim() : "";
-      setDisplayName(n);
+      if (error) {
+        setPreferredName("");
+        return;
+      }
+
+      const full = typeof data?.fine_print_signed_name === "string" ? data.fine_print_signed_name : "";
+      setPreferredName(firstNameOf(full));
     })();
 
     return () => {
@@ -190,18 +199,13 @@ export default function HomePage() {
     const raw = text.trim();
     if (!raw) return;
 
-    // Release moment: clear immediately.
     setText("");
     flashAffirmation("Saved.");
-
-    // Keep focus available for continued unloading
     window.setTimeout(() => inputRef.current?.focus(), 0);
 
-    // Persist + optional silent inference
     await unload.submit(raw);
   };
 
-  // Orientation click: navigate away (no inline expansion)
   const onOrientationClick = () => {
     const href = orientation.item?.href;
     if (!href) return;
@@ -213,12 +217,12 @@ export default function HomePage() {
 
   const showExamples = text.trim().length === 0;
 
+  const subtitle = preferredName
+    ? `Good to see you, ${preferredName}. A quiet place to unload what’s on your mind — then Keystone helps you orient.`
+    : "A quiet place to unload what’s on your mind — then Keystone helps you orient.";
+
   return (
-    <Page
-      title="Home"
-      subtitle="A quiet place to unload what’s on your mind — then Keystone helps you orient."
-      right={displayName ? <div className="text-sm text-zinc-600">Hi, {displayName}</div> : <div className="flex items-center gap-2"></div>}
-    >
+    <Page title="Home" subtitle={subtitle} right={<div className="flex items-center gap-2"></div>}>
       <div className="mx-auto w-full max-w-[680px] space-y-8">
         {/* Unload (primary) */}
         <div className="space-y-3">
@@ -229,8 +233,6 @@ export default function HomePage() {
             placeholder="What’s on your mind?"
             className="w-full min-h-[140px] resize-y rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-[15px] leading-relaxed text-zinc-900 outline-none focus:ring-2 focus:ring-zinc-200"
             onKeyDown={(e) => {
-              // Natural: Enter submits; Shift+Enter creates a new line.
-              // (We don’t need to tell the user this—just make it work.)
               if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
                 void submit();
@@ -240,7 +242,6 @@ export default function HomePage() {
             disabled={authStatus !== "signed_in"}
           />
 
-          {/* 3 neat examples (only when empty; disappears once typing starts) */}
           {showExamples ? (
             <div className="text-xs text-zinc-500 space-y-1">
               <div>• “Can we afford this right now?”</div>
@@ -249,7 +250,6 @@ export default function HomePage() {
             </div>
           ) : null}
 
-          {/* Soft confirmation (brief, fades) */}
           {affirmation ? (
             <div className="text-sm text-zinc-600" aria-live="polite">
               {affirmation}
@@ -258,7 +258,6 @@ export default function HomePage() {
             <div className="h-5" aria-hidden="true" />
           )}
 
-          {/* Optional, conditional AI response (rare; may be empty) */}
           {unload.response ? <div className="text-[15px] leading-relaxed text-zinc-800">{unload.response}</div> : null}
 
           {authStatus === "signed_out" ? <div className="text-sm text-zinc-600">Sign in to use Home.</div> : null}
@@ -288,7 +287,6 @@ export default function HomePage() {
                 ) : null}
               </div>
 
-              {/* If it has no href, it stays as a calm signal only */}
               {!canOpenOrientation ? <div className="mt-2 text-xs text-zinc-500">No action needed.</div> : null}
             </CardContent>
           </Card>
