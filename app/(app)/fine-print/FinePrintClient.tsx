@@ -1,3 +1,4 @@
+// app/(app)/fine-print/FinePrintClient.tsx
 "use client";
 
 import { useMemo, useState } from "react";
@@ -19,29 +20,33 @@ export default function FinePrintClient({ nextPath }: FinePrintClientProps) {
   const router = useRouter();
   const toastApi: any = useToast();
 
-  const showToast =
-    toastApi?.showToast ??
-    ((args: any) => {
-      if (toastApi?.toast) {
-        toastApi.toast({
-          title: args?.title ?? "Done",
-          description: args?.description ?? args?.message ?? "",
-          variant: args?.variant,
-          action: args?.action,
-        });
-      }
-    });
+  // Keystone UI toast convention in this repo: showToast({ message })
+  const toast = (message: string) => {
+    if (toastApi?.showToast) {
+      toastApi.showToast({ message });
+      return;
+    }
+    // fallback if showToast not present
+    if (toastApi?.toast) {
+      toastApi.toast({ description: message });
+    }
+  };
 
   const VERSION = "v1";
 
   const [name, setName] = useState("");
   const [working, setWorking] = useState(false);
+  const [status, setStatus] = useState<string>("");
 
   const canSave = useMemo(() => name.trim().length >= 2 && !working, [name, working]);
 
   const save = async () => {
+    setStatus("");
+
     if (!canSave) {
-      showToast({ title: "Add your name", description: "Please type your name to continue." });
+      const msg = "Please type your name to continue.";
+      setStatus(msg);
+      toast(msg);
       return;
     }
 
@@ -49,36 +54,35 @@ export default function FinePrintClient({ nextPath }: FinePrintClientProps) {
 
     try {
       const { data: auth, error: authErr } = await supabase.auth.getUser();
+
       if (authErr || !auth?.user) {
+        const msg = "Please sign in again.";
+        setStatus(msg);
+        toast(msg);
         router.push("/login");
         return;
       }
 
-      const uid = auth.user.id;
-
+      // IMPORTANT:
+      // - Your profiles table does NOT include updated_at (per your column screenshot)
+      // - It DOES include user_id (and likely requires it)
       const payload = {
-        // canonical profile key
-        id: uid,
-
-        // keep user_id populated too (optional, but harmless + useful for older queries)
-        user_id: uid,
-
+        user_id: auth.user.id,
         fine_print_accepted_at: new Date().toISOString(),
         fine_print_version: VERSION,
         fine_print_signed_name: name.trim(),
-        updated_at: new Date().toISOString(),
       };
 
-      // Upsert by id (canonical)
-      const { error } = await supabase.from("profiles").upsert(payload as any, { onConflict: "id" });
+      const { error } = await supabase.from("profiles").upsert(payload, { onConflict: "user_id" });
       if (error) throw error;
 
-      showToast({ title: "Saved", description: "Thank you. You’re all set." });
-
-      router.push(nextPath || "/home");
+      toast("Saved.");
+      router.replace(nextPath || "/home");
       router.refresh();
     } catch (e: any) {
-      showToast({ title: "Couldn’t save", description: safeStr(e?.message) || "Something went wrong." });
+      const msg = safeStr(e?.message) || "Couldn’t save. Please try again.";
+      setStatus(msg);
+      toast(`Couldn’t save — ${msg}`);
     } finally {
       setWorking(false);
     }
@@ -146,6 +150,8 @@ export default function FinePrintClient({ nextPath }: FinePrintClientProps) {
                 Cancel
               </Chip>
             </div>
+
+            {status ? <div className="text-sm text-zinc-600">{status}</div> : null}
 
             <div className="text-xs text-zinc-500">Version: {VERSION}</div>
           </div>
