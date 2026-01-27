@@ -19,6 +19,8 @@ export default function LoginClient({ nextPath }: { nextPath: string }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
 
+  const [showPassword, setShowPassword] = useState(false);
+
   const [working, setWorking] = useState(false);
   const [status, setStatus] = useState<string>("");
 
@@ -92,6 +94,7 @@ export default function LoginClient({ nextPath }: { nextPath: string }) {
       if (!data.session) {
         setStatus("Account created ✅ Check your email to confirm, then come back and sign in.");
         setMode("signin");
+        setShowPassword(false);
         return;
       }
 
@@ -198,13 +201,27 @@ export default function LoginClient({ nextPath }: { nextPath: string }) {
             {mode !== "reset" ? (
               <div>
                 <label className="block text-sm font-medium text-neutral-800">Password</label>
-                <input
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  type="password"
-                  className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2 outline-none focus:ring-2 focus:ring-black/10 focus:border-neutral-400"
-                  autoComplete={mode === "signup" ? "new-password" : "current-password"}
-                />
+
+                <div className="mt-1 relative">
+                  <input
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    type={showPassword ? "text" : "password"}
+                    className="w-full rounded-xl border border-neutral-300 px-3 py-2 pr-14 outline-none focus:ring-2 focus:ring-black/10 focus:border-neutral-400"
+                    autoComplete={mode === "signup" ? "new-password" : "current-password"}
+                  />
+
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((v) => !v)}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg border border-neutral-200 bg-white px-2 py-1 text-xs text-neutral-600 hover:bg-neutral-50 transition focus:outline-none focus:ring-2 focus:ring-black/10"
+                    aria-label={showPassword ? "Hide password" : "Show password"}
+                    title={showPassword ? "Hide password" : "Show password"}
+                  >
+                    {showPassword ? "Hide" : "Show"}
+                  </button>
+                </div>
+
                 <div className="mt-1 text-xs text-neutral-500">Minimum 6 characters.</div>
               </div>
             ) : null}
@@ -229,6 +246,7 @@ export default function LoginClient({ nextPath }: { nextPath: string }) {
                     onClick={() => {
                       setMode("signup");
                       setStatus("");
+                      setShowPassword(false);
                     }}
                     className="inline-flex items-center rounded-full border border-neutral-200 bg-white px-3 py-1 text-sm text-neutral-800 hover:bg-neutral-50 transition focus:outline-none focus:ring-2 focus:ring-black/10"
                   >
@@ -240,6 +258,7 @@ export default function LoginClient({ nextPath }: { nextPath: string }) {
                     onClick={() => {
                       setMode("signin");
                       setStatus("");
+                      setShowPassword(false);
                     }}
                     className="inline-flex items-center rounded-full border border-neutral-200 bg-white px-3 py-1 text-sm text-neutral-800 hover:bg-neutral-50 transition focus:outline-none focus:ring-2 focus:ring-black/10"
                   >
@@ -257,6 +276,7 @@ export default function LoginClient({ nextPath }: { nextPath: string }) {
                     }
                     setMode("reset");
                     setStatus("");
+                    setShowPassword(false);
                   }}
                   className="inline-flex items-center rounded-full border border-neutral-200 bg-white px-3 py-1 text-sm text-neutral-800 hover:bg-neutral-50 transition focus:outline-none focus:ring-2 focus:ring-black/10"
                 >
