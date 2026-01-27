@@ -124,13 +124,14 @@ export function AppShell({ children }: AppShellProps) {
     { href: "/chapters", label: "Chapters" },
   ];
 
-  // ✅ Includes Budget
+   // ✅ Money
   const moneyItems: NavItem[] = [
     { href: "/accounts", label: "Accounts" },
     { href: "/bills", label: "Bills" },
     { href: "/income", label: "Income" },
     { href: "/investments", label: "Investments" },
     { href: "/budget", label: "Budget" },
+    { href: "/transactions", label: "Transactions" },
   ];
 
   const helpItems: NavItem[] = [{ href: "/how-keystone-works", label: "How it works" }];

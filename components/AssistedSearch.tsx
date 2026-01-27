@@ -15,7 +15,8 @@ type Scope =
   | "framing"
   | "bills"
   | "accounts"
-  | "investments";
+  | "investments"
+  | "transactions";
 
 type Suggestion = {
   kind: "decision" | "inbox" | "bill" | "account" | "investment";
