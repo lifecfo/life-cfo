@@ -216,6 +216,14 @@ function AccountMenu({ onSignOut }: { onSignOut: () => void }) {
             </Link>
 
             <Link
+            href="/demo"
+            className="block no-underline"
+            onClick={() => setOpen(false)}
+            >
+            <div className="rounded-xl px-3 py-2 text-sm text-zinc-800 hover:bg-zinc-50">Demo</div>
+            </Link>
+
+            <Link
               href="/fine-print"
               className="block no-underline"
               onClick={() => setOpen(false)}
