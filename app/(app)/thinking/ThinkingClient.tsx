@@ -76,6 +76,15 @@ function isoNowPlusDays(days: number) {
   return d.toISOString();
 }
 
+function isoFromDateInput(dateStr: string) {
+  // dateStr is YYYY-MM-DD. Use midday local time to avoid DST edge weirdness.
+  // If invalid, return null.
+  if (!dateStr) return null;
+  const ms = Date.parse(`${dateStr}T12:00:00`);
+  if (Number.isNaN(ms)) return null;
+  return new Date(ms).toISOString();
+}
+
 function softKB(bytes?: number | null) {
   if (!bytes || bytes <= 0) return "";
   return `${Math.max(1, Math.round(bytes / 1024))} KB`;
@@ -125,7 +134,7 @@ export default function ThinkingClient() {
   const [summaryStatus, setSummaryStatus] = useState<string>("");
   const [summaries, setSummaries] = useState<DecisionSummary[]>([]);
 
-  // ✅ Domains + Constellations (tiles + assignment)
+  // ✅ Labels (tiles + assignment) — internal tables remain domains/constellations
   const [domains, setDomains] = useState<Domain[]>([]);
   const [constellations, setConstellations] = useState<Constellation[]>([]);
   const [activeDomainId, setActiveDomainId] = useState<string | null>(null);
@@ -136,15 +145,20 @@ export default function ThinkingClient() {
   // decision_id -> constellation_ids[]
   const [constellationsByDecision, setConstellationsByDecision] = useState<Record<string, string[]>>({});
 
-  // signed url cache (path -> signedUrl)
+  // Signed URL cache (path -> signedUrl)
   const [signed, setSigned] = useState<Record<string, string>>({});
   const signingRef = useRef<Record<string, boolean>>({});
 
   const loadRef = useRef<(opts?: { silent?: boolean }) => void>(() => {});
   const reloadTimerRef = useRef<number | null>(null);
 
-  // ✅ card refs for scroll-to-open
+  // ✅ Card refs for scroll-to-open
   const cardRefs = useRef<Record<string, HTMLDivElement | null>>({});
+
+  // ✅ Inline label editor + revisit control state (per decision)
+  const [labelsEditForId, setLabelsEditForId] = useState<string | null>(null);
+  const [revisitModeById, setRevisitModeById] = useState<Record<string, "7" | "30" | "90" | "custom" | "">>({});
+  const [customDateById, setCustomDateById] = useState<Record<string, string>>({});
 
   const scheduleReload = () => {
     if (reloadTimerRef.current) window.clearTimeout(reloadTimerRef.current);
@@ -348,6 +362,11 @@ export default function ThinkingClient() {
     });
   }, [openId]);
 
+  // Close inline editors when changing open card
+  useEffect(() => {
+    setLabelsEditForId((cur) => (cur && openId && cur === openId ? cur : null));
+  }, [openId]);
+
   // Load summaries for the open draft (capped; no lists)
   useEffect(() => {
     let mounted = true;
@@ -358,7 +377,7 @@ export default function ThinkingClient() {
 
       if (!userId || !openDraft) return;
 
-      setSummaryStatus("Loading memory…");
+      setSummaryStatus("Loading saved summaries…");
 
       const { data, error } = await supabase
         .from("decision_summaries")
@@ -409,12 +428,14 @@ export default function ThinkingClient() {
           if (eventType === "DELETE") {
             if (openId === id) setOpenId(null);
             if (chatForId === id) setChatForId(null);
+            if (labelsEditForId === id) setLabelsEditForId(null);
             return current.filter((d) => d.id !== id);
           }
 
           if (!isDraft) {
             if (openId === id) setOpenId(null);
             if (chatForId === id) setChatForId(null);
+            if (labelsEditForId === id) setLabelsEditForId(null);
             return current.filter((d) => d.id !== id);
           }
 
@@ -454,7 +475,7 @@ export default function ThinkingClient() {
       supabase.removeChannel(channel);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userId, openId, chatForId]);
+  }, [userId, openId, chatForId, labelsEditForId]);
 
   const decideNow = async (d: Decision) => {
     if (!userId) return;
@@ -462,6 +483,7 @@ export default function ThinkingClient() {
     setDrafts((prev) => prev.filter((x) => x.id !== d.id));
     if (openId === d.id) setOpenId(null);
     if (chatForId === d.id) setChatForId(null);
+    if (labelsEditForId === d.id) setLabelsEditForId(null);
 
     const { error } = await supabase
       .from("decisions")
@@ -497,10 +519,8 @@ export default function ThinkingClient() {
     );
   };
 
-  const scheduleRevisit = async (d: Decision, days: number) => {
+  const scheduleRevisitAt = async (d: Decision, review_at: string) => {
     if (!userId) return;
-
-    const review_at = isoNowPlusDays(days);
 
     setDrafts((prev) => prev.map((x) => (x.id === d.id ? { ...x, review_at } : x)));
 
@@ -512,7 +532,12 @@ export default function ThinkingClient() {
       return;
     }
 
-    showToast({ message: `Revisit scheduled (${days}d).` }, 2500);
+    showToast({ message: "Revisit scheduled." }, 2200);
+  };
+
+  const scheduleRevisit = async (d: Decision, days: number) => {
+    const review_at = isoNowPlusDays(days);
+    await scheduleRevisitAt(d, review_at);
   };
 
   const deleteDraft = async (d: Decision) => {
@@ -522,6 +547,7 @@ export default function ThinkingClient() {
     setDrafts((p) => p.filter((x) => x.id !== d.id));
     if (openId === d.id) setOpenId(null);
     if (chatForId === d.id) setChatForId(null);
+    if (labelsEditForId === d.id) setLabelsEditForId(null);
 
     const { error } = await supabase.from("decisions").delete().eq("id", d.id).eq("user_id", userId).eq("status", "draft");
 
@@ -557,7 +583,7 @@ export default function ThinkingClient() {
     showToast({ message: "Added to context." }, 2500);
   };
 
-  // ✅ Domain assignment (single domain per decision in V1)
+  // ✅ Area assignment (single)
   const setDecisionDomain = async (decisionId: string, domainId: string | null) => {
     if (!userId) return;
 
@@ -567,7 +593,7 @@ export default function ThinkingClient() {
       if (!domainId) {
         const { error } = await supabase.from("decision_domains").delete().eq("user_id", userId).eq("decision_id", decisionId);
         if (error) throw error;
-        showToast({ message: "Domain cleared." }, 2000);
+        showToast({ message: "Cleared." }, 1800);
         return;
       }
 
@@ -576,14 +602,14 @@ export default function ThinkingClient() {
         .upsert({ user_id: userId, decision_id: decisionId, domain_id: domainId }, { onConflict: "user_id,decision_id" });
 
       if (error) throw error;
-      showToast({ message: "Domain set." }, 2000);
+      showToast({ message: "Saved." }, 1800);
     } catch {
-      showToast({ message: `Couldn’t update domain.` }, 2500);
+      showToast({ message: `Couldn’t update.` }, 2200);
       loadRef.current({ silent: true });
     }
   };
 
-  // ✅ Constellation membership toggle (multi)
+  // ✅ Group membership toggle (multi)
   const toggleConstellation = async (decisionId: string, constellationId: string) => {
     if (!userId) return;
 
@@ -603,7 +629,7 @@ export default function ThinkingClient() {
           .eq("constellation_id", constellationId);
 
         if (error) throw error;
-        showToast({ message: "Removed." }, 2000);
+        showToast({ message: "Removed." }, 1800);
         return;
       }
 
@@ -614,9 +640,9 @@ export default function ThinkingClient() {
       });
 
       if (error) throw error;
-      showToast({ message: "Added." }, 2000);
+      showToast({ message: "Saved." }, 1800);
     } catch {
-      showToast({ message: `Couldn’t update constellation.` }, 2500);
+      showToast({ message: `Couldn’t update.` }, 2200);
       loadRef.current({ silent: true });
     }
   };
@@ -644,10 +670,12 @@ export default function ThinkingClient() {
 
   const hasMore = filteredDrafts.length > DEFAULT_LIMIT;
 
+  const PrimaryChipClass = "border-zinc-900 bg-zinc-900 text-white hover:bg-zinc-800 hover:text-white";
+
   return (
     <Page
       title="Thinking"
-      subtitle="Work on drafts here. When you’re ready to commit, press Decide to save it into Decisions."
+      subtitle="Work on drafts here. When you’re ready to commit, save it into Decisions."
       right={
         <div className="flex items-center gap-2">
           <Chip onClick={() => router.push("/home")}>Back to Home</Chip>
@@ -659,9 +687,10 @@ export default function ThinkingClient() {
         <AssistedSearch scope="thinking" placeholder="Search drafts and decisions…" />
 
         <div className="space-y-4">
-          <TilesRow title="Domains" items={domains} activeId={activeDomainId} onSelect={(id) => setActiveDomainId(id)} />
+          {/* User-facing: no “Domains/Constellations” wording */}
+          <TilesRow title="Filter by area" items={domains} activeId={activeDomainId} onSelect={(id) => setActiveDomainId(id)} />
           <TilesRow
-            title="Constellations"
+            title="Filter by group"
             items={constellations}
             activeId={activeConstellationId}
             onSelect={(id) => setActiveConstellationId(id)}
@@ -706,6 +735,12 @@ export default function ThinkingClient() {
                 .map((cid) => constellations.find((c) => c.id === cid)?.name)
                 .filter(Boolean) as string[];
 
+              const filedUnder = [domainName, ...memberNames].filter(Boolean) as string[];
+              const isEditingLabels = labelsEditForId === d.id;
+
+              const revisitMode = revisitModeById[d.id] ?? "";
+              const customDate = customDateById[d.id] ?? "";
+
               return (
                 <div
                   key={d.id}
@@ -720,7 +755,10 @@ export default function ThinkingClient() {
                         onClick={() => {
                           const nextOpen = isOpen ? null : d.id;
                           setOpenId(nextOpen);
-                          if (nextOpen !== d.id) setChatForId(null);
+                          if (nextOpen !== d.id) {
+                            setChatForId(null);
+                            setLabelsEditForId(null);
+                          }
                         }}
                         className="w-full text-left"
                         aria-expanded={isOpen}
@@ -735,14 +773,15 @@ export default function ThinkingClient() {
                               {d.review_at ? ` • Revisit ${softWhen(d.review_at)}` : ""}
                             </div>
 
+                            {/* Calm summary chips (not “Domain/Constellation”) */}
                             <div className="mt-2 flex flex-wrap gap-2">
-                              {domainName ? <Chip title="Domain">{domainName}</Chip> : null}
+                              {domainName ? <Chip title="Filed under">{domainName}</Chip> : null}
                               {memberNames.slice(0, 2).map((n) => (
-                                <Chip key={n} title="Constellation">
+                                <Chip key={n} title="Filed under">
                                   {n}
                                 </Chip>
                               ))}
-                              {memberNames.length > 2 ? <Chip title="More constellations">+{memberNames.length - 2}</Chip> : null}
+                              {memberNames.length > 2 ? <Chip title="More">+{memberNames.length - 2}</Chip> : null}
                             </div>
                           </div>
 
@@ -765,41 +804,60 @@ export default function ThinkingClient() {
                           {/* ✅ Notes */}
                           <DecisionNotes decisionId={d.id} kind="thinking" />
 
-                          {/* ✅ Meaning assignment */}
-                          <div className="rounded-xl border border-zinc-200 bg-white p-3 space-y-3">
-                            <div className="text-xs font-semibold text-zinc-700">Meaning</div>
+                          {/* ✅ Filed under (collapsed by default) */}
+                          <div className="rounded-xl border border-zinc-200 bg-white p-3 space-y-2">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <div className="text-xs font-semibold text-zinc-700">Filed under</div>
+                              <Chip onClick={() => setLabelsEditForId((cur) => (cur === d.id ? null : d.id))}>
+                                {isEditingLabels ? "Done" : "Edit"}
+                              </Chip>
+                            </div>
 
-                            <div className="space-y-2">
-                              <div className="text-xs text-zinc-500">Domain</div>
-                              <div className="flex flex-wrap items-center gap-2">
-                                <Chip active={!domainId} onClick={() => void setDecisionDomain(d.id, null)}>
-                                  None
-                                </Chip>
-                                {domains.map((dom) => (
-                                  <Chip key={dom.id} active={domainId === dom.id} onClick={() => void setDecisionDomain(d.id, dom.id)}>
-                                    {dom.name}
-                                  </Chip>
-                                ))}
+                            {!isEditingLabels ? (
+                              <div className="text-sm text-zinc-700">
+                                {filedUnder.length > 0 ? (
+                                  <span>{filedUnder.join(", ")}</span>
+                                ) : (
+                                  <span className="text-zinc-600">Not set.</span>
+                                )}
                               </div>
-                            </div>
+                            ) : (
+                              <div className="space-y-3">
+                                <div className="text-xs text-zinc-500">Optional. Helps you group and filter later.</div>
 
-                            <div className="space-y-2">
-                              <div className="text-xs text-zinc-500">Constellations</div>
-                              {constellations.length === 0 ? (
-                                <div className="text-sm text-zinc-600">No constellations yet.</div>
-                              ) : (
-                                <div className="flex flex-wrap items-center gap-2">
-                                  {constellations.map((c) => {
-                                    const active = memberIds.includes(c.id);
-                                    return (
-                                      <Chip key={c.id} active={active} onClick={() => void toggleConstellation(d.id, c.id)}>
-                                        {c.name}
+                                <div className="space-y-2">
+                                  <div className="text-xs text-zinc-500">Area</div>
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <Chip active={!domainId} onClick={() => void setDecisionDomain(d.id, null)}>
+                                      None
+                                    </Chip>
+                                    {domains.map((dom) => (
+                                      <Chip key={dom.id} active={domainId === dom.id} onClick={() => void setDecisionDomain(d.id, dom.id)}>
+                                        {dom.name}
                                       </Chip>
-                                    );
-                                  })}
+                                    ))}
+                                  </div>
                                 </div>
-                              )}
-                            </div>
+
+                                <div className="space-y-2">
+                                  <div className="text-xs text-zinc-500">Groups</div>
+                                  {constellations.length === 0 ? (
+                                    <div className="text-sm text-zinc-600">No groups yet.</div>
+                                  ) : (
+                                    <div className="flex flex-wrap items-center gap-2">
+                                      {constellations.map((c) => {
+                                        const active = memberIds.includes(c.id);
+                                        return (
+                                          <Chip key={c.id} active={active} onClick={() => void toggleConstellation(d.id, c.id)}>
+                                            {c.name}
+                                          </Chip>
+                                        );
+                                      })}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            )}
                           </div>
 
                           {/* Attachments */}
@@ -811,7 +869,11 @@ export default function ThinkingClient() {
                             ) : (
                               <div className="flex flex-wrap items-center gap-2">
                                 {attachmentsForCard.map((a) => (
-                                  <Chip key={a.path} onClick={() => void openAttachment(a)} title={`${a.type}${a.size ? ` • ${softKB(a.size)}` : ""}`}>
+                                  <Chip
+                                    key={a.path}
+                                    onClick={() => void openAttachment(a)}
+                                    title={`${a.type}${a.size ? ` • ${softKB(a.size)}` : ""}`}
+                                  >
                                     {a.name}
                                   </Chip>
                                 ))}
@@ -819,19 +881,23 @@ export default function ThinkingClient() {
                             )}
                           </div>
 
-                          {/* Memory */}
+                          {/* Saved summaries */}
                           <div className="rounded-xl border border-zinc-200 bg-white p-3 space-y-2">
-                            <div className="text-xs font-semibold text-zinc-700">Memory</div>
+                            <div className="space-y-1">
+                              <div className="text-xs font-semibold text-zinc-700">Saved summaries</div>
+                              <div className="text-xs text-zinc-500">These appear after you choose to save a chat summary.</div>
+                            </div>
+
                             {summaryStatus ? <div className="text-xs text-zinc-500">{summaryStatus}</div> : null}
 
-                            {!summaryStatus && summaries.length === 0 ? <div className="text-sm text-zinc-600">No saved summaries yet.</div> : null}
+                            {!summaryStatus && summaries.length === 0 ? <div className="text-sm text-zinc-600">Nothing saved yet.</div> : null}
 
                             {summaries.map((s) => (
                               <div key={s.id} className="space-y-2">
                                 <div className="text-xs text-zinc-500">Saved {softWhen(s.created_at)}</div>
                                 <div className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-800">{s.summary_text}</div>
                                 <div className="flex flex-wrap items-center gap-2">
-                                  <Chip onClick={() => useSummaryAsContext(d, s)} title="Append this summary into the draft context">
+                                  <Chip onClick={() => useSummaryAsContext(d, s)} title="Append this into the draft context">
                                     Use as context
                                   </Chip>
                                 </div>
@@ -842,21 +908,74 @@ export default function ThinkingClient() {
                           {/* Actions */}
                           <div className="space-y-2">
                             <div className="text-xs text-zinc-500">
-                              Decide saves this into <span className="font-medium">Decisions</span>. Revisit brings it back to mind later.
+                              Talk it through if you’re unsure. Decide saves it into <span className="font-medium">Decisions</span>.
                             </div>
 
                             <div className="flex flex-wrap items-center gap-2">
-                              <Chip onClick={() => decideNow(d)} title="Confirm this decision and save it into Decisions">
+                              {/* Primary first/leftmost */}
+                              <Chip
+                                className={PrimaryChipClass}
+                                onClick={() => setChatForId((cur) => (cur === d.id ? null : d.id))}
+                                title="Talk it through with Keystone"
+                              >
+                                {isChatOpen ? "Hide chat" : "Talk this through"}
+                              </Chip>
+
+                              <Chip className={PrimaryChipClass} onClick={() => decideNow(d)} title="Confirm and save into Decisions">
                                 Decide
                               </Chip>
 
-                              <Chip onClick={() => scheduleRevisit(d, 7)} title="Bring this back in 7 days">
-                                Revisit 7d
-                              </Chip>
+                              {/* Revisit control (presets + custom date) */}
+                              <div className="flex flex-wrap items-center gap-2">
+                                <div className="text-xs text-zinc-500">Revisit</div>
 
-                              <Chip onClick={() => scheduleRevisit(d, 30)} title="Bring this back in 30 days">
-                                Revisit 30d
-                              </Chip>
+                                <select
+                                  className="h-9 rounded-full border border-zinc-200 bg-white px-3 text-sm text-zinc-700"
+                                  value={revisitMode}
+                                  onChange={(e) => {
+                                    const v = e.target.value as "7" | "30" | "90" | "custom" | "";
+                                    setRevisitModeById((prev) => ({ ...prev, [d.id]: v }));
+
+                                    if (v === "7") void scheduleRevisit(d, 7);
+                                    if (v === "30") void scheduleRevisit(d, 30);
+                                    if (v === "90") void scheduleRevisit(d, 90);
+                                  }}
+                                  aria-label="Revisit schedule"
+                                  title="Choose when to bring this back"
+                                >
+                                  <option value="">Choose…</option>
+                                  <option value="7">In 7 days</option>
+                                  <option value="30">In 30 days</option>
+                                  <option value="90">In 90 days</option>
+                                  <option value="custom">Pick a date…</option>
+                                </select>
+
+                                {revisitMode === "custom" ? (
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <input
+                                      type="date"
+                                      className="h-9 rounded-full border border-zinc-200 bg-white px-3 text-sm text-zinc-700"
+                                      value={customDate}
+                                      onChange={(e) => setCustomDateById((prev) => ({ ...prev, [d.id]: e.target.value }))}
+                                      aria-label="Custom revisit date"
+                                      title="Pick a date"
+                                    />
+                                    <Chip
+                                      onClick={() => {
+                                        const iso = isoFromDateInput(customDate);
+                                        if (!iso) {
+                                          showToast({ message: "Pick a valid date." }, 2000);
+                                          return;
+                                        }
+                                        void scheduleRevisitAt(d, iso);
+                                      }}
+                                      title="Set revisit date"
+                                    >
+                                      Set date
+                                    </Chip>
+                                  </div>
+                                ) : null}
+                              </div>
 
                               <Chip onClick={() => router.push("/revisit")} title="Open Revisit to see scheduled items">
                                 Go to Revisit
@@ -864,13 +983,6 @@ export default function ThinkingClient() {
 
                               <Chip onClick={() => deleteDraft(d)} title="Delete this draft">
                                 Delete
-                              </Chip>
-
-                              <Chip
-                                onClick={() => setChatForId((cur) => (cur === d.id ? null : d.id))}
-                                title="Talk it through with Keystone"
-                              >
-                                {isChatOpen ? "Hide chat" : "Talk this through"}
                               </Chip>
 
                               <Chip onClick={() => router.push("/home")} title="Return to Home">

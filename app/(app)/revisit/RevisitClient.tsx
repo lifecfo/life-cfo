@@ -97,13 +97,12 @@ function dayDiffFromNow(iso: string) {
   return Math.round(diff / (24 * 60 * 60 * 1000));
 }
 
-function nextReviewFromPreset(preset: "1w" | "1m" | "3m" | "6m") {
-  const d = new Date();
-  if (preset === "1w") d.setDate(d.getDate() + 7);
-  if (preset === "1m") d.setMonth(d.getMonth() + 1);
-  if (preset === "3m") d.setMonth(d.getMonth() + 3);
-  if (preset === "6m") d.setMonth(d.getMonth() + 6);
-  return d.toISOString();
+function isoFromDateInput(dateStr: string) {
+  // dateStr is YYYY-MM-DD. Use midday local time to avoid DST edge weirdness.
+  if (!dateStr) return null;
+  const ms = Date.parse(`${dateStr}T12:00:00`);
+  if (Number.isNaN(ms)) return null;
+  return new Date(ms).toISOString();
 }
 
 function toDateInputValue(iso: string | null) {
@@ -140,7 +139,7 @@ export default function RevisitClient() {
   const [showAllDue, setShowAllDue] = useState(false);
   const [showAllSoon, setShowAllSoon] = useState(false);
 
-  // ✅ Domains + Constellations (tiles + meaning)
+  // ✅ Labels (tiles + assignment) — internal tables remain domains/constellations
   const [domains, setDomains] = useState<Domain[]>([]);
   const [constellations, setConstellations] = useState<Constellation[]>([]);
   const [activeDomainId, setActiveDomainId] = useState<string | null>(null);
@@ -148,6 +147,11 @@ export default function RevisitClient() {
 
   const [domainByDecision, setDomainByDecision] = useState<Record<string, string | null>>({});
   const [constellationsByDecision, setConstellationsByDecision] = useState<Record<string, string[]>>({});
+
+  // ✅ Collapsed label editor + revisit UI state
+  const [labelsEditForId, setLabelsEditForId] = useState<string | null>(null);
+  const [revisitModeById, setRevisitModeById] = useState<Record<string, "7" | "30" | "90" | "custom" | "">>({});
+  const [customDateById, setCustomDateById] = useState<Record<string, string>>({});
 
   // signed url cache (path -> signedUrl)
   const [signed, setSigned] = useState<Record<string, string>>({});
@@ -434,11 +438,17 @@ export default function RevisitClient() {
     setStatusLine("Undone.");
   };
 
-  const markReviewed = async (d: Decision, preset?: "1w" | "1m" | "3m" | "6m" | "clear") => {
+  const markReviewed = async (d: Decision, preset?: "keep" | "7" | "30" | "90" | "custom" | "clear", customIso?: string | null) => {
     if (!userId) return;
 
     const nowIso = new Date().toISOString();
-    const nextReview = preset === "clear" ? null : preset ? nextReviewFromPreset(preset) : d.review_at;
+
+    let nextReview: string | null = d.review_at;
+    if (preset === "clear") nextReview = null;
+    if (preset === "7") nextReview = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+    if (preset === "30") nextReview = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+    if (preset === "90") nextReview = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString();
+    if (preset === "custom") nextReview = customIso ?? null;
 
     const prevHistory = Array.isArray(d.review_history) ? d.review_history : [];
     const entry: Record<string, unknown> = { at: nowIso, kind: "reviewed", next_review_at: nextReview };
@@ -471,23 +481,6 @@ export default function RevisitClient() {
     setStatusLine("Reviewed.");
   };
 
-  const setCustomReviewAt = async (d: Decision, iso: string | null) => {
-    if (!userId) return;
-
-    pushUndo(d.id, "Undo", { review_at: d.review_at ?? null });
-    setItems((prev) => prev.map((x) => (x.id === d.id ? { ...x, review_at: iso } : x)));
-
-    const { error } = await supabase.from("decisions").update({ review_at: iso }).eq("id", d.id).eq("user_id", userId);
-
-    if (error) {
-      setStatusLine(`Update failed: ${error.message}`);
-      await undoLast();
-      return;
-    }
-
-    setStatusLine("Updated.");
-  };
-
   const dueLabel = (d: Decision) => {
     const iso = d.review_at;
     if (!iso) return "";
@@ -500,7 +493,7 @@ export default function RevisitClient() {
     return `Due in ${diff}d`;
   };
 
-  // ✅ Domain assignment (single domain per decision)
+  // ✅ Area assignment (single domain per decision)
   const setDecisionDomain = async (decisionId: string, domainId: string | null) => {
     if (!userId) return;
 
@@ -510,7 +503,7 @@ export default function RevisitClient() {
       if (!domainId) {
         const { error } = await supabase.from("decision_domains").delete().eq("user_id", userId).eq("decision_id", decisionId);
         if (error) throw error;
-        setStatusLine("Domain cleared.");
+        setStatusLine("Saved.");
         return;
       }
 
@@ -519,14 +512,14 @@ export default function RevisitClient() {
         .upsert({ user_id: userId, decision_id: decisionId, domain_id: domainId }, { onConflict: "user_id,decision_id" });
 
       if (error) throw error;
-      setStatusLine("Domain set.");
+      setStatusLine("Saved.");
     } catch {
-      setStatusLine("Couldn’t update domain.");
+      setStatusLine("Couldn’t update.");
       void load(userId);
     }
   };
 
-  // ✅ Constellation toggle (multi)
+  // ✅ Group toggle (multi)
   const toggleConstellation = async (decisionId: string, constellationId: string) => {
     if (!userId) return;
 
@@ -557,9 +550,9 @@ export default function RevisitClient() {
       });
 
       if (error) throw error;
-      setStatusLine("Added.");
+      setStatusLine("Saved.");
     } catch {
-      setStatusLine("Couldn’t update constellation.");
+      setStatusLine("Couldn’t update.");
       void load(userId);
     }
   };
@@ -581,7 +574,10 @@ export default function RevisitClient() {
     };
   }, [dueItemsRaw, activeDomainId, activeConstellationId, domainByDecision, constellationsByDecision]);
 
-  const dueVisible = useMemo(() => (showAllDue ? filteredDueItems.due : filteredDueItems.due.slice(0, DEFAULT_LIMIT)), [filteredDueItems.due, showAllDue]);
+  const dueVisible = useMemo(
+    () => (showAllDue ? filteredDueItems.due : filteredDueItems.due.slice(0, DEFAULT_LIMIT)),
+    [filteredDueItems.due, showAllDue]
+  );
   const soonVisible = useMemo(
     () => (showAllSoon ? filteredDueItems.soon : filteredDueItems.soon.slice(0, DEFAULT_LIMIT)),
     [filteredDueItems.soon, showAllSoon]
@@ -605,6 +601,154 @@ export default function RevisitClient() {
             ))}
           </div>
         )}
+      </div>
+    );
+  };
+
+  const FiledUnderBox = ({ decision }: { decision: Decision }) => {
+    const d = decision;
+
+    const domainId = domainByDecision[d.id] ?? null;
+    const domainObj = domainId ? domains.find((x) => x.id === domainId) ?? null : null;
+
+    const memberIds = constellationsByDecision[d.id] ?? [];
+    const memberObjs = memberIds
+      .map((cid) => constellations.find((c) => c.id === cid) ?? null)
+      .filter(Boolean) as Constellation[];
+
+    const filedUnder = [
+      domainObj ? `${domainObj.emoji ? `${domainObj.emoji} ` : ""}${domainObj.name}` : null,
+      ...memberObjs.map((c) => `${c.emoji ? `${c.emoji} ` : ""}${c.name}`),
+    ].filter(Boolean) as string[];
+
+    const isEditing = labelsEditForId === d.id;
+
+    return (
+      <div className="rounded-xl border border-zinc-200 bg-white p-3 space-y-2">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="text-xs font-semibold text-zinc-700">Filed under</div>
+          <Chip onClick={() => setLabelsEditForId((cur) => (cur === d.id ? null : d.id))}>{isEditing ? "Done" : "Edit"}</Chip>
+        </div>
+
+        {!isEditing ? (
+          <div className="text-sm text-zinc-700">
+            {filedUnder.length > 0 ? <span>{filedUnder.join(", ")}</span> : <span className="text-zinc-600">Not set.</span>}
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <div className="text-xs text-zinc-500">Optional. Helps you group and filter later.</div>
+
+            <div className="space-y-2">
+              <div className="text-xs text-zinc-500">Area</div>
+              <div className="flex flex-wrap items-center gap-2">
+                <Chip active={!domainId} onClick={() => void setDecisionDomain(d.id, null)}>
+                  None
+                </Chip>
+                {domains.map((dom) => (
+                  <Chip key={dom.id} active={domainId === dom.id} onClick={() => void setDecisionDomain(d.id, dom.id)}>
+                    {dom.emoji ? `${dom.emoji} ` : ""}
+                    {dom.name}
+                  </Chip>
+                ))}
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <div className="text-xs text-zinc-500">Groups</div>
+              {constellations.length === 0 ? (
+                <div className="text-sm text-zinc-600">No groups yet.</div>
+              ) : (
+                <div className="flex flex-wrap items-center gap-2">
+                  {constellations.map((c) => {
+                    const active = memberIds.includes(c.id);
+                    return (
+                      <Chip key={c.id} active={active} onClick={() => void toggleConstellation(d.id, c.id)}>
+                        {c.emoji ? `${c.emoji} ` : ""}
+                        {c.name}
+                      </Chip>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const ReviewControls = ({ decision }: { decision: Decision }) => {
+    const d = decision;
+
+    const mode = revisitModeById[d.id] ?? "";
+    const customDate = customDateById[d.id] ?? "";
+
+    return (
+      <div className="space-y-2">
+        <div className="text-xs text-zinc-500">Reviewed</div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <Chip onClick={() => void markReviewed(d, "keep")} title="Mark as reviewed (keep the same date)">
+            Reviewed
+          </Chip>
+
+          <select
+            className="h-9 rounded-full border border-zinc-200 bg-white px-3 text-sm text-zinc-700"
+            value={mode}
+            onChange={(e) => {
+              const v = e.target.value as "7" | "30" | "90" | "custom" | "";
+              setRevisitModeById((prev) => ({ ...prev, [d.id]: v }));
+
+              if (v === "7") void markReviewed(d, "7");
+              if (v === "30") void markReviewed(d, "30");
+              if (v === "90") void markReviewed(d, "90");
+            }}
+            aria-label="Choose next revisit"
+            title="Choose when to bring this back"
+          >
+            <option value="">Next time…</option>
+            <option value="7">In 7 days</option>
+            <option value="30">In 30 days</option>
+            <option value="90">In 90 days</option>
+            <option value="custom">Pick a date…</option>
+          </select>
+
+          {mode === "custom" ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                type="date"
+                className="h-9 rounded-full border border-zinc-200 bg-white px-3 text-sm text-zinc-700"
+                value={customDate}
+                onChange={(e) => setCustomDateById((prev) => ({ ...prev, [d.id]: e.target.value }))}
+                aria-label="Custom revisit date"
+                title="Pick a date"
+              />
+              <Chip
+                onClick={() => {
+                  const iso = isoFromDateInput(customDate);
+                  if (!iso) {
+                    setStatusLine("Pick a valid date.");
+                    return;
+                  }
+                  void markReviewed(d, "custom", iso);
+                }}
+                title="Set next revisit date"
+              >
+                Set date
+              </Chip>
+            </div>
+          ) : null}
+
+          <Chip onClick={() => void markReviewed(d, "clear")} title="Stop resurfacing this decision">
+            Clear revisit
+          </Chip>
+
+          <Chip onClick={() => setOpenId(null)} title="Close this card">
+            Done
+          </Chip>
+        </div>
+
+        <div className="text-xs text-zinc-500">Current review date: {softDate(d.review_at)}</div>
       </div>
     );
   };
@@ -633,20 +777,20 @@ export default function RevisitClient() {
 
                 <div className="mt-2 flex flex-wrap gap-2">
                   {domainObj ? (
-                    <Chip title="Domain">
+                    <Chip title="Filed under">
                       {domainObj.emoji ? `${domainObj.emoji} ` : ""}
                       {domainObj.name}
                     </Chip>
                   ) : null}
 
                   {memberObjs.slice(0, 2).map((c) => (
-                    <Chip key={c.id} title="Constellation">
+                    <Chip key={c.id} title="Filed under">
                       {c.emoji ? `${c.emoji} ` : ""}
                       {c.name}
                     </Chip>
                   ))}
 
-                  {memberObjs.length > 2 ? <Chip title="More constellations">+{memberObjs.length - 2}</Chip> : null}
+                  {memberObjs.length > 2 ? <Chip title="More">+{memberObjs.length - 2}</Chip> : null}
                 </div>
               </div>
 
@@ -664,91 +808,11 @@ export default function RevisitClient() {
                 <div className="text-sm text-zinc-600">No extra context saved.</div>
               )}
 
-              <div className="rounded-xl border border-zinc-200 bg-white p-3 space-y-3">
-                <div className="text-xs font-semibold text-zinc-700">Meaning</div>
-
-                <div className="space-y-2">
-                  <div className="text-xs text-zinc-500">Domain</div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Chip active={!domainId} onClick={() => void setDecisionDomain(d.id, null)}>
-                      None
-                    </Chip>
-                    {domains.map((dom) => (
-                      <Chip key={dom.id} active={domainId === dom.id} onClick={() => void setDecisionDomain(d.id, dom.id)}>
-                        {dom.emoji ? `${dom.emoji} ` : ""}
-                        {dom.name}
-                      </Chip>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <div className="text-xs text-zinc-500">Constellations</div>
-                  {constellations.length === 0 ? (
-                    <div className="text-sm text-zinc-600">No constellations yet.</div>
-                  ) : (
-                    <div className="flex flex-wrap items-center gap-2">
-                      {constellations.map((c) => {
-                        const active = memberIds.includes(c.id);
-                        return (
-                          <Chip key={c.id} active={active} onClick={() => void toggleConstellation(d.id, c.id)}>
-                            {c.emoji ? `${c.emoji} ` : ""}
-                            {c.name}
-                          </Chip>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              </div>
+              <FiledUnderBox decision={d} />
 
               <AttachmentsStrip decision={d} />
 
-              <div className="space-y-2">
-                <div className="text-xs text-zinc-500">Bring this back later (optional)</div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <Chip onClick={() => void markReviewed(d)} title="Mark as reviewed (keep the same date)">
-                    Reviewed
-                  </Chip>
-
-                  <Chip onClick={() => void markReviewed(d, "1w")} title="Bring back in 1 week">
-                    1w
-                  </Chip>
-                  <Chip onClick={() => void markReviewed(d, "1m")} title="Bring back in 1 month">
-                    1m
-                  </Chip>
-                  <Chip onClick={() => void markReviewed(d, "3m")} title="Bring back in 3 months">
-                    3m
-                  </Chip>
-                  <Chip onClick={() => void markReviewed(d, "6m")} title="Bring back in 6 months">
-                    6m
-                  </Chip>
-
-                  <Chip onClick={() => void markReviewed(d, "clear")} title="Stop resurfacing this decision">
-                    Clear revisit
-                  </Chip>
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <div className="text-xs text-zinc-500">Or choose a date:</div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <input
-                    type="date"
-                    className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800 outline-none focus:ring-2 focus:ring-zinc-200"
-                    value={toDateInputValue(d.review_at)}
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      if (!v) return void setCustomReviewAt(d, null);
-                      const iso = new Date(`${v}T09:00:00`).toISOString();
-                      void setCustomReviewAt(d, iso);
-                    }}
-                  />
-                  <Chip onClick={() => setOpenId(null)} title="Close this card">
-                    Done
-                  </Chip>
-                </div>
-              </div>
+              <ReviewControls decision={d} />
             </div>
           ) : null}
         </CardContent>
@@ -786,8 +850,9 @@ export default function RevisitClient() {
         <AssistedSearch scope="revisit" placeholder="Search decisions…" />
 
         <div className="space-y-4">
-          <TilesRow title="Domains" items={domains} activeId={activeDomainId} onSelect={onSelectDomainTile} />
-          <TilesRow title="Constellations" items={constellations} activeId={activeConstellationId} onSelect={onSelectConstellationTile} />
+          {/* User-facing: no “Domains/Constellations” wording */}
+          <TilesRow title="Filter by area" items={domains} activeId={activeDomainId} onSelect={onSelectDomainTile} />
+          <TilesRow title="Filter by group" items={constellations} activeId={activeConstellationId} onSelect={onSelectConstellationTile} />
         </div>
 
         <div className="text-xs text-zinc-500">{statusLine}</div>
@@ -810,11 +875,7 @@ export default function RevisitClient() {
                   {filteredDueItems.due.length > DEFAULT_LIMIT ? (
                     <div className="flex items-center gap-2">
                       <Chip onClick={() => setShowAllDue((v) => !v)}>{showAllDue ? "Show less" : "Show all"}</Chip>
-                      {!showAllDue ? (
-                        <div className="text-xs text-zinc-500">
-                          Showing {DEFAULT_LIMIT} of {filteredDueItems.due.length}
-                        </div>
-                      ) : null}
+                      {!showAllDue ? <div className="text-xs text-zinc-500">Showing {DEFAULT_LIMIT} of {filteredDueItems.due.length}</div> : null}
                     </div>
                   ) : null}
                 </div>
@@ -832,11 +893,7 @@ export default function RevisitClient() {
                   {filteredDueItems.soon.length > DEFAULT_LIMIT ? (
                     <div className="flex items-center gap-2">
                       <Chip onClick={() => setShowAllSoon((v) => !v)}>{showAllSoon ? "Show less" : "Show all"}</Chip>
-                      {!showAllSoon ? (
-                        <div className="text-xs text-zinc-500">
-                          Showing {DEFAULT_LIMIT} of {filteredDueItems.soon.length}
-                        </div>
-                      ) : null}
+                      {!showAllSoon ? <div className="text-xs text-zinc-500">Showing {DEFAULT_LIMIT} of {filteredDueItems.soon.length}</div> : null}
                     </div>
                   ) : null}
                 </div>

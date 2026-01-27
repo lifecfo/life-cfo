@@ -83,7 +83,7 @@ export default function ChaptersClient() {
   const DEFAULT_LIMIT = 5;
   const [showAll, setShowAll] = useState(false);
 
-  // ✅ Domains + Constellations (tiles + meaning)
+  // ✅ Labels (tiles + assignment)
   const [domains, setDomains] = useState<Domain[]>([]);
   const [constellations, setConstellations] = useState<Constellation[]>([]);
   const [activeDomainId, setActiveDomainId] = useState<string | null>(null);
@@ -91,6 +91,9 @@ export default function ChaptersClient() {
 
   const [domainByDecision, setDomainByDecision] = useState<Record<string, string | null>>({});
   const [constellationsByDecision, setConstellationsByDecision] = useState<Record<string, string[]>>({});
+
+  // ✅ per-card labels editor (collapsed by default)
+  const [editLabelsForId, setEditLabelsForId] = useState<string | null>(null);
 
   // signed url cache (path -> signedUrl)
   const [signed, setSigned] = useState<Record<string, string>>({});
@@ -333,6 +336,7 @@ export default function ChaptersClient() {
     // optimistic: remove it from Chapters
     setItems((prev) => prev.filter((x) => x.id !== d.id));
     setOpenId((cur) => (cur === d.id ? null : cur));
+    setEditLabelsForId((cur) => (cur === d.id ? null : cur));
     setStatusLine("Reopened.");
 
     const { error } = await supabase
@@ -351,7 +355,7 @@ export default function ChaptersClient() {
     }
   };
 
-  // ✅ Domain assignment (single domain per decision)
+  // ✅ Primary label assignment (single)
   const setDecisionDomain = async (decisionId: string, domainId: string | null) => {
     if (!userId) return;
 
@@ -362,24 +366,23 @@ export default function ChaptersClient() {
       if (!domainId) {
         const { error } = await supabase.from("decision_domains").delete().eq("user_id", userId).eq("decision_id", decisionId);
         if (error) throw error;
-        setStatusLine("Domain cleared.");
+        setStatusLine("Updated.");
         return;
       }
 
-      // IMPORTANT: conflict target should match unique(user_id, decision_id)
       const { error } = await supabase
         .from("decision_domains")
         .upsert({ user_id: userId, decision_id: decisionId, domain_id: domainId }, { onConflict: "user_id,decision_id" });
 
       if (error) throw error;
-      setStatusLine("Domain set.");
+      setStatusLine("Updated.");
     } catch {
-      setStatusLine("Couldn’t update domain.");
+      setStatusLine("Couldn’t update.");
       void load(userId);
     }
   };
 
-  // ✅ Constellation toggle (multi)
+  // ✅ Group membership toggle (multi)
   const toggleConstellation = async (decisionId: string, constellationId: string) => {
     if (!userId) return;
 
@@ -400,7 +403,7 @@ export default function ChaptersClient() {
           .eq("constellation_id", constellationId);
 
         if (error) throw error;
-        setStatusLine("Removed.");
+        setStatusLine("Updated.");
         return;
       }
 
@@ -411,9 +414,9 @@ export default function ChaptersClient() {
       });
 
       if (error) throw error;
-      setStatusLine("Added.");
+      setStatusLine("Updated.");
     } catch {
-      setStatusLine("Couldn’t update constellation.");
+      setStatusLine("Couldn’t update.");
       void load(userId);
     }
   };
@@ -429,10 +432,7 @@ export default function ChaptersClient() {
   }, [items, activeDomainId, activeConstellationId, domainByDecision, constellationsByDecision]);
 
   // ✅ V1: top-5 default list (after filters)
-  const visibleItems = useMemo(
-    () => (showAll ? filteredItems : filteredItems.slice(0, DEFAULT_LIMIT)),
-    [filteredItems, showAll]
-  );
+  const visibleItems = useMemo(() => (showAll ? filteredItems : filteredItems.slice(0, DEFAULT_LIMIT)), [filteredItems, showAll]);
 
   // ✅ tile UX: toggle off when clicking again
   const onSelectDomainTile = (id: string | null) => {
@@ -442,6 +442,26 @@ export default function ChaptersClient() {
   const onSelectConstellationTile = (id: string | null) => {
     setActiveConstellationId((cur) => (cur === id ? null : id));
     setShowAll(false);
+  };
+
+  const filedUnderText = (decisionId: string) => {
+    const domainId = domainByDecision[decisionId] ?? null;
+    const domainObj = domainId ? domains.find((x) => x.id === domainId) ?? null : null;
+
+    const memberIds = constellationsByDecision[decisionId] ?? [];
+    const memberObjs = memberIds
+      .map((cid) => constellations.find((c) => c.id === cid) ?? null)
+      .filter(Boolean) as Constellation[];
+
+    const parts: string[] = [];
+
+    if (domainObj) parts.push(`${domainObj.emoji ? `${domainObj.emoji} ` : ""}${domainObj.name}`);
+    for (const c of memberObjs.slice(0, 2)) {
+      parts.push(`${c.emoji ? `${c.emoji} ` : ""}${c.name}`);
+    }
+    if (memberObjs.length > 2) parts.push(`+${memberObjs.length - 2}`);
+
+    return parts.length ? parts.join(" • ") : "None";
   };
 
   return (
@@ -458,10 +478,10 @@ export default function ChaptersClient() {
         {/* ✅ Assisted retrieval */}
         <AssistedSearch scope="chapters" placeholder="Search chapters…" />
 
-        {/* ✅ Calm tiles */}
+        {/* ✅ Calm tiles (filters) */}
         <div className="space-y-4">
-          <TilesRow title="Domains" items={domains} activeId={activeDomainId} onSelect={onSelectDomainTile} />
-          <TilesRow title="Constellations" items={constellations} activeId={activeConstellationId} onSelect={onSelectConstellationTile} />
+          <TilesRow title="Labels" items={domains} activeId={activeDomainId} onSelect={onSelectDomainTile} />
+          <TilesRow title="Groups" items={constellations} activeId={activeConstellationId} onSelect={onSelectConstellationTile} />
         </div>
 
         <div className="text-xs text-zinc-500">{statusLine}</div>
@@ -492,17 +512,23 @@ export default function ChaptersClient() {
               const atts = isOpen ? normalizeAttachments(d.attachments) : [];
 
               const domainId = domainByDecision[d.id] ?? null;
-              const domainObj = domainId ? domains.find((x) => x.id === domainId) ?? null : null;
-
               const memberIds = constellationsByDecision[d.id] ?? [];
-              const memberObjs = memberIds
-                .map((cid) => constellations.find((c) => c.id === cid) ?? null)
-                .filter(Boolean) as Constellation[];
+
+              const showLabelsEditor = editLabelsForId === d.id;
 
               return (
                 <Card key={d.id} className="border-zinc-200 bg-white">
                   <CardContent>
-                    <button type="button" onClick={() => setOpenId(isOpen ? null : d.id)} className="w-full text-left" aria-expanded={isOpen}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const next = isOpen ? null : d.id;
+                        setOpenId(next);
+                        if (next !== d.id) setEditLabelsForId(null);
+                      }}
+                      className="w-full text-left"
+                      aria-expanded={isOpen}
+                    >
                       <div className="flex flex-wrap items-start justify-between gap-3">
                         <div className="min-w-[240px] flex-1">
                           <div className="text-base font-semibold text-zinc-900">{d.title}</div>
@@ -511,23 +537,8 @@ export default function ChaptersClient() {
                             {d.decided_at ? `${d.chaptered_at ? " • " : ""}Decided: ${softDate(d.decided_at)}` : ""}
                           </div>
 
-                          {/* Quiet meaning hints */}
-                          <div className="mt-2 flex flex-wrap gap-2">
-                            {domainObj ? (
-                              <Chip title="Domain">
-                                {domainObj.emoji ? `${domainObj.emoji} ` : ""}
-                                {domainObj.name}
-                              </Chip>
-                            ) : null}
-
-                            {memberObjs.slice(0, 2).map((c) => (
-                              <Chip key={c.id} title="Constellation">
-                                {c.emoji ? `${c.emoji} ` : ""}
-                                {c.name}
-                              </Chip>
-                            ))}
-
-                            {memberObjs.length > 2 ? <Chip title="More constellations">+{memberObjs.length - 2}</Chip> : null}
+                          <div className="mt-2 text-xs text-zinc-500">
+                            Filed under: <span className="text-zinc-700">{filedUnderText(d.id)}</span>
                           </div>
                         </div>
 
@@ -545,43 +556,58 @@ export default function ChaptersClient() {
                           <div className="text-sm text-zinc-600">No extra context saved.</div>
                         )}
 
-                        {/* ✅ Meaning assignment (quiet, optional) */}
-                        <div className="rounded-xl border border-zinc-200 bg-white p-3 space-y-3">
-                          <div className="text-xs font-semibold text-zinc-700">Meaning</div>
-
-                          <div className="space-y-2">
-                            <div className="text-xs text-zinc-500">Domain</div>
-                            <div className="flex flex-wrap items-center gap-2">
-                              <Chip active={!domainId} onClick={() => void setDecisionDomain(d.id, null)}>
-                                None
-                              </Chip>
-                              {domains.map((dom) => (
-                                <Chip key={dom.id} active={domainId === dom.id} onClick={() => void setDecisionDomain(d.id, dom.id)}>
-                                  {dom.emoji ? `${dom.emoji} ` : ""}
-                                  {dom.name}
-                                </Chip>
-                              ))}
-                            </div>
+                        {/* ✅ Filed under (collapsed by default) */}
+                        <div className="rounded-xl border border-zinc-200 bg-white p-3 space-y-2">
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="text-xs font-semibold text-zinc-700">Filed under</div>
+                            <Chip onClick={() => setEditLabelsForId((cur) => (cur === d.id ? null : d.id))}>
+                              {showLabelsEditor ? "Done" : "Edit"}
+                            </Chip>
                           </div>
 
-                          <div className="space-y-2">
-                            <div className="text-xs text-zinc-500">Constellations</div>
-                            {constellations.length === 0 ? (
-                              <div className="text-sm text-zinc-600">No constellations yet.</div>
-                            ) : (
-                              <div className="flex flex-wrap items-center gap-2">
-                                {constellations.map((c) => {
-                                  const active = memberIds.includes(c.id);
-                                  return (
-                                    <Chip key={c.id} active={active} onClick={() => void toggleConstellation(d.id, c.id)}>
-                                      {c.emoji ? `${c.emoji} ` : ""}
-                                      {c.name}
+                          <div className="text-sm text-zinc-600">Optional. Helps you group and filter later.</div>
+
+                          {showLabelsEditor ? (
+                            <div className="pt-2 space-y-4">
+                              <div className="space-y-2">
+                                <div className="text-xs text-zinc-500">Primary label</div>
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <Chip active={!domainId} onClick={() => void setDecisionDomain(d.id, null)}>
+                                    None
+                                  </Chip>
+                                  {domains.map((dom) => (
+                                    <Chip
+                                      key={dom.id}
+                                      active={domainId === dom.id}
+                                      onClick={() => void setDecisionDomain(d.id, dom.id)}
+                                    >
+                                      {dom.emoji ? `${dom.emoji} ` : ""}
+                                      {dom.name}
                                     </Chip>
-                                  );
-                                })}
+                                  ))}
+                                </div>
                               </div>
-                            )}
-                          </div>
+
+                              <div className="space-y-2">
+                                <div className="text-xs text-zinc-500">Also in</div>
+                                {constellations.length === 0 ? (
+                                  <div className="text-sm text-zinc-600">No groups yet.</div>
+                                ) : (
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    {constellations.map((c) => {
+                                      const active = memberIds.includes(c.id);
+                                      return (
+                                        <Chip key={c.id} active={active} onClick={() => void toggleConstellation(d.id, c.id)}>
+                                          {c.emoji ? `${c.emoji} ` : ""}
+                                          {c.name}
+                                        </Chip>
+                                      );
+                                    })}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          ) : null}
                         </div>
 
                         <div className="rounded-xl border border-zinc-200 bg-white p-3 space-y-2">
@@ -591,7 +617,11 @@ export default function ChaptersClient() {
                           ) : (
                             <div className="flex flex-wrap items-center gap-2">
                               {atts.map((a) => (
-                                <Chip key={a.path} onClick={() => void openAttachment(a)} title={`${a.type}${a.size ? ` • ${softKB(a.size)}` : ""}`}>
+                                <Chip
+                                  key={a.path}
+                                  onClick={() => void openAttachment(a)}
+                                  title={`${a.type}${a.size ? ` • ${softKB(a.size)}` : ""}`}
+                                >
                                   {a.name}
                                 </Chip>
                               ))}
@@ -605,7 +635,14 @@ export default function ChaptersClient() {
                             <Chip onClick={() => void reopen(d)} title="Move back into Decisions">
                               Reopen
                             </Chip>
-                            <Chip onClick={() => setOpenId(null)}>Done</Chip>
+                            <Chip
+                              onClick={() => {
+                                setOpenId(null);
+                                setEditLabelsForId(null);
+                              }}
+                            >
+                              Done
+                            </Chip>
                           </div>
                         </div>
                       </div>
