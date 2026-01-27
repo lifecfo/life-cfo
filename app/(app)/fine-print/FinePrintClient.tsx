@@ -55,15 +55,16 @@ export default function FinePrintClient({ nextPath }: FinePrintClientProps) {
         return;
       }
 
+      // ✅ IMPORTANT: profiles is keyed by `id` (auth uid), not user_id
       const payload = {
-        user_id: auth.user.id,
+        id: auth.user.id,
         fine_print_accepted_at: new Date().toISOString(),
         fine_print_version: VERSION,
         fine_print_signed_name: name.trim(),
         updated_at: new Date().toISOString(),
       };
 
-      const { error } = await supabase.from("profiles").upsert(payload, { onConflict: "user_id" });
+      const { error } = await supabase.from("profiles").upsert(payload, { onConflict: "id" });
       if (error) throw error;
 
       showToast({ title: "Saved", description: "Thank you. You’re all set." });
@@ -86,9 +87,7 @@ export default function FinePrintClient({ nextPath }: FinePrintClientProps) {
             <div className="text-sm text-zinc-700">
               Keystone is a calm place to hold decisions and inputs so you can see life more clearly and stop carrying mental loops.
             </div>
-            <div className="text-sm text-zinc-700">
-              It’s built for orientation and repeatable good decisions — not dashboards, not hustle.
-            </div>
+            <div className="text-sm text-zinc-700">It’s built for orientation and repeatable good decisions — not dashboards, not hustle.</div>
           </div>
         </CardContent>
       </Card>

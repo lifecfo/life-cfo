@@ -69,7 +69,7 @@ export function ConversationPanel(props: {
       const { data, error } = await supabase
         .from("decision_conversations")
         .select("messages")
-        .eq("user_id", auth.user.id)
+        .eq("id", auth.user.id)
         .eq("decision_id", decisionId)
         .maybeSingle();
 

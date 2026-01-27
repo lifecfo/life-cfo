@@ -52,7 +52,7 @@ function FinePrintInner() {
       const { data: prof, error: profErr } = await supabase
         .from("profiles")
         .select("fine_print_accepted_at,fine_print_version,fine_print_signed_name")
-        .eq("user_id", uid)
+        .eq("id", uid)
         .maybeSingle();
 
       if (!alive) return;
