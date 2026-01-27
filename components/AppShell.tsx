@@ -223,6 +223,17 @@ function AccountMenu({ onSignOut }: { onSignOut: () => void }) {
           className="absolute right-0 z-50 mt-2 min-w-[220px] overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm"
         >
           <div className="p-2">
+            {/* ✅ Settings belongs here (account-level) */}
+            <Link
+              href="/settings"
+              className="block no-underline"
+              onClick={() => {
+                setOpen(false);
+              }}
+            >
+              <div className="rounded-xl px-3 py-2 text-sm text-zinc-800 hover:bg-zinc-50">Settings</div>
+            </Link>
+
             <Link
               href="/how-keystone-works"
               className="block no-underline"
