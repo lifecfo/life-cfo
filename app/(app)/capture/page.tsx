@@ -203,7 +203,6 @@ export default function CapturePage() {
    * Capture submit contract:
    * - Writes ONLY to decision_inbox
    * - Does NOT create decisions
-   * - Does NOT route to Thinking
    *
    * Attachment contract:
    * - Uploads files to Supabase Storage bucket: "captures"
@@ -334,16 +333,24 @@ export default function CapturePage() {
     <Page
       title="Capture"
       subtitle="Drop raw thoughts here — messy is welcome. Keystone will help shape them into a clear decision when you’re ready."
-      right={
-        <div className="flex items-center gap-2">
-          <Chip onClick={() => router.push("/home")}>Back to Home</Chip>
-          <Chip onClick={() => router.push("/framing")} title="Next: shape a capture into a decision draft">
-            Frame next
-          </Chip>
-        </div>
-      }
+      right={null}
     >
       <div className="mx-auto w-full max-w-[760px] space-y-6">
+        {/* Flow controls (consistent, top-of-page) */}
+        <div className="flex items-center justify-between gap-3">
+          <div className="text-xs text-zinc-500">Step 1 of 3</div>
+
+          <div className="flex items-center gap-2">
+            {/* No back button on first step */}
+            <Chip
+              onClick={() => router.push("/framing")}
+              title="Next: Framing"
+            >
+              Next: Framing <span className="ml-1 opacity-70">›</span>
+            </Chip>
+          </div>
+        </div>
+
         {/* ✅ Assisted retrieval (same as other pages) */}
         <AssistedSearch scope="capture" placeholder="Search captures…" />
 
@@ -381,7 +388,7 @@ export default function CapturePage() {
           ) : null}
 
           <div className="text-xs text-zinc-500">
-            When you want, <span className="font-medium">Frame next</span> helps turn this into a clear decision.
+            When you want, <span className="font-medium">Next: Framing</span> helps turn this into a clear decision.
           </div>
         </div>
 
@@ -456,7 +463,10 @@ export default function CapturePage() {
           <div className="text-xs text-zinc-500">Enter saves • Shift+Enter adds a new line</div>
 
           <div className="flex items-center gap-2">
-            <Chip onClick={() => void submit()} title={!canSubmit ? "Add text or a file" : isSubmitting ? "Working…" : "Save capture"}>
+            <Chip
+              onClick={() => void submit()}
+              title={!canSubmit ? "Add text or a file" : isSubmitting ? "Working…" : "Save capture"}
+            >
               {isSubmitting ? "Saving…" : "Save"}
             </Chip>
           </div>
@@ -481,8 +491,8 @@ export default function CapturePage() {
               </div>
 
               <div className="flex items-center gap-2">
-                <Chip onClick={() => router.push("/framing")} title="Shape a capture into a decision draft">
-                  Frame
+                <Chip onClick={() => router.push("/framing")} title="Next: Framing">
+                  Next: Framing <span className="ml-1 opacity-70">›</span>
                 </Chip>
               </div>
             </div>
@@ -516,7 +526,9 @@ export default function CapturePage() {
                               {meta ? meta : "Open capture"}
                               {hasAtts ? " • Attachments" : ""}
                             </div>
-                            {displayText ? <div className="mt-2 text-sm text-zinc-700">{snippetFromText(displayText, 140)}</div> : null}
+                            {displayText ? (
+                              <div className="mt-2 text-sm text-zinc-700">{snippetFromText(displayText, 140)}</div>
+                            ) : null}
                           </div>
                           <div className="flex items-center gap-2">
                             <Chip>{isOpen ? "Hide" : "Open"}</Chip>
@@ -533,8 +545,8 @@ export default function CapturePage() {
                           )}
 
                           <div className="flex flex-wrap items-center gap-2">
-                            <Chip onClick={() => router.push("/framing")} title="Go to Framing to shape this into a decision">
-                              Frame this
+                            <Chip onClick={() => router.push("/framing")} title="Next: Framing">
+                              Next: Framing <span className="ml-1 opacity-70">›</span>
                             </Chip>
                             <Chip onClick={() => setOpenId(null)}>Done</Chip>
                           </div>
