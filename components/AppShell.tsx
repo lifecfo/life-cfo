@@ -134,7 +134,10 @@ export function AppShell({ children }: AppShellProps) {
     { href: "/transactions", label: "Transactions" },
   ];
 
-  const helpItems: NavItem[] = [{ href: "/how-keystone-works", label: "How it works" }];
+  const helpItems: NavItem[] = [
+    { href: "/how-keystone-works", label: "How it works" },
+    { href: "/fine-print", label: "Fine print" }
+  ];
 
   const decisionsActive = useMemo(() => decisionsItems.some((i) => isActive(i.href)), [pathname]); // eslint-disable-line react-hooks/exhaustive-deps
   const moneyActive = useMemo(() => moneyItems.some((i) => isActive(i.href)), [pathname]); // eslint-disable-line react-hooks/exhaustive-deps
