@@ -1,4 +1,3 @@
-// app/(app)/fine-print/FinePrintClient.tsx
 "use client";
 
 import { useMemo, useState } from "react";
@@ -20,75 +19,66 @@ export default function FinePrintClient({ nextPath }: FinePrintClientProps) {
   const router = useRouter();
   const toastApi: any = useToast();
 
-  // Be compatible with both toast shapes used across the codebase
-  const showToast = (args: { title?: string; description?: string; message?: string; variant?: any; action?: any }) => {
-    const title = args.title ?? "";
-    const description = args.description ?? args.message ?? "";
-    const combined = [title, description].filter(Boolean).join(" — ");
-
-    if (toastApi?.showToast) {
-      // many of our pages pass { message }
-      toastApi.showToast({ message: combined || "Done." });
-      return;
-    }
-
-    if (toastApi?.toast) {
-      toastApi.toast({
-        title: title || "Done",
-        description,
-        variant: args.variant,
-        action: args.action,
-      });
-    }
-  };
+  const showToast =
+    toastApi?.showToast ??
+    ((args: any) => {
+      if (toastApi?.toast) {
+        toastApi.toast({
+          title: args?.title ?? "Done",
+          description: args?.description ?? args?.message ?? "",
+          variant: args?.variant,
+          action: args?.action,
+        });
+      }
+    });
 
   const VERSION = "v1";
 
   const [name, setName] = useState("");
   const [working, setWorking] = useState(false);
-  const [statusLine, setStatusLine] = useState<string>("");
 
   const canSave = useMemo(() => name.trim().length >= 2 && !working, [name, working]);
 
   const save = async () => {
     if (!canSave) {
-      setStatusLine("Please type your name to continue.");
       showToast({ title: "Add your name", description: "Please type your name to continue." });
       return;
     }
 
     setWorking(true);
-    setStatusLine("Saving…");
 
     try {
       const { data: auth, error: authErr } = await supabase.auth.getUser();
       if (authErr || !auth?.user) {
-        setStatusLine("Not signed in.");
         router.push("/login");
         return;
       }
 
-      // ✅ IMPORTANT: profiles row is keyed by `id` (auth uid)
-      // ✅ ALSO IMPORTANT: do NOT include columns that don’t exist (e.g. updated_at)
+      const uid = auth.user.id;
+
       const payload = {
-        id: auth.user.id,
+        // canonical profile key
+        id: uid,
+
+        // keep user_id populated too (optional, but harmless + useful for older queries)
+        user_id: uid,
+
         fine_print_accepted_at: new Date().toISOString(),
         fine_print_version: VERSION,
         fine_print_signed_name: name.trim(),
+        updated_at: new Date().toISOString(),
       };
 
-      const { error } = await supabase.from("profiles").upsert(payload, { onConflict: "id" });
+      // Upsert by id (canonical)
+      const { error } = await supabase.from("profiles").upsert(payload as any, { onConflict: "id" });
       if (error) throw error;
 
-      setStatusLine("Saved ✅ Redirecting…");
       showToast({ title: "Saved", description: "Thank you. You’re all set." });
 
       router.push(nextPath || "/home");
       router.refresh();
     } catch (e: any) {
-      const msg = safeStr(e?.message) || "Something went wrong.";
-      setStatusLine(`Couldn’t save: ${msg}`);
-      showToast({ title: "Couldn’t save", description: msg });
+      showToast({ title: "Couldn’t save", description: safeStr(e?.message) || "Something went wrong." });
     } finally {
       setWorking(false);
     }
@@ -157,10 +147,7 @@ export default function FinePrintClient({ nextPath }: FinePrintClientProps) {
               </Chip>
             </div>
 
-            <div className="flex items-center justify-between gap-3">
-              <div className="text-xs text-zinc-500">Version: {VERSION}</div>
-              {statusLine ? <div className="text-xs text-zinc-500">{statusLine}</div> : null}
-            </div>
+            <div className="text-xs text-zinc-500">Version: {VERSION}</div>
           </div>
         </CardContent>
       </Card>
