@@ -15,6 +15,12 @@ function safeStr(v: unknown) {
   return typeof v === "string" ? v : "";
 }
 
+function shortId(id: string) {
+  if (!id) return "";
+  if (id.length <= 12) return id;
+  return `${id.slice(0, 6)}…${id.slice(-4)}`;
+}
+
 export default function SettingsPage() {
   const router = useRouter();
 
@@ -59,10 +65,8 @@ export default function SettingsPage() {
       : "border border-zinc-200 bg-zinc-50 text-zinc-700";
 
   const versionLabel = useMemo(() => {
-    // Optional: set NEXT_PUBLIC_APP_VERSION in env if you want.
-    // Otherwise shows "—" to avoid build-time errors.
-    const v = safeStr((process.env as any)?.NEXT_PUBLIC_APP_VERSION);
-    return v || "—";
+    // Client-safe: NEXT_PUBLIC_* is baked into the bundle at build time
+    return process.env.NEXT_PUBLIC_APP_VERSION || "—";
   }, []);
 
   const signOut = async () => {
@@ -83,7 +87,7 @@ export default function SettingsPage() {
       subtitle="Quiet controls and trust."
       right={
         <div className="flex items-center gap-2">
-          <Chip className={liveChipClass}>{live === "ready" ? "Ready" : live === "offline" ? "Offline" : "Checking"}</Chip>
+          <Chip className={liveChipClass}>{live === "ready" ? "Online" : live === "offline" ? "Offline" : "Checking"}</Chip>
           <Chip onClick={() => router.push("/home")}>Back to Home</Chip>
         </div>
       }
@@ -97,6 +101,7 @@ export default function SettingsPage() {
             <div className="flex items-start justify-between gap-3 flex-wrap">
               <div className="space-y-2">
                 <div className="text-sm font-semibold text-zinc-900">Account</div>
+
                 <div className="text-sm text-zinc-700">
                   {email ? (
                     <>
@@ -106,7 +111,12 @@ export default function SettingsPage() {
                     "Not signed in."
                   )}
                 </div>
-                {userId ? <div className="text-xs text-zinc-500">User ID: {userId}</div> : null}
+
+                {userId ? (
+                  <div className="text-xs text-zinc-500">
+                    User ID: <span className="font-mono">{shortId(userId)}</span>
+                  </div>
+                ) : null}
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
@@ -118,16 +128,16 @@ export default function SettingsPage() {
           </CardContent>
         </Card>
 
-        {/* Data & control */}
+        {/* Trust & boundaries */}
         <Card className="border-zinc-200 bg-white">
           <CardContent>
             <div className="space-y-3">
-              <div className="text-sm font-semibold text-zinc-900">Data & control</div>
+              <div className="text-sm font-semibold text-zinc-900">Trust</div>
 
               <div className="grid gap-3 md:grid-cols-2">
                 <div className="rounded-2xl border border-zinc-200 bg-white p-3">
                   <div className="text-xs font-semibold text-zinc-700">What Keystone stores</div>
-                  <ul className="mt-2 list-disc pl-5 text-sm text-zinc-700 space-y-1">
+                  <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-zinc-700">
                     <li>Decisions you save</li>
                     <li>Inputs you enter (accounts, bills, income, budget)</li>
                     <li>Attachments you upload</li>
@@ -136,7 +146,7 @@ export default function SettingsPage() {
 
                 <div className="rounded-2xl border border-zinc-200 bg-white p-3">
                   <div className="text-xs font-semibold text-zinc-700">What Keystone never does</div>
-                  <ul className="mt-2 list-disc pl-5 text-sm text-zinc-700 space-y-1">
+                  <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-zinc-700">
                     <li>No auto-decisions</li>
                     <li>No saving without your action</li>
                     <li>No sharing your data with other users</li>
@@ -144,39 +154,31 @@ export default function SettingsPage() {
                 </div>
               </div>
 
+              <div className="rounded-2xl border border-zinc-200 bg-white p-3">
+                <div className="text-xs font-semibold text-zinc-700">AI boundaries</div>
+                <div className="mt-1 text-sm text-zinc-700">
+                  AI helps when you ask. It doesn’t act on your behalf, make decisions, or save anything unless you choose.
+                </div>
+                <div className="mt-1 text-xs text-zinc-500">
+                  V1 stays intentionally quiet. Advanced controls only ship if they reduce cognitive load.
+                </div>
+              </div>
+
               <div className="flex flex-wrap items-center gap-2">
-                <Chip onClick={() => router.push("/fine-print")} title="Read the fine print">
-                  Fine print
-                </Chip>
                 <Chip onClick={() => router.push("/how-keystone-works")} title="How Keystone works">
                   How it works
                 </Chip>
-
-                {/* Keep destructive actions calm + out of the way for V1 */}
-                <Chip
-                  title="Account deletion will be added later"
-                  className="border-zinc-200 bg-white text-zinc-500"
-                  onClick={() => {
-                    // intentionally no-op for V1
-                  }}
-                >
-                  Delete account (coming soon)
+                <Chip onClick={() => router.push("/fine-print")} title="Read the fine print">
+                  Fine print
                 </Chip>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
 
-        {/* AI boundaries */}
-        <Card className="border-zinc-200 bg-white">
-          <CardContent>
-            <div className="space-y-2">
-              <div className="text-sm font-semibold text-zinc-900">AI boundaries</div>
-              <div className="text-sm text-zinc-700">
-                AI helps when you ask. It doesn’t act on your behalf, make decisions, or save anything unless you choose.
-              </div>
-              <div className="text-xs text-zinc-500">
-                (V1 is intentionally quiet. Advanced controls can come later if they reduce cognitive load.)
+                <Chip
+                  className="border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100"
+                  onClick={() => router.push("/settings/delete")}
+                  title="Permanently delete your account"
+                >
+                  Delete account
+                </Chip>
               </div>
             </div>
           </CardContent>

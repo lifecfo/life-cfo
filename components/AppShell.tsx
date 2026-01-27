@@ -130,15 +130,9 @@ export function AppShell({ children }: AppShellProps) {
     { href: "/transactions", label: "Transactions" },
   ];
 
-  const helpItems: NavItem[] = [
-    { href: "/how-keystone-works", label: "How it works" },
-    { href: "/fine-print", label: "Fine print" },
-  ];
-
   const decideActive = useMemo(() => decideItems.some((i) => isActive(i.href)), [pathname]); // eslint-disable-line react-hooks/exhaustive-deps
   const reviewActive = useMemo(() => reviewItems.some((i) => isActive(i.href)), [pathname]); // eslint-disable-line react-hooks/exhaustive-deps
   const moneyActive = useMemo(() => moneyItems.some((i) => isActive(i.href)), [pathname]); // eslint-disable-line react-hooks/exhaustive-deps
-  const helpActive = useMemo(() => helpItems.some((i) => isActive(i.href)), [pathname]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const navKey = pathname ?? "";
 
@@ -166,7 +160,6 @@ export function AppShell({ children }: AppShellProps) {
             <Menu label="Decide" active={decideActive} items={decideItems} />
             <Menu label="Review" active={reviewActive} items={reviewItems} />
             <Menu label="Money" active={moneyActive} items={moneyItems} />
-            <Menu label="Help" active={helpActive} items={helpItems} />
           </nav>
 
           <div className="flex items-center gap-2">
