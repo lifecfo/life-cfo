@@ -7,6 +7,7 @@ import { supabase } from "@/lib/supabaseClient";
 import { Page } from "@/components/Page";
 import { Card, CardContent, Chip } from "@/components/ui";
 import { normalizeAttachments, softKB, type AttachmentMeta } from "@/lib/attachments";
+import { AttachmentsBlock } from "@/components/AttachmentsBlock";
 
 // ✅ Assisted retrieval + tiles
 import { AssistedSearch } from "@/components/AssistedSearch";
@@ -678,20 +679,7 @@ export default function DecisionsClient() {
                           )}
                         </div>
 
-                        <div className="rounded-xl border border-zinc-200 bg-white p-3 space-y-2">
-                          <div className="text-xs font-semibold text-zinc-700">Attachments</div>
-                          {atts.length === 0 ? (
-                            <div className="text-sm text-zinc-600">No attachments.</div>
-                          ) : (
-                            <div className="flex flex-wrap items-center gap-2">
-                              {atts.map((a) => (
-                                <Chip key={a.path} onClick={() => void openAttachment(a)} title={`${a.type}${a.size ? ` • ${softKB(a.size)}` : ""}`}>
-                                  {a.name}
-                                </Chip>
-                              ))}
-                            </div>
-                          )}
-                        </div>
+                        <AttachmentsBlock userId={userId} decisionId={d.id} title="Attachments" bucket="captures" />
 
                         {/* Revisit (presets + custom date) */}
                         <div className="space-y-2">
