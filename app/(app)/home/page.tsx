@@ -17,12 +17,6 @@ function firstNameOf(full: string) {
   return s.split(/\s+/)[0] || "";
 }
 
-function moneyAUD(n: number | null | undefined) {
-  const x = typeof n === "number" ? n : n == null ? null : Number(n);
-  if (typeof x !== "number" || !Number.isFinite(x)) return null;
-  return new Intl.NumberFormat(undefined, { style: "currency", currency: "AUD" }).format(x);
-}
-
 function monthBoundsLocal() {
   const now = new Date();
   const start = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
@@ -63,12 +57,16 @@ type AskState =
 type RecurringBillRow = {
   id: string;
   user_id: string;
-  merchant_key: string | null;
-  nickname: string | null;
-  expected_amount: number | null;
+  name: string;
+  amount_cents: number | null;
+  currency: string | null;
+  cadence: string | null;
   next_due_at: string | null;
   autopay: boolean | null;
   active: boolean | null;
+  notes: string | null;
+  created_at: string | null;
+  updated_at: string | null;
 };
 
 export default function HomePage() {
@@ -158,63 +156,61 @@ export default function HomePage() {
     router.push(href);
   };
 
-  // ✅ Deterministic bills answer (prefers recurring_bills because it has next_due_at)
+  // ✅ Deterministic bills answer (uses recurring_bills schema: name, amount_cents, currency, next_due_at)
   const localBillsAnswer = async (uid: string) => {
     const { start, end } = monthBoundsLocal();
 
-    // 1) Prefer recurring_bills (truthy “due this month”)
-    const { data: rb, error: rbErr } = await supabase
+    const { data, error } = await supabase
       .from("recurring_bills")
-      .select("id,user_id,merchant_key,nickname,expected_amount,next_due_at,autopay,active")
+      .select("id,user_id,name,amount_cents,currency,cadence,next_due_at,autopay,active,notes,created_at,updated_at")
       .eq("user_id", uid)
       .eq("active", true)
-      .gte("next_due_at", start.toISOString())
-      .lt("next_due_at", end.toISOString())
       .order("next_due_at", { ascending: true })
-      .limit(100);
-
-    if (!rbErr) {
-      const rows = (rb ?? []) as RecurringBillRow[];
-      if (rows.length === 0) {
-        return { ok: true as const, answer: "There are no bills due this month (from what I can see)." };
-      }
-
-      const lines = rows.map((b) => {
-        const name = b.nickname?.trim() ? b.nickname.trim() : b.merchant_key || "Bill";
-        const due = b.next_due_at ? new Date(b.next_due_at).toLocaleDateString() : "—";
-        const amt = b.expected_amount != null ? moneyAUD(b.expected_amount) : null;
-        return `• ${name} — ${due}${amt ? ` — ${amt}` : ""}`;
-      });
-
-      const total = rows.reduce((sum, b) => sum + (typeof b.expected_amount === "number" && Number.isFinite(b.expected_amount) ? b.expected_amount : 0), 0);
-
-      return {
-        ok: true as const,
-        answer: `${lines.join("\n")}\n\nEstimated total: ${moneyAUD(total) ?? "—"}`,
-      };
-    }
-
-    // 2) Fallback (older bills table) — if recurring_bills unavailable
-    const { data: bills, error } = await supabase
-      .from("bills")
-      .select("id,nickname,merchant_key,due_day_or_date,expected_amount,status")
-      .eq("user_id", uid)
-      .eq("status", "active");
+      .limit(200);
 
     if (error) return { ok: false as const, answer: "I couldn’t load bills right now." };
 
-    const rows = (bills ?? []) as any[];
+    const rows = (data ?? []) as RecurringBillRow[];
     if (rows.length === 0) return { ok: true as const, answer: "I can’t see any active bills yet." };
 
-    // Without next_due_at, we can’t truly do “this month” reliably; be honest.
-    const lines = rows.map((b) => {
-      const name = b.nickname?.trim() ? b.nickname.trim() : b.merchant_key;
-      const due = String(b.due_day_or_date || "").trim() || "—";
-      const amt = b.expected_amount != null ? moneyAUD(Number(b.expected_amount)) : null;
+    const dueThisMonth = rows.filter((r) => {
+      if (!r.next_due_at) return false;
+      const ms = Date.parse(r.next_due_at);
+      if (Number.isNaN(ms)) return false;
+      return ms >= start.getTime() && ms < end.getTime();
+    });
+
+    if (dueThisMonth.length === 0) {
+      return { ok: true as const, answer: "There are no bills due this month (from what I can see)." };
+    }
+
+    const lines = dueThisMonth.map((b) => {
+      const name = (b.name || "Bill").trim();
+      const due = b.next_due_at ? new Date(b.next_due_at).toLocaleDateString() : "—";
+
+      const cents = typeof b.amount_cents === "number" ? b.amount_cents : b.amount_cents == null ? null : Number(b.amount_cents);
+      const cur = (b.currency || "AUD").toUpperCase();
+      const amt =
+        typeof cents === "number" && Number.isFinite(cents)
+          ? new Intl.NumberFormat(undefined, { style: "currency", currency: cur }).format(cents / 100)
+          : null;
+
       return `• ${name} — ${due}${amt ? ` — ${amt}` : ""}`;
     });
 
-    return { ok: true as const, answer: `${lines.join("\n")}\n\n(These are active bills — I can’t confidently compute “due this month” yet.)` };
+    const totalCents = dueThisMonth.reduce((sum, b) => {
+      const n = typeof b.amount_cents === "number" ? b.amount_cents : b.amount_cents == null ? null : Number(b.amount_cents);
+      if (typeof n !== "number" || !Number.isFinite(n)) return sum;
+      return sum + n;
+    }, 0);
+
+    const currency = (dueThisMonth[0]?.currency || "AUD").toUpperCase();
+    const total = new Intl.NumberFormat(undefined, { style: "currency", currency }).format(totalCents / 100);
+
+    return {
+      ok: true as const,
+      answer: `${lines.join("\n")}\n\nEstimated total: ${total}`,
+    };
   };
 
   // Real AI call (server route)
