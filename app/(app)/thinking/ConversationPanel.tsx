@@ -47,6 +47,8 @@ export function ConversationPanel(props: {
 
   const decisionStatement = useMemo(() => frame?.decision_statement ?? "", [frame]);
 
+  const canSend = draft.trim().length > 0 && !sending;
+
   // Load auth + conversation
   useEffect(() => {
     let mounted = true;
@@ -111,7 +113,6 @@ export function ConversationPanel(props: {
   // Focus input without scrolling the page (prevents the "jump to bottom" issue)
   useEffect(() => {
     const t = window.setTimeout(() => {
-      // preventScroll is supported in modern browsers; TS types may not include it everywhere
       try {
         (inputRef.current as any)?.focus?.({ preventScroll: true });
       } catch {
@@ -124,7 +125,6 @@ export function ConversationPanel(props: {
 
   // Autoscroll the message list container to bottom (NOT the whole page)
   useEffect(() => {
-    // Use "instant" behavior to avoid page-feel jank; container is already scrollable
     endRef.current?.scrollIntoView({ behavior: "auto", block: "end" });
   }, [messages.length]);
 
@@ -315,9 +315,7 @@ export function ConversationPanel(props: {
             {loading ? <div className="text-sm text-zinc-600">Loading…</div> : null}
 
             {!loading && messages.length === 0 ? (
-              <div className="text-sm text-zinc-600">
-                Start anywhere. Keystone will keep this conversation with the decision.
-              </div>
+              <div className="text-sm text-zinc-600">Start anywhere. Keystone will keep this conversation with the decision.</div>
             ) : null}
 
             {messages.map((m, idx) => (
@@ -333,20 +331,46 @@ export function ConversationPanel(props: {
           <div className="border-t border-zinc-200 p-3 space-y-2">
             {status ? <div className="text-xs text-zinc-500">{status}</div> : null}
 
-            <textarea
-              ref={inputRef}
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              rows={3}
-              placeholder="Talk it through…"
-              className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800 outline-none focus:ring-2 focus:ring-zinc-200"
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  void send();
-                }
-              }}
-            />
+            <div className="relative">
+              <textarea
+                ref={inputRef}
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                rows={3}
+                placeholder="Talk it through…"
+                className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 pr-12 text-sm text-zinc-800 outline-none focus:ring-2 focus:ring-zinc-200"
+                onKeyDown={(e) => {
+                  const isMac =
+                    typeof navigator !== "undefined" && /Mac|iPhone|iPad|iPod/.test(navigator.platform);
+                  const cmdOrCtrl = isMac ? e.metaKey : e.ctrlKey;
+
+                  // Cmd/Ctrl + Enter sends
+                  if (cmdOrCtrl && e.key === "Enter") {
+                    e.preventDefault();
+                    void send();
+                    return;
+                  }
+
+                  // Enter sends (Shift+Enter makes newline)
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    void send();
+                  }
+                }}
+              />
+
+              {canSend ? (
+                <button
+                  type="button"
+                  onClick={() => void send()}
+                  className="absolute bottom-2 right-2 inline-flex h-8 w-8 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50 focus:outline-none focus:ring-2 focus:ring-zinc-200"
+                  aria-label="Send"
+                  title="Send (Enter)"
+                >
+                  →
+                </button>
+              ) : null}
+            </div>
 
             <div className="flex flex-wrap items-center gap-2">
               <Chip onClick={send} title={sending ? "Working…" : "Send"}>
