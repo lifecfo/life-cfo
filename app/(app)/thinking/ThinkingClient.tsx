@@ -124,7 +124,7 @@ export default function ThinkingClient() {
   const DEFAULT_LIMIT = 5;
   const [showAll, setShowAll] = useState(false);
 
-  // Summaries for the currently open draft (small, capped) — but hidden unless present
+  // Summaries for the currently open draft (small, capped) — hidden unless present
   const [summaries, setSummaries] = useState<DecisionSummary[]>([]);
 
   // ✅ Labels (tiles + assignment) — internal tables remain domains/constellations
@@ -207,11 +207,7 @@ export default function ThinkingClient() {
     // 2) Load domains + constellations (for tiles and assignment)
     const [domRes, conRes] = await Promise.all([
       supabase.from("domains").select("id,name,sort_order").eq("user_id", uid).order("sort_order", { ascending: true }),
-      supabase
-        .from("constellations")
-        .select("id,name,sort_order")
-        .eq("user_id", uid)
-        .order("sort_order", { ascending: true }),
+      supabase.from("constellations").select("id,name,sort_order").eq("user_id", uid).order("sort_order", { ascending: true }),
     ]);
 
     if (!domRes.error) {
@@ -243,11 +239,7 @@ export default function ThinkingClient() {
     if (decisionIds.length > 0) {
       const [ddRes, ciRes] = await Promise.all([
         supabase.from("decision_domains").select("decision_id,domain_id").eq("user_id", uid).in("decision_id", decisionIds),
-        supabase
-          .from("constellation_items")
-          .select("decision_id,constellation_id")
-          .eq("user_id", uid)
-          .in("decision_id", decisionIds),
+        supabase.from("constellation_items").select("decision_id,constellation_id").eq("user_id", uid).in("decision_id", decisionIds),
       ]);
 
       if (!ddRes.error) {
@@ -629,6 +621,8 @@ export default function ThinkingClient() {
 
   const PrimaryChipClass = "border-zinc-900 bg-zinc-900 text-white hover:bg-zinc-800 hover:text-white";
 
+  const hasAnyLabelOptions = domains.length > 0 || constellations.length > 0;
+
   return (
     <Page title="Thinking" subtitle="Work on drafts here. When you’re ready to commit, save it into Decisions." right={null}>
       <div className="mx-auto w-full max-w-[760px] space-y-6">
@@ -659,11 +653,7 @@ export default function ThinkingClient() {
         {filteredDrafts.length > 0 && hasMore ? (
           <div className="flex items-center gap-2">
             <Chip onClick={() => setShowAll((v) => !v)}>{showAll ? "Show less" : "Show all"}</Chip>
-            {!showAll ? (
-              <div className="text-xs text-zinc-500">
-                Showing {DEFAULT_LIMIT} of {filteredDrafts.length}
-              </div>
-            ) : null}
+            {!showAll ? <div className="text-xs text-zinc-500">Showing {DEFAULT_LIMIT} of {filteredDrafts.length}</div> : null}
           </div>
         ) : null}
 
@@ -686,13 +676,14 @@ export default function ThinkingClient() {
               const domainName = domainId ? domains.find((x) => x.id === domainId)?.name ?? null : null;
 
               const memberIds = constellationsByDecision[d.id] ?? [];
-              const memberNames = memberIds
-                .map((cid) => constellations.find((c) => c.id === cid)?.name)
-                .filter(Boolean) as string[];
+              const memberNames = memberIds.map((cid) => constellations.find((c) => c.id === cid)?.name).filter(Boolean) as string[];
 
               const filedUnder = [domainName, ...memberNames].filter(Boolean) as string[];
               const isEditingLabels = labelsEditForId === d.id;
-              const showFiledUnder = isEditingLabels || filedUnder.length > 0;
+
+              // show the section only when it’s actually useful
+              const showFiledUnderCard =
+                (hasAnyLabelOptions && isEditingLabels) || (hasAnyLabelOptions && filedUnder.length > 0);
 
               const revisitMode = revisitModeById[d.id] ?? "";
               const customDate = customDateById[d.id] ?? "";
@@ -758,12 +749,20 @@ export default function ThinkingClient() {
 
                           <DecisionNotes decisionId={d.id} kind="thinking" />
 
-                          {/* ✅ Hide Filed under until it’s useful; keep a quiet access chip */}
-                          {showFiledUnder ? (
+                          {/* ✅ Filed under: hidden until useful (or user explicitly opens it) */}
+                          {showFiledUnderCard ? (
                             <div className="rounded-xl border border-zinc-200 bg-white p-3 space-y-2">
                               <div className="flex flex-wrap items-center justify-between gap-2">
                                 <div className="text-xs font-semibold text-zinc-700">Filed under</div>
-                                <Chip onClick={() => setLabelsEditForId((cur) => (cur === d.id ? null : d.id))}>
+                                <Chip
+                                  onClick={() => {
+                                    if (!hasAnyLabelOptions) {
+                                      showToast({ message: "No areas or groups yet." }, 2000);
+                                      return;
+                                    }
+                                    setLabelsEditForId((cur) => (cur === d.id ? null : d.id));
+                                  }}
+                                >
                                   {isEditingLabels ? "Done" : "Edit"}
                                 </Chip>
                               </div>
@@ -810,14 +809,15 @@ export default function ThinkingClient() {
                                 </div>
                               )}
                             </div>
-                          ) : (
+                          ) : hasAnyLabelOptions ? (
                             <div className="flex items-center gap-2">
-                              <Chip onClick={() => setLabelsEditForId(d.id)} title="File this under an area or group">
+                              <Chip onClick={() => setLabelsEditForId(d.id)} title="Optional: file under an area or group">
                                 File under
                               </Chip>
                             </div>
-                          )}
+                          ) : null}
 
+                          {/* Attachments stay available (user can add files here) */}
                           <div className="rounded-xl border border-zinc-200 bg-white p-3 space-y-2">
                             {userId ? (
                               <AttachmentsBlock userId={userId} decisionId={d.id} title="Attachments" bucket="captures" />
@@ -826,7 +826,7 @@ export default function ThinkingClient() {
                             )}
                           </div>
 
-                          {/* ✅ Hide Saved summaries until there actually are some */}
+                          {/* ✅ Saved summaries: hidden unless any exist */}
                           {summaries.length > 0 ? (
                             <div className="rounded-xl border border-zinc-200 bg-white p-3 space-y-2">
                               <div className="space-y-1">
