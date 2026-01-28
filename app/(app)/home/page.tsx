@@ -1,7 +1,7 @@
 // app/(app)/home/page.tsx
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { Page } from "@/components/Page";
@@ -15,6 +15,11 @@ type BillsOrientation = {
   due7: number;
   due14: number;
   autopayRisk: number;
+};
+
+type NoteItem = {
+  text: string;
+  href?: string | null;
 };
 
 function safeMs(iso: string | null | undefined) {
@@ -60,7 +65,6 @@ export default function HomePage() {
 
   const [userId, setUserId] = useState<string | null>(null);
   const [authStatus, setAuthStatus] = useState<"loading" | "signed_out" | "signed_in">("loading");
-
   const [preferredName, setPreferredName] = useState<string>("");
 
   const [text, setText] = useState("");
@@ -130,7 +134,7 @@ export default function HomePage() {
   const unload = useHomeUnload({ userId });
   const orientation = useHomeOrientation({ userId });
 
-  // --- Bills -> Home Notes (one calm sentence) ---
+  // --- Bills -> Home Notes sentence ---
   useEffect(() => {
     if (!userId) {
       setBillsLine("");
@@ -206,41 +210,61 @@ export default function HomePage() {
     await unload.submit(raw);
   };
 
-  const onNotesClick = () => {
-    const href = orientation.item?.href;
+  const openHref = (href?: string | null) => {
     if (!href) return;
     router.push(href);
   };
 
-  const hasNotes = Boolean(orientation.item?.text || billsLine);
-  const canOpenNotes = Boolean(orientation.item?.href);
+  // Build up to 3 notes (calm, not dashboard-y)
+  const notes: NoteItem[] = [];
+  if (orientation.item?.text) notes.push({ text: orientation.item.text, href: orientation.item.href ?? null });
+
+  // Bills note becomes linkable to Bills page (so “may need attention” can be acted on)
+  if (billsLine) notes.push({ text: billsLine, href: "/bills" });
+
+  const topNotes = notes.slice(0, 3);
+  const hasNotes = topNotes.length > 0;
 
   const showExamples = text.trim().length === 0;
+  const canSend = authStatus === "signed_in" && text.trim().length > 0;
 
-  const subtitle = preferredName
-    ? `Good to see you, ${preferredName}.`
-    : undefined;
+  const subtitle = preferredName ? `Good to see you, ${preferredName}.` : undefined;
 
   return (
     <Page title="Home" subtitle={subtitle} right={<div className="flex items-center gap-2"></div>}>
-      <div className="mx-auto w-full max-w-[680px] space-y-8">
+      <div className="mx-auto w-full max-w-[680px] space-y-6">
         {/* Unload (primary) */}
         <div className="space-y-3">
-          <textarea
-            ref={inputRef}
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            placeholder="What’s on your mind?"
-            className="w-full min-h-[140px] resize-y rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-[15px] leading-relaxed text-zinc-900 outline-none focus:ring-2 focus:ring-zinc-200"
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                void submit();
-              }
-            }}
-            aria-label="What’s on your mind?"
-            disabled={authStatus !== "signed_in"}
-          />
+          <div className="relative">
+            <textarea
+              ref={inputRef}
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              placeholder="What’s on your mind?"
+              className="w-full min-h-[140px] resize-y rounded-2xl border border-zinc-200 bg-white px-4 py-3 pr-14 text-[15px] leading-relaxed text-zinc-900 outline-none focus:ring-2 focus:ring-zinc-200"
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  void submit();
+                }
+              }}
+              aria-label="What’s on your mind?"
+              disabled={authStatus !== "signed_in"}
+            />
+
+            {/* Send arrow (only when there is text) */}
+            {canSend ? (
+              <button
+                type="button"
+                onClick={() => void submit()}
+                className="absolute bottom-3 right-3 inline-flex h-9 w-9 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50 focus:outline-none focus:ring-2 focus:ring-zinc-200"
+                aria-label="Send"
+                title="Send"
+              >
+                →
+              </button>
+            ) : null}
+          </div>
 
           {/* helper line (locked) */}
           <div className="text-xs text-zinc-600">Unload it here. Ask if you want help.</div>
@@ -261,36 +285,47 @@ export default function HomePage() {
             <div className="h-5" aria-hidden="true" />
           )}
 
+          {/* AI response (if the unload hook returns one) */}
           {unload.response ? <div className="text-[15px] leading-relaxed text-zinc-800">{unload.response}</div> : null}
 
           {authStatus === "signed_out" ? <div className="text-sm text-zinc-600">Sign in to use Home.</div> : null}
         </div>
 
-        {/* Notes from Keystone (separate; never competes with input) */}
+        {/* Notes from Keystone */}
         {hasNotes ? (
           <Card className="border-zinc-200 bg-white">
             <CardContent>
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0 flex-1">
-                  <div className="text-xs font-medium text-zinc-600">Notes from Keystone</div>
+              <div className="text-xs font-medium text-zinc-600">Notes from Keystone</div>
 
-                  {orientation.item?.text ? (
-                    <div className="mt-2 text-[15px] leading-relaxed text-zinc-800">{orientation.item?.text}</div>
-                  ) : null}
+              <div className="mt-2 space-y-3">
+                {topNotes.map((n, idx) => {
+                  const linked = Boolean(n.href);
+                  return (
+                    <div key={`${idx}-${n.text}`} className="flex items-start justify-between gap-3">
+                      {linked ? (
+                        <button
+                          type="button"
+                          onClick={() => openHref(n.href)}
+                          className="min-w-0 flex-1 text-left text-[15px] leading-relaxed text-zinc-800 hover:underline underline-offset-4"
+                          title="Open"
+                        >
+                          {n.text}
+                        </button>
+                      ) : (
+                        <div className="min-w-0 flex-1 text-[15px] leading-relaxed text-zinc-800">{n.text}</div>
+                      )}
 
-                  {billsLine ? <div className="mt-2 text-[15px] leading-relaxed text-zinc-800">{billsLine}</div> : null}
-                </div>
-
-                {canOpenNotes ? (
-                  <div className="shrink-0">
-                    <Chip onClick={onNotesClick} title="Open">
-                      Open
-                    </Chip>
-                  </div>
-                ) : null}
+                      {linked ? (
+                        <div className="shrink-0">
+                          <Chip onClick={() => openHref(n.href)} title="Open">
+                            Open
+                          </Chip>
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                })}
               </div>
-
-              {!canOpenNotes ? <div className="mt-2 text-xs text-zinc-500">No action needed.</div> : null}
             </CardContent>
           </Card>
         ) : null}
