@@ -1,5 +1,9 @@
+// components/Page.tsx
+"use client";
+
 import type * as React from "react";
 import { cn } from "@/lib/cn";
+import { FeedbackPrompt } from "@/components/FeedbackPrompt";
 
 type PageProps = {
   title?: string;
@@ -7,9 +11,10 @@ type PageProps = {
   right?: React.ReactNode;
   children: React.ReactNode;
   className?: string;
+  disableFeedback?: boolean;
 };
 
-export function Page({ title, subtitle, right, children, className }: PageProps) {
+export function Page({ title, subtitle, right, children, className, disableFeedback = false }: PageProps) {
   return (
     <main className={cn("mx-auto w-full max-w-[900px] px-6 py-6 font-sans", className)}>
       {(title || subtitle || right) && (
@@ -22,7 +27,15 @@ export function Page({ title, subtitle, right, children, className }: PageProps)
         </header>
       )}
 
-      <div className="space-y-6">{children}</div>
+      <div className="space-y-6">
+        {children}
+
+        {!disableFeedback ? (
+          <div className="pt-2">
+            <FeedbackPrompt pageTitle={typeof title === "string" ? title : undefined} />
+          </div>
+        ) : null}
+      </div>
     </main>
   );
 }
