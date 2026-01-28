@@ -105,6 +105,15 @@ function isoFromDateInput(dateStr: string) {
   return new Date(ms).toISOString();
 }
 
+function toDateInputValue(iso: string | null) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+
 function sortByName<T extends { name: string; sort_order?: number | null }>(items: T[]): T[] {
   return [...items].sort((a, b) => {
     const ao = typeof a.sort_order === "number" ? a.sort_order : 9999;
@@ -235,9 +244,7 @@ export default function RevisitClient() {
 
     if (!ddRes.error) {
       const next: Record<string, string | null> = {};
-      for (const row of ddRes.data ?? []) {
-        next[String((row as any).decision_id)] = String((row as any).domain_id);
-      }
+      for (const row of ddRes.data ?? []) next[String((row as any).decision_id)] = String((row as any).domain_id);
       setDomainByDecision(next);
     } else {
       setDomainByDecision({});
@@ -266,16 +273,11 @@ export default function RevisitClient() {
     for (const d of items) {
       const ms = safeMs(d.review_at);
       if (!ms) continue;
-
       if (ms <= now) due.push(d);
       else if (ms <= soonCutoff) soon.push(d);
     }
 
-    const sortByReview = (a: Decision, b: Decision) => {
-      const am = safeMs(a.review_at) ?? 0;
-      const bm = safeMs(b.review_at) ?? 0;
-      return am - bm;
-    };
+    const sortByReview = (a: Decision, b: Decision) => (safeMs(a.review_at) ?? 0) - (safeMs(b.review_at) ?? 0);
 
     due.sort(sortByReview);
     soon.sort(sortByReview);
@@ -456,9 +458,7 @@ export default function RevisitClient() {
       review_history: prevHistory,
     });
 
-    setItems((prev) =>
-      prev.map((x) => (x.id === d.id ? { ...x, reviewed_at: nowIso, review_at: nextReview, review_history: [...prevHistory, entry] } : x))
-    );
+    setItems((prev) => prev.map((x) => (x.id === d.id ? { ...x, reviewed_at: nowIso, review_at: nextReview, review_history: [...prevHistory, entry] } : x)));
 
     const { error } = await supabase.from("decisions").update(patch).eq("id", d.id).eq("user_id", userId);
 
@@ -468,7 +468,6 @@ export default function RevisitClient() {
       return;
     }
 
-    // close card after review (keeps Review page calm)
     setOpenId((cur) => (cur === d.id ? null : cur));
     setStatusLine("Reviewed.");
   };
@@ -485,7 +484,6 @@ export default function RevisitClient() {
     return `Due in ${diff}d`;
   };
 
-  // ✅ Area assignment (single domain per decision)
   const setDecisionDomain = async (decisionId: string, domainId: string | null) => {
     if (!userId) return;
 
@@ -511,7 +509,6 @@ export default function RevisitClient() {
     }
   };
 
-  // ✅ Group toggle (multi)
   const toggleConstellation = async (decisionId: string, constellationId: string) => {
     if (!userId) return;
 
@@ -549,14 +546,11 @@ export default function RevisitClient() {
     }
   };
 
-  // ✅ Apply calm filters
   const filteredDueItems = useMemo(() => {
     const apply = (list: Decision[]) => {
       let out = list;
-
       if (activeDomainId) out = out.filter((d) => (domainByDecision[d.id] ?? null) === activeDomainId);
       if (activeConstellationId) out = out.filter((d) => (constellationsByDecision[d.id] ?? []).includes(activeConstellationId));
-
       return out;
     };
 
@@ -566,10 +560,7 @@ export default function RevisitClient() {
     };
   }, [dueItemsRaw, activeDomainId, activeConstellationId, domainByDecision, constellationsByDecision]);
 
-  const dueVisible = useMemo(
-    () => (showAllDue ? filteredDueItems.due : filteredDueItems.due.slice(0, DEFAULT_LIMIT)),
-    [filteredDueItems.due, showAllDue]
-  );
+  const dueVisible = useMemo(() => (showAllDue ? filteredDueItems.due : filteredDueItems.due.slice(0, DEFAULT_LIMIT)), [filteredDueItems.due, showAllDue]);
   const soonVisible = useMemo(
     () => (showAllSoon ? filteredDueItems.soon : filteredDueItems.soon.slice(0, DEFAULT_LIMIT)),
     [filteredDueItems.soon, showAllSoon]
@@ -794,16 +785,10 @@ export default function RevisitClient() {
 
           {isOpen ? (
             <div className="mt-4 space-y-4">
-              {d.context ? (
-                <div className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-700">{d.context}</div>
-              ) : (
-                <div className="text-sm text-zinc-600">No extra context saved.</div>
-              )}
+              {d.context ? <div className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-700">{d.context}</div> : <div className="text-sm text-zinc-600">No extra context saved.</div>}
 
               <FiledUnderBox decision={d} />
-
               <AttachmentsStrip decision={d} />
-
               <ReviewControls decision={d} />
             </div>
           ) : null}
@@ -824,29 +809,21 @@ export default function RevisitClient() {
   };
 
   return (
-    <Page title="Revisit" subtitle="Only what’s due, or due soon. Nothing else." right={null}>
-      <div className="mx-auto w-full max-w-[760px] space-y-6">
-        {/* Flow controls (consistent, top-of-page) */}
-        <div className="flex items-center justify-between gap-3">
-          <div className="text-xs text-zinc-500">Step 4 of 6</div>
-
-          <div className="flex items-center gap-2">
-            {lastUndo ? (
-              <Chip onClick={() => void undoLast()} title="Undo the last change">
-                {lastUndo.label}
-              </Chip>
-            ) : null}
-
-            <Chip onClick={() => router.push("/decisions")} title="Back: Decisions">
-              <span className="mr-1 opacity-70">‹</span> Back: Decisions
+    <Page
+      title="Review"
+      subtitle="Only what’s due, or due soon. Nothing else."
+      right={
+        <div className="flex items-center gap-2">
+          {lastUndo ? (
+            <Chip onClick={() => void undoLast()} title="Undo the last change">
+              {lastUndo.label}
             </Chip>
-
-            <Chip onClick={() => router.push("/chapters")} title="Next: Chapters">
-              Next: Chapters <span className="ml-1 opacity-70">›</span>
-            </Chip>
-          </div>
+          ) : null}
+          <Chip onClick={() => router.push("/home")}>Back to Home</Chip>
         </div>
-
+      }
+    >
+      <div className="mx-auto w-full max-w-[760px] space-y-6">
         <AssistedSearch scope="revisit" placeholder="Search decisions…" />
 
         <div className="space-y-4">
@@ -862,7 +839,7 @@ export default function RevisitClient() {
             <CardContent>
               <div className="space-y-2">
                 <div className="text-sm font-semibold text-zinc-900">Nothing needs to come back right now.</div>
-                <div className="text-sm text-zinc-600">When you schedule a revisit, it will show up here quietly.</div>
+                <div className="text-sm text-zinc-600">When you schedule a review, it will show up here quietly.</div>
               </div>
             </CardContent>
           </Card>
