@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { Page } from "@/components/Page";
 import { Card, CardContent, Chip } from "@/components/ui";
-import { normalizeAttachments, softKB, type AttachmentMeta } from "@/lib/attachments";
+import { normalizeAttachments, type AttachmentMeta } from "@/lib/attachments";
 import { AttachmentsBlock } from "@/components/AttachmentsBlock";
 
 // ✅ Assisted retrieval + tiles
@@ -506,6 +506,8 @@ export default function DecisionsClient() {
 
   const hasMore = filteredItems.length > DEFAULT_LIMIT;
 
+  const hasAnyLabelOptions = domains.length > 0 || constellations.length > 0;
+
   return (
     <Page
       title="Decisions"
@@ -563,7 +565,6 @@ export default function DecisionsClient() {
           <div className="grid gap-3">
             {visibleItems.map((d) => {
               const isOpen = openId === d.id;
-              const atts = isOpen ? normalizeAttachments(d.attachments) : [];
 
               const domainId = domainByDecision[d.id] ?? null;
               const domainObj = domainId ? domains.find((x) => x.id === domainId) ?? null : null;
@@ -579,6 +580,13 @@ export default function DecisionsClient() {
               ].filter(Boolean) as string[];
 
               const isEditingLabels = labelsEditForId === d.id;
+
+              // ✅ Hide the whole “Filed under” block unless:
+              // - user is currently editing, OR
+              // - there are labels already set
+              // - and only if label options exist at all
+              const showFiledUnderCard =
+                (hasAnyLabelOptions && isEditingLabels) || (hasAnyLabelOptions && filedUnder.length > 0);
 
               const revisitMode = revisitModeById[d.id] ?? "";
               const customDate = customDateById[d.id] ?? "";
@@ -627,58 +635,77 @@ export default function DecisionsClient() {
                           <div className="text-sm text-zinc-600">No extra context saved.</div>
                         )}
 
-                        {/* ✅ Filed under (collapsed by default) */}
-                        <div className="rounded-xl border border-zinc-200 bg-white p-3 space-y-2">
-                          <div className="flex flex-wrap items-center justify-between gap-2">
-                            <div className="text-xs font-semibold text-zinc-700">Filed under</div>
-                            <Chip onClick={() => setLabelsEditForId((cur) => (cur === d.id ? null : d.id))}>{isEditingLabels ? "Done" : "Edit"}</Chip>
-                          </div>
-
-                          {!isEditingLabels ? (
-                            <div className="text-sm text-zinc-700">
-                              {filedUnder.length > 0 ? <span>{filedUnder.join(", ")}</span> : <span className="text-zinc-600">Not set.</span>}
+                        {/* ✅ Filed under: hidden until useful (or user explicitly opens it) */}
+                        {showFiledUnderCard ? (
+                          <div className="rounded-xl border border-zinc-200 bg-white p-3 space-y-2">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <div className="text-xs font-semibold text-zinc-700">Filed under</div>
+                              <Chip
+                                onClick={() => {
+                                  if (!hasAnyLabelOptions) {
+                                    setStatusLine("No areas or groups yet.");
+                                    return;
+                                  }
+                                  setLabelsEditForId((cur) => (cur === d.id ? null : d.id));
+                                }}
+                              >
+                                {isEditingLabels ? "Done" : "Edit"}
+                              </Chip>
                             </div>
-                          ) : (
-                            <div className="space-y-3">
-                              <div className="text-xs text-zinc-500">Optional. Helps you group and filter later.</div>
 
-                              <div className="space-y-2">
-                                <div className="text-xs text-zinc-500">Area</div>
-                                <div className="flex flex-wrap items-center gap-2">
-                                  <Chip active={!domainId} onClick={() => void setDecisionDomain(d.id, null)}>
-                                    None
-                                  </Chip>
-                                  {domains.map((dom) => (
-                                    <Chip key={dom.id} active={domainId === dom.id} onClick={() => void setDecisionDomain(d.id, dom.id)}>
-                                      {dom.emoji ? `${dom.emoji} ` : ""}
-                                      {dom.name}
+                            {!isEditingLabels ? (
+                              <div className="text-sm text-zinc-700">
+                                {filedUnder.length > 0 ? <span>{filedUnder.join(", ")}</span> : <span className="text-zinc-600">Not set.</span>}
+                              </div>
+                            ) : (
+                              <div className="space-y-3">
+                                <div className="text-xs text-zinc-500">Optional. Helps you group and filter later.</div>
+
+                                <div className="space-y-2">
+                                  <div className="text-xs text-zinc-500">Area</div>
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <Chip active={!domainId} onClick={() => void setDecisionDomain(d.id, null)}>
+                                      None
                                     </Chip>
-                                  ))}
+                                    {domains.map((dom) => (
+                                      <Chip key={dom.id} active={domainId === dom.id} onClick={() => void setDecisionDomain(d.id, dom.id)}>
+                                        {dom.emoji ? `${dom.emoji} ` : ""}
+                                        {dom.name}
+                                      </Chip>
+                                    ))}
+                                  </div>
+                                </div>
+
+                                <div className="space-y-2">
+                                  <div className="text-xs text-zinc-500">Groups</div>
+                                  {constellations.length === 0 ? (
+                                    <div className="text-sm text-zinc-600">No groups yet.</div>
+                                  ) : (
+                                    <div className="flex flex-wrap items-center gap-2">
+                                      {constellations.map((c) => {
+                                        const active = memberIds.includes(c.id);
+                                        return (
+                                          <Chip key={c.id} active={active} onClick={() => void toggleConstellation(d.id, c.id)}>
+                                            {c.emoji ? `${c.emoji} ` : ""}
+                                            {c.name}
+                                          </Chip>
+                                        );
+                                      })}
+                                    </div>
+                                  )}
                                 </div>
                               </div>
+                            )}
+                          </div>
+                        ) : hasAnyLabelOptions ? (
+                          <div className="flex items-center gap-2">
+                            <Chip onClick={() => setLabelsEditForId(d.id)} title="Optional: file under an area or group">
+                              File under
+                            </Chip>
+                          </div>
+                        ) : null}
 
-                              <div className="space-y-2">
-                                <div className="text-xs text-zinc-500">Groups</div>
-                                {constellations.length === 0 ? (
-                                  <div className="text-sm text-zinc-600">No groups yet.</div>
-                                ) : (
-                                  <div className="flex flex-wrap items-center gap-2">
-                                    {constellations.map((c) => {
-                                      const active = memberIds.includes(c.id);
-                                      return (
-                                        <Chip key={c.id} active={active} onClick={() => void toggleConstellation(d.id, c.id)}>
-                                          {c.emoji ? `${c.emoji} ` : ""}
-                                          {c.name}
-                                        </Chip>
-                                      );
-                                    })}
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                          )}
-                        </div>
-
+                        {/* Attachments always available */}
                         <AttachmentsBlock userId={userId} decisionId={d.id} title="Attachments" bucket="captures" />
 
                         {/* Revisit (presets + custom date) */}
