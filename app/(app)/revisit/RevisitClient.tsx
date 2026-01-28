@@ -857,11 +857,7 @@ export default function RevisitClient() {
                   {filteredDueItems.due.length > DEFAULT_LIMIT ? (
                     <div className="flex items-center gap-2">
                       <Chip onClick={() => setShowAllDue((v) => !v)}>{showAllDue ? "Show less" : "Show all"}</Chip>
-                      {!showAllDue ? (
-                        <div className="text-xs text-zinc-500">
-                          Showing {DEFAULT_LIMIT} of {filteredDueItems.due.length}
-                        </div>
-                      ) : null}
+                      {null}
                     </div>
                   ) : null}
                 </div>
@@ -879,11 +875,7 @@ export default function RevisitClient() {
                   {filteredDueItems.soon.length > DEFAULT_LIMIT ? (
                     <div className="flex items-center gap-2">
                       <Chip onClick={() => setShowAllSoon((v) => !v)}>{showAllSoon ? "Show less" : "Show all"}</Chip>
-                      {!showAllSoon ? (
-                        <div className="text-xs text-zinc-500">
-                          Showing {DEFAULT_LIMIT} of {filteredDueItems.soon.length}
-                        </div>
-                      ) : null}
+                     {null}
                     </div>
                   ) : null}
                 </div>
