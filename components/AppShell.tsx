@@ -60,18 +60,19 @@ function Menu({
   return (
     <div className="relative" ref={ref}>
       <Chip active={!!active} onClick={() => setOpen((v) => !v)} aria-haspopup="menu" aria-expanded={open} title={label}>
-        {label} <span className="ml-1 text-xs opacity-60">▾</span>
+        {label} <span className="ml-1 text-xs opacity-60 leading-none">▾</span>
       </Chip>
 
       {open ? (
         <div
           role="menu"
           className={[
-            "absolute z-50 mt-2 min-w-[220px] overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm",
+            // tighter dropdown: less padding + slightly narrower + less “air”
+            "absolute z-50 mt-2 min-w-[190px] overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm",
             align === "right" ? "right-0" : "left-0",
           ].join(" ")}
         >
-          <div className="p-2">
+          <div className="p-1.5">
             {items.map((it) => (
               <Link
                 key={it.href}
@@ -82,7 +83,7 @@ function Menu({
                   onNavigate?.();
                 }}
               >
-                <div className="rounded-xl px-3 py-2 text-sm text-zinc-800 hover:bg-zinc-50">{it.label}</div>
+                <div className="rounded-lg px-2.5 py-1.5 text-sm text-zinc-800 hover:bg-zinc-50">{it.label}</div>
               </Link>
             ))}
           </div>
@@ -185,30 +186,33 @@ function AccountMenu({ onSignOut }: { onSignOut: () => void }) {
         title="Menu"
         className="border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
       >
-        Menu <span className="ml-1 text-xs opacity-60">▾</span>
+        Menu <span className="ml-1 text-xs opacity-60 leading-none">▾</span>
       </Chip>
 
       {open ? (
-        <div role="menu" className="absolute right-0 z-50 mt-2 min-w-[220px] overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm">
-          <div className="p-2">
+        <div
+          role="menu"
+          className="absolute right-0 z-50 mt-2 min-w-[190px] overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm"
+        >
+          <div className="p-1.5">
             <Link href="/settings" className="block no-underline" onClick={() => setOpen(false)}>
-              <div className="rounded-xl px-3 py-2 text-sm text-zinc-800 hover:bg-zinc-50">Settings</div>
+              <div className="rounded-lg px-2.5 py-1.5 text-sm text-zinc-800 hover:bg-zinc-50">Settings</div>
             </Link>
 
             <Link href="/how-keystone-works" className="block no-underline" onClick={() => setOpen(false)}>
-              <div className="rounded-xl px-3 py-2 text-sm text-zinc-800 hover:bg-zinc-50">How it works</div>
+              <div className="rounded-lg px-2.5 py-1.5 text-sm text-zinc-800 hover:bg-zinc-50">How it works</div>
             </Link>
 
             <Link href="/feedback" className="block no-underline" onClick={() => setOpen(false)}>
-              <div className="rounded-xl px-3 py-2 text-sm text-zinc-800 hover:bg-zinc-50">Feedback</div>
+              <div className="rounded-lg px-2.5 py-1.5 text-sm text-zinc-800 hover:bg-zinc-50">Feedback</div>
             </Link>
 
             <Link href="/demo" className="block no-underline" onClick={() => setOpen(false)}>
-              <div className="rounded-xl px-3 py-2 text-sm text-zinc-800 hover:bg-zinc-50">Demo</div>
+              <div className="rounded-lg px-2.5 py-1.5 text-sm text-zinc-800 hover:bg-zinc-50">Demo</div>
             </Link>
 
             <Link href="/fine-print" className="block no-underline" onClick={() => setOpen(false)}>
-              <div className="rounded-xl px-3 py-2 text-sm text-zinc-800 hover:bg-zinc-50">Fine print</div>
+              <div className="rounded-lg px-2.5 py-1.5 text-sm text-zinc-800 hover:bg-zinc-50">Fine print</div>
             </Link>
 
             <div className="my-2 h-px bg-zinc-100" />
@@ -219,7 +223,7 @@ function AccountMenu({ onSignOut }: { onSignOut: () => void }) {
                 setOpen(false);
                 onSignOut();
               }}
-              className="w-full rounded-xl px-3 py-2 text-left text-sm text-zinc-800 hover:bg-zinc-50"
+              className="w-full rounded-lg px-2.5 py-1.5 text-left text-sm text-zinc-800 hover:bg-zinc-50"
             >
               Sign out
             </button>
