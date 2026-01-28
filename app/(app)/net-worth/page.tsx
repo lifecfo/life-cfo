@@ -2,6 +2,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { supabase } from "@/lib/supabaseClient";
 import { Page } from "@/components/Page";
 import { Card, CardContent, useToast } from "@/components/ui";
@@ -48,7 +49,7 @@ function fmtMoneyFromCents(cents: number, currency: string) {
 type Bucket = {
   currency: string;
   assetsCents: number;
-  liabilitiesCents: number; // positive owed
+  liabilitiesCents: number;
   netCents: number;
   accounts: Account[];
   liabilities: Liability[];
@@ -131,9 +132,6 @@ export default function NetWorthPage() {
     for (const a of activeAccounts) {
       const b = ensure(a.currency || "AUD");
       const bal = Number(a.current_balance_cents ?? 0);
-
-      // Assets are account balances. If you ever want negative account balances treated as liabilities,
-      // do that later; V1 uses the explicit liabilities table.
       b.assetsCents += bal;
       b.accounts.push(a);
     }
@@ -141,7 +139,6 @@ export default function NetWorthPage() {
     for (const l of activeLiabilities) {
       const b = ensure(l.currency || "AUD");
       const owed = Math.max(0, Number(l.current_balance_cents ?? 0));
-
       b.liabilitiesCents += owed;
       b.liabilities.push(l);
     }
@@ -150,7 +147,6 @@ export default function NetWorthPage() {
       b.netCents = b.assetsCents - b.liabilitiesCents;
     }
 
-    // stable order by currency
     return Array.from(map.values()).sort((x, y) => x.currency.localeCompare(y.currency));
   }, [activeAccounts, activeLiabilities]);
 
@@ -161,14 +157,21 @@ export default function NetWorthPage() {
           <div className="text-sm text-zinc-500">Loading…</div>
         ) : buckets.length === 0 ? (
           <Card>
-            <CardContent>
-              <div className="text-sm text-zinc-600">Add an account (and optional liabilities) to see your net position.</div>
+            <CardContent className="space-y-2">
+              <div className="text-sm text-zinc-600">
+                Add an account (and optional liabilities) to see your net position.
+              </div>
+
+              <div className="text-sm">
+                <Link href="/liabilities" className="text-zinc-900 underline underline-offset-4">
+                  Add a liability
+                </Link>
+              </div>
             </CardContent>
           </Card>
         ) : (
           buckets.map((b) => (
             <div key={b.currency} className="space-y-3">
-              {/* Totals */}
               <Card>
                 <CardContent className="space-y-2">
                   <div className="text-sm font-medium text-zinc-800">{b.currency}</div>
@@ -176,17 +179,23 @@ export default function NetWorthPage() {
                   <div className="grid gap-2 sm:grid-cols-3">
                     <div>
                       <div className="text-xs text-zinc-500">Assets</div>
-                      <div className="text-base font-medium text-zinc-900">{fmtMoneyFromCents(b.assetsCents, b.currency)}</div>
+                      <div className="text-base font-medium text-zinc-900">
+                        {fmtMoneyFromCents(b.assetsCents, b.currency)}
+                      </div>
                     </div>
 
                     <div>
                       <div className="text-xs text-zinc-500">Liabilities</div>
-                      <div className="text-base font-medium text-zinc-900">{fmtMoneyFromCents(b.liabilitiesCents, b.currency)}</div>
+                      <div className="text-base font-medium text-zinc-900">
+                        {fmtMoneyFromCents(b.liabilitiesCents, b.currency)}
+                      </div>
                     </div>
 
                     <div>
                       <div className="text-xs text-zinc-500">Net</div>
-                      <div className="text-base font-medium text-zinc-900">{fmtMoneyFromCents(b.netCents, b.currency)}</div>
+                      <div className="text-base font-medium text-zinc-900">
+                        {fmtMoneyFromCents(b.netCents, b.currency)}
+                      </div>
                     </div>
                   </div>
 
@@ -196,7 +205,6 @@ export default function NetWorthPage() {
                 </CardContent>
               </Card>
 
-              {/* Accounts */}
               <Card>
                 <CardContent className="space-y-2">
                   <div className="text-sm font-medium text-zinc-800">Accounts</div>
@@ -209,7 +217,9 @@ export default function NetWorthPage() {
                           <div className="min-w-0">
                             <div className="truncate text-sm text-zinc-800">{a.name}</div>
                           </div>
-                          <div className="shrink-0 text-sm text-zinc-800">{fmtMoneyFromCents(a.current_balance_cents ?? 0, b.currency)}</div>
+                          <div className="shrink-0 text-sm text-zinc-800">
+                            {fmtMoneyFromCents(a.current_balance_cents ?? 0, b.currency)}
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -217,7 +227,6 @@ export default function NetWorthPage() {
                 </CardContent>
               </Card>
 
-              {/* Liabilities */}
               <Card>
                 <CardContent className="space-y-2">
                   <div className="text-sm font-medium text-zinc-800">Liabilities</div>
@@ -229,9 +238,13 @@ export default function NetWorthPage() {
                         <div key={l.id} className="flex items-center justify-between gap-3">
                           <div className="min-w-0">
                             <div className="truncate text-sm text-zinc-800">{l.name}</div>
-                            {l.notes ? <div className="truncate text-xs text-zinc-500">{l.notes}</div> : null}
+                            {l.notes ? (
+                              <div className="truncate text-xs text-zinc-500">{l.notes}</div>
+                            ) : null}
                           </div>
-                          <div className="shrink-0 text-sm text-zinc-800">{fmtMoneyFromCents(l.current_balance_cents ?? 0, b.currency)}</div>
+                          <div className="shrink-0 text-sm text-zinc-800">
+                            {fmtMoneyFromCents(l.current_balance_cents ?? 0, b.currency)}
+                          </div>
                         </div>
                       ))}
                     </div>
