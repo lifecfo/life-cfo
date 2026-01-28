@@ -97,6 +97,44 @@ function snippetFromText(text: string, max = 120) {
 }
 
 /**
+ * V1 heuristic: turn capture text/title into a neutral "decision statement"
+ * without calling AI (fast + reliable).
+ */
+function suggestDecisionStatement(args: { title: string; captureText: string }) {
+  const raw = `${args.title}\n${args.captureText}`.trim();
+  const line =
+    raw
+      .split("\n")
+      .map((s) => s.trim())
+      .find(Boolean) ?? "";
+
+  const t = line.replace(/\s+/g, " ").trim();
+
+  if (!t) return "Decide what to do next.";
+
+  // If user already wrote a question/decision, keep it.
+  if (/[?]$/.test(t)) return t;
+
+  const lower = t.toLowerCase();
+
+  // If it starts like a decision already
+  if (
+    lower.startsWith("should ") ||
+    lower.startsWith("do i ") ||
+    lower.startsWith("do we ") ||
+    lower.startsWith("can i ") ||
+    lower.startsWith("can we ") ||
+    lower.startsWith("whether ")
+  ) {
+    return /[?]$/.test(t) ? t : `${t}?`;
+  }
+
+  // Otherwise: neutral wrapper.
+  const short = t.length > 120 ? `${t.slice(0, 120).trim()}…` : t;
+  return `Decide whether to ${short.replace(/[.]+$/, "")}.`;
+}
+
+/**
  * ✅ IMPORTANT
  * Next.js needs a Suspense boundary if anything in the tree uses useSearchParams().
  * Keeping this wrapper prevents the prerender build error.
@@ -129,6 +167,9 @@ function FramingClient() {
 
   const [working, setWorking] = useState(false);
   const titleRef = useRef<HTMLInputElement | null>(null);
+
+  // Editor scroll anchor (fixes “selected capture appears at bottom”)
+  const editorTopRef = useRef<HTMLDivElement | null>(null);
 
   // Signed URL cache
   const [signed, setSigned] = useState<Record<string, string>>({});
@@ -164,6 +205,12 @@ function FramingClient() {
     window.open(url, "_blank", "noopener,noreferrer");
   };
 
+  const scrollEditorIntoView = () => {
+    window.setTimeout(() => {
+      editorTopRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 0);
+  };
+
   const applyItemToEditor = (next: InboxItem | null) => {
     setItem(next);
 
@@ -175,12 +222,19 @@ function FramingClient() {
     }
 
     const p = tryParseCaptureBody(next.body);
-    const base = (p.text || next.title || "").trim();
+    const captureText = (p.text || "").trim();
+    const baseForTitle = (captureText || next.title || "").trim();
 
-    setDecisionTitle((next.title || safeTitleFromText(base)).slice(0, 120));
-    setDecisionStatement(base.slice(0, 1000));
+    const title = (next.title || safeTitleFromText(baseForTitle)).slice(0, 120);
+    setDecisionTitle(title);
+
+    // Default decision statement is NOT the capture text
+    const suggested = suggestDecisionStatement({ title, captureText });
+    setDecisionStatement(suggested.slice(0, 1000));
+
     setFramingNote("");
 
+    scrollEditorIntoView();
     window.setTimeout(() => titleRef.current?.focus(), 0);
   };
 
@@ -290,9 +344,10 @@ function FramingClient() {
     const attachments = parsed.attachments ?? [];
     const note = framingNote.trim();
 
+    // Context keeps the original capture without duplicating statement
     const contextPieces: string[] = [];
-    if (statement) contextPieces.push(statement);
-    if (parsed.text && parsed.text.trim() && parsed.text.trim() !== statement) {
+    if (statement) contextPieces.push(`Decision (framed):\n${statement}`);
+    if (parsed.text && parsed.text.trim()) {
       contextPieces.push(`\n---\nCaptured:\n${parsed.text.trim()}`);
     }
     const context = contextPieces.length ? contextPieces.join("\n") : null;
@@ -319,7 +374,10 @@ function FramingClient() {
       if (note.length > 0) {
         await supabase
           .from("decision_notes")
-          .upsert({ user_id: userId, decision_id: decisionId, kind: "framing", body: note }, { onConflict: "user_id,decision_id,kind" });
+          .upsert(
+            { user_id: userId, decision_id: decisionId, kind: "framing", body: note },
+            { onConflict: "user_id,decision_id,kind" }
+          );
       }
 
       const { error: updErr } = await supabase
@@ -364,7 +422,7 @@ function FramingClient() {
 
       if (error) throw error;
 
-      showToast({ message: "Closed. Kept as a capture only.", undoLabel: "Go to Capture", onUndo: () => router.push("/capture") }, 5000);
+      showToast({ message: "Closed. Kept as a capture only." }, 4500);
       await Promise.all([loadOpenList(userId), loadNextSuggested(userId)]);
     } catch (e: any) {
       showToast({ message: e?.message ? String(e.message) : "Couldn’t update." }, 3500);
@@ -374,39 +432,35 @@ function FramingClient() {
   };
 
   return (
-    <Page
-      title="Framing"
-      subtitle="We’ll help turn one capture into a clear decision — step by step."
-      right={
-        <div className="flex items-center gap-2">
-          <Chip onClick={() => router.push("/capture")}>Capture</Chip>
-          <Chip onClick={() => router.push("/thinking")}>Thinking</Chip>
-          <Chip
-            onClick={() => {
-              if (!userId) return;
-              setStatusLine("Refreshing…");
-              void Promise.all([loadOpenList(userId), loadNextSuggested(userId)]).then(() => setStatusLine("Ready."));
-            }}
-            title="Refresh"
-          >
-            Refresh
-          </Chip>
-        </div>
-      }
-    >
+    <Page title="Framing" subtitle="Turn one capture into a clear decision." right={null}>
       <div className="mx-auto w-full max-w-[760px] space-y-6">
+        {/* Flow controls (consistent, top-of-page) */}
+        <div className="flex items-center justify-between gap-3">
+          <div className="text-xs text-zinc-500">Step 2 of 3</div>
+
+          <div className="flex items-center gap-2">
+            <Chip onClick={() => router.push("/capture")} title="Back: Capture">
+              <span className="mr-1 opacity-70">‹</span> Back: Capture
+            </Chip>
+
+            <Chip onClick={() => router.push("/thinking")} title="Next: Thinking">
+              Next: Thinking <span className="ml-1 opacity-70">›</span>
+            </Chip>
+          </div>
+        </div>
+
         {/* Assisted retrieval */}
         <AssistedSearch scope="framing" placeholder="Search captures…" />
 
         <div className="text-xs text-zinc-500">{statusLine}</div>
 
-        {/* Top list (5 default) */}
+        {/* Open captures list */}
         <Card className="border-zinc-200 bg-white">
           <CardContent>
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="space-y-1">
                 <div className="text-sm font-semibold text-zinc-900">Open captures</div>
-                <div className="text-sm text-zinc-600">Pick one to frame, or use the suggested capture below.</div>
+                <div className="text-sm text-zinc-600">Pick one to frame, or use the suggested one.</div>
               </div>
 
               <div className="flex items-center gap-2">
@@ -473,6 +527,7 @@ function FramingClient() {
           </CardContent>
         </Card>
 
+        {/* Editor */}
         {!item ? (
           <Card className="border-zinc-200 bg-white">
             <CardContent>
@@ -481,84 +536,85 @@ function FramingClient() {
                 <div className="text-sm text-zinc-600">Capture something first — it will appear here when it’s ready.</div>
                 <div className="flex flex-wrap items-center gap-2 pt-1">
                   <Chip onClick={() => router.push("/capture")}>Go to Capture</Chip>
-                  <Chip onClick={() => router.push("/home")}>Back to Home</Chip>
                 </div>
               </div>
             </CardContent>
           </Card>
         ) : (
-          <Card className="border-zinc-200 bg-white">
-            <CardContent>
-              <div className="space-y-4">
-                <div className="space-y-1">
-                  <div className="text-xs font-semibold text-zinc-700">Captured</div>
-                  <div className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-900">{parsed.text || item.title}</div>
+          <div ref={editorTopRef}>
+            <Card className="border-zinc-200 bg-white">
+              <CardContent>
+                <div className="space-y-4">
+                  <div className="space-y-1">
+                    <div className="text-xs font-semibold text-zinc-700">Captured</div>
+                    <div className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-900">{parsed.text || item.title}</div>
 
-                  {parsed.attachments.length > 0 ? (
-                    <div className="mt-3 space-y-2">
-                      <div className="text-xs font-semibold text-zinc-700">Attachments</div>
-                      <div className="flex flex-wrap items-center gap-2">
-                        {parsed.attachments.map((a) => (
-                          <Chip key={a.path} onClick={() => void openAttachment(a)} title={`${a.type}${a.size ? ` • ${softKB(a.size)}` : ""}`}>
-                            {a.name}
-                          </Chip>
-                        ))}
+                    {parsed.attachments.length > 0 ? (
+                      <div className="mt-3 space-y-2">
+                        <div className="text-xs font-semibold text-zinc-700">Attachments</div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          {parsed.attachments.map((a) => (
+                            <Chip
+                              key={a.path}
+                              onClick={() => void openAttachment(a)}
+                              title={`${a.type}${a.size ? ` • ${softKB(a.size)}` : ""}`}
+                            >
+                              {a.name}
+                            </Chip>
+                          ))}
+                        </div>
                       </div>
-                    </div>
-                  ) : null}
+                    ) : null}
+                  </div>
+
+                  <div className="space-y-2">
+                    <div className="text-xs font-semibold text-zinc-700">What you’re deciding</div>
+                    <input
+                      ref={titleRef}
+                      value={decisionTitle}
+                      onChange={(e) => setDecisionTitle(e.target.value)}
+                      className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-[15px] text-zinc-900 outline-none focus:ring-2 focus:ring-zinc-200"
+                      placeholder="Short label for this decision"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <div className="text-xs font-semibold text-zinc-700">The choice ahead</div>
+                    <textarea
+                      value={decisionStatement}
+                      onChange={(e) => setDecisionStatement(e.target.value)}
+                      rows={4}
+                      className="w-full resize-y rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-[15px] leading-relaxed text-zinc-900 outline-none focus:ring-2 focus:ring-zinc-200"
+                      placeholder="Decide whether to…"
+                    />
+                    <div className="text-xs text-zinc-500">Keep it neutral and simple. You can change this later.</div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <div className="text-xs font-semibold text-zinc-700">Note (optional)</div>
+                    <textarea
+                      value={framingNote}
+                      onChange={(e) => setFramingNote(e.target.value)}
+                      rows={3}
+                      className="w-full resize-y rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-[15px] leading-relaxed text-zinc-900 outline-none focus:ring-2 focus:ring-zinc-200"
+                      placeholder="Anything that matters: constraints, values, timing, context…"
+                    />
+                    <div className="text-xs text-zinc-500">Quiet notes, just for you.</div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2 pt-1">
+                    <Chip onClick={() => void sendToThinking()} title="Create a draft in Thinking">
+                      {working ? "Working…" : "Send to Thinking"}
+                    </Chip>
+
+                    <Chip onClick={() => void closeAsNotADecision()} title="Close this capture without creating a decision">
+                      Keep as capture
+                    </Chip>
+                  </div>
                 </div>
-
-                <div className="space-y-2">
-                  <div className="text-xs font-semibold text-zinc-700">What is this really about?</div>
-                  <input
-                    ref={titleRef}
-                    value={decisionTitle}
-                    onChange={(e) => setDecisionTitle(e.target.value)}
-                    className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-[15px] text-zinc-900 outline-none focus:ring-2 focus:ring-zinc-200"
-                    placeholder="A short way to describe the choice"
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <div className="text-xs font-semibold text-zinc-700">The decision, in plain words</div>
-                  <textarea
-                    value={decisionStatement}
-                    onChange={(e) => setDecisionStatement(e.target.value)}
-                    rows={4}
-                    className="w-full resize-y rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-[15px] leading-relaxed text-zinc-900 outline-none focus:ring-2 focus:ring-zinc-200"
-                    placeholder="For example: Should we sell the car this year?"
-                  />
-                  <div className="text-xs text-zinc-500">Doesn’t need to be perfect. You can change this later.</div>
-                </div>
-
-                <div className="space-y-2">
-                  <div className="text-xs font-semibold text-zinc-700">Note (optional)</div>
-                  <textarea
-                    value={framingNote}
-                    onChange={(e) => setFramingNote(e.target.value)}
-                    rows={3}
-                    className="w-full resize-y rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-[15px] leading-relaxed text-zinc-900 outline-none focus:ring-2 focus:ring-zinc-200"
-                    placeholder="Anything that matters: constraints, values, timing, context…"
-                  />
-                  <div className="text-xs text-zinc-500">Quiet notes, just for you.</div>
-                </div>
-
-                <div className="flex flex-wrap items-center gap-2 pt-1">
-                  <Chip onClick={() => void sendToThinking()} title="Create a draft in Thinking">
-                    {working ? "Working…" : "Send to Thinking"}
-                  </Chip>
-
-                  <Chip onClick={() => void closeAsNotADecision()} title="Close this capture without creating a decision">
-                    Keep as capture
-                  </Chip>
-
-                  <Chip onClick={() => router.push("/home")} title="Return to Home">
-                    Back to Home
-                  </Chip>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+              </CardContent>
+            </Card>
+          </div>
         )}
       </div>
     </Page>
