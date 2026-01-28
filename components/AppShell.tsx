@@ -105,6 +105,7 @@ export function AppShell({ children }: AppShellProps) {
   const isActive = (href: string) => pathname === href || (href !== "/" && pathname?.startsWith(href));
 
   const home: NavItem = { href: "/home", label: "Home" };
+  const family: NavItem = { href: "/family", label: "Family" };
 
   const decideItems: NavItem[] = [
     { href: "/capture", label: "Capture" },
@@ -157,6 +158,13 @@ export function AppShell({ children }: AppShellProps) {
 
             <Menu label="Decide" active={decideActive} items={decideItems} />
             <Menu label="Review" active={reviewActive} items={reviewItems} />
+
+            <Link href={family.href} className="no-underline">
+              <Chip active={isActive(family.href)} aria-current={isActive(family.href) ? "page" : undefined}>
+                {family.label}
+              </Chip>
+            </Link>
+
             <Menu label="Money" active={moneyActive} items={moneyItems} />
           </nav>
 
