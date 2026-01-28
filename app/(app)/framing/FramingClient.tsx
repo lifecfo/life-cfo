@@ -7,6 +7,7 @@ import { supabase } from "@/lib/supabaseClient";
 import { Page } from "@/components/Page";
 import { Card, CardContent, Chip, useToast } from "@/components/ui";
 import { AssistedSearch } from "@/components/AssistedSearch";
+import { AttachmentsBlock } from "@/components/AttachmentsBlock";
 
 export const dynamic = "force-dynamic";
 
@@ -549,22 +550,12 @@ function FramingClient() {
                     <div className="text-xs font-semibold text-zinc-700">Captured</div>
                     <div className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-900">{parsed.text || item.title}</div>
 
-                    {parsed.attachments.length > 0 ? (
-                      <div className="mt-3 space-y-2">
-                        <div className="text-xs font-semibold text-zinc-700">Attachments</div>
-                        <div className="flex flex-wrap items-center gap-2">
-                          {parsed.attachments.map((a) => (
-                            <Chip
-                              key={a.path}
-                              onClick={() => void openAttachment(a)}
-                              title={`${a.type}${a.size ? ` • ${softKB(a.size)}` : ""}`}
-                            >
-                              {a.name}
-                            </Chip>
-                          ))}
-                        </div>
-                      </div>
-                    ) : null}
+                  <AttachmentsBlock
+                    userId={userId}
+                    decisionId={item.id}
+                    title="Attachments"
+                    bucket="captures"
+                    />
                   </div>
 
                   <div className="space-y-2">

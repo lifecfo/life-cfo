@@ -7,6 +7,7 @@ import { supabase } from "@/lib/supabaseClient";
 import { Page } from "@/components/Page";
 import { Chip, Card, CardContent, useToast } from "@/components/ui";
 import { ConversationPanel } from "./ConversationPanel";
+import { AttachmentsBlock } from "@/components/AttachmentsBlock";
 
 // ✅ Assisted retrieval + tiles
 import { AssistedSearch } from "@/components/AssistedSearch";
@@ -723,8 +724,6 @@ export default function ThinkingClient() {
               const isOpen = openId === d.id;
               const isChatOpen = chatForId === d.id;
 
-              const attachmentsForCard = normalizeAttachments(d.attachments);
-
               const domainId = domainByDecision[d.id] ?? null;
               const domainName = domainId ? domains.find((x) => x.id === domainId)?.name ?? null : null;
 
@@ -852,20 +851,13 @@ export default function ThinkingClient() {
                           </div>
 
                           <div className="rounded-xl border border-zinc-200 bg-white p-3 space-y-2">
-                            <div className="text-xs font-semibold text-zinc-700">Attachments</div>
-
-                            {attachmentsForCard.length === 0 ? (
-                              <div className="text-sm text-zinc-600">No attachments.</div>
-                            ) : (
-                              <div className="flex flex-wrap items-center gap-2">
-                                {attachmentsForCard.map((a) => (
-                                  <Chip key={a.path} onClick={() => void openAttachment(a)} title={`${a.type}${a.size ? ` • ${softKB(a.size)}` : ""}`}>
-                                    {a.name}
-                                  </Chip>
-                                ))}
-                              </div>
-                            )}
-                          </div>
+                           <AttachmentsBlock
+                              userId={userId}
+                              decisionId={d.id}
+                              title="Attachments"
+                              bucket="captures"
+                           />
+                        </div>
 
                           <div className="rounded-xl border border-zinc-200 bg-white p-3 space-y-2">
                             <div className="space-y-1">
