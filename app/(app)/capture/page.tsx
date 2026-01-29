@@ -114,7 +114,7 @@ export default function CapturePage() {
   const [selectedPush, setSelectedPush] = useState<Record<string, boolean>>({});
   const [selectedDelete, setSelectedDelete] = useState<Record<string, boolean>>({});
 
-  // Custom delete confirmation (inline, matches UI)
+  // Distinct delete confirmation banner
   const [confirmDeleteIds, setConfirmDeleteIds] = useState<string[] | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
@@ -174,7 +174,6 @@ export default function CapturePage() {
       return next;
     });
 
-    // if confirmation is open, prune that too
     setConfirmDeleteIds((prev) => {
       if (!prev) return null;
       const keep = prev.filter((id) => ids.has(id));
@@ -267,29 +266,37 @@ export default function CapturePage() {
     flashAffirmation("Sent to Thinking.", 1600);
   };
 
-  const bulkPushSelected = () => {
-    const ids = Object.entries(selectedPush)
-      .filter(([, v]) => v)
-      .map(([k]) => k);
+  const selectedPushIds = useMemo(
+    () => Object.entries(selectedPush).filter(([, v]) => v).map(([k]) => k),
+    [selectedPush]
+  );
+  const selectedDeleteIds = useMemo(
+    () => Object.entries(selectedDelete).filter(([, v]) => v).map(([k]) => k),
+    [selectedDelete]
+  );
 
-    if (ids.length === 0) {
-      flashAffirmation("Select captures to push.", 1400);
+  const sendSelected = () => {
+    if (selectedPushIds.length === 0) {
+      flashAffirmation("Select captures to send.", 1400);
       return;
     }
+    // We can only deep-link to one capture right now — so link to the first,
+    // but still acknowledge the batch.
+    pushToThinking(selectedPushIds[0]);
+    if (selectedPushIds.length > 1) flashAffirmation(`Sent ${selectedPushIds.length} to Thinking.`, 1800);
 
-    // For bulk, we won’t attempt to open multiple pages.
-    // We’ll set the “Go to Thinking” link to the most-recent selected item (first in list is fine),
-    // and clear selections so it feels “done”.
-    const first = ids[0];
+    // keep selection persistence? earlier you wanted persistence — but after action, it feels “done”
     setSelectedPush({});
-    setExamplesOpen(false);
-    setConfirmDeleteIds(null);
+  };
 
-    pushToThinking(first);
-
-    if (ids.length > 1) {
-      flashAffirmation(`Sent ${ids.length} to Thinking.`, 1800);
+  const sendAll = () => {
+    if (recent.length === 0) {
+      flashAffirmation("Nothing to send.", 1400);
+      return;
     }
+    pushToThinking(recent[0].id);
+    if (recent.length > 1) flashAffirmation(`Sent ${recent.length} to Thinking.`, 1800);
+    setSelectedPush({});
   };
 
   const requestDelete = (ids: string[]) => {
@@ -304,7 +311,6 @@ export default function CapturePage() {
   const deleteOneCapture = async (item: InboxItem) => {
     if (!userId) return;
 
-    // Best effort: remove attachments from storage (if any)
     const parsed = tryParseCaptureBody(item.body);
     const paths = (parsed.attachments || []).map((a) => a.path).filter(Boolean);
 
@@ -326,6 +332,7 @@ export default function CapturePage() {
     // optimistic UI
     setRecent((prev) => prev.filter((x) => !ids.includes(x.id)));
     setConfirmDeleteIds(null);
+
     setSelectedDelete((prev) => {
       const next = { ...prev };
       for (const id of ids) delete next[id];
@@ -340,7 +347,6 @@ export default function CapturePage() {
     setIsDeleting(true);
 
     try {
-      // delete sequentially to keep storage cleanup simple & reliable
       const byId = new Map(recent.map((r) => [r.id, r]));
       for (const id of ids) {
         const item = byId.get(id);
@@ -379,7 +385,6 @@ export default function CapturePage() {
       return;
     }
 
-    // Snapshot values BEFORE clearing UI
     const textSnapshot = raw;
     const filesSnapshot = [...files];
 
@@ -390,20 +395,17 @@ export default function CapturePage() {
     setPushedHref(null);
     setExamplesOpen(false);
 
-    // Keep focus available for continued capture
     window.setTimeout(() => inputRef.current?.focus(), 0);
 
     setIsSubmitting(true);
 
     try {
-      // 1) Create inbox row first (so we have an id for attachment paths)
       const title = textSnapshot
         ? safeTitleFromText(textSnapshot)
         : filesSnapshot[0]?.name
           ? `File: ${filesSnapshot[0].name}`
           : "Captured";
 
-      // If no files, keep body as plain text (simple + backward compatible)
       const initialBody = hasFiles ? null : textSnapshot;
 
       const { data: created, error: createErr } = await supabase
@@ -422,7 +424,6 @@ export default function CapturePage() {
 
       const inboxId = String(created?.id);
 
-      // 2) Upload attachments (if any)
       let uploaded: AttachmentMeta[] = [];
       let uploadFailures = 0;
 
@@ -452,7 +453,6 @@ export default function CapturePage() {
           });
         }
 
-        // 3) Persist JSON body with text + attachments (even if some failed)
         const bodyJson = JSON.stringify({ text: textSnapshot, attachments: uploaded });
 
         const { error: updErr } = await supabase
@@ -498,29 +498,33 @@ export default function CapturePage() {
     window.setTimeout(() => inputRef.current?.focus(), 0);
   };
 
-  const selectedPushCount = useMemo(() => Object.values(selectedPush).filter(Boolean).length, [selectedPush]);
-  const selectedDeleteCount = useMemo(() => Object.values(selectedDelete).filter(Boolean).length, [selectedDelete]);
-
-  const allVisibleIds = useMemo(() => recent.map((r) => r.id), [recent]);
-
-  const toggleAllPushVisible = () => {
-    if (recent.length === 0) return;
-    const allSelected = recent.every((r) => !!selectedPush[r.id]);
-    setSelectedPush((prev) => {
-      const next = { ...prev };
-      for (const id of allVisibleIds) next[id] = !allSelected;
-      return next;
-    });
+  const setAllForColumn = (col: "push" | "delete", value: boolean) => {
+    const ids = recent.map((r) => r.id);
+    if (col === "push") {
+      setSelectedPush((prev) => {
+        const next = { ...prev };
+        for (const id of ids) next[id] = value;
+        return next;
+      });
+    } else {
+      setSelectedDelete((prev) => {
+        const next = { ...prev };
+        for (const id of ids) next[id] = value;
+        return next;
+      });
+    }
   };
 
-  const toggleAllDeleteVisible = () => {
+  const toggleAllPush = () => {
     if (recent.length === 0) return;
-    const allSelected = recent.every((r) => !!selectedDelete[r.id]);
-    setSelectedDelete((prev) => {
-      const next = { ...prev };
-      for (const id of allVisibleIds) next[id] = !allSelected;
-      return next;
-    });
+    const all = recent.every((r) => !!selectedPush[r.id]);
+    setAllForColumn("push", !all);
+  };
+
+  const toggleAllDelete = () => {
+    if (recent.length === 0) return;
+    const all = recent.every((r) => !!selectedDelete[r.id]);
+    setAllForColumn("delete", !all);
   };
 
   return (
@@ -643,7 +647,6 @@ export default function CapturePage() {
             placeholder="Drop it here."
             className="w-full min-h-[180px] resize-y rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-[15px] leading-relaxed text-zinc-900 outline-none focus:ring-2 focus:ring-zinc-200"
             onKeyDown={(e) => {
-              // Enter submits; Shift+Enter newline
               if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
                 void submit();
@@ -696,7 +699,6 @@ export default function CapturePage() {
             </Chip>
           </div>
 
-          {/* Attached files list (only when present) */}
           {files.length > 0 ? (
             <div className="space-y-2 pt-1">
               {files.map((f, idx) => (
@@ -720,7 +722,7 @@ export default function CapturePage() {
           ) : null}
         </div>
 
-        {/* Soft confirmation (brief, fades) */}
+        {/* Soft confirmation */}
         {affirmation ? (
           <div className="text-sm text-zinc-600" aria-live="polite">
             {affirmation}
@@ -737,12 +739,10 @@ export default function CapturePage() {
               <div className="text-sm text-zinc-600">Captures auto-delete after 30 days unless sent to Thinking.</div>
             </div>
 
-            {/* Search belongs here (above the list) */}
             <div className="mt-4">
               <AssistedSearch scope="capture" placeholder="Search captures…" />
             </div>
 
-            {/* Show more / show all */}
             <div className="mt-3 flex items-center justify-between gap-2">
               <div className="text-xs text-zinc-500">{statusLine}</div>
 
@@ -753,7 +753,7 @@ export default function CapturePage() {
               ) : null}
             </div>
 
-            {/* “Sent to Thinking” prompt (no auto-nav) */}
+            {/* “Sent to Thinking” prompt */}
             {pushedHref ? (
               <div className="mt-4 flex items-center justify-between rounded-2xl border border-zinc-200 bg-white px-4 py-3">
                 <div className="text-sm text-zinc-700">Sent to Thinking.</div>
@@ -763,28 +763,22 @@ export default function CapturePage() {
               </div>
             ) : null}
 
-            {/* Inline delete confirm (replaces window.confirm) */}
+            {/* Distinct delete confirm banner (not a capture card) */}
             {confirmDeleteIds && confirmDeleteIds.length > 0 ? (
-              <div className="mt-4 rounded-2xl border border-zinc-200 bg-white px-4 py-3">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="text-sm text-zinc-700">
-                    Delete {confirmDeleteIds.length} capture{confirmDeleteIds.length === 1 ? "" : "s"}?
-                    <span className="ml-2 text-xs text-zinc-500">This can’t be undone.</span>
+              <div className="mt-4 rounded-2xl border border-zinc-300 bg-zinc-50 px-4 py-3">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium text-zinc-900">
+                      Delete {confirmDeleteIds.length} capture{confirmDeleteIds.length === 1 ? "" : "s"}?
+                    </div>
+                    <div className="text-xs text-zinc-600">This can’t be undone.</div>
                   </div>
 
                   <div className="flex items-center gap-2">
-                    <Chip
-                      onClick={() => setConfirmDeleteIds(null)}
-                      title="Cancel"
-                    >
+                    <Chip onClick={() => setConfirmDeleteIds(null)} title="Cancel">
                       Cancel
                     </Chip>
-
-                    <Chip
-                      onClick={() => void confirmDeleteNow()}
-                      title={isDeleting ? "Deleting…" : "Delete"}
-                      className="border-zinc-200 bg-white text-zinc-700"
-                    >
+                    <Chip onClick={() => void confirmDeleteNow()} title={isDeleting ? "Deleting…" : "Delete"}>
                       {isDeleting ? "Deleting…" : "Delete"}
                     </Chip>
                   </div>
@@ -792,40 +786,39 @@ export default function CapturePage() {
               </div>
             ) : null}
 
-            {/* Bulk header (checkbox columns + actions) */}
+            {/* Column header row (the clean version you described) */}
             {recent.length > 0 ? (
               <div className="mt-4 rounded-2xl border border-zinc-200 bg-white px-4 py-3">
                 <div className="flex items-center justify-between gap-3">
                   <div className="min-w-0">
-                    <div className="text-xs font-medium text-zinc-600">Select captures</div>
-                    <div className="mt-1 text-xs text-zinc-500">
-                      Your selections stay while you’re on this page.
-                    </div>
+                    <div className="text-sm font-medium text-zinc-900">Select captures</div>
+                    <div className="mt-1 text-xs text-zinc-500">Your selections stay while you’re on this page.</div>
                   </div>
 
-                  <div className="flex items-center gap-4">
-                    {/* Push column */}
+                  <div className="flex items-center gap-6">
                     <div className="flex items-center gap-2">
                       <div className="text-xs font-medium text-zinc-600">Push to Thinking</div>
-                      <Chip onClick={toggleAllPushVisible} title="Select all in this column">
-                        {recent.every((r) => !!selectedPush[r.id]) ? "Clear" : "All"}
+                      <Chip onClick={toggleAllPush} title="Select all / clear all">
+                        All
                       </Chip>
-                      <Chip onClick={bulkPushSelected} title={selectedPushCount ? `Push ${selectedPushCount}` : "Push selected"}>
-                        Push{selectedPushCount ? ` (${selectedPushCount})` : ""}
+                      <Chip onClick={sendSelected} title="Send selected">
+                        Send selected
+                      </Chip>
+                      <Chip onClick={sendAll} title="Send all">
+                        Send all
                       </Chip>
                     </div>
 
-                    {/* Delete column */}
                     <div className="flex items-center gap-2">
                       <div className="text-xs font-medium text-zinc-600">Delete</div>
-                      <Chip onClick={toggleAllDeleteVisible} title="Select all in this column">
-                        {recent.every((r) => !!selectedDelete[r.id]) ? "Clear" : "All"}
+                      <Chip onClick={toggleAllDelete} title="Select all / clear all">
+                        All
                       </Chip>
-                      <Chip
-                        onClick={() => requestDelete(Object.entries(selectedDelete).filter(([, v]) => v).map(([k]) => k))}
-                        title={selectedDeleteCount ? `Delete ${selectedDeleteCount}` : "Delete selected"}
-                      >
-                        Delete{selectedDeleteCount ? ` (${selectedDeleteCount})` : ""}
+                      <Chip onClick={() => requestDelete(selectedDeleteIds)} title="Delete selected">
+                        Delete selected
+                      </Chip>
+                      <Chip onClick={() => requestDelete(recent.map((r) => r.id))} title="Delete all">
+                        Delete all
                       </Chip>
                     </div>
                   </div>
@@ -850,6 +843,7 @@ export default function CapturePage() {
                   const titleKey = normalizeForCompare(title);
                   const snippet = snippetFromText(displayText, 140);
                   const snippetKey = normalizeForCompare(snippet);
+
                   const hasExtraText = !!snippet && snippetKey !== titleKey;
 
                   return (
@@ -862,51 +856,33 @@ export default function CapturePage() {
                             {hasAtts ? ` • ${attachmentsCount} attachment${attachmentsCount === 1 ? "" : "s"}` : ""}
                           </div>
 
-                          {hasExtraText ? (
-                            <div className="mt-2 truncate text-sm text-zinc-700">{snippet}</div>
-                          ) : null}
+                          {hasExtraText ? <div className="mt-2 truncate text-sm text-zinc-700">{snippet}</div> : null}
                         </div>
 
-                        {/* Two checkbox columns on the right */}
-                        <div className="flex shrink-0 items-start gap-6">
-                          <label className="flex items-center gap-2">
-                            <input
-                              type="checkbox"
-                              checked={!!selectedPush[r.id]}
-                              onChange={(e) => {
-                                const checked = e.target.checked;
-                                setSelectedPush((prev) => ({ ...prev, [r.id]: checked }));
-                              }}
-                              className="h-4 w-4 rounded border-zinc-300"
-                              aria-label={`Select ${title} to push`}
-                            />
-                            <span className="text-xs text-zinc-600">Push</span>
-                          </label>
+                        {/* One clean right-side checkbox row (no words) */}
+                        <div className="flex items-center gap-8 pt-1">
+                          <input
+                            type="checkbox"
+                            checked={!!selectedPush[r.id]}
+                            onChange={(e) => {
+                              const checked = e.target.checked;
+                              setSelectedPush((prev) => ({ ...prev, [r.id]: checked }));
+                            }}
+                            className="h-4 w-4 rounded border-zinc-300"
+                            aria-label={`Select ${title} to push`}
+                          />
 
-                          <label className="flex items-center gap-2">
-                            <input
-                              type="checkbox"
-                              checked={!!selectedDelete[r.id]}
-                              onChange={(e) => {
-                                const checked = e.target.checked;
-                                setSelectedDelete((prev) => ({ ...prev, [r.id]: checked }));
-                              }}
-                              className="h-4 w-4 rounded border-zinc-300"
-                              aria-label={`Select ${title} to delete`}
-                            />
-                            <span className="text-xs text-zinc-600">Delete</span>
-                          </label>
+                          <input
+                            type="checkbox"
+                            checked={!!selectedDelete[r.id]}
+                            onChange={(e) => {
+                              const checked = e.target.checked;
+                              setSelectedDelete((prev) => ({ ...prev, [r.id]: checked }));
+                            }}
+                            className="h-4 w-4 rounded border-zinc-300"
+                            aria-label={`Select ${title} to delete`}
+                          />
                         </div>
-                      </div>
-
-                      {/* Single-item quick actions (optional, but clean) */}
-                      <div className="mt-3 flex flex-wrap items-center gap-2">
-                        <Chip onClick={() => pushToThinking(r.id)} title="Push this capture to Thinking">
-                          Push to Thinking
-                        </Chip>
-                        <Chip onClick={() => requestDelete([r.id])} title="Delete this capture">
-                          Delete
-                        </Chip>
                       </div>
                     </div>
                   );
