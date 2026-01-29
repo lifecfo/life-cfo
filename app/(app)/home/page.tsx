@@ -29,8 +29,7 @@ function inferIntent(raw: string): "ask" | "hold" {
   const lower = s.toLowerCase();
   if (s.includes("?")) return "ask";
   if (/^(what|when|why|how|can|should|do i|did i|am i|are we)\b/i.test(lower)) return "ask";
-  if (/\b(bill|bills|due|total|this month|month|next|days|afford|balance|spend|spent|review|revisit|check[- ]?in|chapter|chapters)\b/i.test(lower))
-  return "ask";
+  if (/\b(bill|bills|due|total|this month|month|next|days|afford|balance|spend|spent)\b/i.test(lower)) return "ask";
   return "hold";
 }
 
@@ -38,17 +37,9 @@ function inferIntent(raw: string): "ask" | "hold" {
 // - “this month”
 // - “next 30 days” / “next 2 weeks” / “in the next 10 days”
 // - “upcoming bills” / “bills due soon”
-function isReviewIntent(q: string) {
-  const s = q.trim().toLowerCase();
-  return /\b(review|revisit|check[- ]?in)\b/.test(s);
-}
-
 function billsWindowFromQuestion(q: string): { kind: "month" } | { kind: "days"; days: number } | null {
   const s = q.trim().toLowerCase();
   if (!s) return null;
-
-  // ✅ If they are asking about review/revisit, do NOT intercept with bills logic.
-  if (isReviewIntent(s)) return null;
 
   const hasBillsWord = s.includes("bill") || s.includes("bills");
   const hasDueCue = s.includes("due") || s.includes("upcoming") || s.includes("coming up") || s.includes("next");
@@ -154,6 +145,8 @@ export default function HomePage() {
   const [affirmation, setAffirmation] = useState<"Saved." | "Held." | null>(null);
 
   const [ask, setAsk] = useState<AskState>({ status: "idle" });
+
+  const [showExamplesPanel, setShowExamplesPanel] = useState(false);
 
   const affirmationTimerRef = useRef<number | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
@@ -356,6 +349,7 @@ export default function HomePage() {
     const msg = raw;
 
     setText("");
+    setShowExamplesPanel(false);
     window.setTimeout(() => inputRef.current?.focus(), 0);
 
     if (authStatus !== "signed_in" || !userId) {
@@ -393,11 +387,9 @@ export default function HomePage() {
     await unload.submit(msg);
   };
 
-  const showExamples = text.trim().length === 0;
   const canSend = authStatus === "signed_in" && text.trim().length > 0;
 
   const subtitle = preferredName ? `Good to see you, ${preferredName}.` : undefined;
-  const greeting = "A quiet place to unload or ask.";
 
   const notesVisible = orientation.loading || orientation.items.length > 0;
 
@@ -425,13 +417,45 @@ export default function HomePage() {
     }
   };
 
+  const ExampleButton = ({ text: ex }: { text: string }) => (
+    <button
+      type="button"
+      onClick={() => {
+        setText(ex);
+        window.setTimeout(() => inputRef.current?.focus(), 0);
+      }}
+      className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-left text-xs text-zinc-700 hover:bg-zinc-50"
+    >
+      {ex}
+    </button>
+  );
+
+  const GhostChip = ({
+    children,
+    onClick,
+    title,
+  }: {
+    children: React.ReactNode;
+    onClick?: () => void;
+    title?: string;
+  }) => (
+    <Chip
+      onClick={onClick}
+      title={title}
+      className="text-xs px-2 py-1 border-zinc-200 bg-transparent text-zinc-700 hover:bg-zinc-50"
+    >
+      {children}
+    </Chip>
+  );
+
   return (
     <Page title="Home" subtitle={subtitle} right={<div className="flex items-center gap-2"></div>}>
       <div className="mx-auto w-full max-w-[760px] space-y-6">
         <Card className="border-zinc-200 bg-white">
           <CardContent>
             <div className="space-y-3">
-              <div className="text-sm text-zinc-600">{greeting}</div>
+              {/* ✅ Title (matches “Notes from Keystone” weight) */}
+              <div className="text-sm font-medium text-zinc-700">Thinking something through? Start here.</div>
 
               <div className="relative">
                 <textarea
@@ -484,29 +508,56 @@ export default function HomePage() {
                 )}
               </div>
 
-              {showExamples ? (
-                <div className="grid gap-2 sm:grid-cols-3">
-                  <button
-                    type="button"
-                    onClick={() => setText("Can we afford this right now?")}
-                    className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-left text-xs text-zinc-700 hover:bg-zinc-50"
-                  >
-                    “Can we afford this right now?”
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setText("What bills are due this month?")}
-                    className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-left text-xs text-zinc-700 hover:bg-zinc-50"
-                  >
-                    “What bills are due this month?”
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setText("What bills do we have in the next 30 days?")}
-                    className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-left text-xs text-zinc-700 hover:bg-zinc-50"
-                  >
-                    “What bills do we have in the next 30 days?”
-                  </button>
+              {/* ✅ One “Examples” chip + grouped examples */}
+              {text.trim().length === 0 ? (
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2">
+                    <Chip
+                      onClick={() => setShowExamplesPanel((v) => !v)}
+                      title="Examples"
+                      className="border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
+                    >
+                      {showExamplesPanel ? "Hide examples" : "Examples"}
+                    </Chip>
+                  </div>
+
+                  {showExamplesPanel ? (
+                    <div className="grid gap-4 rounded-2xl border border-zinc-200 bg-white p-3">
+                      <div className="grid gap-2">
+                        <div className="text-xs font-semibold text-zinc-700">Money</div>
+                        <div className="grid gap-2 sm:grid-cols-2">
+                          <ExampleButton text="What bills are due this month?" />
+                          <ExampleButton text="What bills do we have in the next 30 days?" />
+                          <ExampleButton text="Can we afford this right now?" />
+                        </div>
+                      </div>
+
+                      <div className="grid gap-2">
+                        <div className="text-xs font-semibold text-zinc-700">Decisions</div>
+                        <div className="grid gap-2 sm:grid-cols-2">
+                          <ExampleButton text="Do I have any open decisions?" />
+                          <ExampleButton text="What am I still deciding on?" />
+                        </div>
+                      </div>
+
+                      <div className="grid gap-2">
+                        <div className="text-xs font-semibold text-zinc-700">Review & check-ins</div>
+                        <div className="grid gap-2 sm:grid-cols-2">
+                          <ExampleButton text="What do I need to review?" />
+                          <ExampleButton text="What’s coming up for review?" />
+                          <ExampleButton text="Check-in list" />
+                        </div>
+                      </div>
+
+                      <div className="grid gap-2">
+                        <div className="text-xs font-semibold text-zinc-700">Family</div>
+                        <div className="grid gap-2 sm:grid-cols-2">
+                          <ExampleButton text="Who is in our family?" />
+                          <ExampleButton text="Do we have any pets?" />
+                        </div>
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
               ) : null}
 
@@ -539,7 +590,7 @@ export default function HomePage() {
                     <div className="whitespace-pre-wrap text-[15px] leading-relaxed text-zinc-800">{ask.answer}</div>
 
                     <div className="flex flex-wrap items-center gap-2 pt-1">
-                     {ask.actionHref && ask.suggestedNext !== "create_framing" ? (
+                      {ask.actionHref && ask.suggestedNext !== "create_framing" ? (
                         <Chip onClick={() => router.push(ask.actionHref!)} title="Open">
                           Open
                         </Chip>
@@ -556,9 +607,7 @@ export default function HomePage() {
                       </Chip>
                     </div>
 
-                    <div className="text-xs text-zinc-500 pt-1">
-                      You can reply here (e.g. “yes”, “show totals”, “only active”).
-                    </div>
+                    <div className="text-xs text-zinc-500 pt-1">You can reply here (e.g. “yes”, “show totals”, “only active”).</div>
                   </>
                 )}
               </div>
@@ -578,16 +627,16 @@ export default function HomePage() {
                 )}
               </div>
 
-              <div className="mt-4">
+              <div className="mt-3">
                 {orientation.loading && orientation.items.length === 0 ? (
                   <div className="space-y-3" aria-hidden="true">
                     <div className="h-5 w-3/4 rounded bg-zinc-100" />
                     <div className="h-5 w-2/3 rounded bg-zinc-100" />
                   </div>
                 ) : (
-                  <ul className="space-y-3">
+                  <ul className="space-y-2">
                     {orientation.items.slice(0, 3).map((n, idx) => (
-                      <li key={`${idx}-${n.href}-${n.text}`} className="flex items-start justify-between gap-3">
+                      <li key={`${idx}-${n.href}-${n.text}`} className="flex items-center justify-between gap-3">
                         <button
                           type="button"
                           onClick={() => openHref(n.href)}
@@ -598,10 +647,10 @@ export default function HomePage() {
                           {n.text}
                         </button>
 
-                        <div className="shrink-0">
-                          <Chip onClick={() => openHref(n.href)} title="Open">
+                        <div className="shrink-0 self-center">
+                          <GhostChip onClick={() => openHref(n.href)} title="Open">
                             Open
-                          </Chip>
+                          </GhostChip>
                         </div>
                       </li>
                     ))}
