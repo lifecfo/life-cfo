@@ -73,6 +73,7 @@ type DecisionFact = {
   created_at: string | null;
   decided_at: string | null;
   review_at: string | null;
+  reviewed_at?: string | null;
 };
 
 type FamilyMemberRow = {
@@ -136,7 +137,7 @@ async function buildFactsPack(userId: string) {
   // ✅ OPEN DECISIONS (decided_at is null) — keep existing list (used for deeper listing when asked)
   const { data: decisions, error: decErr } = await supabase
     .from("decisions")
-    .select("id,title,status,created_at,decided_at,review_at")
+    .select("id,title,status,created_at,decided_at,review_at,reviewed_at")
     .eq("user_id", userId)
     .is("decided_at", null)
     .order("created_at", { ascending: false })
@@ -232,6 +233,38 @@ async function buildFactsPack(userId: string) {
     pets = [];
   }
 
+  // ✅ Step 9b: REVIEW (scheduled, not yet reviewed) — read-only, fail-soft
+  type ReviewRow = { id: string; title: string | null; review_at: string | null; reviewed_at: string | null };
+
+  let reviewItems: Array<{ id: string; title: string; review_at: string }> = [];
+  let reviewErrFlag = false;
+
+  try {
+    const { data, error } = await supabase
+      .from("decisions")
+      .select("id,title,review_at,reviewed_at")
+      .eq("user_id", userId)
+      .not("review_at", "is", null)
+      .is("reviewed_at", null) // only pending reviews
+      .order("review_at", { ascending: true })
+      .limit(10);
+
+    reviewErrFlag = !!error;
+
+    if (!error && Array.isArray(data)) {
+      reviewItems = (data as ReviewRow[])
+        .filter((r) => typeof r.review_at === "string")
+        .map((r) => ({
+          id: String(r.id),
+          title: String(r.title ?? "Decision").trim() || "Decision",
+          review_at: String(r.review_at),
+        }));
+    }
+  } catch {
+    reviewErrFlag = true;
+    reviewItems = [];
+  }
+
   // ---- Derived money summaries (read-only) ----
   const accountBalances = acct
     .map((a) => {
@@ -282,7 +315,9 @@ async function buildFactsPack(userId: string) {
       family_members_count: familyMembers.length,
       pets_ok: !petsErrFlag,
       pets_count: pets.length,
-      note: "Bills come from recurring_bills. Accounts come from accounts. Decisions come from decisions. Family comes from family_members + pets.",
+      review_ok: !reviewErrFlag,
+      review_count: reviewItems.length,
+      note: "Bills come from recurring_bills. Accounts come from accounts. Decisions come from decisions. Family comes from family_members + pets. Review comes from decisions.review_at (pending only).",
     },
     accounts_active: acct.map((a) => ({
       id: a.id,
@@ -311,6 +346,7 @@ async function buildFactsPack(userId: string) {
       created_at: d.created_at ?? null,
       decided_at: d.decided_at ?? null,
       review_at: d.review_at ?? null,
+      reviewed_at: (d as any).reviewed_at ?? null,
     })),
 
     // ✅ Step 8 (kept): count + titles (titles are capped, deterministic, read-only)
@@ -320,7 +356,7 @@ async function buildFactsPack(userId: string) {
       notes: "Preview titles are capped (max 3) and ordered by created_at ascending. Use only these titles when giving examples.",
     },
 
-    // ✅ Step 9: Family + Pets
+    // ✅ Step 9 (kept): Family + Pets
     family: {
       count_members: familyMembers.length,
       members: familyMembers,
@@ -328,6 +364,13 @@ async function buildFactsPack(userId: string) {
       pets,
       notes:
         "Family is read-only. Ages are approximate (derived from birth_year). Relationships are free-text if provided. Pets are included as part of the household.",
+    },
+
+    // ✅ Step 9b (new): Review (pending only)
+    review: {
+      count: reviewItems.length,
+      upcoming: reviewItems.slice(0, 3),
+      notes: "Review items are decisions with a review_at date that have not been reviewed yet (reviewed_at is null). Read-only.",
     },
 
     money_summary: {
@@ -376,6 +419,16 @@ FAMILY:
 - Pets are part of the household. If asked, list pets with name + type if present.
 - Do not give parenting advice or commentary. If asked something subjective, say you can’t answer and STOP.
 - If a user asks to change/edit family members, explain you can’t do that here and suggest going to the Family page (but do not invent navigation if it doesn't exist).
+
+REVIEW:
+- Use facts.review only.
+- Review items are decisions with a review_at date that have not been reviewed yet (reviewed_at is null).
+- Answer calmly with counts and upcoming dates if present.
+- Prefer phrasing like: "There are X items scheduled for review."
+- If upcoming items exist, you may mention up to 3 with dates (and titles).
+- Set action="open_review" when the user asks about review / revisit / check-in / review soon.
+- Do not create urgency. Do not suggest action. Do not escalate to framing for review questions.
+- If no review items exist, say so plainly and STOP.
 
 AFFORD / SHOULD-WE:
 - Never grant permission.
