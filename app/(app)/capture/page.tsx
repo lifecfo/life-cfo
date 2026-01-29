@@ -99,12 +99,14 @@ export default function CapturePage() {
   const [affirmation, setAffirmation] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Top list (5)
+  // Recent list
   const [statusLine, setStatusLine] = useState<string>("Loading…");
   const [recent, setRecent] = useState<InboxItem[]>([]);
   const [openId, setOpenId] = useState<string | null>(null);
+  const [totalOpenCount, setTotalOpenCount] = useState<number>(0);
 
-  const [deletingId, setDeletingId] = useState<string | null>(null);
+  // “Push to Framing” prompt state
+  const [pushedHref, setPushedHref] = useState<string | null>(null);
 
   const affirmationTimerRef = useRef<number | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
@@ -153,6 +155,18 @@ export default function CapturePage() {
   const loadRecent = async (uid: string) => {
     setStatusLine("Loading…");
 
+    // 1) Count total open captures (unframed)
+    const countRes = await supabase
+      .from("decision_inbox")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", uid)
+      .eq("status", "open")
+      .is("framed_decision_id", null);
+
+    const total = typeof countRes.count === "number" ? countRes.count : 0;
+    setTotalOpenCount(total);
+
+    // 2) Load top 5
     const { data, error } = await supabase
       .from("decision_inbox")
       .select("id,user_id,type,title,body,status,created_at,framed_decision_id")
@@ -170,7 +184,10 @@ export default function CapturePage() {
 
     const rows = (data ?? []) as InboxItem[];
     setRecent(rows);
-    setStatusLine(rows.length === 0 ? "Nothing captured yet." : `Loaded ${rows.length}.`);
+
+    const loaded = rows.length;
+    const totalForLine = total || loaded;
+    setStatusLine(loaded === 0 ? "Nothing captured yet." : `Loaded ${loaded} of ${totalForLine}.`);
   };
 
   useEffect(() => {
@@ -205,45 +222,48 @@ export default function CapturePage() {
 
   const canSubmit = !!userId && (!!text.trim() || files.length > 0);
 
-  const goToFraming = (inboxId: string) => {
-    router.push(`/framing?open=${encodeURIComponent(inboxId)}`);
-  };
-
   const deleteCapture = async (item: InboxItem) => {
     if (!userId) return;
-    if (deletingId) return;
 
-    setDeletingId(item.id);
+    const ok = window.confirm("Delete this capture?");
+    if (!ok) return;
+
+    // Optimistic UI
+    setRecent((prev) => prev.filter((x) => x.id !== item.id));
+    setOpenId((prev) => (prev === item.id ? null : prev));
+
     try {
-      // Remove attachments from Storage if we can see them
+      // Best effort: remove attachments from storage (if any)
       const parsed = tryParseCaptureBody(item.body);
       const paths = (parsed.attachments || []).map((a) => a.path).filter(Boolean);
 
       if (paths.length > 0) {
-        // best-effort cleanup
         await supabase.storage.from("captures").remove(paths);
       }
 
       const { error } = await supabase.from("decision_inbox").delete().eq("id", item.id).eq("user_id", userId);
-      if (error) {
-        flashAffirmation("Couldn’t delete that.", 1800);
-        return;
-      }
+      if (error) throw error;
 
-      // close details if it was open
-      if (openId === item.id) setOpenId(null);
-
-      await loadRecent(userId);
       flashAffirmation("Deleted.", 1200);
-    } finally {
-      setDeletingId(null);
+      await loadRecent(userId);
+    } catch {
+      flashAffirmation("Couldn’t delete right now.", 1800);
+      // reload to resync
+      await loadRecent(userId);
     }
+  };
+
+  const pushToFraming = (inboxId: string) => {
+    // No DB change; just create a “go there” affordance.
+    const href = `/framing?open=${encodeURIComponent(inboxId)}`;
+    setPushedHref(href);
+    flashAffirmation("Sent to Framing.", 1600);
   };
 
   /**
    * Capture submit contract:
    * - Writes ONLY to decision_inbox
-   * - Does NOT create decisions
+   * - Does NOT navigate
    *
    * Attachment contract:
    * - Uploads files to Supabase Storage bucket: "captures"
@@ -269,6 +289,7 @@ export default function CapturePage() {
     setText("");
     setFiles([]);
     setAffirmation(null);
+    setPushedHref(null);
 
     // Keep focus available for continued capture
     window.setTimeout(() => inputRef.current?.focus(), 0);
@@ -339,31 +360,27 @@ export default function CapturePage() {
 
         if (updErr) {
           flashAffirmation("Saved (details couldn’t update).", 2200);
-          // still send to framing (row exists)
-          goToFraming(inboxId);
+          await loadRecent(userId);
           return;
         }
 
         if (uploaded.length === 0 && filesSnapshot.length > 0) {
           flashAffirmation("Saved (attachments didn’t upload).", 2400);
-          goToFraming(inboxId);
+          await loadRecent(userId);
           return;
         }
 
         if (uploadFailures > 0) {
           flashAffirmation("Saved (some attachments didn’t upload).", 2400);
-          goToFraming(inboxId);
+          await loadRecent(userId);
           return;
         }
       }
 
-      flashAffirmation("Sent to Framing.", 1000);
+      flashAffirmation("Saved.", 1300);
 
-      // refresh the visible “top 5” (so it stays accurate when you come back)
+      // Refresh the visible “top 5”
       await loadRecent(userId);
-
-      // ✅ Always send to Framing
-      goToFraming(inboxId);
     } catch {
       flashAffirmation("Held.", 1800);
     } finally {
@@ -374,46 +391,49 @@ export default function CapturePage() {
   const showExamples = recent.length === 0 && !text.trim() && files.length === 0;
 
   return (
-    <Page
-      title="Capture"
-      subtitle="Drop raw thoughts here — messy is welcome. Keystone will help shape them into a clear decision when you’re ready."
-      right={null}
-    >
+    <Page title="Capture" subtitle="Drop raw thoughts here — messy is welcome. Keystone will help shape them into a clear decision when you’re ready." right={null}>
       <div className="mx-auto w-full max-w-[760px] space-y-6">
         {/* Flow controls (consistent, top-of-page) */}
         <div className="flex items-center justify-between gap-3">
           <div className="text-xs text-zinc-500">Step 1 of 3</div>
 
           <div className="flex items-center gap-2">
-            {/* No back button on first step */}
             <Chip onClick={() => router.push("/framing")} title="Next: Framing">
               Next: Framing <span className="ml-1 opacity-70">›</span>
             </Chip>
           </div>
         </div>
 
-        {/* ✅ Assisted retrieval (same as other pages) */}
-        <AssistedSearch scope="capture" placeholder="Search captures…" />
-
         {/* Input */}
         <div className="space-y-3">
           <div className="text-xs text-zinc-500">No perfect wording needed. We’ll carry the clarity work with you.</div>
 
-          <textarea
-            ref={inputRef}
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            placeholder="Drop it here."
-            className="w-full min-h-[180px] resize-y rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-[15px] leading-relaxed text-zinc-900 outline-none focus:ring-2 focus:ring-zinc-200"
-            onKeyDown={(e) => {
-              // Enter submits; Shift+Enter newline
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                void submit();
-              }
-            }}
-            aria-label="Capture"
-          />
+          <div className="space-y-2">
+            <textarea
+              ref={inputRef}
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              placeholder="Drop it here."
+              className="w-full min-h-[180px] resize-y rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-[15px] leading-relaxed text-zinc-900 outline-none focus:ring-2 focus:ring-zinc-200"
+              onKeyDown={(e) => {
+                // Enter submits; Shift+Enter newline
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  void submit();
+                }
+              }}
+              aria-label="Capture"
+            />
+
+            {/* Save row sits directly under textarea (bottom-right) */}
+            <div className="flex items-center justify-between">
+              <div className="text-xs text-zinc-500">Enter saves • Shift+Enter adds a new line</div>
+
+              <Chip onClick={() => void submit()} title={!canSubmit ? "Add text or a file" : isSubmitting ? "Working…" : "Save capture"}>
+                {isSubmitting ? "Saving…" : "Save"}
+              </Chip>
+            </div>
+          </div>
 
           {showExamples ? (
             <div className="text-xs text-zinc-500">
@@ -446,7 +466,6 @@ export default function CapturePage() {
             <button
               type="button"
               onClick={() => {
-                // allow re-picking the same file(s) without refreshing
                 if (fileInputRef.current) fileInputRef.current.value = "";
                 fileInputRef.current?.click();
               }}
@@ -492,17 +511,6 @@ export default function CapturePage() {
           ) : null}
         </div>
 
-        {/* Explicit save */}
-        <div className="flex items-center justify-between gap-3 pt-1">
-          <div className="text-xs text-zinc-500">Enter saves • Shift+Enter adds a new line</div>
-
-          <div className="flex items-center gap-2">
-            <Chip onClick={() => void submit()} title={!canSubmit ? "Add text or a file" : isSubmitting ? "Working…" : "Save capture"}>
-              {isSubmitting ? "Saving…" : "Save"}
-            </Chip>
-          </div>
-        </div>
-
         {/* Soft confirmation (brief, fades) */}
         {affirmation ? (
           <div className="text-sm text-zinc-600" aria-live="polite">
@@ -512,96 +520,107 @@ export default function CapturePage() {
           <div className="h-5" aria-hidden="true" />
         )}
 
-        {/* ✅ Top 5 open captures (visible list) */}
+        {/* ✅ Recent captures */}
         <Card className="border-zinc-200 bg-white">
           <CardContent>
-            <div className="flex items-start justify-between gap-3">
-              <div className="space-y-1">
-                <div className="text-sm font-semibold text-zinc-900">Recent captures</div>
-                <div className="text-sm text-zinc-600">These are safely held until you frame them.</div>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <Chip onClick={() => router.push("/framing")} title="Next: Framing">
-                  Next: Framing <span className="ml-1 opacity-70">›</span>
-                </Chip>
-              </div>
+            <div className="space-y-1">
+              <div className="text-sm font-semibold text-zinc-900">Recent captures</div>
+              <div className="text-sm text-zinc-600">These are safely held until you frame them.</div>
             </div>
 
-            <div className="mt-3 text-xs text-zinc-500">{statusLine}</div>
+            {/* Search belongs here (above the list) */}
+            <div className="mt-4">
+              <AssistedSearch scope="capture" placeholder="Search captures…" />
+            </div>
+
+            {/* “Sent to framing” prompt (no auto-nav) */}
+            {pushedHref ? (
+              <div className="mt-4 flex items-center justify-between rounded-2xl border border-zinc-200 bg-white px-4 py-3">
+                <div className="text-sm text-zinc-700">Sent to Framing.</div>
+                <Chip onClick={() => router.push(pushedHref)} title="Go to Framing">
+                  Go to framing <span className="ml-1 opacity-70">›</span>
+                </Chip>
+              </div>
+            ) : null}
+
+            <div className="mt-4 text-xs text-zinc-500">{statusLine}</div>
 
             {recent.length === 0 ? (
               <div className="mt-3 text-sm text-zinc-600">Nothing here yet.</div>
             ) : (
               <div className="mt-3 grid gap-2">
                 {recent.map((r) => {
+                  const isOpen = openId === r.id;
+
                   const p = tryParseCaptureBody(r.body);
                   const displayText = (p.text || "").trim();
+
                   const title = (r.title || safeTitleFromText(displayText)).trim();
                   const meta = r.created_at ? softDate(r.created_at) : "";
-                  const attCount = p.attachments?.length ?? 0;
-                  const hasAtts = attCount > 0;
+
+                  const attachmentsCount = p.attachments?.length ?? 0;
+                  const hasAtts = attachmentsCount > 0;
 
                   const titleKey = normalizeForCompare(title);
                   const snippet = snippetFromText(displayText, 140);
                   const snippetKey = normalizeForCompare(snippet);
-                  const snippetAddsInfo = !!snippet && snippetKey !== titleKey;
 
-                  // "Details" only if there is extra info worth expanding
-                  const hasDetails = snippetAddsInfo || hasAtts || (displayText && displayText.length > 160);
-
-                  const isOpen = openId === r.id;
+                  // Details only if there is meaningful extra content
+                  const hasExtraText = !!snippet && snippetKey !== titleKey;
+                  const hasDetails = hasExtraText || hasAtts;
 
                   return (
-                    <div key={r.id} className="rounded-2xl border border-zinc-200 bg-white">
-                      {/* Single-line row */}
-                      <div className="flex items-center justify-between gap-3 px-4 py-3">
+                    <div key={r.id} className="rounded-2xl border border-zinc-200 bg-white px-4 py-3">
+                      <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0 flex-1">
                           <div className="truncate text-sm font-semibold text-zinc-900">{title}</div>
                           <div className="mt-1 text-xs text-zinc-500">
                             {meta ? meta : "Open capture"}
-                            {hasAtts ? ` • ${attCount} attachment${attCount === 1 ? "" : "s"}` : ""}
+                            {hasAtts ? ` • ${attachmentsCount} attachment${attachmentsCount === 1 ? "" : "s"}` : ""}
                           </div>
                         </div>
 
-                        <div className="flex shrink-0 flex-wrap items-center gap-2">
-                          {/* Always visible */}
-                          <Chip onClick={() => goToFraming(r.id)} title="Send to Framing">
-                            Next: Framing <span className="ml-1 opacity-70">›</span>
+                        <div className="flex flex-wrap items-center justify-end gap-2">
+                          <Chip onClick={() => pushToFraming(r.id)} title="Push to Framing">
+                            Push to Framing
                           </Chip>
 
-                          {/* Only if meaningful */}
                           {hasDetails ? (
-                            <Chip onClick={() => setOpenId(isOpen ? null : r.id)} title="Details">
+                            <Chip onClick={() => setOpenId(isOpen ? null : r.id)} title={isOpen ? "Hide details" : "Show details"}>
                               {isOpen ? "Hide" : "Details"}
                             </Chip>
                           ) : null}
 
-                          {/* Always available */}
-                          <Chip
-                            onClick={() => void deleteCapture(r)}
-                            title="Delete"
-                            className="border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
-                          >
-                            {deletingId === r.id ? "Deleting…" : "Delete"}
+                          <Chip onClick={() => void deleteCapture(r)} title="Delete">
+                            Delete
                           </Chip>
                         </div>
                       </div>
 
-                      {/* Details panel (only when opened via Details chip) */}
-                      {isOpen && hasDetails ? (
-                        <div className="px-4 pb-4 space-y-3">
-                          {displayText ? (
-                            <div className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-700">{displayText}</div>
-                          ) : (
-                            <div className="text-sm text-zinc-600">No extra text.</div>
-                          )}
+                      {isOpen && openItem?.id === r.id ? (
+                        <div className="mt-3 space-y-3">
+                          {parsedOpen.text ? (
+                            <div className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-700">{parsedOpen.text}</div>
+                          ) : null}
 
-                          {hasAtts ? (
-                            <div className="text-sm text-zinc-700">
-                              Attachments: <span className="text-zinc-600">{attCount}</span>
+                          {parsedOpen.attachments?.length ? (
+                            <div className="space-y-1">
+                              <div className="text-xs font-medium text-zinc-600">Attachments</div>
+                              <ul className="space-y-1">
+                                {parsedOpen.attachments.slice(0, 10).map((a, idx) => (
+                                  <li key={`${a.path}-${idx}`} className="text-sm text-zinc-700">
+                                    {a.name}
+                                  </li>
+                                ))}
+                              </ul>
                             </div>
                           ) : null}
+
+                          <div className="flex items-center gap-2">
+                            <Chip onClick={() => setOpenId(null)} title="Done">
+                              Done
+                            </Chip>
+                          </div>
                         </div>
                       ) : null}
                     </div>
