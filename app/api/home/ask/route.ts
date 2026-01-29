@@ -45,6 +45,23 @@ function ageFromBirthYear(birth_year: number | null | undefined) {
   return age >= 0 && age <= 130 ? age : null;
 }
 
+function isReviewIntent(q: string) {
+  const s = (q || "").trim().toLowerCase();
+  if (!s) return false;
+  return /\b(review|revisit|check[- ]?in|coming up for review|upcoming review)\b/.test(s);
+}
+
+function formatDateShort(iso: string) {
+  const ms = Date.parse(iso);
+  if (Number.isNaN(ms)) return iso;
+  return new Date(ms).toLocaleDateString(undefined, {
+    weekday: "short",
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+}
+
 type RecurringBillFact = {
   id: string;
   name: string | null;
@@ -509,9 +526,41 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Missing userId/question" }, { status: 400 });
     }
 
-    const facts = await buildFactsPack(userId);
+const facts = await buildFactsPack(userId);
 
-    const resp = await openai.responses.create({
+// ✅ Deterministic REVIEW handling (skip AI)
+if (isReviewIntent(question)) {
+  const review = (facts as any)?.review;
+  const count = typeof review?.count === "number" ? review.count : 0;
+  const upcoming = Array.isArray(review?.upcoming) ? review.upcoming : [];
+
+  if (count <= 0 || upcoming.length === 0) {
+    return NextResponse.json({
+      answer: "There are no items scheduled for review (from what I can see).",
+      action: "open_review",
+      suggested_next: "none",
+      framing_seed: null,
+    });
+  }
+
+  const lines = upcoming.slice(0, 3).map((it: any) => {
+    const title = typeof it?.title === "string" ? it.title.trim() : "Decision";
+    const at = typeof it?.review_at === "string" ? it.review_at : "";
+    const when = at ? formatDateShort(at) : "";
+    return `• ${title}${when ? ` — scheduled for ${when}` : ""}`;
+  });
+
+  const answer = `There are ${count} items scheduled for review.\n\n${lines.join("\n")}`;
+
+  return NextResponse.json({
+    answer,
+    action: "open_review",
+    suggested_next: "none",
+    framing_seed: null,
+  });
+}
+
+const resp = await openai.responses.create({
       model: "gpt-4o-mini",
       input: [
         { role: "system", content: SYSTEM },
