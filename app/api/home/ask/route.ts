@@ -108,16 +108,38 @@ async function buildFactsPack(userId: string) {
 
   const acct = (accounts ?? []) as AccountFact[];
 
-// ✅ OPEN DECISIONS (decided_at is null)
-const { data: decisions, error: decErr } = await supabase
-  .from("decisions")
-  .select("id,title,status,created_at,decided_at,review_at")
-  .eq("user_id", userId)
-  .is("decided_at", null)
-  .order("created_at", { ascending: false })
-  .limit(20);
+  // ✅ OPEN DECISIONS (decided_at is null) — keep existing list (used for deeper listing when asked)
+  const { data: decisions, error: decErr } = await supabase
+    .from("decisions")
+    .select("id,title,status,created_at,decided_at,review_at")
+    .eq("user_id", userId)
+    .is("decided_at", null)
+    .order("created_at", { ascending: false })
+    .limit(20);
 
   const decisions_open = (decisions ?? []) as DecisionFact[];
+
+// ✅ Step 8: deterministic, capped preview titles (read-only enrichment; fail-soft)
+type OpenDecisionPreviewRow = { title: string | null; created_at: string | null };
+
+let openDecisionTitles: string[] = [];
+try {
+  const { data: openPreview, error: openPreviewErr } = await supabase
+    .from("decisions")
+    .select("title, created_at")
+    .eq("user_id", userId)
+    .is("decided_at", null)
+    .order("created_at", { ascending: true })
+    .limit(3);
+
+  if (!openPreviewErr && Array.isArray(openPreview)) {
+    openDecisionTitles = (openPreview as OpenDecisionPreviewRow[])
+      .map((r) => (typeof r?.title === "string" ? r.title.trim() : ""))
+      .filter(Boolean);
+  }
+} catch {
+  openDecisionTitles = [];
+}
 
   // ---- Derived money summaries (read-only) ----
   const accountBalances = acct
@@ -164,6 +186,7 @@ const { data: decisions, error: decErr } = await supabase
       accounts_count_active: acct.length,
       decisions_ok: !decErr,
       decisions_open_count: decisions_open.length,
+      decisions_open_preview_titles_count: openDecisionTitles.length,
       note: "Bills come from recurring_bills. Accounts come from accounts. Decisions come from decisions.",
     },
     accounts_active: acct.map((a) => ({
@@ -184,6 +207,8 @@ const { data: decisions, error: decErr } = await supabase
       autopay: !!b.autopay,
       cadence: b.cadence ?? null,
     })),
+
+    // existing (kept)
     decisions_open: decisions_open.map((d) => ({
       id: d.id,
       title: String(d.title ?? "Decision").trim(),
@@ -192,6 +217,14 @@ const { data: decisions, error: decErr } = await supabase
       decided_at: d.decided_at ?? null,
       review_at: d.review_at ?? null,
     })),
+
+    // ✅ Step 8 (new): count + titles (titles are capped, deterministic, read-only)
+    open_decisions_preview: {
+      count: decisions_open.length,
+      titles: openDecisionTitles,
+      notes: "Preview titles are capped (max 3) and ordered by created_at ascending. Use only these titles when giving examples.",
+    },
+
     money_summary: {
       balances_by_currency: balancesEntries.map(([currency, cents]) => ({
         currency,
@@ -218,9 +251,12 @@ RULES:
 - If time-based, state the window explicitly.
 
 OPEN DECISIONS:
-- Use facts.decisions_open.
-- If <= 5, list as bullets with title (and optionally status/review date if present).
-- If > 5, show count + first 5 titles, and say "and X more".
+- Primary source for examples is facts.open_decisions_preview (count + titles).
+- When the user asks about open decisions:
+  - Always give the count first.
+  - If preview titles are present, you may include up to 3 titles as examples (ONLY those provided).
+  - Never invent decision titles. Never infer "most important".
+  - If the user explicitly asks to list them, you may list up to 5 titles using facts.decisions_open (but still do not invent).
 - Set action="open_decisions" when user asks about open decisions.
 
 AFFORD / SHOULD-WE:
