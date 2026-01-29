@@ -29,7 +29,8 @@ function inferIntent(raw: string): "ask" | "hold" {
   const lower = s.toLowerCase();
   if (s.includes("?")) return "ask";
   if (/^(what|when|why|how|can|should|do i|did i|am i|are we)\b/i.test(lower)) return "ask";
-  if (/\b(bill|bills|due|total|this month|month|next|days|afford|balance|spend|spent)\b/i.test(lower)) return "ask";
+  if (/\b(bill|bills|due|total|this month|month|next|days|afford|balance|spend|spent|review|revisit|check[- ]?in)\b/i.test(lower))
+  return "ask";
   return "hold";
 }
 
