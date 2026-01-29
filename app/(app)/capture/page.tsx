@@ -22,6 +22,8 @@ type InboxItem = {
   framed_decision_id: string | null;
 };
 
+type DecisionInsertResult = { id: string };
+
 function safeTitleFromText(text: string) {
   const firstLine =
     (text || "")
@@ -41,12 +43,6 @@ function softDate(iso: string | null) {
   const ms = Date.parse(iso);
   if (Number.isNaN(ms)) return "";
   return new Date(ms).toLocaleDateString();
-}
-
-function snippetFromText(text: string, max = 140) {
-  const t = (text || "").replace(/\s+/g, " ").trim();
-  if (!t) return "";
-  return t.length <= max ? t : `${t.slice(0, max).trim()}…`;
 }
 
 function normalizeAttachments(raw: any): AttachmentMeta[] {
@@ -99,27 +95,33 @@ export default function CapturePage() {
   const [affirmation, setAffirmation] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Examples dropdown (matches Home pattern)
+  // Examples dropdown (polish)
   const [examplesOpen, setExamplesOpen] = useState(false);
 
   // Recent list
   const [statusLine, setStatusLine] = useState<string>("Loading…");
   const [recent, setRecent] = useState<InboxItem[]>([]);
   const [totalOpenCount, setTotalOpenCount] = useState<number>(0);
+  const [hasLoaded, setHasLoaded] = useState(false);
 
-  // show top 5 vs show all
+  // Top-5 default
+  const DEFAULT_LIMIT = 5;
   const [showAll, setShowAll] = useState(false);
 
-  // Checkbox selections (persist while on page)
-  const [selectedPush, setSelectedPush] = useState<Record<string, boolean>>({});
-  const [selectedDelete, setSelectedDelete] = useState<Record<string, boolean>>({});
+  // Selection + bulk actions (checkbox layout stays)
+  const [selected, setSelected] = useState<Record<string, boolean>>({});
+  const selectedIds = useMemo(() => Object.keys(selected).filter((k) => selected[k]), [selected]);
 
-  // Distinct delete confirmation banner
-  const [confirmDeleteIds, setConfirmDeleteIds] = useState<string[] | null>(null);
-  const [isDeleting, setIsDeleting] = useState(false);
+  // “Sent to Thinking” prompt state (no auto-nav)
+  const [pushedDecisionIds, setPushedDecisionIds] = useState<string[]>([]);
 
-  // “Push to Thinking” prompt state
-  const [pushedHref, setPushedHref] = useState<string | null>(null);
+  // Custom delete confirm (polish)
+  const [deleteConfirm, setDeleteConfirm] = useState<{
+    open: boolean;
+    ids: string[];
+    all: boolean;
+    label: string;
+  }>({ open: false, ids: [], all: false, label: "" });
 
   const affirmationTimerRef = useRef<number | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
@@ -136,6 +138,7 @@ export default function CapturePage() {
       if (error || !data?.user) {
         setUserId(null);
         setStatusLine("Not signed in.");
+        setHasLoaded(true);
         return;
       }
       setUserId(data.user.id);
@@ -159,80 +162,7 @@ export default function CapturePage() {
     };
   }, []);
 
-  const pruneSelections = (rows: InboxItem[]) => {
-    const ids = new Set(rows.map((r) => r.id));
-
-    setSelectedPush((prev) => {
-      const next: Record<string, boolean> = {};
-      for (const [k, v] of Object.entries(prev)) if (v && ids.has(k)) next[k] = true;
-      return next;
-    });
-
-    setSelectedDelete((prev) => {
-      const next: Record<string, boolean> = {};
-      for (const [k, v] of Object.entries(prev)) if (v && ids.has(k)) next[k] = true;
-      return next;
-    });
-
-    setConfirmDeleteIds((prev) => {
-      if (!prev) return null;
-      const keep = prev.filter((id) => ids.has(id));
-      return keep.length ? keep : null;
-    });
-  };
-
-  const loadRecent = async (uid: string, opts?: { showAll?: boolean }) => {
-    setStatusLine("Loading…");
-
-    const effectiveShowAll = typeof opts?.showAll === "boolean" ? opts.showAll : showAll;
-
-    // 1) Count total open captures (unframed)
-    const countRes = await supabase
-      .from("decision_inbox")
-      .select("id", { count: "exact", head: true })
-      .eq("user_id", uid)
-      .eq("status", "open")
-      .is("framed_decision_id", null);
-
-    const total = typeof countRes.count === "number" ? countRes.count : 0;
-    setTotalOpenCount(total);
-
-    // 2) Load top 5 OR all (capped)
-    const q = supabase
-      .from("decision_inbox")
-      .select("id,user_id,type,title,body,status,created_at,framed_decision_id")
-      .eq("user_id", uid)
-      .eq("status", "open")
-      .is("framed_decision_id", null)
-      .order("created_at", { ascending: false });
-
-    const { data, error } = effectiveShowAll ? await q.limit(200) : await q.limit(5);
-
-    if (error) {
-      setRecent([]);
-      setStatusLine(`Error: ${error.message}`);
-      return;
-    }
-
-    const rows = (data ?? []) as InboxItem[];
-    setRecent(rows);
-    pruneSelections(rows);
-
-    const loaded = rows.length;
-    const totalForLine = total || loaded;
-
-    if (loaded === 0) {
-      setStatusLine("Nothing captured yet.");
-    } else {
-      setStatusLine(effectiveShowAll ? `Loaded ${loaded}.` : `Loaded ${loaded} of ${totalForLine}.`);
-    }
-  };
-
-  useEffect(() => {
-    if (!userId) return;
-    void loadRecent(userId, { showAll });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userId, showAll]);
+  const clearSelection = () => setSelected({});
 
   const addPickedFiles = (picked: FileList | null) => {
     if (!picked) return;
@@ -260,107 +190,273 @@ export default function CapturePage() {
 
   const canSubmit = !!userId && (!!text.trim() || files.length > 0);
 
-  const pushToThinking = (inboxId: string) => {
-    const href = `/thinking?from_capture=${encodeURIComponent(inboxId)}`;
-    setPushedHref(href);
-    flashAffirmation("Sent to Thinking.", 1600);
+  const toggleRow = (id: string) => {
+    setSelected((prev) => ({ ...prev, [id]: !prev[id] }));
   };
 
-  const selectedPushIds = useMemo(
-    () => Object.entries(selectedPush).filter(([, v]) => v).map(([k]) => k),
-    [selectedPush]
-  );
-  const selectedDeleteIds = useMemo(
-    () => Object.entries(selectedDelete).filter(([, v]) => v).map(([k]) => k),
-    [selectedDelete]
-  );
-
-  const sendSelected = () => {
-    if (selectedPushIds.length === 0) {
-      flashAffirmation("Select captures to send.", 1400);
-      return;
-    }
-    // We can only deep-link to one capture right now — so link to the first,
-    // but still acknowledge the batch.
-    pushToThinking(selectedPushIds[0]);
-    if (selectedPushIds.length > 1) flashAffirmation(`Sent ${selectedPushIds.length} to Thinking.`, 1800);
-
-    // keep selection persistence? earlier you wanted persistence — but after action, it feels “done”
-    setSelectedPush({});
-  };
-
-  const sendAll = () => {
-    if (recent.length === 0) {
-      flashAffirmation("Nothing to send.", 1400);
-      return;
-    }
-    pushToThinking(recent[0].id);
-    if (recent.length > 1) flashAffirmation(`Sent ${recent.length} to Thinking.`, 1800);
-    setSelectedPush({});
-  };
-
-  const requestDelete = (ids: string[]) => {
-    const uniq = Array.from(new Set(ids)).filter(Boolean);
-    if (uniq.length === 0) {
-      flashAffirmation("Select captures to delete.", 1400);
-      return;
-    }
-    setConfirmDeleteIds(uniq);
-  };
-
-  const deleteOneCapture = async (item: InboxItem) => {
-    if (!userId) return;
-
-    const parsed = tryParseCaptureBody(item.body);
-    const paths = (parsed.attachments || []).map((a) => a.path).filter(Boolean);
-
-    if (paths.length > 0) {
-      await supabase.storage.from("captures").remove(paths);
-    }
-
-    const { error } = await supabase.from("decision_inbox").delete().eq("id", item.id).eq("user_id", userId);
-    if (error) throw error;
-  };
-
-  const confirmDeleteNow = async () => {
-    if (!userId) return;
-    if (!confirmDeleteIds || confirmDeleteIds.length === 0) return;
-    if (isDeleting) return;
-
-    const ids = [...confirmDeleteIds];
-
-    // optimistic UI
-    setRecent((prev) => prev.filter((x) => !ids.includes(x.id)));
-    setConfirmDeleteIds(null);
-
-    setSelectedDelete((prev) => {
+  const setAllVisible = (checked: boolean, ids: string[]) => {
+    setSelected((prev) => {
       const next = { ...prev };
-      for (const id of ids) delete next[id];
+      for (const id of ids) next[id] = checked;
       return next;
     });
-    setSelectedPush((prev) => {
-      const next = { ...prev };
-      for (const id of ids) delete next[id];
+  };
+
+  const insertExample = (s: string) => {
+    setExamplesOpen(false);
+    setText((prev) => {
+      const next = prev.trim().length > 0 ? `${prev}\n${s}` : s;
       return next;
     });
+    window.setTimeout(() => inputRef.current?.focus(), 0);
+  };
 
-    setIsDeleting(true);
+  // Fetch all open captures (for true “Send all” / “Delete all”)
+  const fetchAllOpenCaptures = async (uid: string) => {
+    const pageSize = 250;
+    const all: InboxItem[] = [];
+    let offset = 0;
+
+    for (let guard = 0; guard < 200; guard++) {
+      const { data, error } = await supabase
+        .from("decision_inbox")
+        .select("id,user_id,type,title,body,status,created_at,framed_decision_id")
+        .eq("user_id", uid)
+        .eq("status", "open")
+        .is("framed_decision_id", null)
+        .order("created_at", { ascending: false })
+        .range(offset, offset + pageSize - 1);
+
+      if (error) throw error;
+
+      const rows = (data ?? []) as InboxItem[];
+      all.push(...rows);
+
+      if (rows.length < pageSize) break;
+      offset += pageSize;
+    }
+
+    return all;
+  };
+
+  const loadRecent = async (uid: string, allMode: boolean) => {
+    setStatusLine("Loading…");
+    setHasLoaded(false);
+
+    // Count total open captures (un-sent)
+    const countRes = await supabase
+      .from("decision_inbox")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", uid)
+      .eq("status", "open")
+      .is("framed_decision_id", null);
+
+    const total = typeof countRes.count === "number" ? countRes.count : 0;
+    setTotalOpenCount(total);
 
     try {
-      const byId = new Map(recent.map((r) => [r.id, r]));
-      for (const id of ids) {
-        const item = byId.get(id);
-        if (!item) continue;
-        await deleteOneCapture(item);
+      let rows: InboxItem[] = [];
+
+      if (allMode) {
+        // True “show all”: fetch every open capture (paged)
+        rows = await fetchAllOpenCaptures(uid);
+      } else {
+        // Default: keep it light but enough for bulk header + UX
+        const { data, error } = await supabase
+          .from("decision_inbox")
+          .select("id,user_id,type,title,body,status,created_at,framed_decision_id")
+          .eq("user_id", uid)
+          .eq("status", "open")
+          .is("framed_decision_id", null)
+          .order("created_at", { ascending: false })
+          .limit(50);
+
+        if (error) throw error;
+        rows = (data ?? []) as InboxItem[];
       }
 
+      setRecent(rows);
+
+      const totalForLine = total || rows.length;
+      const showing = allMode ? rows.length : Math.min(rows.length, DEFAULT_LIMIT);
+      setStatusLine(rows.length === 0 ? "Nothing captured yet." : `Showing ${showing} of ${totalForLine}.`);
+    } catch (e: any) {
+      setRecent([]);
+      setStatusLine(`Error: ${e?.message ?? "Couldn’t load right now."}`);
+    } finally {
+      setHasLoaded(true);
+    }
+  };
+
+  useEffect(() => {
+    if (!userId) return;
+    void loadRecent(userId, showAll);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId, showAll]);
+
+  // Clear selection when toggling showAll (locked)
+  useEffect(() => {
+    clearSelection();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showAll]);
+
+  const requestDelete = (ids: string[], all: boolean) => {
+    if (ids.length === 0) return;
+
+    const count = ids.length;
+    const label = all ? `Delete all ${count} captures?` : count === 1 ? "Delete this capture?" : `Delete ${count} captures?`;
+    setDeleteConfirm({ open: true, ids, all, label });
+  };
+
+  const performDelete = async (ids: string[], all: boolean) => {
+    if (!userId) return;
+    if (ids.length === 0) return;
+
+    // Optimistic UI
+    const before = recent;
+    setRecent((prev) => prev.filter((x) => !ids.includes(x.id)));
+    clearSelection();
+    setDeleteConfirm({ open: false, ids: [], all: false, label: "" });
+
+    try {
+      // Best effort: remove attachments from storage
+      const items = before.filter((x) => ids.includes(x.id));
+      const paths: string[] = [];
+      for (const item of items) {
+        const parsed = tryParseCaptureBody(item.body);
+        for (const a of parsed.attachments || []) {
+          if (a?.path) paths.push(a.path);
+        }
+      }
+      if (paths.length > 0) {
+        await supabase.storage.from("captures").remove(paths);
+      }
+
+      const { error } = await supabase.from("decision_inbox").delete().eq("user_id", userId).in("id", ids);
+      if (error) throw error;
+
       flashAffirmation("Deleted.", 1200);
-      await loadRecent(userId, { showAll });
+      await loadRecent(userId, showAll);
     } catch {
       flashAffirmation("Couldn’t delete right now.", 1800);
-      await loadRecent(userId, { showAll });
-    } finally {
-      setIsDeleting(false);
+      setRecent(before);
+      await loadRecent(userId, showAll);
+    }
+  };
+
+  const createDraftFromCapture = async (uid: string, item: InboxItem) => {
+    const parsed = tryParseCaptureBody(item.body);
+    const captureText = (parsed.text || "").trim();
+    const attachments = parsed.attachments ?? [];
+
+    const title = (item.title || safeTitleFromText(captureText)).trim().slice(0, 140);
+
+    // V1: keep it simple. Context is the captured text (verbatim).
+    const context = captureText ? `Captured:\n${captureText}` : null;
+
+    const { data: created, error: createErr } = await supabase
+      .from("decisions")
+      .insert({
+        user_id: uid,
+        title,
+        context,
+        status: "draft",
+        origin: "capture",
+        framed_at: new Date().toISOString(),
+        attachments: attachments.length > 0 ? attachments : null,
+      })
+      .select("id")
+      .single();
+
+    if (createErr || !created?.id) throw createErr ?? new Error("Couldn’t create draft.");
+
+    const decisionId = String((created as DecisionInsertResult).id);
+
+    // Close the capture and link it
+    const { error: updErr } = await supabase
+      .from("decision_inbox")
+      .update({ framed_decision_id: decisionId, status: "done" })
+      .eq("id", item.id)
+      .eq("user_id", uid)
+      .eq("status", "open")
+      .is("framed_decision_id", null);
+
+    if (updErr) {
+      // Draft exists; capture may still show as open until refresh
+      // Keep this quiet and let reload resync
+    }
+
+    return decisionId;
+  };
+
+  const sendToThinking = async (ids: string[], all: boolean) => {
+    if (!userId) return;
+    if (ids.length === 0) return;
+
+    // Snapshot items (we need their bodies)
+    const items = recent.filter((x) => ids.includes(x.id));
+    if (items.length === 0) return;
+
+    clearSelection();
+    setPushedDecisionIds([]);
+    setAffirmation(null);
+
+    try {
+      const createdDecisionIds: string[] = [];
+
+      // Sequential keeps it simple and avoids rate spikes
+      for (const item of items) {
+        const decisionId = await createDraftFromCapture(userId, item);
+        createdDecisionIds.push(decisionId);
+      }
+
+      setPushedDecisionIds(createdDecisionIds);
+      flashAffirmation("Sent.", 1400);
+
+      await loadRecent(userId, showAll);
+    } catch {
+      flashAffirmation("Couldn’t send right now.", 1800);
+      await loadRecent(userId, showAll);
+    }
+  };
+
+  const sendAllToThinking = async () => {
+    if (!userId) return;
+
+    clearSelection();
+    setPushedDecisionIds([]);
+    setAffirmation(null);
+
+    try {
+      const all = await fetchAllOpenCaptures(userId);
+      if (all.length === 0) return;
+
+      const createdDecisionIds: string[] = [];
+      for (const item of all) {
+        const decisionId = await createDraftFromCapture(userId, item);
+        createdDecisionIds.push(decisionId);
+      }
+
+      setPushedDecisionIds(createdDecisionIds);
+      flashAffirmation("Sent.", 1400);
+
+      await loadRecent(userId, showAll);
+    } catch {
+      flashAffirmation("Couldn’t send right now.", 1800);
+      await loadRecent(userId, showAll);
+    }
+  };
+
+  const deleteAllCaptures = async () => {
+    if (!userId) return;
+
+    try {
+      const all = await fetchAllOpenCaptures(userId);
+      const ids = all.map((x) => x.id);
+      if (ids.length === 0) return;
+      requestDelete(ids, true);
+    } catch {
+      flashAffirmation("Couldn’t load everything right now.", 1800);
     }
   };
 
@@ -385,6 +481,7 @@ export default function CapturePage() {
       return;
     }
 
+    // Snapshot values BEFORE clearing UI
     const textSnapshot = raw;
     const filesSnapshot = [...files];
 
@@ -392,20 +489,24 @@ export default function CapturePage() {
     setText("");
     setFiles([]);
     setAffirmation(null);
-    setPushedHref(null);
+    setPushedDecisionIds([]);
+    clearSelection();
     setExamplesOpen(false);
 
+    // Keep focus available for continued capture
     window.setTimeout(() => inputRef.current?.focus(), 0);
 
     setIsSubmitting(true);
 
     try {
+      // 1) Create inbox row first (so we have an id for attachment paths)
       const title = textSnapshot
         ? safeTitleFromText(textSnapshot)
         : filesSnapshot[0]?.name
           ? `File: ${filesSnapshot[0].name}`
           : "Captured";
 
+      // If no files, keep body as plain text (simple + backward compatible)
       const initialBody = hasFiles ? null : textSnapshot;
 
       const { data: created, error: createErr } = await supabase
@@ -422,8 +523,9 @@ export default function CapturePage() {
 
       if (createErr) throw createErr;
 
-      const inboxId = String(created?.id);
+      const inboxId = String((created as any)?.id);
 
+      // 2) Upload attachments (if any)
       let uploaded: AttachmentMeta[] = [];
       let uploadFailures = 0;
 
@@ -453,6 +555,7 @@ export default function CapturePage() {
           });
         }
 
+        // 3) Persist JSON body with text + attachments (even if some failed)
         const bodyJson = JSON.stringify({ text: textSnapshot, attachments: uploaded });
 
         const { error: updErr } = await supabase
@@ -463,25 +566,25 @@ export default function CapturePage() {
 
         if (updErr) {
           flashAffirmation("Saved (details couldn’t update).", 2200);
-          await loadRecent(userId, { showAll });
+          await loadRecent(userId, showAll);
           return;
         }
 
         if (uploaded.length === 0 && filesSnapshot.length > 0) {
           flashAffirmation("Saved (attachments didn’t upload).", 2400);
-          await loadRecent(userId, { showAll });
+          await loadRecent(userId, showAll);
           return;
         }
 
         if (uploadFailures > 0) {
           flashAffirmation("Saved (some attachments didn’t upload).", 2400);
-          await loadRecent(userId, { showAll });
+          await loadRecent(userId, showAll);
           return;
         }
       }
 
       flashAffirmation("Saved.", 1300);
-      await loadRecent(userId, { showAll });
+      await loadRecent(userId, showAll);
     } catch {
       flashAffirmation("Held.", 1800);
     } finally {
@@ -489,48 +592,23 @@ export default function CapturePage() {
     }
   };
 
-  const insertExample = (s: string) => {
-    setExamplesOpen(false);
-    setText((prev) => {
-      const next = prev.trim().length > 0 ? `${prev}\n${s}` : s;
-      return next;
-    });
-    window.setTimeout(() => inputRef.current?.focus(), 0);
-  };
+  const visible = useMemo(() => {
+    const list = recent;
+    return showAll ? list : list.slice(0, DEFAULT_LIMIT);
+  }, [recent, showAll]);
 
-  const setAllForColumn = (col: "push" | "delete", value: boolean) => {
-    const ids = recent.map((r) => r.id);
-    if (col === "push") {
-      setSelectedPush((prev) => {
-        const next = { ...prev };
-        for (const id of ids) next[id] = value;
-        return next;
-      });
-    } else {
-      setSelectedDelete((prev) => {
-        const next = { ...prev };
-        for (const id of ids) next[id] = value;
-        return next;
-      });
-    }
-  };
+  const hasMore = (totalOpenCount || recent.length) > DEFAULT_LIMIT;
 
-  const toggleAllPush = () => {
-    if (recent.length === 0) return;
-    const all = recent.every((r) => !!selectedPush[r.id]);
-    setAllForColumn("push", !all);
-  };
+  const headerVisibleIds = useMemo(() => visible.map((r) => r.id), [visible]);
+  const visibleSelectedCount = useMemo(() => headerVisibleIds.filter((id) => selected[id]).length, [headerVisibleIds, selected]);
+  const allVisibleChecked = headerVisibleIds.length > 0 && visibleSelectedCount === headerVisibleIds.length;
 
-  const toggleAllDelete = () => {
-    if (recent.length === 0) return;
-    const all = recent.every((r) => !!selectedDelete[r.id]);
-    setAllForColumn("delete", !all);
-  };
+  const selectedCount = selectedIds.length;
 
   return (
     <Page title="Capture" subtitle={null} right={null}>
       <div className="mx-auto w-full max-w-[760px] space-y-6">
-        {/* Friendly line + examples chip */}
+        {/* Friendly line + examples dropdown (polish) */}
         <div className="flex items-start justify-between gap-3">
           <div className="text-sm text-zinc-600">Drop anything here — a thought, a worry, a reminder. I’ll hold it for you.</div>
 
@@ -540,10 +618,9 @@ export default function CapturePage() {
             </Chip>
 
             {examplesOpen ? (
-              <div className="absolute right-0 z-20 mt-2 w-[360px] rounded-2xl border border-zinc-200 bg-white p-3 shadow-sm">
-                {/* Money & big life goals */}
+              <div className="absolute right-0 mt-2 w-[380px] rounded-2xl border border-zinc-200 bg-white p-3 shadow-sm z-30">
                 <div className="space-y-2">
-                  <div className="text-xs font-semibold text-zinc-900">Money & big life goals</div>
+                  <div className="text-xs font-semibold text-zinc-900">💸 Money & big life goals</div>
                   <div className="space-y-1">
                     {[
                       "Can we buy a pool?",
@@ -564,9 +641,8 @@ export default function CapturePage() {
                   </div>
                 </div>
 
-                {/* Decisions */}
                 <div className="mt-4 space-y-2">
-                  <div className="text-xs font-semibold text-zinc-900">Decisions I’m stuck on</div>
+                  <div className="text-xs font-semibold text-zinc-900">🧭 Decisions I’m stuck on</div>
                   <div className="space-y-1">
                     {[
                       "I don’t know what the right decision is here.",
@@ -586,9 +662,8 @@ export default function CapturePage() {
                   </div>
                 </div>
 
-                {/* Mental load */}
                 <div className="mt-4 space-y-2">
-                  <div className="text-xs font-semibold text-zinc-900">Mental load</div>
+                  <div className="text-xs font-semibold text-zinc-900">🧠 Mental load / emotional dump</div>
                   <div className="space-y-1">
                     {[
                       "I’m carrying too much in my head.",
@@ -608,9 +683,8 @@ export default function CapturePage() {
                   </div>
                 </div>
 
-                {/* Family */}
                 <div className="mt-4 space-y-2">
-                  <div className="text-xs font-semibold text-zinc-900">Family & life direction</div>
+                  <div className="text-xs font-semibold text-zinc-900">🏡 Family / life direction</div>
                   <div className="space-y-1">
                     {[
                       "I’m worried about our family rhythm.",
@@ -638,7 +712,7 @@ export default function CapturePage() {
           </div>
         </div>
 
-        {/* Input + compact action row */}
+        {/* Input + compact actions row (spacing polish) */}
         <div className="space-y-2">
           <textarea
             ref={inputRef}
@@ -647,6 +721,7 @@ export default function CapturePage() {
             placeholder="Drop it here."
             className="w-full min-h-[180px] resize-y rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-[15px] leading-relaxed text-zinc-900 outline-none focus:ring-2 focus:ring-zinc-200"
             onKeyDown={(e) => {
+              // Enter submits; Shift+Enter newline
               if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
                 void submit();
@@ -655,7 +730,6 @@ export default function CapturePage() {
             aria-label="Capture"
           />
 
-          {/* One compact row: files left, save right */}
           <div
             className="flex flex-wrap items-center justify-between gap-2"
             onDragOver={(e) => e.preventDefault()}
@@ -694,7 +768,7 @@ export default function CapturePage() {
               )}
             </div>
 
-            <Chip onClick={() => void submit()} title={!canSubmit ? "Add text or a file" : isSubmitting ? "Working…" : "Save capture"}>
+            <Chip onClick={() => void submit()} title={!canSubmit ? "Add text or a file" : isSubmitting ? "Working…" : "Save"}>
               {isSubmitting ? "Saving…" : "Save"}
             </Chip>
           </div>
@@ -702,7 +776,10 @@ export default function CapturePage() {
           {files.length > 0 ? (
             <div className="space-y-2 pt-1">
               {files.map((f, idx) => (
-                <div key={`${f.name}-${f.size}-${f.lastModified}-${idx}`} className="flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-white px-4 py-2">
+                <div
+                  key={`${f.name}-${f.size}-${f.lastModified}-${idx}`}
+                  className="flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-white px-4 py-2"
+                >
                   <div className="min-w-0">
                     <div className="truncate text-sm text-zinc-900">{f.name}</div>
                     <div className="text-xs text-zinc-500">{softKB(f.size)}</div>
@@ -722,7 +799,7 @@ export default function CapturePage() {
           ) : null}
         </div>
 
-        {/* Soft confirmation */}
+        {/* Soft confirmation (brief, fades) */}
         {affirmation ? (
           <div className="text-sm text-zinc-600" aria-live="polite">
             {affirmation}
@@ -734,163 +811,168 @@ export default function CapturePage() {
         {/* ✅ Recent captures */}
         <Card className="border-zinc-200 bg-white">
           <CardContent>
-            <div className="space-y-1">
-              <div className="text-sm font-semibold text-zinc-900">Recent captures</div>
-              <div className="text-sm text-zinc-600">Captures auto-delete after 30 days unless sent to Thinking.</div>
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="space-y-1">
+                <div className="text-sm font-semibold text-zinc-900">Recent captures</div>
+                <div className="text-xs text-zinc-500">Captures auto-delete after 30 days unless sent to Thinking.</div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                {hasMore ? (
+                  <Chip onClick={() => setShowAll((v) => !v)} title={showAll ? "Show less" : "Show all"}>
+                    {showAll ? "Show less" : "Show all"}
+                  </Chip>
+                ) : null}
+              </div>
             </div>
 
+            {/* Search belongs here (above the list) */}
             <div className="mt-4">
               <AssistedSearch scope="capture" placeholder="Search captures…" />
             </div>
 
-            <div className="mt-3 flex items-center justify-between gap-2">
-              <div className="text-xs text-zinc-500">{statusLine}</div>
-
-              {totalOpenCount > 5 ? (
-                <Chip onClick={() => setShowAll((v) => !v)} title={showAll ? "Show less" : "Show all"}>
-                  {showAll ? "Show less" : "Show all"}
-                </Chip>
-              ) : null}
-            </div>
-
-            {/* “Sent to Thinking” prompt */}
-            {pushedHref ? (
+            {/* “Sent to Thinking” prompt (no auto-nav) */}
+            {pushedDecisionIds.length > 0 ? (
               <div className="mt-4 flex items-center justify-between rounded-2xl border border-zinc-200 bg-white px-4 py-3">
-                <div className="text-sm text-zinc-700">Sent to Thinking.</div>
-                <Chip onClick={() => router.push(pushedHref)} title="Go to Thinking">
+                <div className="text-sm text-zinc-700">Sent to Thinking{pushedDecisionIds.length === 1 ? "." : ` (${pushedDecisionIds.length}).`}</div>
+                <Chip onClick={() => router.push("/thinking")} title="Go to Thinking">
                   Go to Thinking <span className="ml-1 opacity-70">›</span>
                 </Chip>
               </div>
             ) : null}
 
-            {/* Distinct delete confirm banner (not a capture card) */}
-            {confirmDeleteIds && confirmDeleteIds.length > 0 ? (
-              <div className="mt-4 rounded-2xl border border-zinc-300 bg-zinc-50 px-4 py-3">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="text-sm font-medium text-zinc-900">
-                      Delete {confirmDeleteIds.length} capture{confirmDeleteIds.length === 1 ? "" : "s"}?
-                    </div>
-                    <div className="text-xs text-zinc-600">This can’t be undone.</div>
-                  </div>
+            <div className="mt-4 text-xs text-zinc-500">{statusLine}</div>
 
-                  <div className="flex items-center gap-2">
-                    <Chip onClick={() => setConfirmDeleteIds(null)} title="Cancel">
-                      Cancel
-                    </Chip>
-                    <Chip onClick={() => void confirmDeleteNow()} title={isDeleting ? "Deleting…" : "Delete"}>
-                      {isDeleting ? "Deleting…" : "Delete"}
-                    </Chip>
-                  </div>
-                </div>
-              </div>
-            ) : null}
-
-            {/* Column header row (the clean version you described) */}
-            {recent.length > 0 ? (
-              <div className="mt-4 rounded-2xl border border-zinc-200 bg-white px-4 py-3">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="text-sm font-medium text-zinc-900">Select captures</div>
-                    <div className="mt-1 text-xs text-zinc-500">Your selections stay while you’re on this page.</div>
-                  </div>
-
-                  <div className="flex items-center gap-6">
-                    <div className="flex items-center gap-2">
-                      <div className="text-xs font-medium text-zinc-600">Push to Thinking</div>
-                      <Chip onClick={toggleAllPush} title="Select all / clear all">
-                        All
-                      </Chip>
-                      <Chip onClick={sendSelected} title="Send selected">
-                        Send selected
-                      </Chip>
-                      <Chip onClick={sendAll} title="Send all">
-                        Send all
-                      </Chip>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      <div className="text-xs font-medium text-zinc-600">Delete</div>
-                      <Chip onClick={toggleAllDelete} title="Select all / clear all">
-                        All
-                      </Chip>
-                      <Chip onClick={() => requestDelete(selectedDeleteIds)} title="Delete selected">
-                        Delete selected
-                      </Chip>
-                      <Chip onClick={() => requestDelete(recent.map((r) => r.id))} title="Delete all">
-                        Delete all
-                      </Chip>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            ) : null}
-
-            {recent.length === 0 ? (
+            {!hasLoaded ? null : recent.length === 0 ? (
               <div className="mt-3 text-sm text-zinc-600">Nothing here yet.</div>
             ) : (
-              <div className="mt-3 grid gap-2">
-                {recent.map((r) => {
-                  const p = tryParseCaptureBody(r.body);
-                  const displayText = (p.text || "").trim();
+              <div className="mt-3 space-y-2">
+                {/* Bulk header row (checkbox layout stays “perfect”) */}
+                <div className="flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-white px-4 py-3">
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="checkbox"
+                      checked={allVisibleChecked}
+                      onChange={(e) => setAllVisible(e.target.checked, headerVisibleIds)}
+                      aria-label="Select all visible"
+                      title="Select all visible"
+                    />
+                    <div className="text-sm text-zinc-700">
+                      {showAll
+                        ? `Showing ${recent.length} of ${totalOpenCount || recent.length}`
+                        : `Showing ${Math.min(DEFAULT_LIMIT, recent.length)} of ${totalOpenCount || recent.length}`}
+                    </div>
+                  </div>
 
-                  const title = (r.title || safeTitleFromText(displayText)).trim();
-                  const meta = r.created_at ? softDate(r.created_at) : "";
+                  <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-2">
+                      <div className="text-xs text-zinc-500">Send</div>
+                      <Chip
+                        onClick={() => void sendToThinking(selectedIds, false)}
+                        title={selectedCount === 0 ? "Select captures first" : "Send selected to Thinking"}
+                        className={selectedCount === 0 ? "opacity-50 pointer-events-none" : undefined}
+                      >
+                        Send
+                      </Chip>
+                      <Chip
+                        onClick={() => void sendAllToThinking()}
+                        title={(totalOpenCount || recent.length) === 0 ? "Nothing to send" : "Send all to Thinking"}
+                        className={(totalOpenCount || recent.length) === 0 ? "opacity-50 pointer-events-none" : undefined}
+                      >
+                        All
+                      </Chip>
+                    </div>
 
-                  const attachmentsCount = p.attachments?.length ?? 0;
-                  const hasAtts = attachmentsCount > 0;
+                    <div className="flex items-center gap-2">
+                      <div className="text-xs text-zinc-500">Delete</div>
+                      <Chip
+                        onClick={() => requestDelete(selectedIds, false)}
+                        title={selectedCount === 0 ? "Select captures first" : "Delete selected"}
+                        className={selectedCount === 0 ? "opacity-50 pointer-events-none" : undefined}
+                      >
+                        Delete
+                      </Chip>
+                      <Chip
+                        onClick={() => void deleteAllCaptures()}
+                        title={(totalOpenCount || recent.length) === 0 ? "Nothing to delete" : "Delete all"}
+                        className={(totalOpenCount || recent.length) === 0 ? "opacity-50 pointer-events-none" : undefined}
+                      >
+                        All
+                      </Chip>
+                    </div>
+                  </div>
+                </div>
 
-                  const titleKey = normalizeForCompare(title);
-                  const snippet = snippetFromText(displayText, 140);
-                  const snippetKey = normalizeForCompare(snippet);
+                {/* List (single-line + checkbox only on right) */}
+                <div className="grid gap-2">
+                  {visible.map((r) => {
+                    const p = tryParseCaptureBody(r.body);
+                    const displayText = (p.text || "").trim();
 
-                  const hasExtraText = !!snippet && snippetKey !== titleKey;
+                    const title = (r.title || safeTitleFromText(displayText)).trim();
+                    const meta = r.created_at ? softDate(r.created_at) : "";
 
-                  return (
-                    <div key={r.id} className="rounded-2xl border border-zinc-200 bg-white px-4 py-3">
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0 flex-1">
-                          <div className="truncate text-sm font-semibold text-zinc-900">{title}</div>
-                          <div className="mt-1 text-xs text-zinc-500">
-                            {meta ? meta : "Open capture"}
-                            {hasAtts ? ` • ${attachmentsCount} attachment${attachmentsCount === 1 ? "" : "s"}` : ""}
+                    const attachmentsCount = p.attachments?.length ?? 0;
+                    const hasAtts = attachmentsCount > 0;
+
+                    // Keep this around for future (lint-friendly)
+                    void normalizeForCompare(title);
+
+                    const checked = !!selected[r.id];
+
+                    return (
+                      <div key={r.id} className="rounded-2xl border border-zinc-200 bg-white px-4 py-3">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0 flex-1">
+                            <div className="truncate text-sm font-semibold text-zinc-900">{title}</div>
+                            <div className="mt-1 text-xs text-zinc-500">
+                              {meta ? meta : "Open capture"}
+                              {hasAtts ? ` • ${attachmentsCount} attachment${attachmentsCount === 1 ? "" : "s"}` : ""}
+                            </div>
                           </div>
 
-                          {hasExtraText ? <div className="mt-2 truncate text-sm text-zinc-700">{snippet}</div> : null}
-                        </div>
-
-                        {/* One clean right-side checkbox row (no words) */}
-                        <div className="flex items-center gap-8 pt-1">
-                          <input
-                            type="checkbox"
-                            checked={!!selectedPush[r.id]}
-                            onChange={(e) => {
-                              const checked = e.target.checked;
-                              setSelectedPush((prev) => ({ ...prev, [r.id]: checked }));
-                            }}
-                            className="h-4 w-4 rounded border-zinc-300"
-                            aria-label={`Select ${title} to push`}
-                          />
-
-                          <input
-                            type="checkbox"
-                            checked={!!selectedDelete[r.id]}
-                            onChange={(e) => {
-                              const checked = e.target.checked;
-                              setSelectedDelete((prev) => ({ ...prev, [r.id]: checked }));
-                            }}
-                            className="h-4 w-4 rounded border-zinc-300"
-                            aria-label={`Select ${title} to delete`}
-                          />
+                          <div className="flex items-center justify-end">
+                            <input type="checkbox" checked={checked} onChange={() => toggleRow(r.id)} aria-label={`Select ${title}`} title="Select" />
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  );
-                })}
+                    );
+                  })}
+                </div>
               </div>
             )}
           </CardContent>
         </Card>
+
+        {/* Custom delete confirm (polish, not subtle) */}
+        {deleteConfirm.open ? (
+          <div className="fixed inset-0 z-40 flex items-end sm:items-center justify-center bg-black/20 p-4">
+            <div className="w-full max-w-[520px] rounded-2xl border border-zinc-200 bg-white shadow-lg">
+              <div className="p-4 sm:p-5 space-y-2">
+                <div className="text-sm font-semibold text-zinc-900">{deleteConfirm.label}</div>
+                <div className="text-sm text-zinc-600">This can’t be undone.</div>
+
+                <div className="mt-4 flex items-center justify-end gap-2">
+                  <Chip onClick={() => setDeleteConfirm({ open: false, ids: [], all: false, label: "" })} title="Cancel">
+                    Cancel
+                  </Chip>
+                  <Chip
+                    onClick={() => void performDelete(deleteConfirm.ids, deleteConfirm.all)}
+                    title="Confirm delete"
+                    className="border-zinc-900 bg-zinc-900 text-white hover:bg-zinc-800"
+                  >
+                    Delete
+                  </Chip>
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        {/* Quiet note for V1 while job is pending (no extra explanation) */}
+        {process.env.NODE_ENV === "development" ? (
+          <div className="text-xs text-zinc-400">Cleanup rule: open captures older than 30 days should be deleted by a scheduled job (not implemented here).</div>
+        ) : null}
       </div>
     </Page>
   );
