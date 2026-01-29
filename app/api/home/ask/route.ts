@@ -14,10 +14,7 @@ type SuggestedNext = "none" | "create_framing";
 type AskRequest = { userId: string; question: string };
 
 function isAction(x: unknown): x is Action {
-  return (
-    typeof x === "string" &&
-    (["open_bills", "open_money", "open_decisions", "open_review", "none"] as const).includes(x as Action)
-  );
+  return typeof x === "string" && (["open_bills", "open_money", "open_decisions", "open_review", "none"] as const).includes(x as Action);
 }
 function isSuggestedNext(x: unknown): x is SuggestedNext {
   return typeof x === "string" && (["none", "create_framing"] as const).includes(x as SuggestedNext);
@@ -45,6 +42,7 @@ type RecurringBillFact = {
   cadence: string | null;
   next_due_at: string | null;
   autopay: boolean | null;
+  active?: boolean | null;
 };
 
 type AccountFact = {
@@ -61,11 +59,11 @@ type AccountFact = {
 type DecisionFact = {
   id: string;
   title: string | null;
+  context: string | null;
   status: string | null;
   created_at: string | null;
   decided_at: string | null;
   review_at: string | null;
-  updated_at: string | null;
 };
 
 async function buildFactsPack(userId: string) {
@@ -73,10 +71,10 @@ async function buildFactsPack(userId: string) {
 
   const { start, end } = monthBoundsLocal();
 
-  // ---- Bills ----
+  // --- Bills (recurring_bills) ---
   const { data: recurringBills, error: rbErr } = await supabase
     .from("recurring_bills")
-    .select("id,name,amount_cents,currency,cadence,next_due_at,autopay,active,notes,updated_at")
+    .select("id,name,amount_cents,currency,cadence,next_due_at,autopay,active,updated_at")
     .eq("user_id", userId)
     .eq("active", true)
     .order("next_due_at", { ascending: true })
@@ -100,7 +98,7 @@ async function buildFactsPack(userId: string) {
       cadence: b.cadence ?? null,
     }));
 
-  // ---- Accounts ----
+  // --- Accounts ---
   const { data: accounts, error: acctErr } = await supabase
     .from("accounts")
     .select("id,name,type,status,current_balance_cents,currency,archived,updated_at")
@@ -111,18 +109,26 @@ async function buildFactsPack(userId: string) {
 
   const acct = (accounts ?? []) as AccountFact[];
 
-  // ---- Decisions (THIS is what Home Ask was missing) ----
-  // "Open" here means: status is not "decided".
-  // This matches your UI concept: anything not committed/decided is still open work.
+  // --- Decisions (open / not decided) ---
+  // We treat anything NOT status="decided" as "open" for Home Ask.
+  // This matches your app’s pattern: decided decisions are committed, others are still open loops/drafts.
   const { data: decisions, error: decErr } = await supabase
     .from("decisions")
-    .select("id,title,status,created_at,decided_at,review_at,updated_at")
+    .select("id,title,context,status,created_at,decided_at,review_at")
     .eq("user_id", userId)
     .neq("status", "decided")
-    .order("updated_at", { ascending: false })
+    .order("created_at", { ascending: false })
     .limit(50);
 
   const dec = (decisions ?? []) as DecisionFact[];
+
+  const decisions_open = dec.map((d) => ({
+    id: d.id,
+    title: String(d.title ?? "Decision").trim(),
+    status: String(d.status ?? "").trim(),
+    created_at: d.created_at,
+    review_at: d.review_at,
+  }));
 
   // ---- Derived money summaries (read-only) ----
   const accountBalances = acct
@@ -131,8 +137,8 @@ async function buildFactsPack(userId: string) {
         typeof a.current_balance_cents === "number"
           ? a.current_balance_cents
           : a.current_balance_cents == null
-            ? null
-            : Number(a.current_balance_cents);
+          ? null
+          : Number(a.current_balance_cents);
       if (typeof cents !== "number" || !Number.isFinite(cents)) return null;
       return {
         id: a.id,
@@ -165,16 +171,12 @@ async function buildFactsPack(userId: string) {
       recurring_bills_ok: !rbErr,
       recurring_bills_count_active: rb.length,
       recurring_bills_count_due_this_month: due_this_month.length,
-
       accounts_ok: !acctErr,
       accounts_count_active: acct.length,
-
       decisions_ok: !decErr,
-      decisions_count_open: dec.length,
-
+      decisions_count_open: decisions_open.length,
       note: "Bills come from recurring_bills. Accounts come from accounts. Decisions come from decisions (status != decided).",
     },
-
     accounts_active: acct.map((a) => ({
       id: a.id,
       name: String(a.name ?? "Account"),
@@ -183,9 +185,7 @@ async function buildFactsPack(userId: string) {
       balance: moneyFromCents(a.current_balance_cents ?? null, a.currency ?? "AUD"),
       currency: String(a.currency ?? "AUD").toUpperCase(),
     })),
-
     bills_due_this_month: due_this_month,
-
     bills_active: rb.map((b) => ({
       id: b.id,
       name: (b.name || "Bill").trim(),
@@ -195,17 +195,7 @@ async function buildFactsPack(userId: string) {
       autopay: !!b.autopay,
       cadence: b.cadence ?? null,
     })),
-
-    decisions_open: dec.map((d) => ({
-      id: d.id,
-      title: String(d.title ?? "Decision"),
-      status: String(d.status ?? ""),
-      created_at: d.created_at,
-      decided_at: d.decided_at,
-      review_at: d.review_at,
-      updated_at: d.updated_at,
-    })),
-
+    decisions_open,
     money_summary: {
       balances_by_currency: balancesEntries.map(([currency, cents]) => ({
         currency,
@@ -225,7 +215,7 @@ You are Keystone Home Ask.
 
 RULES:
 - You may ONLY answer using FACTS PACK (+ now_iso).
-- If the FACTS PACK does NOT include the needed section for the question, say what you can/can't see and STOP.
+- If required data isn't present, say what you can/can't see and STOP.
 - No guessing. No invention. Calm and non-directive.
 - No urgency. No "you should". No pretending anything was saved.
 - Prefer: direct answer (1–2 lines), then bullets, then totals/ranges when relevant.
@@ -313,10 +303,10 @@ export async function POST(req: Request) {
     const framing_seed =
       suggested_next === "create_framing" && obj.framing_seed && typeof obj.framing_seed === "object"
         ? {
-            title: String((obj.framing_seed as Record<string, unknown>)?.title ?? "").slice(0, 120) || "Decision to frame",
-            prompt: String((obj.framing_seed as Record<string, unknown>)?.prompt ?? "").slice(0, 2000) || "",
-            notes: Array.isArray((obj.framing_seed as Record<string, unknown>)?.notes)
-              ? ((obj.framing_seed as Record<string, unknown>).notes as unknown[]).map((x: unknown) => String(x)).slice(0, 10)
+            title: String((obj.framing_seed as any).title ?? "").slice(0, 120) || "Decision to frame",
+            prompt: String((obj.framing_seed as any).prompt ?? "").slice(0, 2000) || "",
+            notes: Array.isArray((obj.framing_seed as any).notes)
+              ? ((obj.framing_seed as any).notes as unknown[]).map((x: unknown) => String(x)).slice(0, 10)
               : [],
           }
         : null;
