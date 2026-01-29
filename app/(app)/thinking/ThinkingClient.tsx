@@ -106,6 +106,20 @@ function sortByName<T extends { name: string; sort_order?: number | null }>(item
   });
 }
 
+function parseCapturedFromContext(context: string | null | undefined) {
+  const raw = (context ?? "").trim();
+  if (!raw) return { capturedText: "", draftText: "" };
+
+  const marker = "Captured:\n";
+  if (raw.startsWith(marker)) {
+    const capturedText = raw.slice(marker.length).trim();
+    return { capturedText, draftText: "" };
+  }
+
+  // Legacy/other origins: treat the whole thing as draft text
+  return { capturedText: "", draftText: raw };
+}
+
 export default function ThinkingClient() {
   const router = useRouter();
   const { showToast } = useToast();
@@ -148,6 +162,11 @@ export default function ThinkingClient() {
   const [labelsEditForId, setLabelsEditForId] = useState<string | null>(null);
   const [revisitModeById, setRevisitModeById] = useState<Record<string, "7" | "30" | "90" | "custom" | "">>({});
   const [customDateById, setCustomDateById] = useState<Record<string, string>>({});
+
+  // ✅ Local edit buffers (editable title + body)
+  const [editTitleById, setEditTitleById] = useState<Record<string, string>>({});
+  const [editBodyById, setEditBodyById] = useState<Record<string, string>>({});
+  const saveTimersRef = useRef<Record<string, number | null>>({});
 
   const scheduleReload = () => {
     if (reloadTimerRef.current) window.clearTimeout(reloadTimerRef.current);
@@ -282,6 +301,13 @@ export default function ThinkingClient() {
     return () => {
       if (reloadTimerRef.current) window.clearTimeout(reloadTimerRef.current);
       reloadTimerRef.current = null;
+
+      // clear any pending saves
+      for (const k of Object.keys(saveTimersRef.current)) {
+        const t = saveTimersRef.current[k];
+        if (t) window.clearTimeout(t);
+        saveTimersRef.current[k] = null;
+      }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -320,6 +346,19 @@ export default function ThinkingClient() {
   // Close inline editors when changing open card
   useEffect(() => {
     setLabelsEditForId((cur) => (cur && openId && cur === openId ? cur : null));
+  }, [openId]);
+
+  // ✅ Seed edit buffers when opening a card (so original capture stays read-only)
+  useEffect(() => {
+    if (!openId) return;
+    const d = drafts.find((x) => x.id === openId);
+    if (!d) return;
+
+    setEditTitleById((prev) => (prev[openId] !== undefined ? prev : { ...prev, [openId]: d.title ?? "" }));
+
+    const parsed = parseCapturedFromContext(d.context);
+    setEditBodyById((prev) => (prev[openId] !== undefined ? prev : { ...prev, [openId]: parsed.draftText ?? "" }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openId]);
 
   // Load summaries for the open draft (capped) — stays hidden unless any exist
@@ -378,6 +417,19 @@ export default function ThinkingClient() {
             if (openId === id) setOpenId(null);
             if (chatForId === id) setChatForId(null);
             if (labelsEditForId === id) setLabelsEditForId(null);
+
+            // also clear edit buffers
+            setEditTitleById((p) => {
+              const n = { ...p };
+              delete n[id];
+              return n;
+            });
+            setEditBodyById((p) => {
+              const n = { ...p };
+              delete n[id];
+              return n;
+            });
+
             return current.filter((d) => d.id !== id);
           }
 
@@ -385,6 +437,18 @@ export default function ThinkingClient() {
             if (openId === id) setOpenId(null);
             if (chatForId === id) setChatForId(null);
             if (labelsEditForId === id) setLabelsEditForId(null);
+
+            setEditTitleById((p) => {
+              const n = { ...p };
+              delete n[id];
+              return n;
+            });
+            setEditBodyById((p) => {
+              const n = { ...p };
+              delete n[id];
+              return n;
+            });
+
             return current.filter((d) => d.id !== id);
           }
 
@@ -426,6 +490,53 @@ export default function ThinkingClient() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId, openId, chatForId, labelsEditForId]);
 
+  const persistDraftEdits = async (d: Decision, nextTitle: string, nextBody: string) => {
+    if (!userId) return;
+
+    // Rebuild context so the original capture remains verbatim/read-only (when present).
+    const parsed = parseCapturedFromContext(d.context);
+    const capturedText = parsed.capturedText.trim();
+
+    const body = (nextBody || "").trim();
+    const nextContext =
+      capturedText.length > 0
+        ? body.length > 0
+          ? `Captured:\n${capturedText}\n\nDraft:\n${body}`
+          : `Captured:\n${capturedText}`
+        : body.length > 0
+          ? body
+          : null;
+
+    // optimistic
+    setDrafts((prev) => prev.map((x) => (x.id === d.id ? { ...x, title: nextTitle, context: nextContext } : x)));
+
+    const { error } = await supabase
+      .from("decisions")
+      .update({ title: nextTitle, context: nextContext })
+      .eq("id", d.id)
+      .eq("user_id", userId)
+      .eq("status", "draft");
+
+    if (error) {
+      showToast({ message: `Couldn’t save changes: ${error.message}` }, 3500);
+      loadRef.current({ silent: true });
+      return;
+    }
+
+    showToast({ message: "Saved." }, 1400);
+  };
+
+  const scheduleAutosave = (d: Decision, nextTitle: string, nextBody: string) => {
+    const key = d.id;
+    const prev = saveTimersRef.current[key];
+    if (prev) window.clearTimeout(prev);
+
+    saveTimersRef.current[key] = window.setTimeout(() => {
+      void persistDraftEdits(d, nextTitle, nextBody);
+      saveTimersRef.current[key] = null;
+    }, 550);
+  };
+
   const decideNow = async (d: Decision) => {
     if (!userId) return;
 
@@ -451,11 +562,7 @@ export default function ThinkingClient() {
         message: "Saved to Decisions.",
         undoLabel: "Undo",
         onUndo: async () => {
-          const { error: undoErr } = await supabase
-            .from("decisions")
-            .update({ status: "draft", decided_at: null })
-            .eq("id", d.id)
-            .eq("user_id", userId);
+          const { error: undoErr } = await supabase.from("decisions").update({ status: "draft", decided_at: null }).eq("id", d.id).eq("user_id", userId);
 
           if (undoErr) {
             showToast({ message: `Undo failed: ${undoErr.message}` }, 3500);
@@ -528,6 +635,10 @@ export default function ThinkingClient() {
       loadRef.current({ silent: true });
       return;
     }
+
+    // also refresh edit buffer to avoid drift (quiet)
+    const parsed = parseCapturedFromContext(nextContext);
+    setEditBodyById((p) => ({ ...p, [d.id]: parsed.draftText ?? "" }));
 
     showToast({ message: "Added to context." }, 2500);
   };
@@ -619,27 +730,23 @@ export default function ThinkingClient() {
 
   const hasMore = filteredDrafts.length > DEFAULT_LIMIT;
 
-  const PrimaryChipClass = "border-zinc-900 bg-zinc-900 text-white hover:bg-zinc-800 hover:text-white";
+  // ✅ Primary actions should be brand green (match navbar)
+  const PrimaryChipClass = "border-emerald-700 bg-emerald-700 text-white hover:bg-emerald-600 hover:text-white";
 
   const hasAnyLabelOptions = domains.length > 0 || constellations.length > 0;
 
   return (
     <Page title="Thinking" subtitle="Work on drafts here. When you’re ready to commit, save it into Decisions." right={null}>
       <div className="mx-auto w-full max-w-[760px] space-y-6">
-        {/* Flow controls (consistent, top-of-page) */}
-        <div className="flex items-center justify-between gap-3">
-          <div className="text-xs text-zinc-500">Step 2 of 3</div>
+        {/* Top controls (no step counter) */}
+        <div className="flex items-center justify-end gap-2">
+          <Chip onClick={() => router.push("/capture")} title="Back: Capture">
+            <span className="mr-1 opacity-70">‹</span> Back: Capture
+          </Chip>
 
-          <div className="flex items-center gap-2">
-            {/* ✅ V1: Framing removed from UI. */}
-            <Chip onClick={() => router.push("/capture")} title="Back: Capture">
-              <span className="mr-1 opacity-70">‹</span> Back: Capture
-            </Chip>
-
-            <Chip onClick={() => router.push("/decisions")} title="Next: Decisions">
-              Next: Decisions <span className="ml-1 opacity-70">›</span>
-            </Chip>
-          </div>
+          <Chip onClick={() => router.push("/decisions")} title="Next: Decisions">
+            Next: Decisions <span className="ml-1 opacity-70">›</span>
+          </Chip>
         </div>
 
         <AssistedSearch scope="thinking" placeholder="Search drafts and decisions…" />
@@ -682,16 +789,18 @@ export default function ThinkingClient() {
               const filedUnder = [domainName, ...memberNames].filter(Boolean) as string[];
               const isEditingLabels = labelsEditForId === d.id;
 
-              // show the section only when it’s actually useful
-              const showFiledUnderCard =
-                (hasAnyLabelOptions && isEditingLabels) || (hasAnyLabelOptions && filedUnder.length > 0);
+              const showFiledUnderCard = (hasAnyLabelOptions && isEditingLabels) || (hasAnyLabelOptions && filedUnder.length > 0);
 
               const revisitMode = revisitModeById[d.id] ?? "";
               const customDate = customDateById[d.id] ?? "";
 
-              // ✅ Origin banner (V1): capture is primary; keep legacy framing label too.
-              const originLabel =
-                d.origin === "capture" ? "Sent from Capture." : d.origin === "framing" ? "Prepared in Framing." : "";
+              const originLabel = d.origin === "capture" ? "Sent from Capture." : d.origin === "framing" ? "Prepared in Framing." : "";
+
+              // read-only capture extraction
+              const parsed = parseCapturedFromContext(d.context);
+              const capturedText = parsed.capturedText;
+              const editableTitle = editTitleById[d.id] ?? d.title ?? "";
+              const editableBody = editBodyById[d.id] ?? parsed.draftText ?? "";
 
               return (
                 <div
@@ -746,15 +855,59 @@ export default function ThinkingClient() {
                         <div className="mt-4 space-y-4">
                           {originLabel ? <div className="mt-1 text-xs text-zinc-500">{originLabel}</div> : null}
 
-                          {d.context ? (
-                            <div className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-700">{d.context}</div>
-                          ) : (
-                            <div className="text-sm text-zinc-600">No extra context yet.</div>
-                          )}
+                          {/* ✅ Original capture (read-only) */}
+                          {capturedText ? (
+                            <div className="rounded-xl border border-zinc-200 bg-white p-3 space-y-2">
+                              <div className="text-xs font-semibold text-zinc-700">Original capture</div>
+                              <div className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-700">{capturedText}</div>
+                            </div>
+                          ) : null}
+
+                          {/* ✅ Editable draft title + body */}
+                          <div className="rounded-xl border border-zinc-200 bg-white p-3 space-y-3">
+                            <div className="text-xs font-semibold text-zinc-700">Draft</div>
+
+                            <div className="space-y-2">
+                              <div className="text-xs text-zinc-500">Title</div>
+                              <input
+                                value={editableTitle}
+                                onChange={(e) => {
+                                  const next = e.target.value;
+                                  setEditTitleById((p) => ({ ...p, [d.id]: next }));
+                                  scheduleAutosave(d, next, editableBody);
+                                }}
+                                onBlur={() => void persistDraftEdits(d, editableTitle, editableBody)}
+                                className="h-10 w-full rounded-2xl border border-zinc-200 bg-white px-4 text-[15px] text-zinc-900 outline-none focus:ring-2 focus:ring-zinc-200"
+                                aria-label="Draft title"
+                              />
+                            </div>
+
+                            <div className="space-y-2">
+                              <div className="text-xs text-zinc-500">Body</div>
+                              <textarea
+                                value={editableBody}
+                                onChange={(e) => {
+                                  const next = e.target.value;
+                                  setEditBodyById((p) => ({ ...p, [d.id]: next }));
+                                  scheduleAutosave(d, editableTitle, next);
+                                }}
+                                onBlur={() => void persistDraftEdits(d, editableTitle, editableBody)}
+                                placeholder="This is what I’m deciding… (optional)"
+                                className="w-full min-h-[140px] resize-y rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-[15px] leading-relaxed text-zinc-900 outline-none focus:ring-2 focus:ring-zinc-200"
+                                aria-label="Draft body"
+                              />
+                            </div>
+
+                            <div className="flex justify-end">
+                              <Chip onClick={() => void persistDraftEdits(d, editableTitle, editableBody)} title="Save now">
+                                Save
+                              </Chip>
+                            </div>
+                          </div>
 
                           <DecisionNotes decisionId={d.id} kind="thinking" />
 
-                          {/* ✅ Filed under: hidden until useful (or user explicitly opens it) */}
+                          {/* ✅ Filed under */}
                           {showFiledUnderCard ? (
                             <div className="rounded-xl border border-zinc-200 bg-white p-3 space-y-2">
                               <div className="flex flex-wrap items-center justify-between gap-2">
@@ -822,7 +975,7 @@ export default function ThinkingClient() {
                             </div>
                           ) : null}
 
-                          {/* Attachments stay available (user can add files here) */}
+                          {/* Attachments stay available */}
                           <div className="rounded-xl border border-zinc-200 bg-white p-3 space-y-2">
                             {userId ? (
                               <AttachmentsBlock userId={userId} decisionId={d.id} title="Attachments" bucket="captures" />
