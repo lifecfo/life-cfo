@@ -509,7 +509,8 @@ export default function CapturePage() {
                   const showSnippet = !!snippet && snippetKey !== titleKey;
 
                   // If no text, but attachments exist, show a tiny hint instead of repeated title
-                  const attachmentHint = hasAtts && !displayText ? `${p.attachments.length} attachment${p.attachments.length === 1 ? "" : "s"}` : "";
+                  const attachmentHint =
+                    hasAtts && !displayText ? `${p.attachments.length} attachment${p.attachments.length === 1 ? "" : "s"}` : "";
 
                   return (
                     <div key={r.id} className="rounded-2xl border border-zinc-200 bg-white">
@@ -525,7 +526,7 @@ export default function CapturePage() {
 
                             <div className="mt-1 text-xs text-zinc-500">
                               {meta ? meta : "Open capture"}
-                              {hasAtts ? " • Attachments" : ""}
+                              {hasAtts ? ` • ${p.attachments.length} attachment${p.attachments.length === 1 ? "" : "s"}` : ""}
                             </div>
 
                             {showSnippet ? <div className="mt-2 text-sm text-zinc-700">{snippet}</div> : null}
@@ -533,8 +534,9 @@ export default function CapturePage() {
                             {!showSnippet && attachmentHint ? <div className="mt-2 text-sm text-zinc-700">{attachmentHint}</div> : null}
                           </div>
 
+                          {/* No Open button here — Open lives in the expanded view */}
                           <div className="flex items-center gap-2">
-                            <Chip>{isOpen ? "Hide" : "Open"}</Chip>
+                            <Chip>{isOpen ? "Hide" : "Details"}</Chip>
                           </div>
                         </div>
                       </button>
@@ -543,6 +545,10 @@ export default function CapturePage() {
                         <div className="px-4 pb-4 space-y-3">
                           {parsedOpen.text ? (
                             <div className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-700">{parsedOpen.text}</div>
+                          ) : hasAtts ? (
+                            <div className="text-sm text-zinc-600">
+                              {p.attachments.length} attachment{p.attachments.length === 1 ? "" : "s"} saved.
+                            </div>
                           ) : (
                             <div className="text-sm text-zinc-600">No extra text.</div>
                           )}
