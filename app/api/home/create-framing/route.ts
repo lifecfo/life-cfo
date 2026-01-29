@@ -22,9 +22,12 @@ function coerceSeed(raw: any): FramingSeed | null {
   const title = typeof raw.title === "string" ? raw.title.trim() : "";
   const prompt = typeof raw.prompt === "string" ? raw.prompt.trim() : "";
   const notes =
-    Array.isArray(raw.notes)
-      ? raw.notes.map((x: unknown) => String(x)).map((s) => s.trim()).filter(Boolean).slice(0, 10)
-      : [];
+   Array.isArray(raw.notes)
+  ? raw.notes
+      .map((x: unknown) => String(x).trim())
+      .filter(Boolean)
+      .slice(0, 10)
+  : [];
 
   if (!title && !prompt) return null;
 
