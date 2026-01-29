@@ -13,11 +13,25 @@ type SuggestedNext = "none" | "create_framing";
 
 type AskRequest = { userId: string; question: string };
 
-function isAction(x: any): x is Action {
-  return ["open_bills", "open_money", "open_decisions", "open_review", "none"].includes(x);
+function isAction(x: unknown): x is Action {
+  return ["open_bills", "open_money", "open_decisions", "open_review", "none"].includes(String(x));
 }
-function isSuggestedNext(x: any): x is SuggestedNext {
-  return ["none", "create_framing"].includes(x);
+function isSuggestedNext(x: unknown): x is SuggestedNext {
+  return ["none", "create_framing"].includes(String(x));
+}
+
+// ✅ Fix #1: deterministic afford/should-we intent detection
+function isAffordQuestion(q: string) {
+  const s = (q || "").trim().toLowerCase();
+  if (!s) return false;
+  return (
+    s.includes("afford") ||
+    s.startsWith("should ") ||
+    s.startsWith("can we ") ||
+    s.startsWith("can i ") ||
+    s.includes("is it okay to") ||
+    s.includes("is it safe to")
+  );
 }
 
 function monthBoundsLocal() {
@@ -35,10 +49,7 @@ function moneyFromCents(cents: number | null | undefined, currency: string | nul
 }
 
 async function buildFactsPack(userId: string) {
-  const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  );
+  const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
 
   const { start, end } = monthBoundsLocal();
 
@@ -76,7 +87,7 @@ async function buildFactsPack(userId: string) {
       cadence: b.cadence ?? null,
     }));
 
-  const { data: accounts } = await supabase
+  const { data: accounts, error: acctErr } = await supabase
     .from("accounts")
     .select("id,name,type,status,current_balance_cents,currency,archived,updated_at")
     .eq("user_id", userId)
@@ -84,7 +95,16 @@ async function buildFactsPack(userId: string) {
     .order("updated_at", { ascending: false })
     .limit(50);
 
-  const acct = (accounts ?? []) as any[];
+  const acct = (accounts ?? []) as Array<{
+    id: string;
+    name: string | null;
+    type: string | null;
+    status: string | null;
+    current_balance_cents: number | null;
+    currency: string | null;
+    archived: boolean | null;
+    updated_at: string | null;
+  }>;
 
   return {
     now_iso: new Date().toISOString(),
@@ -92,6 +112,7 @@ async function buildFactsPack(userId: string) {
       recurring_bills_ok: !rbErr,
       recurring_bills_count_active: rb.length,
       recurring_bills_count_due_this_month: due_this_month.length,
+      accounts_ok: !acctErr,
       accounts_count_active: acct.length,
       note: "Bills come from recurring_bills. Accounts come from accounts.",
     },
@@ -101,7 +122,7 @@ async function buildFactsPack(userId: string) {
       type: String(a.type ?? ""),
       status: String(a.status ?? ""),
       balance: moneyFromCents(a.current_balance_cents ?? null, a.currency ?? "AUD"),
-      currency: String((a.currency ?? "AUD")).toUpperCase(),
+      currency: String(a.currency ?? "AUD").toUpperCase(),
     })),
     bills_due_this_month: due_this_month,
     bills_active: rb.map((b) => ({
@@ -119,21 +140,60 @@ async function buildFactsPack(userId: string) {
 const SYSTEM = `
 You are Keystone Home Ask.
 
-RULES:
-- You may ONLY answer using FACTS PACK (+ now_iso).
-- If required data isn't present, say what you can/can't see and STOP.
-- No guessing. No invention. Calm and non-directive.
-- No urgency. No "you should". No pretending anything was saved.
-- Prefer: direct answer (1–2 lines), then bullets, then totals/ranges when relevant.
-- If time-based, state the window explicitly.
+ROLE
+You are a calm, grounded "Query My Life" layer.
+You answer using the user's real data so decisions stop looping in their head.
 
-AFFORD / SHOULD-WE:
-- Never grant permission.
-- Provide a bounded frame (accounts + upcoming bills).
-- If it needs more context/tradeoffs/missing inputs, set suggested_next="create_framing"
-  and include framing_seed (title, prompt, notes[]).
+GLOBAL RULES
+- You may ONLY use the provided FACTS PACK (+ now_iso).
+- If required data is missing, say clearly what you can and cannot see, then stop.
+- Never guess. Never invent numbers, bills, or balances.
+- Never grant permission or say yes/no.
+- Never create urgency. Never say "you should".
+- Be calm, human, and steady.
 
-Return JSON only matching schema.
+ANSWER SHAPE (DEFAULT)
+1) "Here’s what I can see" → concrete facts
+2) "What that means" → neutral interpretation
+3) Optional next step → only if helpful
+
+AFFORD / SHOULD-WE QUESTIONS (CRITICAL)
+If the question is about affordability, safety, or whether to proceed:
+
+You MUST answer in this structure:
+
+1) Here’s what I can see
+   - Current account balances (if available)
+   - Upcoming bills and commitments (state the time window)
+   - Any known constraints from the data
+
+2) What that means
+   - Plain-English interpretation
+   - No advice, no judgement
+
+3) What would make this safe
+   - Conditions, not instructions
+   - Examples: buffer size, timing clarity, amount bounds
+   - Phrase as “This would feel safer if…”
+
+4) Framing hand-off (ONLY if uncertainty or trade-offs exist)
+   - If the decision involves trade-offs, timing pressure, or missing context:
+     set suggested_next = "create_framing"
+     and provide a framing_seed with:
+       • a neutral title
+       • a short framing prompt
+       • up to 5 factual notes from the data
+
+If the answer is clear and bounded, DO NOT suggest framing.
+
+STYLE
+- Calm
+- Grounded
+- Reassuring but honest
+- Slightly human, never chatty
+
+OUTPUT
+Return JSON only, matching the schema exactly.
 `.trim();
 
 export async function POST(req: Request) {
@@ -148,11 +208,21 @@ export async function POST(req: Request) {
 
     const facts = await buildFactsPack(userId);
 
+    // ✅ Fix #1: pass deterministic intent to the model
+    const afford_intent = isAffordQuestion(question);
+
     const resp = await openai.responses.create({
       model: "gpt-4o-mini",
       input: [
         { role: "system", content: SYSTEM },
-        { role: "user", content: `QUESTION:\n${question}\n\nFACTS PACK:\n${JSON.stringify(facts, null, 2)}` },
+        {
+          role: "user",
+          content: `QUESTION:\n${question}\n\nINTENT:\n${afford_intent ? "AFFORD_OR_SHOULD_WE" : "GENERAL"}\n\nFACTS PACK:\n${JSON.stringify(
+            facts,
+            null,
+            2
+          )}`,
+        },
       ],
       text: {
         format: {
@@ -203,6 +273,7 @@ export async function POST(req: Request) {
     const action: Action = isAction(parsed.action) ? parsed.action : "none";
     const suggested_next: SuggestedNext = isSuggestedNext(parsed.suggested_next) ? parsed.suggested_next : "none";
 
+    // Enforce: framing_seed must be null unless create_framing
     const framing_seed =
       suggested_next === "create_framing" && parsed.framing_seed && typeof parsed.framing_seed === "object"
         ? {
