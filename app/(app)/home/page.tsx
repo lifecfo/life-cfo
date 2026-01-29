@@ -37,9 +37,17 @@ function inferIntent(raw: string): "ask" | "hold" {
 // - “this month”
 // - “next 30 days” / “next 2 weeks” / “in the next 10 days”
 // - “upcoming bills” / “bills due soon”
+function isReviewIntent(q: string) {
+  const s = q.trim().toLowerCase();
+  return /\b(review|revisit|check[- ]?in)\b/.test(s);
+}
+
 function billsWindowFromQuestion(q: string): { kind: "month" } | { kind: "days"; days: number } | null {
   const s = q.trim().toLowerCase();
   if (!s) return null;
+
+  // ✅ If they are asking about review/revisit, do NOT intercept with bills logic.
+  if (isReviewIntent(s)) return null;
 
   const hasBillsWord = s.includes("bill") || s.includes("bills");
   const hasDueCue = s.includes("due") || s.includes("upcoming") || s.includes("coming up") || s.includes("next");
@@ -529,7 +537,7 @@ export default function HomePage() {
                     <div className="whitespace-pre-wrap text-[15px] leading-relaxed text-zinc-800">{ask.answer}</div>
 
                     <div className="flex flex-wrap items-center gap-2 pt-1">
-                      {ask.actionHref ? (
+                     {ask.actionHref && ask.suggestedNext !== "create_framing" ? (
                         <Chip onClick={() => router.push(ask.actionHref!)} title="Open">
                           Open
                         </Chip>
