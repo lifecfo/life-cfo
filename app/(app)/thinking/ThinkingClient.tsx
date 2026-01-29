@@ -628,11 +628,12 @@ export default function ThinkingClient() {
       <div className="mx-auto w-full max-w-[760px] space-y-6">
         {/* Flow controls (consistent, top-of-page) */}
         <div className="flex items-center justify-between gap-3">
-          <div className="text-xs text-zinc-500">Step 3 of 3</div>
+          <div className="text-xs text-zinc-500">Step 2 of 3</div>
 
           <div className="flex items-center gap-2">
-            <Chip onClick={() => router.push("/framing")} title="Back: Framing">
-              <span className="mr-1 opacity-70">‹</span> Back: Framing
+            {/* ✅ V1: Framing removed from UI. */}
+            <Chip onClick={() => router.push("/capture")} title="Back: Capture">
+              <span className="mr-1 opacity-70">‹</span> Back: Capture
             </Chip>
 
             <Chip onClick={() => router.push("/decisions")} title="Next: Decisions">
@@ -688,6 +689,10 @@ export default function ThinkingClient() {
               const revisitMode = revisitModeById[d.id] ?? "";
               const customDate = customDateById[d.id] ?? "";
 
+              // ✅ Origin banner (V1): capture is primary; keep legacy framing label too.
+              const originLabel =
+                d.origin === "capture" ? "Sent from Capture." : d.origin === "framing" ? "Prepared in Framing." : "";
+
               return (
                 <div
                   key={d.id}
@@ -739,7 +744,7 @@ export default function ThinkingClient() {
 
                       {isOpen ? (
                         <div className="mt-4 space-y-4">
-                          {d.origin === "framing" ? <div className="mt-1 text-xs text-zinc-500">Prepared in Framing.</div> : null}
+                          {originLabel ? <div className="mt-1 text-xs text-zinc-500">{originLabel}</div> : null}
 
                           {d.context ? (
                             <div className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-700">{d.context}</div>
@@ -854,7 +859,11 @@ export default function ThinkingClient() {
                             </div>
 
                             <div className="flex flex-wrap items-center gap-2">
-                              <Chip className={PrimaryChipClass} onClick={() => setChatForId((cur) => (cur === d.id ? null : d.id))} title="Talk it through with Keystone">
+                              <Chip
+                                className={PrimaryChipClass}
+                                onClick={() => setChatForId((cur) => (cur === d.id ? null : d.id))}
+                                title="Talk it through with Keystone"
+                              >
                                 {isChatOpen ? "Hide chat" : "Talk this through"}
                               </Chip>
 
@@ -925,7 +934,12 @@ export default function ThinkingClient() {
 
                           {isChatOpen ? (
                             <div className="pt-2">
-                              <ConversationPanel decisionId={d.id} decisionTitle={d.title} frame={{ decision_statement: d.title }} onClose={() => setChatForId(null)} />
+                              <ConversationPanel
+                                decisionId={d.id}
+                                decisionTitle={d.title}
+                                frame={{ decision_statement: d.title }}
+                                onClose={() => setChatForId(null)}
+                              />
                             </div>
                           ) : null}
                         </div>
