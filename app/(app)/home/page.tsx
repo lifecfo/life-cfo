@@ -71,10 +71,23 @@ function billsWindowFromQuestion(q: string): { kind: "month" } | { kind: "days";
   return null;
 }
 
+type FramingSeed = {
+  title: string;
+  prompt: string;
+  notes: string[];
+};
+
 type AskState =
   | { status: "idle" }
   | { status: "loading"; question: string }
-  | { status: "done"; question: string; answer: string; actionHref?: string | null }
+  | {
+      status: "done";
+      question: string;
+      answer: string;
+      actionHref?: string | null;
+      suggestedNext?: "none" | "create_framing";
+      framingSeed?: FramingSeed | null;
+    }
   | { status: "error"; question: string; message: string };
 
 type RecurringBillRow = {
@@ -106,6 +119,19 @@ function monthBoundsLocal() {
   const start = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
   const end = new Date(now.getFullYear(), now.getMonth() + 1, 1, 0, 0, 0, 0);
   return { start, end };
+}
+
+function coerceSeed(raw: any): FramingSeed | null {
+  if (!raw || typeof raw !== "object") return null;
+  const title = typeof raw.title === "string" ? raw.title.trim() : "";
+  const prompt = typeof raw.prompt === "string" ? raw.prompt.trim() : "";
+  const notes = Array.isArray(raw.notes) ? raw.notes.map((x: unknown) => String(x)).filter(Boolean).slice(0, 10) : [];
+  if (!title && !prompt) return null;
+  return {
+    title: (title || "Decision to frame").slice(0, 120),
+    prompt: prompt.slice(0, 2000),
+    notes,
+  };
 }
 
 export default function HomePage() {
@@ -195,18 +221,12 @@ export default function HomePage() {
   };
 
   // ✅ Deterministic bills answer (recurring_bills only)
-  const localBillsAnswer = async (
-    uid: string,
-    window: { kind: "month" } | { kind: "days"; days: number }
-  ) => {
+  const localBillsAnswer = async (uid: string, window: { kind: "month" } | { kind: "days"; days: number }) => {
     const now = new Date();
     const { start: monthStart, end: monthEnd } = monthBoundsLocal();
 
     const start = window.kind === "month" ? monthStart : now;
-    const end =
-      window.kind === "month"
-        ? monthEnd
-        : new Date(now.getTime() + window.days * 24 * 60 * 60 * 1000);
+    const end = window.kind === "month" ? monthEnd : new Date(now.getTime() + window.days * 24 * 60 * 60 * 1000);
 
     const { data, error } = await supabase
       .from("recurring_bills")
@@ -222,10 +242,7 @@ export default function HomePage() {
 
     const rows = (data ?? []) as RecurringBillRow[];
     if (rows.length === 0) {
-      const range =
-        window.kind === "month"
-          ? "this month"
-          : `in the next ${window.days} days (until ${formatDateShort(end)})`;
+      const range = window.kind === "month" ? "this month" : `in the next ${window.days} days (until ${formatDateShort(end)})`;
       return { ok: true as const, answer: `There are no bills due ${range} (from what I can see).` };
     }
 
@@ -239,19 +256,14 @@ export default function HomePage() {
 
       const cur = (b.currency || "AUD").toUpperCase();
       const cents = typeof b.amount_cents === "number" ? b.amount_cents : b.amount_cents == null ? null : Number(b.amount_cents);
-      const amt =
-        typeof cents === "number" && Number.isFinite(cents)
-          ? formatMoneyFromCents(cents, cur)
-          : "—";
+      const amt = typeof cents === "number" && Number.isFinite(cents) ? formatMoneyFromCents(cents, cur) : "—";
 
       const ap = b.autopay ? "Autopay" : "Not Autopay";
       return `• ${name} — ${due} — ${amt} (${ap})`;
     });
 
     const rangeHeader =
-      window.kind === "month"
-        ? `This month (until ${formatDateShort(end)})`
-        : `In the next ${window.days} days (until ${formatDateShort(end)})`;
+      window.kind === "month" ? `This month (until ${formatDateShort(end)})` : `In the next ${window.days} days (until ${formatDateShort(end)})`;
 
     let totalLine = "";
     if (singleCurrency) {
@@ -265,10 +277,24 @@ export default function HomePage() {
       totalLine = `\n\nEstimated total: (multiple currencies)`;
     }
 
-    return {
-      ok: true as const,
-      answer: `${rangeHeader}\n\n${lines.join("\n")}${totalLine}`,
-    };
+    return { ok: true as const, answer: `${rangeHeader}\n\n${lines.join("\n")}${totalLine}` };
+  };
+
+  // Create Framing (server route) — only on explicit user action
+  const createFramingFromSeed = async (uid: string, seed: FramingSeed) => {
+    const res = await fetch("/api/home/create-framing", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userId: uid, seed }),
+    });
+
+    const json = await res.json();
+    if (!res.ok) return { ok: false as const, message: "I couldn’t create that framing item." };
+
+    const inboxId = typeof json?.inbox_id === "string" ? json.inbox_id : "";
+    if (!inboxId) return { ok: false as const, message: "I couldn’t create that framing item." };
+
+    return { ok: true as const, inboxId };
   };
 
   // Real AI call (server route)
@@ -291,6 +317,8 @@ export default function HomePage() {
 
       const answer = typeof json?.answer === "string" ? json.answer : "";
       const action = typeof json?.action === "string" ? json.action : "none";
+      const suggestedNext = typeof json?.suggested_next === "string" ? json.suggested_next : "none";
+      const framingSeed = coerceSeed(json?.framing_seed);
 
       let actionHref: string | null = null;
       if (action === "open_bills") actionHref = "/bills";
@@ -298,7 +326,14 @@ export default function HomePage() {
       if (action === "open_review") actionHref = "/revisit";
       if (action === "open_decisions") actionHref = "/decisions";
 
-      setAsk({ status: "done", question, answer, actionHref });
+      setAsk({
+        status: "done",
+        question,
+        answer,
+        actionHref,
+        suggestedNext: suggestedNext === "create_framing" ? "create_framing" : "none",
+        framingSeed: suggestedNext === "create_framing" ? framingSeed : null,
+      });
     } catch {
       setAsk({ status: "error", question, message: "I couldn’t answer that just now." });
     }
@@ -333,7 +368,7 @@ export default function HomePage() {
     if (intent === "ask" && billsWindow) {
       flashAffirmation("Held.");
       const fb = await localBillsAnswer(userId, billsWindow);
-      setAsk({ status: "done", question: msg, answer: fb.answer, actionHref: "/bills" });
+      setAsk({ status: "done", question: msg, answer: fb.answer, actionHref: "/bills", suggestedNext: "none", framingSeed: null });
       return;
     }
 
@@ -355,6 +390,30 @@ export default function HomePage() {
   const greeting = "A quiet place to unload or ask.";
 
   const notesVisible = orientation.loading || orientation.items.length > 0;
+
+  const canCreateFraming =
+    ask.status === "done" && ask.suggestedNext === "create_framing" && !!ask.framingSeed && authStatus === "signed_in" && !!userId;
+
+  const [creatingFraming, setCreatingFraming] = useState(false);
+
+  const onCreateFraming = async () => {
+    if (!canCreateFraming || !userId || !ask.framingSeed) return;
+    if (creatingFraming) return;
+
+    setCreatingFraming(true);
+    try {
+      const r = await createFramingFromSeed(userId, ask.framingSeed);
+      if (!r.ok) {
+        setAsk({ status: "error", question: ask.question, message: r.message });
+        return;
+      }
+
+      // Take them straight into Framing, focused on that new capture
+      router.push(`/framing?open=${encodeURIComponent(r.inboxId)}`);
+    } finally {
+      setCreatingFraming(false);
+    }
+  };
 
   return (
     <Page title="Home" subtitle={subtitle} right={<div className="flex items-center gap-2"></div>}>
@@ -455,7 +514,8 @@ export default function HomePage() {
 
                   {ask.status === "done" || ask.status === "error" ? (
                     <div className="text-xs text-zinc-500">
-                      <span className="text-zinc-400">You asked:</span> <span className="text-zinc-600">{ask.question}</span>
+                      <span className="text-zinc-400">You asked:</span>{" "}
+                      <span className="text-zinc-600">{ask.question}</span>
                     </div>
                   ) : null}
                 </div>
@@ -475,12 +535,20 @@ export default function HomePage() {
                         </Chip>
                       ) : null}
 
+                      {canCreateFraming ? (
+                        <Chip onClick={() => void onCreateFraming()} title="Create a Framing item">
+                          {creatingFraming ? "Creating…" : "Create Framing"}
+                        </Chip>
+                      ) : null}
+
                       <Chip onClick={() => setAsk({ status: "idle" })} title="Dismiss">
                         Done
                       </Chip>
                     </div>
 
-                    <div className="text-xs text-zinc-500 pt-1">You can reply here (e.g. “yes”, “show totals”, “only active”).</div>
+                    <div className="text-xs text-zinc-500 pt-1">
+                      You can reply here (e.g. “yes”, “show totals”, “only active”).
+                    </div>
                   </>
                 )}
               </div>
@@ -493,7 +561,11 @@ export default function HomePage() {
             <CardContent>
               <div className="flex items-center justify-between gap-3">
                 <div className="text-sm font-medium text-zinc-700">Notes from Keystone</div>
-                {orientation.loading ? <div className="text-xs text-zinc-500">Updating…</div> : <div className="h-4" aria-hidden="true" />}
+                {orientation.loading ? (
+                  <div className="text-xs text-zinc-500">Updating…</div>
+                ) : (
+                  <div className="h-4" aria-hidden="true" />
+                )}
               </div>
 
               <div className="mt-4">
