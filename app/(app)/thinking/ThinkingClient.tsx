@@ -108,8 +108,6 @@ function sortByName<T extends { name: string; sort_order?: number | null }>(item
 
 /**
  * Thinking context format (V1):
- * - Keep original capture separate from editable draft body.
- *
  * Stored in decisions.context as:
  *   Captured:
  *   <original capture text>
@@ -117,9 +115,6 @@ function sortByName<T extends { name: string; sort_order?: number | null }>(item
  *   ---
  *   Draft:
  *   <editable draft body>
- *
- * If no separator exists:
- * - Treat whole context as "Captured" and draft body empty.
  */
 function splitThinkingContext(context: string | null) {
   const raw = (context ?? "").trim();
@@ -137,12 +132,10 @@ function splitThinkingContext(context: string | null) {
   if (cut >= 0) {
     const capturedPart = raw.slice(0, cut).trim();
     const draftPart = raw.slice(cut + sepLen).trim();
-
     const captured = capturedPart.replace(/^Captured:\s*/i, "").trim();
     return { captured, draft: draftPart };
   }
 
-  // No separator: assume it's captured-only (legacy)
   const captured = raw.replace(/^Captured:\s*/i, "").trim();
   return { captured, draft: "" };
 }
@@ -152,14 +145,35 @@ function composeThinkingContext(captured: string, draft: string) {
   const dr = (draft ?? "").trim();
 
   if (!cap && !dr) return null;
-
-  // Always persist captured header if any capture exists.
   if (cap && !dr) return `Captured:\n${cap}`;
-
-  // If no captured, just store draft plainly (still stable).
   if (!cap && dr) return dr;
 
   return `Captured:\n${cap}\n\n---\nDraft:\n${dr}`;
+}
+
+function PrimaryActionButton(props: {
+  children: React.ReactNode;
+  onClick?: () => void;
+  title?: string;
+  disabled?: boolean;
+}) {
+  const { children, onClick, title, disabled } = props;
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={title}
+      disabled={disabled}
+      className={[
+        "inline-flex select-none items-center justify-center rounded-full border px-4 py-2 text-sm transition",
+        "border-[#1F5E5C] bg-[#1F5E5C] text-white",
+        "hover:bg-[#174947] hover:text-white",
+        "disabled:border-[#9FB8B6] disabled:bg-[#9FB8B6] disabled:text-white/90",
+      ].join(" ")}
+    >
+      {children}
+    </button>
+  );
 }
 
 export default function ThinkingClient() {
@@ -213,6 +227,9 @@ export default function ThinkingClient() {
   // ✅ Keep a stable “Original capture” snapshot (read-only) per decision
   const [originalCaptureById, setOriginalCaptureById] = useState<Record<string, { title: string; captured: string }>>({});
 
+  // ✅ Capture-style delete confirm (inline, stronger)
+  const [confirmDeleteForId, setConfirmDeleteForId] = useState<string | null>(null);
+
   const scheduleReload = () => {
     if (reloadTimerRef.current) window.clearTimeout(reloadTimerRef.current);
     reloadTimerRef.current = window.setTimeout(() => {
@@ -237,7 +254,6 @@ export default function ThinkingClient() {
     const uid = auth.user.id;
     setUserId(uid);
 
-    // 1) Load draft decisions
     const { data, error } = await supabase
       .from("decisions")
       .select("id,user_id,title,context,status,created_at,decided_at,review_at,origin,framed_at,attachments")
@@ -268,7 +284,6 @@ export default function ThinkingClient() {
 
     setDrafts(list);
 
-    // 2) Load domains + constellations (for tiles and assignment)
     const [domRes, conRes] = await Promise.all([
       supabase.from("domains").select("id,name,sort_order").eq("user_id", uid).order("sort_order", { ascending: true }),
       supabase.from("constellations").select("id,name,sort_order").eq("user_id", uid).order("sort_order", { ascending: true }),
@@ -298,7 +313,6 @@ export default function ThinkingClient() {
       setConstellations(sortByName(next));
     }
 
-    // 3) Load membership maps for current list
     const decisionIds = list.map((d) => d.id);
     if (decisionIds.length > 0) {
       const [ddRes, ciRes] = await Promise.all([
@@ -384,6 +398,7 @@ export default function ThinkingClient() {
   // Close inline editors when changing open card
   useEffect(() => {
     setLabelsEditForId((cur) => (cur && openId && cur === openId ? cur : null));
+    setConfirmDeleteForId((cur) => (cur && openId && cur === openId ? cur : null));
   }, [openId]);
 
   // Load summaries for the open draft (capped) — stays hidden unless any exist
@@ -442,6 +457,7 @@ export default function ThinkingClient() {
             if (openId === id) setOpenId(null);
             if (chatForId === id) setChatForId(null);
             if (labelsEditForId === id) setLabelsEditForId(null);
+            if (confirmDeleteForId === id) setConfirmDeleteForId(null);
             return current.filter((d) => d.id !== id);
           }
 
@@ -449,6 +465,7 @@ export default function ThinkingClient() {
             if (openId === id) setOpenId(null);
             if (chatForId === id) setChatForId(null);
             if (labelsEditForId === id) setLabelsEditForId(null);
+            if (confirmDeleteForId === id) setConfirmDeleteForId(null);
             return current.filter((d) => d.id !== id);
           }
 
@@ -488,7 +505,7 @@ export default function ThinkingClient() {
       supabase.removeChannel(channel);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userId, openId, chatForId, labelsEditForId]);
+  }, [userId, openId, chatForId, labelsEditForId, confirmDeleteForId]);
 
   const decideNow = async (d: Decision) => {
     if (!userId) return;
@@ -497,6 +514,7 @@ export default function ThinkingClient() {
     if (openId === d.id) setOpenId(null);
     if (chatForId === d.id) setChatForId(null);
     if (labelsEditForId === d.id) setLabelsEditForId(null);
+    if (confirmDeleteForId === d.id) setConfirmDeleteForId(null);
 
     const { error } = await supabase
       .from("decisions")
@@ -553,24 +571,36 @@ export default function ThinkingClient() {
     await scheduleRevisitAt(d, review_at);
   };
 
-  const deleteDraft = async (d: Decision) => {
+  const performDeleteDraft = async (d: Decision) => {
     if (!userId) return;
 
+    // Optimistic remove
     const prev = drafts;
     setDrafts((p) => p.filter((x) => x.id !== d.id));
     if (openId === d.id) setOpenId(null);
     if (chatForId === d.id) setChatForId(null);
     if (labelsEditForId === d.id) setLabelsEditForId(null);
+    if (confirmDeleteForId === d.id) setConfirmDeleteForId(null);
 
-    const { error } = await supabase.from("decisions").delete().eq("id", d.id).eq("user_id", userId).eq("status", "draft");
+    // ✅ Verify deletion actually happened (RLS can fail silently with 0 rows)
+    const { data, error } = await supabase
+      .from("decisions")
+      .delete()
+      .eq("id", d.id)
+      .eq("user_id", userId)
+      .eq("status", "draft")
+      .select("id");
 
-    if (error) {
-      showToast({ message: `Couldn’t delete: ${error.message}` }, 3500);
+    const deletedCount = Array.isArray(data) ? data.length : 0;
+
+    if (error || deletedCount === 0) {
+      showToast({ message: "Couldn’t delete right now." }, 3000);
       setDrafts(prev);
+      loadRef.current({ silent: true });
       return;
     }
 
-    showToast({ message: "Draft deleted." }, 4000);
+    showToast({ message: "Draft deleted." }, 3000);
   };
 
   const useSummaryAsContext = async (d: Decision, summary: DecisionSummary) => {
@@ -596,7 +626,6 @@ export default function ThinkingClient() {
     showToast({ message: "Added to context." }, 2500);
   };
 
-  // ✅ Area assignment (single)
   const setDecisionDomain = async (decisionId: string, domainId: string | null) => {
     if (!userId) return;
 
@@ -622,7 +651,6 @@ export default function ThinkingClient() {
     }
   };
 
-  // ✅ Group membership toggle (multi)
   const toggleConstellation = async (decisionId: string, constellationId: string) => {
     if (!userId) return;
 
@@ -660,7 +688,6 @@ export default function ThinkingClient() {
     }
   };
 
-  // ✅ Apply calm filters from tiles
   const filteredDrafts = useMemo(() => {
     let list = drafts;
 
@@ -675,19 +702,12 @@ export default function ThinkingClient() {
     return list;
   }, [drafts, activeDomainId, activeConstellationId, domainByDecision, constellationsByDecision]);
 
-  // ✅ V1: show top 5 by default (after filters)
   const visibleDrafts = useMemo(() => {
     if (showAll) return filteredDrafts;
     return filteredDrafts.slice(0, DEFAULT_LIMIT);
   }, [filteredDrafts, showAll]);
 
   const hasMore = filteredDrafts.length > DEFAULT_LIMIT;
-
-  // ✅ Primary actions should match navbar “Primary Button — Calm Authority”
-  // Background #1F5E5C, Hover #174947, Disabled #9FB8B6
-  const PrimaryChipClass =
-    "border-[#1F5E5C] bg-[#1F5E5C] text-white hover:bg-[#174947] hover:text-white";
-
   const hasAnyLabelOptions = domains.length > 0 || constellations.length > 0;
 
   const beginEditDraft = (d: Decision) => {
@@ -696,7 +716,6 @@ export default function ThinkingClient() {
     setDraftTitleById((prev) => ({ ...prev, [d.id]: d.title ?? "" }));
     setDraftBodyById((prev) => ({ ...prev, [d.id]: parts.draft ?? "" }));
 
-    // Snapshot original capture (stable, read-only)
     setOriginalCaptureById((prev) => {
       if (prev[d.id]) return prev;
       return { ...prev, [d.id]: { title: d.title ?? "", captured: parts.captured ?? "" } };
@@ -710,15 +729,14 @@ export default function ThinkingClient() {
   const saveDraftOverwrite = async (d: Decision) => {
     if (!userId) return;
 
-    const snapshot = originalCaptureById[d.id] ?? { title: d.title ?? "", captured: splitThinkingContext(d.context).captured ?? "" };
+    const snapshot =
+      originalCaptureById[d.id] ?? { title: d.title ?? "", captured: splitThinkingContext(d.context).captured ?? "" };
 
     const nextTitle = (draftTitleById[d.id] ?? "").trim() || d.title || "Untitled";
     const nextDraftBody = (draftBodyById[d.id] ?? "").trim();
 
-    // Persist as: captured stays, draft overwrites (single canonical body)
     const nextContext = composeThinkingContext(snapshot.captured, nextDraftBody);
 
-    // Optimistic UI
     setDrafts((prev) => prev.map((x) => (x.id === d.id ? { ...x, title: nextTitle, context: nextContext } : x)));
     setIsEditingDraftById((prev) => ({ ...prev, [d.id]: false }));
 
@@ -741,10 +759,8 @@ export default function ThinkingClient() {
   return (
     <Page title="Thinking" subtitle="Work on drafts here. When you’re ready to commit, save it into Decisions." right={null}>
       <div className="mx-auto w-full max-w-[760px] space-y-6">
-        {/* Flow controls (consistent, top-of-page) */}
         <div className="flex items-center justify-end gap-3">
           <div className="flex items-center gap-2">
-            {/* ✅ V1: Framing removed from UI. */}
             <Chip onClick={() => router.push("/capture")} title="Back: Capture">
               <span className="mr-1 opacity-70">‹</span> Back: Capture
             </Chip>
@@ -759,12 +775,7 @@ export default function ThinkingClient() {
 
         <div className="space-y-4">
           <TilesRow title="Filter by area" items={domains} activeId={activeDomainId} onSelect={(id) => setActiveDomainId(id)} />
-          <TilesRow
-            title="Filter by group"
-            items={constellations}
-            activeId={activeConstellationId}
-            onSelect={(id) => setActiveConstellationId(id)}
-          />
+          <TilesRow title="Filter by group" items={constellations} activeId={activeConstellationId} onSelect={(id) => setActiveConstellationId(id)} />
         </div>
 
         <div className="text-xs text-zinc-500">{statusLine}</div>
@@ -800,18 +811,17 @@ export default function ThinkingClient() {
               const filedUnder = [domainName, ...memberNames].filter(Boolean) as string[];
               const isEditingLabels = labelsEditForId === d.id;
 
-              // show the section only when it’s actually useful
               const showFiledUnderCard = (hasAnyLabelOptions && isEditingLabels) || (hasAnyLabelOptions && filedUnder.length > 0);
 
               const revisitMode = revisitModeById[d.id] ?? "";
               const customDate = customDateById[d.id] ?? "";
 
-              // ✅ Origin banner (V1): capture is primary; keep legacy framing label too.
               const originLabel = d.origin === "capture" ? "Sent from Capture." : d.origin === "framing" ? "Prepared in Framing." : "";
 
               const parts = splitThinkingContext(d.context);
               const originalSnapshot = originalCaptureById[d.id] ?? { title: d.title ?? "", captured: parts.captured ?? "" };
               const isEditingDraft = !!isEditingDraftById[d.id];
+              const isConfirmingDelete = confirmDeleteForId === d.id;
 
               return (
                 <div
@@ -831,9 +841,9 @@ export default function ThinkingClient() {
                           if (nextOpen !== d.id) {
                             setChatForId(null);
                             setLabelsEditForId(null);
+                            setConfirmDeleteForId(null);
                           }
 
-                          // Prime original snapshot (once) when opening
                           if (nextOpen === d.id) {
                             setOriginalCaptureById((prev) => {
                               if (prev[d.id]) return prev;
@@ -875,7 +885,6 @@ export default function ThinkingClient() {
                         <div className="mt-4 space-y-4">
                           {originLabel ? <div className="mt-1 text-xs text-zinc-500">{originLabel}</div> : null}
 
-                          {/* ✅ Original capture (read-only) */}
                           <div className="rounded-xl border border-zinc-200 bg-white p-4 space-y-2">
                             <div className="text-sm font-semibold text-zinc-900">Original capture</div>
                             <div className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-700">
@@ -883,7 +892,6 @@ export default function ThinkingClient() {
                             </div>
                           </div>
 
-                          {/* ✅ Draft (editable title + single editable body, overwrite on save) */}
                           <div className="rounded-xl border border-zinc-200 bg-white p-4 space-y-3">
                             <div className="flex items-center justify-between gap-2">
                               <div className="text-sm font-semibold text-zinc-900">Draft</div>
@@ -924,11 +932,7 @@ export default function ThinkingClient() {
 
                               {!isEditingDraft ? (
                                 <div className="whitespace-pre-wrap rounded-2xl border border-zinc-100 bg-zinc-50 px-4 py-3 text-[15px] leading-relaxed text-zinc-800">
-                                  {parts.draft?.trim() ? (
-                                    parts.draft
-                                  ) : (
-                                    <span className="text-zinc-500">This is what I’m deciding… (optional)</span>
-                                  )}
+                                  {parts.draft?.trim() ? parts.draft : <span className="text-zinc-500">This is what I’m deciding… (optional)</span>}
                                 </div>
                               ) : (
                                 <textarea
@@ -944,7 +948,6 @@ export default function ThinkingClient() {
 
                           <DecisionNotes decisionId={d.id} kind="thinking" />
 
-                          {/* ✅ Filed under: hidden until useful (or user explicitly opens it) */}
                           {showFiledUnderCard ? (
                             <div className="rounded-xl border border-zinc-200 bg-white p-3 space-y-2">
                               <div className="flex flex-wrap items-center justify-between gap-2">
@@ -964,11 +967,7 @@ export default function ThinkingClient() {
 
                               {!isEditingLabels ? (
                                 <div className="text-sm text-zinc-700">
-                                  {filedUnder.length > 0 ? (
-                                    <span>{filedUnder.join(", ")}</span>
-                                  ) : (
-                                    <span className="text-zinc-600">Not set.</span>
-                                  )}
+                                  {filedUnder.length > 0 ? <span>{filedUnder.join(", ")}</span> : <span className="text-zinc-600">Not set.</span>}
                                 </div>
                               ) : (
                                 <div className="space-y-3">
@@ -1016,7 +1015,6 @@ export default function ThinkingClient() {
                             </div>
                           ) : null}
 
-                          {/* Attachments stay available (user can add files here) */}
                           <div className="rounded-xl border border-zinc-200 bg-white p-3 space-y-2">
                             {userId ? (
                               <AttachmentsBlock userId={userId} decisionId={d.id} title="Attachments" bucket="captures" />
@@ -1025,7 +1023,6 @@ export default function ThinkingClient() {
                             )}
                           </div>
 
-                          {/* ✅ Saved summaries: hidden unless any exist */}
                           {summaries.length > 0 ? (
                             <div className="rounded-xl border border-zinc-200 bg-white p-3 space-y-2">
                               <div className="space-y-1">
@@ -1052,78 +1049,99 @@ export default function ThinkingClient() {
                               Talk it through if you’re unsure. Decide saves it into <span className="font-medium">Decisions</span>.
                             </div>
 
-                            <div className="flex flex-wrap items-center gap-2">
-                              <Chip
-                                className={PrimaryChipClass}
-                                onClick={() => setChatForId((cur) => (cur === d.id ? null : d.id))}
-                                title="Talk it through with Keystone"
-                              >
-                                {isChatOpen ? "Hide chat" : "Talk this through"}
-                              </Chip>
-
-                              <Chip className={PrimaryChipClass} onClick={() => decideNow(d)} title="Confirm and save into Decisions">
-                                Decide
-                              </Chip>
-
-                              <div className="flex flex-wrap items-center gap-2">
-                                <div className="text-xs text-zinc-500">Revisit</div>
-
-                                <select
-                                  className="h-9 rounded-full border border-zinc-200 bg-white px-3 text-sm text-zinc-700"
-                                  value={revisitMode}
-                                  onChange={(e) => {
-                                    const v = e.target.value as "7" | "30" | "90" | "custom" | "";
-                                    setRevisitModeById((prev) => ({ ...prev, [d.id]: v }));
-
-                                    if (v === "7") void scheduleRevisit(d, 7);
-                                    if (v === "30") void scheduleRevisit(d, 30);
-                                    if (v === "90") void scheduleRevisit(d, 90);
-                                  }}
-                                  aria-label="Revisit schedule"
-                                  title="Choose when to bring this back"
-                                >
-                                  <option value="">Choose…</option>
-                                  <option value="7">In 7 days</option>
-                                  <option value="30">In 30 days</option>
-                                  <option value="90">In 90 days</option>
-                                  <option value="custom">Pick a date…</option>
-                                </select>
-
-                                {revisitMode === "custom" ? (
-                                  <div className="flex flex-wrap items-center gap-2">
-                                    <input
-                                      type="date"
-                                      className="h-9 rounded-full border border-zinc-200 bg-white px-3 text-sm text-zinc-700"
-                                      value={customDate}
-                                      onChange={(e) => setCustomDateById((prev) => ({ ...prev, [d.id]: e.target.value }))}
-                                      aria-label="Custom revisit date"
-                                      title="Pick a date"
-                                    />
-                                    <Chip
-                                      onClick={() => {
-                                        const iso = isoFromDateInput(customDate);
-                                        if (!iso) {
-                                          showToast({ message: "Pick a valid date." }, 2000);
-                                          return;
-                                        }
-                                        void scheduleRevisitAt(d, iso);
-                                      }}
-                                      title="Set revisit date"
-                                    >
-                                      Set date
-                                    </Chip>
-                                  </div>
-                                ) : null}
+                            {/* ✅ Delete confirm (capture-style) */}
+                            {isConfirmingDelete ? (
+                              <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[#C94A4A] bg-[#FCECEC] px-4 py-3">
+                                <div className="text-sm text-[#7A1E1E]">
+                                  Delete this draft? <span className="opacity-80">This can’t be undone.</span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <Chip onClick={() => setConfirmDeleteForId(null)} title="Cancel">
+                                    Cancel
+                                  </Chip>
+                                  <button
+                                    type="button"
+                                    onClick={() => void performDeleteDraft(d)}
+                                    className="inline-flex select-none items-center justify-center rounded-full border border-[#C94A4A] bg-[#C94A4A] px-4 py-2 text-sm text-white transition hover:bg-[#b94141]"
+                                    title="Delete"
+                                  >
+                                    Delete
+                                  </button>
+                                </div>
                               </div>
+                            ) : (
+                              <div className="flex flex-wrap items-center gap-2">
+                                <PrimaryActionButton
+                                  onClick={() => setChatForId((cur) => (cur === d.id ? null : d.id))}
+                                  title="Talk it through with Keystone"
+                                >
+                                  {isChatOpen ? "Hide chat" : "Talk this through"}
+                                </PrimaryActionButton>
 
-                              <Chip onClick={() => router.push("/revisit")} title="Open Revisit to see scheduled items">
-                                Go to Revisit
-                              </Chip>
+                                <PrimaryActionButton onClick={() => decideNow(d)} title="Confirm and save into Decisions">
+                                  Decide
+                                </PrimaryActionButton>
 
-                              <Chip onClick={() => deleteDraft(d)} title="Delete this draft">
-                                Delete
-                              </Chip>
-                            </div>
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <div className="text-xs text-zinc-500">Revisit</div>
+
+                                  <select
+                                    className="h-9 rounded-full border border-zinc-200 bg-white px-3 text-sm text-zinc-700"
+                                    value={revisitMode}
+                                    onChange={(e) => {
+                                      const v = e.target.value as "7" | "30" | "90" | "custom" | "";
+                                      setRevisitModeById((prev) => ({ ...prev, [d.id]: v }));
+
+                                      if (v === "7") void scheduleRevisit(d, 7);
+                                      if (v === "30") void scheduleRevisit(d, 30);
+                                      if (v === "90") void scheduleRevisit(d, 90);
+                                    }}
+                                    aria-label="Revisit schedule"
+                                    title="Choose when to bring this back"
+                                  >
+                                    <option value="">Choose…</option>
+                                    <option value="7">In 7 days</option>
+                                    <option value="30">In 30 days</option>
+                                    <option value="90">In 90 days</option>
+                                    <option value="custom">Pick a date…</option>
+                                  </select>
+
+                                  {revisitMode === "custom" ? (
+                                    <div className="flex flex-wrap items-center gap-2">
+                                      <input
+                                        type="date"
+                                        className="h-9 rounded-full border border-zinc-200 bg-white px-3 text-sm text-zinc-700"
+                                        value={customDate}
+                                        onChange={(e) => setCustomDateById((prev) => ({ ...prev, [d.id]: e.target.value }))}
+                                        aria-label="Custom revisit date"
+                                        title="Pick a date"
+                                      />
+                                      <Chip
+                                        onClick={() => {
+                                          const iso = isoFromDateInput(customDate);
+                                          if (!iso) {
+                                            showToast({ message: "Pick a valid date." }, 2000);
+                                            return;
+                                          }
+                                          void scheduleRevisitAt(d, iso);
+                                        }}
+                                        title="Set revisit date"
+                                      >
+                                        Set date
+                                      </Chip>
+                                    </div>
+                                  ) : null}
+                                </div>
+
+                                <Chip onClick={() => router.push("/revisit")} title="Open Revisit to see scheduled items">
+                                  Go to Revisit
+                                </Chip>
+
+                                <Chip onClick={() => setConfirmDeleteForId(d.id)} title="Delete this draft">
+                                  Delete
+                                </Chip>
+                              </div>
+                            )}
                           </div>
 
                           {isChatOpen ? (
