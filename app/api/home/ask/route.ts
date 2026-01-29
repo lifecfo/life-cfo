@@ -48,7 +48,13 @@ function ageFromBirthYear(birth_year: number | null | undefined) {
 function isReviewIntent(q: string) {
   const s = (q || "").trim().toLowerCase();
   if (!s) return false;
-  return /\b(review|revisit|check[- ]?in|coming up for review|upcoming review)\b/.test(s);
+  return /\b(review|revisit|check[- ]?in|coming up for review|upcoming review|review list|check-in list)\b/.test(s);
+}
+
+function isChaptersIntent(q: string) {
+  const s = (q || "").trim().toLowerCase();
+  if (!s) return false;
+  return /\b(chapter|chapters|completed decision|completed decisions|closed decision|closed decisions)\b/.test(s);
 }
 
 function formatDateShort(iso: string) {
@@ -56,7 +62,7 @@ function formatDateShort(iso: string) {
   if (Number.isNaN(ms)) return iso;
   return new Date(ms).toLocaleDateString(undefined, {
     weekday: "short",
-    day: "2-digit",
+    day: "numeric",
     month: "short",
     year: "numeric",
   });
@@ -286,7 +292,7 @@ async function buildFactsPack(userId: string) {
   }
 
   // ✅ Step 10: CHAPTERS (matches Chapters page; fallback supports chaptered_at)
-  type ChapterRow = { id: string; title: string | null; chaptered_at: string | null; status: string | null };
+  type ChapterRow = { id: string; title: string | null; chaptered_at: string | null; status: string | null; created_at: string | null };
 
   let chapterItems: Array<{ id: string; title: string; chaptered_at: string | null }> = [];
   let chaptersErrFlag = false;
@@ -526,41 +532,73 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Missing userId/question" }, { status: 400 });
     }
 
-const facts = await buildFactsPack(userId);
+    const facts = await buildFactsPack(userId);
 
-// ✅ Deterministic REVIEW handling (skip AI)
-if (isReviewIntent(question)) {
-  const review = (facts as any)?.review;
-  const count = typeof review?.count === "number" ? review.count : 0;
-  const upcoming = Array.isArray(review?.upcoming) ? review.upcoming : [];
+    // ✅ Deterministic REVIEW handling (skip AI)
+    if (isReviewIntent(question)) {
+      const review = (facts as any)?.review;
+      const count = typeof review?.count === "number" ? review.count : 0;
+      const upcoming = Array.isArray(review?.upcoming) ? review.upcoming : [];
 
-  if (count <= 0 || upcoming.length === 0) {
-    return NextResponse.json({
-      answer: "There are no items scheduled for review (from what I can see).",
-      action: "open_review",
-      suggested_next: "none",
-      framing_seed: null,
-    });
-  }
+      if (count <= 0 || upcoming.length === 0) {
+        return NextResponse.json({
+          answer: "There are no items scheduled for review (from what I can see).",
+          action: "open_review",
+          suggested_next: "none",
+          framing_seed: null,
+        });
+      }
 
-  const lines = upcoming.slice(0, 3).map((it: any) => {
-    const title = typeof it?.title === "string" ? it.title.trim() : "Decision";
-    const at = typeof it?.review_at === "string" ? it.review_at : "";
-    const when = at ? formatDateShort(at) : "";
-    return `• ${title}${when ? ` — scheduled for ${when}` : ""}`;
-  });
+      const lines = upcoming.slice(0, 3).map((it: any) => {
+        const title = typeof it?.title === "string" ? it.title.trim() : "Decision";
+        const at = typeof it?.review_at === "string" ? it.review_at : "";
+        const when = at ? formatDateShort(at) : "";
+        return `• ${title}${when ? ` — scheduled for ${when}` : ""}`;
+      });
 
-  const answer = `There are ${count} items scheduled for review.\n\n${lines.join("\n")}`;
+      const answer = `There are ${count} items scheduled for review.\n\n${lines.join("\n")}`;
 
-  return NextResponse.json({
-    answer,
-    action: "open_review",
-    suggested_next: "none",
-    framing_seed: null,
-  });
-}
+      return NextResponse.json({
+        answer,
+        action: "open_review",
+        suggested_next: "none",
+        framing_seed: null,
+      });
+    }
 
-const resp = await openai.responses.create({
+    // ✅ Deterministic CHAPTERS handling (skip AI)
+    if (isChaptersIntent(question)) {
+      const chapters = (facts as any)?.chapters;
+      const count = typeof chapters?.count === "number" ? chapters.count : 0;
+      const recent = Array.isArray(chapters?.recent) ? chapters.recent : [];
+
+      if (count <= 0 || recent.length === 0) {
+        return NextResponse.json({
+          answer: "There are no chapters yet (from what I can see).",
+          action: "open_chapters",
+          suggested_next: "none",
+          framing_seed: null,
+        });
+      }
+
+      const lines = recent.slice(0, 3).map((it: any) => {
+        const title = typeof it?.title === "string" ? it.title.trim() : "Decision";
+        const at = typeof it?.chaptered_at === "string" ? it.chaptered_at : "";
+        const when = at ? formatDateShort(at) : "";
+        return `• ${title}${when ? ` — closed on ${when}` : ""}`;
+      });
+
+      const answer = `There are ${count} chapters.\n\n${lines.join("\n")}`;
+
+      return NextResponse.json({
+        answer,
+        action: "open_chapters",
+        suggested_next: "none",
+        framing_seed: null,
+      });
+    }
+
+    const resp = await openai.responses.create({
       model: "gpt-4o-mini",
       input: [
         { role: "system", content: SYSTEM },
