@@ -106,6 +106,33 @@ async function buildFactsPack(userId: string) {
     updated_at: string | null;
   }>;
 
+  // ---- Derived money summaries (read-only) ----
+const accountBalances = acct
+  .map((a) => {
+    const cents = typeof a.current_balance_cents === "number" ? a.current_balance_cents : null;
+    if (typeof cents !== "number" || !Number.isFinite(cents)) return null;
+    return {
+      id: a.id,
+      name: String(a.name ?? "Account"),
+      currency: String((a.currency ?? "AUD")).toUpperCase(),
+      cents,
+    };
+  })
+  .filter(Boolean) as Array<{ id: string; name: string; currency: string; cents: number }>;
+
+const balancesByCurrency = accountBalances.reduce<Record<string, number>>((acc, a) => {
+  acc[a.currency] = (acc[a.currency] ?? 0) + a.cents;
+  return acc;
+}, {});
+
+const activeBillsCentsByCurrency = rb.reduce<Record<string, number>>((acc, b) => {
+  const cents = typeof b.amount_cents === "number" ? b.amount_cents : null;
+  if (typeof cents !== "number") return acc;
+  const cur = String((b.currency ?? "AUD")).toUpperCase();
+  acc[cur] = (acc[cur] ?? 0) + cents;
+  return acc;
+}, {});
+
   return {
     now_iso: new Date().toISOString(),
     data_quality: {
@@ -134,6 +161,18 @@ async function buildFactsPack(userId: string) {
       autopay: !!b.autopay,
       cadence: b.cadence ?? null,
     })),
+
+        money_summary: {
+    balances_by_currency: Object.entries(balancesByCurrency).map(([currency, cents]) => ({
+    currency,
+    balance: moneyFromCents(cents, currency),
+  })),
+  recurring_bills_totals_by_currency: Object.entries(activeBillsCentsByCurrency).map(([currency, cents]) => ({
+    currency,
+    total: moneyFromCents(cents, currency),
+  })),
+  notes: "Summaries are derived from active accounts and recurring_bills only.",
+},
   };
 }
 
