@@ -37,6 +37,14 @@ function moneyFromCents(cents: number | null | undefined, currency: string | nul
   return new Intl.NumberFormat(undefined, { style: "currency", currency: cur }).format(n / 100);
 }
 
+function ageFromBirthYear(birth_year: number | null | undefined) {
+  if (typeof birth_year !== "number" || !Number.isFinite(birth_year)) return null;
+  const y = Math.floor(birth_year);
+  const nowY = new Date().getFullYear();
+  const age = nowY - y;
+  return age >= 0 && age <= 130 ? age : null;
+}
+
 type RecurringBillFact = {
   id: string;
   name: string | null;
@@ -65,6 +73,23 @@ type DecisionFact = {
   created_at: string | null;
   decided_at: string | null;
   review_at: string | null;
+};
+
+type FamilyMemberRow = {
+  id: string;
+  name: string | null;
+  birth_year: number | null;
+  relationship: string | null;
+  about: string | null;
+  created_at: string | null;
+};
+
+type PetRow = {
+  id: string;
+  name: string | null;
+  type: string | null;
+  notes: string | null;
+  created_at: string | null;
 };
 
 async function buildFactsPack(userId: string) {
@@ -119,27 +144,93 @@ async function buildFactsPack(userId: string) {
 
   const decisions_open = (decisions ?? []) as DecisionFact[];
 
-// ✅ Step 8: deterministic, capped preview titles (read-only enrichment; fail-soft)
-type OpenDecisionPreviewRow = { title: string | null; created_at: string | null };
+  // ✅ Step 8: deterministic, capped preview titles (read-only enrichment; fail-soft)
+  type OpenDecisionPreviewRow = { title: string | null; created_at: string | null };
 
-let openDecisionTitles: string[] = [];
-try {
-  const { data: openPreview, error: openPreviewErr } = await supabase
-    .from("decisions")
-    .select("title, created_at")
-    .eq("user_id", userId)
-    .is("decided_at", null)
-    .order("created_at", { ascending: true })
-    .limit(3);
+  let openDecisionTitles: string[] = [];
+  try {
+    const { data: openPreview, error: openPreviewErr } = await supabase
+      .from("decisions")
+      .select("title, created_at")
+      .eq("user_id", userId)
+      .is("decided_at", null)
+      .order("created_at", { ascending: true })
+      .limit(3);
 
-  if (!openPreviewErr && Array.isArray(openPreview)) {
-    openDecisionTitles = (openPreview as OpenDecisionPreviewRow[])
-      .map((r) => (typeof r?.title === "string" ? r.title.trim() : ""))
-      .filter(Boolean);
+    if (!openPreviewErr && Array.isArray(openPreview)) {
+      openDecisionTitles = (openPreview as OpenDecisionPreviewRow[])
+        .map((r) => (typeof r?.title === "string" ? r.title.trim() : ""))
+        .filter(Boolean);
+    }
+  } catch {
+    openDecisionTitles = [];
   }
-} catch {
-  openDecisionTitles = [];
-}
+
+  // ✅ Step 9: FAMILY (family_members) + PETS — read-only, fail-soft
+  let familyMembers: Array<{
+    id: string;
+    name: string;
+    relationship: string | null;
+    birth_year: number | null;
+    approx_age: number | null;
+    about: string | null;
+  }> = [];
+
+  let pets: Array<{
+    id: string;
+    name: string;
+    type: string | null;
+    notes: string | null;
+  }> = [];
+
+  let fmErrFlag = false;
+  let petsErrFlag = false;
+
+  try {
+    const { data, error } = await supabase
+      .from("family_members")
+      .select("id,name,birth_year,relationship,about,created_at")
+      .eq("user_id", userId)
+      .order("created_at", { ascending: true })
+      .limit(30);
+
+    fmErrFlag = !!error;
+    if (!error && Array.isArray(data)) {
+      familyMembers = (data as FamilyMemberRow[]).map((m) => ({
+        id: String(m.id),
+        name: String(m.name ?? "Family member").trim() || "Family member",
+        relationship: m.relationship ? String(m.relationship).trim() : null,
+        birth_year: typeof m.birth_year === "number" ? m.birth_year : m.birth_year == null ? null : Number(m.birth_year),
+        approx_age: ageFromBirthYear(typeof m.birth_year === "number" ? m.birth_year : m.birth_year == null ? null : Number(m.birth_year)),
+        about: m.about ? String(m.about) : null,
+      }));
+    }
+  } catch {
+    fmErrFlag = true;
+    familyMembers = [];
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from("pets")
+      .select("id,name,type,notes,created_at")
+      .eq("user_id", userId)
+      .order("created_at", { ascending: true })
+      .limit(20);
+
+    petsErrFlag = !!error;
+    if (!error && Array.isArray(data)) {
+      pets = (data as PetRow[]).map((p) => ({
+        id: String(p.id),
+        name: String(p.name ?? "Pet").trim() || "Pet",
+        type: p.type ? String(p.type).trim() : null,
+        notes: p.notes ? String(p.notes) : null,
+      }));
+    }
+  } catch {
+    petsErrFlag = true;
+    pets = [];
+  }
 
   // ---- Derived money summaries (read-only) ----
   const accountBalances = acct
@@ -187,7 +278,11 @@ try {
       decisions_ok: !decErr,
       decisions_open_count: decisions_open.length,
       decisions_open_preview_titles_count: openDecisionTitles.length,
-      note: "Bills come from recurring_bills. Accounts come from accounts. Decisions come from decisions.",
+      family_members_ok: !fmErrFlag,
+      family_members_count: familyMembers.length,
+      pets_ok: !petsErrFlag,
+      pets_count: pets.length,
+      note: "Bills come from recurring_bills. Accounts come from accounts. Decisions come from decisions. Family comes from family_members + pets.",
     },
     accounts_active: acct.map((a) => ({
       id: a.id,
@@ -218,11 +313,21 @@ try {
       review_at: d.review_at ?? null,
     })),
 
-    // ✅ Step 8 (new): count + titles (titles are capped, deterministic, read-only)
+    // ✅ Step 8 (kept): count + titles (titles are capped, deterministic, read-only)
     open_decisions_preview: {
       count: decisions_open.length,
       titles: openDecisionTitles,
       notes: "Preview titles are capped (max 3) and ordered by created_at ascending. Use only these titles when giving examples.",
+    },
+
+    // ✅ Step 9: Family + Pets
+    family: {
+      count_members: familyMembers.length,
+      members: familyMembers,
+      count_pets: pets.length,
+      pets,
+      notes:
+        "Family is read-only. Ages are approximate (derived from birth_year). Relationships are free-text if provided. Pets are included as part of the household.",
     },
 
     money_summary: {
@@ -262,6 +367,15 @@ OPEN DECISIONS:
   - Never infer "most important" or urgency.
   - If the user explicitly asks to list them, you may list up to 5 titles using facts.decisions_open (still: do not invent).
 - Set action="open_decisions" when user asks about open decisions.
+
+FAMILY:
+- Use facts.family only.
+- Answer factually: counts, names, relationships (if provided), and ages if available.
+- Ages are approximate (derived from birth_year). If birth_year is missing, say you can’t see an age for that person.
+- Do not infer roles beyond what is stated (relationship is free-text). Do not guess relationships.
+- Pets are part of the household. If asked, list pets with name + type if present.
+- Do not give parenting advice or commentary. If asked something subjective, say you can’t answer and STOP.
+- If a user asks to change/edit family members, explain you can’t do that here and suggest going to the Family page (but do not invent navigation if it doesn't exist).
 
 AFFORD / SHOULD-WE:
 - Never grant permission.
