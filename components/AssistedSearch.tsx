@@ -19,7 +19,7 @@ type Scope =
   | "transactions";
 
 type Suggestion = {
-  kind: "decision" | "inbox" | "bill" | "account" | "investment";
+  kind: "decision" | "inbox" | "bill" | "account" | "investment" | "capture";
   id: string;
   title: string;
   subtitle?: string;
@@ -50,6 +50,11 @@ function routeForDecision(_scope: Scope, decisionId: string) {
 function routeForInbox(_scope: Scope, _inboxId: string) {
   // V1: keep calm. No deep-link yet.
   return `/framing`;
+}
+
+function routeForCapture(_scope: Scope, inboxId: string) {
+  // Capture items live in decision_inbox. Best next step is Framing (focused).
+  return `/framing?open=${encodeURIComponent(inboxId)}`;
 }
 
 function routeForBill(_scope: Scope, _billId: string) {
@@ -94,6 +99,16 @@ type AccountRow = {
   current_balance_cents: number | null;
   currency: string | null;
   archived: boolean | null;
+};
+
+type CaptureRow = {
+  id: string;
+  title: string | null;
+  body: string | null;
+  created_at: string | null;
+  status: string | null;
+  framed_decision_id: string | null;
+  type: string | null;
 };
 
 function scopeDecisionFilter(scope: Scope) {
@@ -252,14 +267,88 @@ async function fetchAccountMatches(scope: Scope, q: string): Promise<Suggestion[
 }
 
 // -------------------- INVESTMENTS (SAFE STUB) --------------------
-// We only add the scope right now so the app compiles.
-// We’ll wire real DB search once we confirm your investments table schema.
 async function fetchTopInvestmentSuggestions(_scope: Scope): Promise<Suggestion[]> {
   return [];
 }
 
 async function fetchInvestmentMatches(_scope: Scope, _q: string): Promise<Suggestion[]> {
   return [];
+}
+
+// --------------------- CAPTURE ---------------------
+async function fetchTopCaptureSuggestions(scope: Scope): Promise<Suggestion[]> {
+  const uid = await getUserId();
+  if (!uid) return [];
+
+  const { data, error } = await supabase
+    .from("decision_inbox")
+    .select("id,title,body,created_at,status,framed_decision_id,type")
+    .eq("user_id", uid)
+    .eq("type", "capture")
+    .eq("status", "open")
+    .is("framed_decision_id", null)
+    .order("created_at", { ascending: false })
+    .limit(10);
+
+  if (error) return [];
+
+  return (data ?? []).map((r: any) => {
+    const title = safeStr(r?.title) || "Captured";
+    const created = r?.created_at ? softDate(r.created_at) : "";
+    const body = safeStr(r?.body);
+
+    // lightweight hint (works for JSON body too)
+    const hasAttachmentsHint = body.includes('"attachments"') || body.includes('"attachments":');
+
+    const subtitleParts = [created || null, hasAttachmentsHint ? "Attachments" : null].filter(Boolean);
+
+    return {
+      kind: "capture",
+      id: String(r?.id),
+      title,
+      subtitle: subtitleParts.join(" • "),
+      href: routeForCapture(scope, String(r?.id)),
+    };
+  });
+}
+
+async function fetchCaptureMatches(scope: Scope, q: string): Promise<Suggestion[]> {
+  const uid = await getUserId();
+  if (!uid) return [];
+
+  const query = q.trim();
+  if (!query) return fetchTopCaptureSuggestions(scope);
+
+  // NOTE: body may be plain text or JSON string. ilike still works as substring.
+  const { data, error } = await supabase
+    .from("decision_inbox")
+    .select("id,title,body,created_at,status,framed_decision_id,type")
+    .eq("user_id", uid)
+    .eq("type", "capture")
+    .eq("status", "open")
+    .is("framed_decision_id", null)
+    .or(`title.ilike.%${query}%,body.ilike.%${query}%`)
+    .order("created_at", { ascending: false })
+    .limit(12);
+
+  if (error) return [];
+
+  return (data ?? []).map((r: CaptureRow) => {
+    const title = safeStr(r.title) || "Captured";
+    const created = r.created_at ? softDate(r.created_at) : "";
+    const body = safeStr(r.body);
+    const hasAttachmentsHint = body.includes('"attachments"') || body.includes('"attachments":');
+
+    const subtitleParts = [created || null, hasAttachmentsHint ? "Attachments" : null].filter(Boolean);
+
+    return {
+      kind: "capture",
+      id: String(r.id),
+      title,
+      subtitle: subtitleParts.join(" • "),
+      href: routeForCapture(scope, String(r.id)),
+    };
+  });
 }
 
 // --------------------- DECISIONS ---------------------
@@ -361,16 +450,22 @@ async function fetchDecisionMatches(scope: Scope, q: string): Promise<Suggestion
 
 // ---------------------- ROUTER -----------------------
 async function fetchTopSuggestions(scope: Scope): Promise<Suggestion[]> {
+  if (scope === "capture") return fetchTopCaptureSuggestions(scope);
+
   if (scope === "bills") return fetchTopBillSuggestions(scope);
   if (scope === "accounts") return fetchTopAccountSuggestions(scope);
   if (scope === "investments") return fetchTopInvestmentSuggestions(scope);
+
   return fetchTopDecisionSuggestions(scope);
 }
 
 async function fetchMatches(scope: Scope, q: string): Promise<Suggestion[]> {
+  if (scope === "capture") return fetchCaptureMatches(scope, q);
+
   if (scope === "bills") return fetchBillMatches(scope, q);
   if (scope === "accounts") return fetchAccountMatches(scope, q);
   if (scope === "investments") return fetchInvestmentMatches(scope, q);
+
   return fetchDecisionMatches(scope, q);
 }
 
@@ -462,6 +557,8 @@ export function AssistedSearch({
                       ? "Account"
                       : it.kind === "investment"
                       ? "Investment"
+                      : it.kind === "capture"
+                      ? "Capture"
                       : "Inbox"}
                   </Chip>
                 </button>
