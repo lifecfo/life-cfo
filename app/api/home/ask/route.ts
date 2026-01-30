@@ -2,6 +2,7 @@
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
 import { createClient } from "@supabase/supabase-js";
+import { maybeCrisisIntercept } from "@/lib/safety/guard";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -157,7 +158,6 @@ async function buildFactsPack(userId: string) {
 
   const acct = (accounts ?? []) as AccountFact[];
 
-  // ✅ OPEN DECISIONS (decided_at is null) — keep existing list (used for deeper listing when asked)
   const { data: decisions, error: decErr } = await supabase
     .from("decisions")
     .select("id,title,status,created_at,decided_at,review_at,reviewed_at")
@@ -168,7 +168,6 @@ async function buildFactsPack(userId: string) {
 
   const decisions_open = (decisions ?? []) as DecisionFact[];
 
-  // ✅ deterministic, capped preview titles (read-only enrichment; fail-soft)
   type OpenDecisionPreviewRow = { title: string | null; created_at: string | null };
 
   let openDecisionTitles: string[] = [];
@@ -190,7 +189,6 @@ async function buildFactsPack(userId: string) {
     openDecisionTitles = [];
   }
 
-  // ✅ FAMILY (family_members) + PETS — read-only, fail-soft
   let familyMembers: Array<{
     id: string;
     name: string;
@@ -259,7 +257,6 @@ async function buildFactsPack(userId: string) {
     pets = [];
   }
 
-  // ✅ REVIEW (scheduled, not yet reviewed) — read-only, fail-soft
   type ReviewRow = { id: string; title: string | null; review_at: string | null; reviewed_at: string | null };
 
   let reviewItems: Array<{ id: string; title: string; review_at: string }> = [];
@@ -291,7 +288,6 @@ async function buildFactsPack(userId: string) {
     reviewItems = [];
   }
 
-  // ✅ CHAPTERS
   type ChapterRow = {
     id: string;
     title: string | null;
@@ -327,7 +323,6 @@ async function buildFactsPack(userId: string) {
     chapterItems = [];
   }
 
-  // ---- Derived money summaries (read-only) ----
   const accountBalances = acct
     .map((a) => {
       const cents =
@@ -523,6 +518,19 @@ export async function POST(req: Request) {
 
     if (!userId || !question) {
       return NextResponse.json({ error: "Missing userId/question" }, { status: 400 });
+    }
+
+    // 🔒 SAFETY INTERCEPT (V1 REQUIRED)
+    // Pre-answer gate. Hard stop. No facts pack. No AI. No routing.
+    const intercept = maybeCrisisIntercept(question);
+    if (intercept) {
+      return NextResponse.json({
+        answer: intercept.content,
+        action: "none",
+        suggested_next: "none",
+        capture_seed: null,
+        kind: intercept.kind,
+      });
     }
 
     const facts = await buildFactsPack(userId);
