@@ -68,6 +68,18 @@ function isChaptersIntent(q: string) {
   return /\b(chapter|chapters|completed decision|completed decisions|closed decision|closed decisions)\b/.test(s);
 }
 
+function isBufferIntent(q: string) {
+  const s = (q || "").trim().toLowerCase();
+  if (!s) return false;
+  return /\b(buffer|emergency fund|rainy day)\b/.test(s);
+}
+
+function pct(current: number, target: number) {
+  if (target <= 0) return 0;
+  const p = Math.round((current / target) * 100);
+  return Math.max(0, Math.min(999, p));
+}
+
 function isGoalsIntent(q: string) {
   const s = (q || "").trim().toLowerCase();
   if (!s) return false;
@@ -77,7 +89,7 @@ function isGoalsIntent(q: string) {
 function isAffordIntent(q: string) {
   const s = (q || "").trim().toLowerCase();
   if (!s) return false;
-  return /\b(can we afford|afford|should we|safe to spend|is it safe to spend|can i spend|can we spend|spend)\b/.test(s);
+  return /(can we afford|can i afford|should we|safe to spend|is it safe to spend|can i spend|can we spend)\b/.test(s);
 }
 
 function formatDateShort(iso: string) {
@@ -147,7 +159,10 @@ type MoneyGoalRow = {
   target_cents: number | null;
   current_cents: number | null;
   status: string | null;
-  deadline_at: string | null;
+
+  target_date: string | null;     // date
+  deadline_at: string | null;     // timestamp w/ tz
+
   notes: string | null;
   is_primary?: boolean | null;
   sort_order?: number | null;
@@ -396,7 +411,8 @@ async function buildFactsPack(userId: string) {
       status,
       target_cents: Number.isFinite(targetCents as any) ? (targetCents as any as number) : null,
       current_cents: Number.isFinite(currentCents as any) ? (currentCents as any as number) : null,
-      deadline_at: typeof g.deadline_at === "string" ? g.deadline_at : null,
+      target_date: typeof (g as any).target_date === "string" ? (g as any).target_date : null,
+      deadline_at: typeof (g as any).deadline_at === "string" ? (g as any).deadline_at : null,
       notes: typeof g.notes === "string" ? g.notes : null,
       is_primary: typeof (g as any).is_primary === "boolean" ? ((g as any).is_primary as boolean) : null,
       sort_order: typeof (g as any).sort_order === "number" ? ((g as any).sort_order as number) : null,
@@ -534,25 +550,51 @@ async function buildFactsPack(userId: string) {
       count_total: goalsClean.length,
       count_active: goalsActive.length,
       preview_titles: goalsPreviewTitles,
-      primary: goalsPrimary
-        ? {
-            id: goalsPrimary.id,
-            title: goalsPrimary.title,
-            status: goalsPrimary.status,
-            currency: goalsPrimary.currency,
-            target: moneyFromCents(goalsPrimary.target_cents ?? null, goalsPrimary.currency),
-            current: moneyFromCents(goalsPrimary.current_cents ?? null, goalsPrimary.currency),
-            deadline_at: goalsPrimary.deadline_at,
-          }
-        : null,
+primary: goalsPrimary
+  ? (() => {
+      const cur = typeof goalsPrimary.current_cents === "number" ? goalsPrimary.current_cents : 0;
+      const tgt = typeof goalsPrimary.target_cents === "number" ? goalsPrimary.target_cents : 0;
+      const remaining = tgt > 0 ? Math.max(0, tgt - cur) : null;
+      return {
+        id: goalsPrimary.id,
+        title: goalsPrimary.title,
+        status: goalsPrimary.status,
+        currency: goalsPrimary.currency,
+
+        // display strings
+        target: moneyFromCents(goalsPrimary.target_cents ?? null, goalsPrimary.currency),
+        current: moneyFromCents(goalsPrimary.current_cents ?? null, goalsPrimary.currency),
+        remaining: remaining == null ? null : moneyFromCents(remaining, goalsPrimary.currency),
+
+        // raw numbers (for deterministic %)
+        target_cents: tgt > 0 ? tgt : null,
+        current_cents: cur,
+        remaining_cents: remaining,
+        percent: tgt > 0 ? pct(cur, tgt) : null,
+
+        target_date: (goalsPrimary as any).target_date ?? null,
+      };
+    })()
+  : null,
       active: goalsActive.slice(0, 20).map((g) => ({
         id: g.id,
         title: g.title,
         status: g.status,
         currency: g.currency,
-        target: moneyFromCents(g.target_cents ?? null, g.currency),
-        current: moneyFromCents(g.current_cents ?? null, g.currency),
-        deadline_at: g.deadline_at,
+target: moneyFromCents(g.target_cents ?? null, g.currency),
+current: moneyFromCents(g.current_cents ?? null, g.currency),
+
+target_cents: typeof g.target_cents === "number" ? g.target_cents : null,
+current_cents: typeof g.current_cents === "number" ? g.current_cents : 0,
+remaining_cents:
+  typeof g.target_cents === "number"
+    ? Math.max(0, (g.target_cents ?? 0) - (typeof g.current_cents === "number" ? g.current_cents : 0))
+    : null,
+percent:
+  typeof g.target_cents === "number"
+    ? pct(typeof g.current_cents === "number" ? g.current_cents : 0, g.target_cents)
+    : null,
+      target_date: (g as any).target_date ?? null,
         is_primary: g.is_primary === true,
       })),
       notes: "Goals come from money_goals. Read-only in Home Ask.",
@@ -791,47 +833,106 @@ if (isAffordIntent(question)) {
       });
     }
 
-    // ✅ Deterministic GOALS handling (skip AI)
-    if (isGoalsIntent(question)) {
-      const goals = (facts as any)?.goals;
-      const countActive = typeof goals?.count_active === "number" ? goals.count_active : 0;
-      const previewTitles = Array.isArray(goals?.preview_titles) ? goals.preview_titles : [];
-      const primary = goals?.primary ?? null;
+// ✅ Deterministic GOALS handling (skip AI)
+if (isGoalsIntent(question) || isBufferIntent(question)) {
+  const goals = (facts as any)?.goals;
+  const countActive = typeof goals?.count_active === "number" ? goals.count_active : 0;
+  const previewTitles = Array.isArray(goals?.preview_titles) ? goals.preview_titles : [];
+  const primary = goals?.primary ?? null;
+  const active = Array.isArray(goals?.active) ? goals.active : [];
 
-      if (countActive <= 0) {
-        return NextResponse.json({
-          answer: "There are no active goals (from what I can see).",
-          action: "open_money",
-          suggested_next: "none",
-          capture_seed: null,
-        });
-      }
+  if (countActive <= 0) {
+    return NextResponse.json({
+      answer: "There are no active goals (from what I can see).",
+      action: "open_money",
+      suggested_next: "none",
+      capture_seed: null,
+    });
+  }
 
-      const parts: string[] = [];
-      parts.push(`There are ${countActive} active goals.`);
+  // If they asked about “buffer”, try to locate a buffer goal deterministically:
+  if (isBufferIntent(question)) {
+    const buffer = (() => {
+      // 1) prefer primary if it looks like buffer
+      if (primary?.title && typeof primary.title === "string" && /buffer|emergency|rainy/i.test(primary.title)) return primary;
 
-      if (primary && typeof primary?.title === "string" && primary.title.trim()) {
-        const cur = typeof primary?.current === "string" ? primary.current : null;
-        const tgt = typeof primary?.target === "string" ? primary.target : null;
-        const bit = cur && tgt ? ` (${cur} / ${tgt})` : cur ? ` (${cur})` : "";
-        parts.push(`Primary goal: ${primary.title.trim()}${bit}.`);
-      }
+      // 2) search active list for a title match
+      const hit = active.find((g: any) => typeof g?.title === "string" && /buffer|emergency|rainy/i.test(g.title));
+      if (hit) return hit;
 
-      if (previewTitles.length > 0) {
-        const titles = previewTitles
-          .map((t: any) => (typeof t === "string" ? t.trim() : ""))
-          .filter(Boolean)
-          .slice(0, 3);
-        if (titles.length > 0) parts.push(`Including: ${titles.join(", ")}.`);
-      }
+      // 3) fallback: if only one goal exists, treat it as “the buffer you mean” is unknown; don’t guess
+      return null;
+    })();
 
+    if (!buffer) {
       return NextResponse.json({
-        answer: parts.join(" "),
+        answer:
+          "I can see your goals, but I can’t see one explicitly named like “buffer” / “emergency fund”. If you tell me the goal’s name, I can report its progress exactly.",
         action: "open_money",
         suggested_next: "none",
         capture_seed: null,
       });
     }
+
+    const title = String(buffer.title || "Buffer").trim() || "Buffer";
+    const cur = typeof buffer.current === "string" ? buffer.current : null;
+    const tgt = typeof buffer.target === "string" ? buffer.target : null;
+    const rem = typeof buffer.remaining === "string" ? buffer.remaining : null;
+    const p = typeof buffer.percent === "number" ? buffer.percent : null;
+
+    // If there’s no target, we can’t compute “how close” — say that plainly.
+    if (!tgt) {
+      return NextResponse.json({
+        answer: `Your “${title}” goal is currently at ${cur ?? "—"} (from what I can see). I can’t calculate “how close” because I can’t see a target amount for it.`,
+        action: "open_money",
+        suggested_next: "none",
+        capture_seed: null,
+      });
+    }
+
+    const bits: string[] = [];
+    bits.push(`Your buffer goal (“${title}”) is at ${cur ?? "—"} / ${tgt}${p != null ? ` (${p}%)` : ""}.`);
+    if (rem) bits.push(`Remaining: ${rem}.`);
+
+    return NextResponse.json({
+      answer: bits.join(" "),
+      action: "open_money",
+      suggested_next: "none",
+      capture_seed: null,
+    });
+  }
+
+  // Normal goals summary (non-buffer)
+  const parts: string[] = [];
+  parts.push(`There are ${countActive} active goals.`);
+
+  if (primary && typeof primary?.title === "string" && primary.title.trim()) {
+    const cur = typeof primary?.current === "string" ? primary.current : null;
+    const tgt = typeof primary?.target === "string" ? primary.target : null;
+    const p = typeof primary?.percent === "number" ? primary.percent : null;
+    const rem = typeof primary?.remaining === "string" ? primary.remaining : null;
+
+    const progress =
+      cur && tgt ? ` (${cur} / ${tgt}${p != null ? `, ${p}%` : ""}${rem ? `, remaining ${rem}` : ""})` : cur ? ` (${cur})` : "";
+
+    parts.push(`Primary goal: ${primary.title.trim()}${progress}.`);
+  }
+
+  if (previewTitles.length > 0) {
+    const titles = previewTitles
+      .map((t: any) => (typeof t === "string" ? t.trim() : ""))
+      .filter(Boolean)
+      .slice(0, 3);
+    if (titles.length > 0) parts.push(`Including: ${titles.join(", ")}.`);
+  }
+
+  return NextResponse.json({
+    answer: parts.join(" "),
+    action: "open_money",
+    suggested_next: "none",
+    capture_seed: null,
+  });
+}
 
     const resp = await openai.responses.create({
       model: "gpt-4o-mini",
