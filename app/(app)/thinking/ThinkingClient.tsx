@@ -60,8 +60,6 @@ type Constellation = {
   sort_order?: number | null;
 };
 
-type SignedAttachment = AttachmentMeta & { url: string };
-
 function safeMs(iso: string | null | undefined) {
   if (!iso) return null;
   const ms = Date.parse(iso);
@@ -232,8 +230,8 @@ export default function ThinkingClient() {
   // ✅ Capture-style delete confirm (inline, stronger)
   const [confirmDeleteForId, setConfirmDeleteForId] = useState<string | null>(null);
 
-  // ✅ Imported attachments from Capture (read-only signed URLs)
-  const [importedByDecisionId, setImportedByDecisionId] = useState<Record<string, SignedAttachment[]>>({});
+  // ✅ Signed URLs for imported-from-capture attachments (decision_id -> path -> url)
+  const [importedUrlsByDecision, setImportedUrlsByDecision] = useState<Record<string, Record<string, string>>>({});
 
   const scheduleReload = () => {
     if (reloadTimerRef.current) window.clearTimeout(reloadTimerRef.current);
@@ -406,49 +404,45 @@ export default function ThinkingClient() {
     setConfirmDeleteForId((cur) => (cur && openId && cur === openId ? cur : null));
   }, [openId]);
 
-  // ✅ Imported attachments: create signed URLs for the open draft (read-only)
+  // ✅ Create signed URLs for imported-from-capture attachments when a card is opened
   useEffect(() => {
-    let mounted = true;
+    let cancelled = false;
 
     (async () => {
-      if (!userId || !openDraft) return;
+      if (!userId) return;
+      if (!openDraft) return;
 
-      const atts = normalizeAttachments(openDraft.attachments);
-      if (atts.length === 0) {
-        setImportedByDecisionId((prev) => {
-          if (!prev[openDraft.id]) return prev;
-          const next = { ...prev };
-          delete next[openDraft.id];
-          return next;
-        });
-        return;
+      const imported = normalizeAttachments(openDraft.attachments);
+      if (imported.length === 0) return;
+
+      const existingMap = importedUrlsByDecision[openDraft.id] ?? {};
+      const missing = imported.filter((a) => a.path && !existingMap[a.path]);
+      if (missing.length === 0) return;
+
+      const nextMap: Record<string, string> = { ...existingMap };
+
+      for (const a of missing) {
+        try {
+          const { data, error } = await supabase.storage.from("captures").createSignedUrl(a.path, 60 * 60);
+          if (cancelled) return;
+          if (!error && data?.signedUrl) {
+            nextMap[a.path] = data.signedUrl;
+          }
+        } catch {
+          // keep quiet
+        }
       }
 
-      // Avoid re-signing if we already have them (unless attachments length changed)
-      const existing = importedByDecisionId[openDraft.id];
-      if (existing && existing.length === atts.length) return;
+      if (cancelled) return;
 
-      const bucket = supabase.storage.from("captures");
-      const results = await Promise.all(
-        atts.map(async (a) => {
-          try {
-            const { data, error } = await bucket.createSignedUrl(a.path, 60 * 60); // 1 hour
-            if (error || !data?.signedUrl) return null;
-            return { ...a, url: data.signedUrl } as SignedAttachment;
-          } catch {
-            return null;
-          }
-        })
-      );
-
-      if (!mounted) return;
-
-      const signed = results.filter(Boolean) as SignedAttachment[];
-      setImportedByDecisionId((prev) => ({ ...prev, [openDraft.id]: signed }));
+      setImportedUrlsByDecision((prev) => ({
+        ...prev,
+        [openDraft.id]: nextMap,
+      }));
     })();
 
     return () => {
-      mounted = false;
+      cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId, openDraft?.id]);
@@ -585,7 +579,11 @@ export default function ThinkingClient() {
         message: "Saved to Decisions.",
         undoLabel: "Undo",
         onUndo: async () => {
-          const { error: undoErr } = await supabase.from("decisions").update({ status: "draft", decided_at: null }).eq("id", d.id).eq("user_id", userId);
+          const { error: undoErr } = await supabase
+            .from("decisions")
+            .update({ status: "draft", decided_at: null })
+            .eq("id", d.id)
+            .eq("user_id", userId);
 
           if (undoErr) {
             showToast({ message: `Undo failed: ${undoErr.message}` }, 3500);
@@ -630,51 +628,41 @@ export default function ThinkingClient() {
     if (labelsEditForId === d.id) setLabelsEditForId(null);
     if (confirmDeleteForId === d.id) setConfirmDeleteForId(null);
 
-    // ✅ Unlink any Capture item that created this draft (prevents FK blocks; reopens the capture)
-    try {
-      await supabase
-        .from("decision_inbox")
-        .update({ framed_decision_id: null, status: "open" })
-        .eq("user_id", userId)
-        .eq("framed_decision_id", d.id);
-    } catch {}
-
-    // ✅ Best-effort cleanup of dependent rows (prevents FK blocks)
+    // Best-effort: clear common dependent rows first (FKs can block deletes)
     try {
       await supabase.from("decision_domains").delete().eq("user_id", userId).eq("decision_id", d.id);
-    } catch {}
+    } catch {
+      // ignore
+    }
     try {
       await supabase.from("constellation_items").delete().eq("user_id", userId).eq("decision_id", d.id);
-    } catch {}
+    } catch {
+      // ignore
+    }
     try {
       await supabase.from("decision_summaries").delete().eq("user_id", userId).eq("decision_id", d.id);
-    } catch {}
+    } catch {
+      // ignore
+    }
+    // (DecisionNotes may also have its own table; we keep this best-effort and quiet)
+    try {
+      await supabase.from("decision_notes").delete().eq("user_id", userId).eq("decision_id", d.id);
+    } catch {
+      // ignore
+    }
 
     // ✅ Verify deletion actually happened (RLS can fail silently with 0 rows)
-    const { data, error } = await supabase
-      .from("decisions")
-      .delete()
-      .eq("id", d.id)
-      .eq("user_id", userId)
-      .eq("status", "draft")
-      .select("id");
+    const { data, error } = await supabase.from("decisions").delete().eq("id", d.id).eq("user_id", userId).select("id");
 
     const deletedCount = Array.isArray(data) ? data.length : 0;
 
     if (error || deletedCount === 0) {
-      showToast({ message: `Couldn’t delete right now${error?.message ? `: ${error.message}` : ""}` }, 3500);
+      const msg = error?.message ? `Couldn’t delete: ${error.message}` : "Couldn’t delete right now.";
+      showToast({ message: msg }, 3500);
       setDrafts(prev);
       loadRef.current({ silent: true });
       return;
     }
-
-    // Also clear any cached imported URLs for this decision
-    setImportedByDecisionId((prevMap) => {
-      if (!prevMap[d.id]) return prevMap;
-      const next = { ...prevMap };
-      delete next[d.id];
-      return next;
-    });
 
     showToast({ message: "Draft deleted." }, 3000);
   };
@@ -685,7 +673,9 @@ export default function ThinkingClient() {
     const existing = (d.context ?? "").trim();
     const chunk = summary.summary_text.trim();
 
-    const nextContext = existing ? `${existing}\n\n---\nSummary added (${softWhen(summary.created_at)}):\n${chunk}` : `Summary added (${softWhen(summary.created_at)}):\n${chunk}`;
+    const nextContext = existing
+      ? `${existing}\n\n---\nSummary added (${softWhen(summary.created_at)}):\n${chunk}`
+      : `Summary added (${softWhen(summary.created_at)}):\n${chunk}`;
 
     setDrafts((prev) => prev.map((x) => (x.id === d.id ? { ...x, context: nextContext } : x)));
 
@@ -736,7 +726,12 @@ export default function ThinkingClient() {
 
     try {
       if (has) {
-        const { error } = await supabase.from("constellation_items").delete().eq("user_id", userId).eq("decision_id", decisionId).eq("constellation_id", constellationId);
+        const { error } = await supabase
+          .from("constellation_items")
+          .delete()
+          .eq("user_id", userId)
+          .eq("decision_id", decisionId)
+          .eq("constellation_id", constellationId);
 
         if (error) throw error;
         showToast({ message: "Removed." }, 1800);
@@ -798,7 +793,8 @@ export default function ThinkingClient() {
   const saveDraftOverwrite = async (d: Decision) => {
     if (!userId) return;
 
-    const snapshot = originalCaptureById[d.id] ?? { title: d.title ?? "", captured: splitThinkingContext(d.context).captured ?? "" };
+    const snapshot =
+      originalCaptureById[d.id] ?? { title: d.title ?? "", captured: splitThinkingContext(d.context).captured ?? "" };
 
     const nextTitle = (draftTitleById[d.id] ?? "").trim() || d.title || "Untitled";
     const nextDraftBody = (draftBodyById[d.id] ?? "").trim();
@@ -808,7 +804,12 @@ export default function ThinkingClient() {
     setDrafts((prev) => prev.map((x) => (x.id === d.id ? { ...x, title: nextTitle, context: nextContext } : x)));
     setIsEditingDraftById((prev) => ({ ...prev, [d.id]: false }));
 
-    const { error } = await supabase.from("decisions").update({ title: nextTitle, context: nextContext }).eq("id", d.id).eq("user_id", userId).eq("status", "draft");
+    const { error } = await supabase
+      .from("decisions")
+      .update({ title: nextTitle, context: nextContext })
+      .eq("id", d.id)
+      .eq("user_id", userId)
+      .eq("status", "draft");
 
     if (error) {
       showToast({ message: `Couldn’t save: ${error.message}` }, 3500);
@@ -838,7 +839,12 @@ export default function ThinkingClient() {
 
         <div className="space-y-4">
           <TilesRow title="Filter by area" items={domains} activeId={activeDomainId} onSelect={(id) => setActiveDomainId(id)} />
-          <TilesRow title="Filter by group" items={constellations} activeId={activeConstellationId} onSelect={(id) => setActiveConstellationId(id)} />
+          <TilesRow
+            title="Filter by group"
+            items={constellations}
+            activeId={activeConstellationId}
+            onSelect={(id) => setActiveConstellationId(id)}
+          />
         </div>
 
         <div className="text-xs text-zinc-500">{statusLine}</div>
@@ -886,12 +892,11 @@ export default function ThinkingClient() {
               const isEditingDraft = !!isEditingDraftById[d.id];
               const isConfirmingDelete = confirmDeleteForId === d.id;
 
-              const imported = importedByDecisionId[d.id] ?? [];
+              const imported = normalizeAttachments(d.attachments);
+              const importedCount = imported.length;
+              const importedUrlMap = importedUrlsByDecision[d.id] ?? {};
 
-              // ✅ Use the capture inboxId folder (not decisionId) when listing files from the "captures" bucket
-              const inferredCaptureFolderId =
-                userId && (d.attachments?.[0]?.path || "").startsWith(`${userId}/`) ? String(d.attachments?.[0]?.path.split("/")[1] || "") : "";
-              const captureFolderId = inferredCaptureFolderId || d.id;
+              const attachmentsTitle = importedCount > 0 ? `Attachments (${importedCount})` : "Attachments";
 
               return (
                 <div
@@ -1085,31 +1090,43 @@ export default function ThinkingClient() {
                             </div>
                           ) : null}
 
-                          <div className="rounded-xl border border-zinc-200 bg-white p-3 space-y-2">
-                            {userId ? (
-                              <>
-                                {imported.length > 0 ? (
-                                  <div className="space-y-2">
-                                    <div className="text-xs font-semibold text-zinc-700">Imported from Capture</div>
-                                    <div className="space-y-1">
-                                      {imported.map((a) => (
+                          {/* ✅ Imported-from-Capture attachments (read-only) */}
+                          {importedCount > 0 ? (
+                            <div className="rounded-xl border border-zinc-200 bg-white p-3 space-y-2">
+                              <div className="text-xs font-semibold text-zinc-700">Imported from Capture</div>
+
+                              <div className="space-y-2">
+                                {imported.map((a) => {
+                                  const url = importedUrlMap[a.path];
+                                  return (
+                                    <div key={a.path} className="flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-white px-4 py-2">
+                                      <div className="min-w-0">
+                                        <div className="truncate text-sm text-zinc-900">{a.name}</div>
+                                      </div>
+
+                                      {url ? (
                                         <a
-                                          key={a.path}
-                                          href={a.url}
+                                          href={url}
                                           target="_blank"
                                           rel="noreferrer"
-                                          className="block rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800 hover:bg-zinc-50"
-                                          title={a.name}
+                                          className="rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs text-zinc-700 hover:border-zinc-300"
+                                          title="Open"
                                         >
-                                          {a.name}
+                                          Open
                                         </a>
-                                      ))}
+                                      ) : (
+                                        <div className="text-xs text-zinc-500">Loading…</div>
+                                      )}
                                     </div>
-                                  </div>
-                                ) : null}
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          ) : null}
 
-                                <AttachmentsBlock userId={userId} decisionId={captureFolderId} title="Attachments" bucket="captures" />
-                              </>
+                          <div className="rounded-xl border border-zinc-200 bg-white p-3 space-y-2">
+                            {userId ? (
+                              <AttachmentsBlock userId={userId} decisionId={d.id} title={attachmentsTitle} bucket="captures" />
                             ) : (
                               <div className="text-sm text-zinc-600">Attachments unavailable.</div>
                             )}
@@ -1163,7 +1180,10 @@ export default function ThinkingClient() {
                               </div>
                             ) : (
                               <div className="flex flex-wrap items-center gap-2">
-                                <PrimaryActionButton onClick={() => setChatForId((cur) => (cur === d.id ? null : d.id))} title="Talk it through with Keystone">
+                                <PrimaryActionButton
+                                  onClick={() => setChatForId((cur) => (cur === d.id ? null : d.id))}
+                                  title="Talk it through with Keystone"
+                                >
                                   {isChatOpen ? "Hide chat" : "Talk this through"}
                                 </PrimaryActionButton>
 
@@ -1235,7 +1255,12 @@ export default function ThinkingClient() {
 
                           {isChatOpen ? (
                             <div className="pt-2">
-                              <ConversationPanel decisionId={d.id} decisionTitle={d.title} frame={{ decision_statement: d.title }} onClose={() => setChatForId(null)} />
+                              <ConversationPanel
+                                decisionId={d.id}
+                                decisionTitle={d.title}
+                                frame={{ decision_statement: d.title }}
+                                onClose={() => setChatForId(null)}
+                              />
                             </div>
                           ) : null}
                         </div>
