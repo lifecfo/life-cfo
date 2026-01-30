@@ -1,6 +1,7 @@
 // app/api/ai/conversation/route.ts
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
+import { maybeCrisisIntercept } from "@/lib/safety/guard";
 
 export const dynamic = "force-dynamic";
 
@@ -61,6 +62,17 @@ function buildTranscript(messages: InMsg[]) {
     .join("\n\n");
 }
 
+function lastUserText(messages: InMsg[]) {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (m?.role === "user" && typeof m.content === "string") {
+      const t = m.content.trim();
+      if (t) return t;
+    }
+  }
+  return "";
+}
+
 export async function POST(req: Request) {
   try {
     const body = (await req.json()) as {
@@ -87,6 +99,22 @@ export async function POST(req: Request) {
 
     if (!decisionTitle) {
       return NextResponse.json({ error: "Missing decisionTitle." }, { status: 400 });
+    }
+
+    // 🔒 SAFETY INTERCEPT (V1 REQUIRED)
+    // - pre-answer gate
+    // - no model call
+    // - no memory writes (none in this route)
+    // - respond once and stop
+    const userText = lastUserText(safeMessages);
+    const intercept = maybeCrisisIntercept(userText);
+    if (intercept) {
+      // Maintain the same response shape your UI expects.
+      // We return assistantText for chat mode and summaryText for summarise mode.
+      if (mode === "summarise") {
+        return NextResponse.json({ summaryText: intercept.content, kind: intercept.kind });
+      }
+      return NextResponse.json({ assistantText: intercept.content, kind: intercept.kind });
     }
 
     const system = buildSystemPrompt({
