@@ -5,15 +5,11 @@ import { supabase } from "@/lib/supabaseClient";
 import { Chip } from "@/components/ui";
 import { softKB, type AttachmentMeta } from "@/lib/attachments";
 
-type Origin = "capture" | "upload";
-
 function safeFileName(name: string) {
   return name.replace(/[^\w.\-()+ ]/g, "_");
 }
 
-// We treat legacy items (no origin) as capture by default so existing data
-// continues to appear under “Imported from Capture”.
-function normalizeAttachments(raw: any): (AttachmentMeta & { origin?: Origin })[] {
+function normalizeAttachments(raw: any): AttachmentMeta[] {
   if (!raw || !Array.isArray(raw)) return [];
   return raw
     .filter((a) => a && typeof a.path === "string")
@@ -22,44 +18,34 @@ function normalizeAttachments(raw: any): (AttachmentMeta & { origin?: Origin })[
       path: String(a.path),
       type: typeof a.type === "string" ? a.type : "application/octet-stream",
       size: typeof a.size === "number" ? a.size : 0,
-      origin: (a.origin === "upload" || a.origin === "capture" ? a.origin : "capture") as Origin,
     }));
 }
 
 export function AttachmentsBlock(props: {
   userId: string | null;
   decisionId: string;
-
-  // Parent should pass ALL decision attachments (imported + uploaded) OR just uploaded;
-  // this component will preserve imported items in the DB either way if they are present.
+  // Optional: if the parent already has attachments, pass them to avoid a refetch
   initial?: AttachmentMeta[] | null;
-
-  title?: string;
-  bucket?: string;
-
-  // optional: for subtitle only
-  extraImportedCount?: number;
+  title?: string; // e.g. "Attachments"
+  bucket?: string; // default "captures" for fastest V1
 }) {
-  const { userId, decisionId, initial, title = "Attachments", bucket = "captures", extraImportedCount = 0 } = props;
+  const { userId, decisionId, initial, title = "Attachments", bucket = "captures" } = props;
 
   const [files, setFiles] = useState<File[]>([]);
   const [saving, setSaving] = useState(false);
 
-  // All attachments from DB (imported + uploaded), kept locally
-  const [all, setAll] = useState<(AttachmentMeta & { origin?: Origin })[]>(() => normalizeAttachments(initial));
+  // Local cached attachments from DB
+  const [attachments, setAttachments] = useState<AttachmentMeta[]>(() => normalizeAttachments(initial));
 
-  // ✅ Sync when parent initial changes (prevents stuck “No attachments”)
+  // Keep local attachments in sync when parent initial changes
   useEffect(() => {
-    setAll(normalizeAttachments(initial));
+    setAttachments(normalizeAttachments(initial));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [JSON.stringify(initial ?? null)]);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const hasChanges = files.length > 0;
-
-  const uploadedSaved = useMemo(() => all.filter((a) => (a as any).origin === "upload"), [all]);
-  const importedSaved = useMemo(() => all.filter((a) => (a as any).origin !== "upload"), [all]); // capture + legacy
 
   const addPickedFiles = (picked: FileList | null) => {
     if (!picked) return;
@@ -82,36 +68,22 @@ export function AttachmentsBlock(props: {
     setFiles((prev) => prev.filter((_, i) => i !== idx));
   };
 
-  const persistAll = async (nextAll: (AttachmentMeta & { origin?: Origin })[]) => {
-    if (!userId) return;
-
-    const { error } = await supabase
-      .from("decisions")
-      .update({ attachments: nextAll })
-      .eq("id", decisionId)
-      .eq("user_id", userId);
-
-    if (error) throw error;
-  };
-
   const removeSavedAttachment = async (idx: number) => {
     if (!userId) return;
     if (saving) return;
 
-    // idx is for uploadedSaved, not all
-    const target = uploadedSaved[idx];
-    if (!target) return;
+    const next = attachments.filter((_, i) => i !== idx);
+    setAttachments(next);
 
-    const nextAll = all.filter((a) => a.path !== target.path);
-    const prevAll = all;
+    // Persist immediately (keep it simple for V1)
+    const { error } = await supabase
+      .from("decisions")
+      .update({ attachments: next })
+      .eq("id", decisionId)
+      .eq("user_id", userId);
 
-    setAll(nextAll);
-
-    try {
-      await persistAll(nextAll);
-    } catch {
-      setAll(prevAll);
-    }
+    // If it fails, silently revert (no nagging)
+    if (error) setAttachments(attachments);
   };
 
   const saveUploads = async () => {
@@ -121,13 +93,14 @@ export function AttachmentsBlock(props: {
 
     setSaving(true);
 
+    // Clear picked files early (release moment)
     const filesSnapshot = [...files];
     setFiles([]);
 
     try {
       const storage = supabase.storage.from(bucket);
 
-      const uploaded: (AttachmentMeta & { origin?: Origin })[] = [];
+      const uploaded: AttachmentMeta[] = [];
       for (const f of filesSnapshot) {
         const safeName = safeFileName(f.name);
         const stamp = Date.now();
@@ -145,23 +118,23 @@ export function AttachmentsBlock(props: {
           path,
           type: f.type || "application/octet-stream",
           size: f.size,
-          origin: "upload",
         });
       }
 
       if (uploaded.length === 0) return;
 
-      // ✅ Preserve imported items, append uploads
-      const nextAll = [...importedSaved, ...uploadedSaved, ...uploaded];
+      const merged = [...attachments, ...uploaded];
 
-      const prevAll = all;
-      setAll(nextAll);
+      setAttachments(merged);
 
-      try {
-        await persistAll(nextAll);
-      } catch {
-        setAll(prevAll);
-      }
+      const { error: updErr } = await supabase
+        .from("decisions")
+        .update({ attachments: merged })
+        .eq("id", decisionId)
+        .eq("user_id", userId);
+
+      // silent failure: revert local merge
+      if (updErr) setAttachments(attachments);
     } finally {
       setSaving(false);
     }
@@ -170,15 +143,10 @@ export function AttachmentsBlock(props: {
   const subtitle = useMemo(() => {
     if (files.length > 0) return `${files.length} ready to upload`;
 
-    const savedCount = uploadedSaved.length;
-    const importedCount = Math.max(0, extraImportedCount);
-
-    if (savedCount === 0 && importedCount === 0) return "No attachments.";
-    if (savedCount === 0 && importedCount > 0) return `${importedCount} imported`;
-    if (savedCount > 0 && importedCount === 0) return `${savedCount} attached`;
-
-    return `${savedCount} attached • ${importedCount} imported`;
-  }, [uploadedSaved.length, files.length, extraImportedCount]);
+    const savedCount = attachments.length;
+    if (savedCount === 0) return "No attachments.";
+    return `${savedCount} attached`;
+  }, [attachments.length, files.length]);
 
   return (
     <div
@@ -250,9 +218,9 @@ export function AttachmentsBlock(props: {
         </div>
       ) : null}
 
-      {uploadedSaved.length > 0 ? (
+      {attachments.length > 0 ? (
         <div className="space-y-2">
-          {uploadedSaved.map((a, idx) => (
+          {attachments.map((a, idx) => (
             <div
               key={`${a.path}-${idx}`}
               className="flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-white px-4 py-2"
@@ -262,16 +230,14 @@ export function AttachmentsBlock(props: {
                 <div className="text-xs text-zinc-500">{softKB(a.size)}</div>
               </div>
 
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => void removeSavedAttachment(idx)}
-                  className="rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs text-zinc-700 hover:border-zinc-300"
-                  title="Remove"
-                >
-                  Remove
-                </button>
-              </div>
+              <button
+                type="button"
+                onClick={() => void removeSavedAttachment(idx)}
+                className="rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs text-zinc-700 hover:border-zinc-300"
+                title="Remove"
+              >
+                Remove
+              </button>
             </div>
           ))}
         </div>

@@ -225,17 +225,13 @@ export default function ThinkingClient() {
   const [draftBodyById, setDraftBodyById] = useState<Record<string, string>>({});
 
   // ✅ Keep a stable “Original capture” snapshot (read-only) per decision
-  const [originalCaptureById, setOriginalCaptureById] = useState<Record<string, { title: string; captured: string }>>({});
+  const [originalCaptureById, setOriginalCaptureById] = useState<Record<string, { title: string; captured: string }>>(
+    {}
+  );
 
   // ✅ Capture-style delete confirm (inline, stronger)
   const [confirmDeleteForId, setConfirmDeleteForId] = useState<string | null>(null);
 
-  // ✅ Signed URLs for imported-from-capture attachments (decision_id -> path -> url)
-  const [importedUrlsByDecision, setImportedUrlsByDecision] = useState<Record<string, Record<string, string>>>({});
-
-  // ✅ Saved uploads count coming from AttachmentsBlock (decision_id -> count)
-  const [savedUploadsCountByDecision, setSavedUploadsCountByDecision] = useState<Record<string, number>>({});
-  
   const scheduleReload = () => {
     if (reloadTimerRef.current) window.clearTimeout(reloadTimerRef.current);
     reloadTimerRef.current = window.setTimeout(() => {
@@ -292,7 +288,11 @@ export default function ThinkingClient() {
 
     const [domRes, conRes] = await Promise.all([
       supabase.from("domains").select("id,name,sort_order").eq("user_id", uid).order("sort_order", { ascending: true }),
-      supabase.from("constellations").select("id,name,sort_order").eq("user_id", uid).order("sort_order", { ascending: true }),
+      supabase
+        .from("constellations")
+        .select("id,name,sort_order")
+        .eq("user_id", uid)
+        .order("sort_order", { ascending: true }),
     ]);
 
     if (!domRes.error) {
@@ -323,7 +323,11 @@ export default function ThinkingClient() {
     if (decisionIds.length > 0) {
       const [ddRes, ciRes] = await Promise.all([
         supabase.from("decision_domains").select("decision_id,domain_id").eq("user_id", uid).in("decision_id", decisionIds),
-        supabase.from("constellation_items").select("decision_id,constellation_id").eq("user_id", uid).in("decision_id", decisionIds),
+        supabase
+          .from("constellation_items")
+          .select("decision_id,constellation_id")
+          .eq("user_id", uid)
+          .in("decision_id", decisionIds),
       ]);
 
       if (!ddRes.error) {
@@ -407,49 +411,6 @@ export default function ThinkingClient() {
     setConfirmDeleteForId((cur) => (cur && openId && cur === openId ? cur : null));
   }, [openId]);
 
-  // ✅ Create signed URLs for imported-from-capture attachments when a card is opened
-  useEffect(() => {
-    let cancelled = false;
-
-    (async () => {
-      if (!userId) return;
-      if (!openDraft) return;
-
-      const imported = normalizeAttachments(openDraft.attachments).filter((a: any) => (a?.origin ?? "capture") === "capture");
-      if (imported.length === 0) return;
-
-      const existingMap = importedUrlsByDecision[openDraft.id] ?? {};
-      const missing = imported.filter((a) => a.path && !existingMap[a.path]);
-      if (missing.length === 0) return;
-
-      const nextMap: Record<string, string> = { ...existingMap };
-
-      for (const a of missing) {
-        try {
-          const { data, error } = await supabase.storage.from("captures").createSignedUrl(a.path, 60 * 60);
-          if (cancelled) return;
-          if (!error && data?.signedUrl) {
-            nextMap[a.path] = data.signedUrl;
-          }
-        } catch {
-          // keep quiet
-        }
-      }
-
-      if (cancelled) return;
-
-      setImportedUrlsByDecision((prev) => ({
-        ...prev,
-        [openDraft.id]: nextMap,
-      }));
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userId, openDraft?.id]);
-
   // Load summaries for the open draft (capped) — stays hidden unless any exist
   useEffect(() => {
     let mounted = true;
@@ -487,67 +448,73 @@ export default function ThinkingClient() {
 
     const channel = supabase
       .channel(`thinking-drafts-${userId}`)
-      .on("postgres_changes", { event: "*", schema: "public", table: "decisions", filter: `user_id=eq.${userId}` }, (payload: any) => {
-        const eventType: string | undefined = payload?.eventType;
-        const next = payload?.new as any | undefined;
-        const prev = payload?.old as any | undefined;
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "decisions", filter: `user_id=eq.${userId}` },
+        (payload: any) => {
+          const eventType: string | undefined = payload?.eventType;
+          const next = payload?.new as any | undefined;
+          const prev = payload?.old as any | undefined;
 
-        const id = (next?.id ?? prev?.id) as string | undefined;
-        if (!eventType || !id) {
+          const id = (next?.id ?? prev?.id) as string | undefined;
+          if (!eventType || !id) {
+            scheduleReload();
+            return;
+          }
+
+          const rowStatus = String(next?.status ?? prev?.status ?? "");
+          const isDraft = rowStatus === "draft";
+
+          setDrafts((current) => {
+            if (eventType === "DELETE") {
+              if (openId === id) setOpenId(null);
+              if (chatForId === id) setChatForId(null);
+              if (labelsEditForId === id) setLabelsEditForId(null);
+              if (confirmDeleteForId === id) setConfirmDeleteForId(null);
+              return current.filter((d) => d.id !== id);
+            }
+
+            if (!isDraft) {
+              if (openId === id) setOpenId(null);
+              if (chatForId === id) setChatForId(null);
+              if (labelsEditForId === id) setLabelsEditForId(null);
+              if (confirmDeleteForId === id) setConfirmDeleteForId(null);
+              return current.filter((d) => d.id !== id);
+            }
+
+            const toDecision = (r: any): Decision => ({
+              id: r.id,
+              user_id: r.user_id,
+              title: r.title ?? "",
+              context: r.context ?? null,
+              status: r.status ?? "draft",
+              created_at: r.created_at ?? new Date().toISOString(),
+              decided_at: r.decided_at ?? null,
+              review_at: r.review_at ?? null,
+              origin: r.origin ?? null,
+              framed_at: r.framed_at ?? null,
+              attachments: normalizeAttachments(r.attachments),
+            });
+
+            const patch = toDecision(next ?? prev);
+
+            const exists = current.some((d) => d.id === patch.id);
+            const merged = exists
+              ? current.map((d) => (d.id === patch.id ? { ...d, ...patch } : d))
+              : [patch, ...current];
+
+            merged.sort((a, b) => {
+              const ta = safeMs(a.created_at) ?? 0;
+              const tb = safeMs(b.created_at) ?? 0;
+              return tb - ta;
+            });
+
+            return merged;
+          });
+
           scheduleReload();
-          return;
         }
-
-        const rowStatus = String(next?.status ?? prev?.status ?? "");
-        const isDraft = rowStatus === "draft";
-
-        setDrafts((current) => {
-          if (eventType === "DELETE") {
-            if (openId === id) setOpenId(null);
-            if (chatForId === id) setChatForId(null);
-            if (labelsEditForId === id) setLabelsEditForId(null);
-            if (confirmDeleteForId === id) setConfirmDeleteForId(null);
-            return current.filter((d) => d.id !== id);
-          }
-
-          if (!isDraft) {
-            if (openId === id) setOpenId(null);
-            if (chatForId === id) setChatForId(null);
-            if (labelsEditForId === id) setLabelsEditForId(null);
-            if (confirmDeleteForId === id) setConfirmDeleteForId(null);
-            return current.filter((d) => d.id !== id);
-          }
-
-          const toDecision = (r: any): Decision => ({
-            id: r.id,
-            user_id: r.user_id,
-            title: r.title ?? "",
-            context: r.context ?? null,
-            status: r.status ?? "draft",
-            created_at: r.created_at ?? new Date().toISOString(),
-            decided_at: r.decided_at ?? null,
-            review_at: r.review_at ?? null,
-            origin: r.origin ?? null,
-            framed_at: r.framed_at ?? null,
-            attachments: normalizeAttachments(r.attachments),
-          });
-
-          const patch = toDecision(next ?? prev);
-
-          const exists = current.some((d) => d.id === patch.id);
-          const merged = exists ? current.map((d) => (d.id === patch.id ? { ...d, ...patch } : d)) : [patch, ...current];
-
-          merged.sort((a, b) => {
-            const ta = safeMs(a.created_at) ?? 0;
-            const tb = safeMs(b.created_at) ?? 0;
-            return tb - ta;
-          });
-
-          return merged;
-        });
-
-        scheduleReload();
-      })
+      )
       .subscribe();
 
     return () => {
@@ -634,25 +601,16 @@ export default function ThinkingClient() {
     // Best-effort: clear common dependent rows first (FKs can block deletes)
     try {
       await supabase.from("decision_domains").delete().eq("user_id", userId).eq("decision_id", d.id);
-    } catch {
-      // ignore
-    }
+    } catch {}
     try {
       await supabase.from("constellation_items").delete().eq("user_id", userId).eq("decision_id", d.id);
-    } catch {
-      // ignore
-    }
+    } catch {}
     try {
       await supabase.from("decision_summaries").delete().eq("user_id", userId).eq("decision_id", d.id);
-    } catch {
-      // ignore
-    }
-    // (DecisionNotes may also have its own table; we keep this best-effort and quiet)
+    } catch {}
     try {
       await supabase.from("decision_notes").delete().eq("user_id", userId).eq("decision_id", d.id);
-    } catch {
-      // ignore
-    }
+    } catch {}
 
     // ✅ Verify deletion actually happened (RLS can fail silently with 0 rows)
     const { data, error } = await supabase.from("decisions").delete().eq("id", d.id).eq("user_id", userId).select("id");
@@ -855,7 +813,11 @@ export default function ThinkingClient() {
         {filteredDrafts.length > 0 && hasMore ? (
           <div className="flex items-center gap-2">
             <Chip onClick={() => setShowAll((v) => !v)}>{showAll ? "Show less" : "Show all"}</Chip>
-            {!showAll ? <div className="text-xs text-zinc-500">Showing {DEFAULT_LIMIT} of {filteredDrafts.length}</div> : null}
+            {!showAll ? (
+              <div className="text-xs text-zinc-500">
+                Showing {DEFAULT_LIMIT} of {filteredDrafts.length}
+              </div>
+            ) : null}
           </div>
         ) : null}
 
@@ -888,24 +850,17 @@ export default function ThinkingClient() {
               const revisitMode = revisitModeById[d.id] ?? "";
               const customDate = customDateById[d.id] ?? "";
 
-              const originLabel = d.origin === "capture" ? "Sent from Capture." : d.origin === "framing" ? "Prepared in Framing." : "";
+              const originLabel =
+                d.origin === "capture" ? "Sent from Capture." : d.origin === "framing" ? "Prepared in Framing." : "";
 
               const parts = splitThinkingContext(d.context);
               const originalSnapshot = originalCaptureById[d.id] ?? { title: d.title ?? "", captured: parts.captured ?? "" };
               const isEditingDraft = !!isEditingDraftById[d.id];
               const isConfirmingDelete = confirmDeleteForId === d.id;
 
-              const allAtt = normalizeAttachments(d.attachments) as any[];
-              const imported = allAtt.filter((a) => (a?.origin ?? "capture") === "capture");
-              const uploadedAtt = allAtt.filter((a) => (a?.origin ?? "capture") === "upload");
+              const allAtt = normalizeAttachments(d.attachments) as AttachmentMeta[];
+              const attachmentsTitle = allAtt.length > 0 ? `Attachments (${allAtt.length})` : "Attachments";
 
-              const importedCount = imported.length;
-              const uploadedCount = uploadedAtt.length;
-              const importedUrlMap = importedUrlsByDecision[d.id] ?? {};
-
-              const totalCount = importedCount + uploadedCount;
-              const attachmentsTitle = totalCount > 0 ? `Attachments (${totalCount})` : "Attachments";
-              
               return (
                 <div
                   key={d.id}
@@ -1015,7 +970,9 @@ export default function ThinkingClient() {
 
                               {!isEditingDraft ? (
                                 <div className="whitespace-pre-wrap rounded-2xl border border-zinc-100 bg-zinc-50 px-4 py-3 text-[15px] leading-relaxed text-zinc-800">
-                                  {parts.draft?.trim() ? parts.draft : <span className="text-zinc-500">This is what I’m deciding… (optional)</span>}
+                                  {parts.draft?.trim() ? parts.draft : (
+                                    <span className="text-zinc-500">This is what I’m deciding… (optional)</span>
+                                  )}
                                 </div>
                               ) : (
                                 <textarea
@@ -1098,40 +1055,6 @@ export default function ThinkingClient() {
                             </div>
                           ) : null}
 
-                          {/* ✅ Imported-from-Capture attachments (read-only) */}
-                          {importedCount > 0 ? (
-                            <div className="rounded-xl border border-zinc-200 bg-white p-3 space-y-2">
-                              <div className="text-xs font-semibold text-zinc-700">Imported from Capture</div>
-
-                              <div className="space-y-2">
-                                {imported.map((a) => {
-                                  const url = importedUrlMap[a.path];
-                                  return (
-                                    <div key={a.path} className="flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-white px-4 py-2">
-                                      <div className="min-w-0">
-                                        <div className="truncate text-sm text-zinc-900">{a.name}</div>
-                                      </div>
-
-                                      {url ? (
-                                        <a
-                                          href={url}
-                                          target="_blank"
-                                          rel="noreferrer"
-                                          className="rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs text-zinc-700 hover:border-zinc-300"
-                                          title="Open"
-                                        >
-                                          Open
-                                        </a>
-                                      ) : (
-                                        <div className="text-xs text-zinc-500">Loading…</div>
-                                      )}
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            </div>
-                          ) : null}
-
                           <div className="rounded-xl border border-zinc-200 bg-white p-3 space-y-2">
                             {userId ? (
                               <AttachmentsBlock
@@ -1139,9 +1062,8 @@ export default function ThinkingClient() {
                                 decisionId={d.id}
                                 title={attachmentsTitle}
                                 bucket="captures"
-                                extraImportedCount={importedCount}
+                                initial={allAtt}
                               />
-
                             ) : (
                               <div className="text-sm text-zinc-600">Attachments unavailable.</div>
                             )}
