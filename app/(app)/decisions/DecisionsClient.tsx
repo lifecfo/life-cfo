@@ -591,6 +591,10 @@ export default function DecisionsClient() {
               const revisitMode = revisitModeById[d.id] ?? "";
               const customDate = customDateById[d.id] ?? "";
 
+              // ✅ Attachments count/title
+              const attCount = Array.isArray(d.attachments) ? d.attachments.length : 0;
+              const attachmentsTitle = attCount > 0 ? `Attachments (${attCount})` : "Attachments";
+
               return (
                 <Card key={d.id} className="border-zinc-200 bg-white">
                   <CardContent>
@@ -705,8 +709,14 @@ export default function DecisionsClient() {
                           </div>
                         ) : null}
 
-                        {/* Attachments always available */}
-                        <AttachmentsBlock userId={userId} decisionId={d.id} title="Attachments" bucket="captures" />
+                        {/* ✅ Attachments (use saved list from decisions.attachments) */}
+                        <AttachmentsBlock
+                          userId={userId}
+                          decisionId={d.id}
+                          title={attachmentsTitle}
+                          bucket="captures"
+                          initial={d.attachments}
+                        />
 
                         {/* Revisit (presets + custom date) */}
                         <div className="space-y-2">
