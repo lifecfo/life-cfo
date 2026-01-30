@@ -17,19 +17,15 @@ import { createClient } from "@supabase/supabase-js";
  * ❗️READ-ONLY
  */
 
-export type AskIntent =
-  | "state"
-  | "find"
-  | "compare"
-  | "afford"
-  | "attention"
-  | "unknown";
+export type AskIntent = "state" | "find" | "compare" | "afford" | "attention" | "unknown";
 
 export type AskAction =
   | "open_bills"
   | "open_money"
+  | "open_goals"
   | "open_decisions"
   | "open_review"
+  | "open_chapters"
   | "create_capture"
   | "none";
 
@@ -62,23 +58,133 @@ export function classifyIntent(question: string): AskIntent {
   return "unknown";
 }
 
+function isGoalsQuery(question: string) {
+  const q = (question || "").toLowerCase();
+  return /\b(goal|goals|money goal|money goals|savings goal|savings goals|target|targets|milestone|milestones)\b/.test(q);
+}
+
+function moneyFmt(cents: number, currency: string) {
+  try {
+    return new Intl.NumberFormat(undefined, {
+      style: "currency",
+      currency: (currency || "AUD").toUpperCase(),
+    }).format(cents / 100);
+  } catch {
+    return `${(currency || "AUD").toUpperCase()} ${(cents / 100).toFixed(2)}`;
+  }
+}
+
+function fmtDateShort(iso: string) {
+  const ms = Date.parse(iso);
+  if (Number.isNaN(ms)) return iso;
+  return new Date(ms).toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short", year: "numeric" });
+}
+
 /**
  * ---------- Resolver ----------
  */
-export async function resolveHomeAsk(args: {
-  userId: string;
-  question: string;
-}): Promise<AskResult> {
+export async function resolveHomeAsk(args: { userId: string; question: string }): Promise<AskResult> {
   const { userId, question } = args;
   const intent = classifyIntent(question);
 
-  const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY! // server-only
-  );
+  const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!); // server-only
 
   const now = new Date();
   const nowIso = now.toISOString();
+
+  /**
+   * ============================
+   * B) GOALS (read-only snapshot)
+   * ============================
+   * Deterministic: count + titles.
+   */
+  if (isGoalsQuery(question)) {
+    // Active = not archived (and not done/paused depending on your usage).
+    // We’ll treat archived as out of view, everything else as “active-ish”.
+    const { data: goals, error } = await supabase
+      .from("money_goals")
+      .select("id,title,status,currency,target_cents,current_cents,deadline_at,is_primary,updated_at,created_at")
+      .eq("user_id", userId)
+      .limit(200);
+
+    if (error || !goals) {
+      return {
+        answer: "I can’t see your goals right now (from what I can see).",
+        action: "open_goals",
+      };
+    }
+
+    const normalize = (s: any) => {
+      const t = String(s ?? "active").trim().toLowerCase();
+      if (t === "archived") return "archived";
+      if (t === "done") return "done";
+      if (t === "paused") return "paused";
+      return "active";
+    };
+
+    const rows = goals.map((g: any) => ({
+      id: String(g.id),
+      title: String(g.title ?? "Goal").trim() || "Goal",
+      status: normalize(g.status),
+      currency: String(g.currency ?? "AUD").toUpperCase(),
+      target_cents: typeof g.target_cents === "number" ? g.target_cents : g.target_cents == null ? null : Number(g.target_cents),
+      current_cents:
+        typeof g.current_cents === "number" ? g.current_cents : g.current_cents == null ? null : Number(g.current_cents),
+      deadline_at: typeof g.deadline_at === "string" ? g.deadline_at : null,
+      is_primary: typeof g.is_primary === "boolean" ? g.is_primary : false,
+      updated_at: typeof g.updated_at === "string" ? g.updated_at : null,
+      created_at: typeof g.created_at === "string" ? g.created_at : null,
+    }));
+
+    const visible = rows.filter((g) => g.status !== "archived");
+    const count = visible.length;
+
+    if (count === 0) {
+      return {
+        answer: "There are no active goals (from what I can see).",
+        action: "open_goals",
+      };
+    }
+
+    const primary = visible.find((g) => g.is_primary) ?? null;
+
+    const preview = [...visible]
+      .sort((a, b) => {
+        const ap = a.is_primary ? 1 : 0;
+        const bp = b.is_primary ? 1 : 0;
+        if (ap !== bp) return bp - ap;
+        const au = Date.parse(a.updated_at || a.created_at || "") || 0;
+        const bu = Date.parse(b.updated_at || b.created_at || "") || 0;
+        return bu - au;
+      })
+      .slice(0, 3);
+
+    const parts: string[] = [];
+    parts.push(`There are ${count} active goals.`);
+
+    if (primary) {
+      const cur = typeof primary.current_cents === "number" && Number.isFinite(primary.current_cents) ? primary.current_cents : null;
+      const tgt = typeof primary.target_cents === "number" && Number.isFinite(primary.target_cents) ? primary.target_cents : null;
+
+      const bit =
+        cur != null && tgt != null
+          ? ` (${moneyFmt(cur, primary.currency)} / ${moneyFmt(tgt, primary.currency)})`
+          : cur != null
+            ? ` (${moneyFmt(cur, primary.currency)})`
+            : "";
+
+      parts.push(`Primary goal: ${primary.title}${bit}.`);
+    }
+
+    if (preview.length > 0) {
+      parts.push(`Including: ${preview.map((g) => g.title).join(", ")}.`);
+    }
+
+    return {
+      answer: parts.join(" "),
+      action: "open_goals",
+    };
+  }
 
   /**
    * ============================
@@ -106,17 +212,9 @@ export async function resolveHomeAsk(args: {
       };
     }
 
-    const lines = bills.map((b) => {
-      const amt =
-        typeof b.amount_cents === "number"
-          ? new Intl.NumberFormat(undefined, {
-              style: "currency",
-              currency: (b.currency || "AUD").toUpperCase(),
-            }).format(b.amount_cents / 100)
-          : "—";
-
+    const lines = bills.map((b: any) => {
+      const amt = typeof b.amount_cents === "number" ? moneyFmt(b.amount_cents, (b.currency || "AUD").toUpperCase()) : "—";
       const due = b.next_due_at ? new Date(b.next_due_at).toLocaleDateString() : "—";
-
       const name = String(b.name ?? "Bill").trim() || "Bill";
       return `• ${name} — ${due} — ${amt}${b.autopay ? " (autopay)" : ""}`;
     });
@@ -149,16 +247,16 @@ export async function resolveHomeAsk(args: {
       .gte("next_due_at", nowIso)
       .limit(6);
 
-    // Note: conservative — if currencies are mixed, we still present a single AUD total
-    // (matches current V1 assumptions in this resolver). This is framing-only.
+    // Conservative: we keep your current V1 assumption (single AUD framing total),
+    // because this resolver is framing-only and should not “calculate” mixed currency.
     const cashTotal =
-      accounts?.reduce((sum, a) => {
+      accounts?.reduce((sum, a: any) => {
         const n = typeof a.current_balance_cents === "number" ? a.current_balance_cents : 0;
         return sum + n;
       }, 0) ?? 0;
 
     const billTotal =
-      upcomingBills?.reduce((sum, b) => {
+      upcomingBills?.reduce((sum, b: any) => {
         const n = typeof b.amount_cents === "number" ? b.amount_cents : 0;
         return sum + n;
       }, 0) ?? 0;
@@ -167,14 +265,8 @@ export async function resolveHomeAsk(args: {
       answer: [
         `Here’s what I can see right now:`,
         ``,
-        `• Available cash across accounts: ${new Intl.NumberFormat(undefined, {
-          style: "currency",
-          currency: "AUD",
-        }).format(cashTotal / 100)}`,
-        `• Upcoming committed bills: ${new Intl.NumberFormat(undefined, {
-          style: "currency",
-          currency: "AUD",
-        }).format(billTotal / 100)}`,
+        `• Available cash across accounts: ${moneyFmt(cashTotal, "AUD")}`,
+        `• Upcoming committed bills: ${moneyFmt(billTotal, "AUD")}`,
         ``,
         `I can’t say “yes” or “no” from here — but we can frame it so it’s safe and clear.`,
       ].join("\n"),
