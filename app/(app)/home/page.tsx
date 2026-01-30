@@ -326,6 +326,7 @@ export default function HomePage() {
       let actionHref: string | null = null;
       if (action === "open_bills") actionHref = "/bills";
       if (action === "open_money") actionHref = "/money";
+      if (action === "open_goals") actionHref = "/money/goals";
       if (action === "open_review") actionHref = "/revisit";
       if (action === "open_decisions") actionHref = "/decisions";
       if (action === "open_chapters") actionHref = "/chapters";
@@ -542,6 +543,7 @@ export default function HomePage() {
                           <ExampleButton text="What bills are due this month?" />
                           <ExampleButton text="What bills do we have in the next 30 days?" />
                           <ExampleButton text="Can we afford this right now?" />
+                          <ExampleButton text="What goals do we have?" />
                         </div>
                       </div>
 
