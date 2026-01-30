@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { Chip } from "@/components/ui";
 import { softKB, type AttachmentMeta } from "@/lib/attachments";
@@ -39,6 +39,14 @@ export function AttachmentsBlock(props: {
 
   // Local cached attachments from DB
   const [attachments, setAttachments] = useState<AttachmentMeta[]>(() => normalizeAttachments(initial));
+
+  // ✅ NEW: keep local attachments in sync when parent initial changes
+  // (prevents "No attachments" getting stuck when initial arrives after mount)
+  useEffect(() => {
+    // Don’t clobber while user is staging files; just update the saved list.
+    setAttachments(normalizeAttachments(initial));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [JSON.stringify(initial ?? null)]);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
