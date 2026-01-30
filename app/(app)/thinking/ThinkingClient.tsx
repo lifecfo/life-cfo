@@ -60,6 +60,8 @@ type Constellation = {
   sort_order?: number | null;
 };
 
+type SignedAttachment = AttachmentMeta & { url: string };
+
 function safeMs(iso: string | null | undefined) {
   if (!iso) return null;
   const ms = Date.parse(iso);
@@ -225,10 +227,15 @@ export default function ThinkingClient() {
   const [draftBodyById, setDraftBodyById] = useState<Record<string, string>>({});
 
   // ✅ Keep a stable “Original capture” snapshot (read-only) per decision
-  const [originalCaptureById, setOriginalCaptureById] = useState<Record<string, { title: string; captured: string }>>({});
+  const [originalCaptureById, setOriginalCaptureById] = useState<Record<string, { title: string; captured: string }>>(
+    {}
+  );
 
   // ✅ Capture-style delete confirm (inline, stronger)
   const [confirmDeleteForId, setConfirmDeleteForId] = useState<string | null>(null);
+
+  // ✅ Imported attachments from Capture (read-only signed URLs)
+  const [importedByDecisionId, setImportedByDecisionId] = useState<Record<string, SignedAttachment[]>>({});
 
   const scheduleReload = () => {
     if (reloadTimerRef.current) window.clearTimeout(reloadTimerRef.current);
@@ -286,7 +293,11 @@ export default function ThinkingClient() {
 
     const [domRes, conRes] = await Promise.all([
       supabase.from("domains").select("id,name,sort_order").eq("user_id", uid).order("sort_order", { ascending: true }),
-      supabase.from("constellations").select("id,name,sort_order").eq("user_id", uid).order("sort_order", { ascending: true }),
+      supabase
+        .from("constellations")
+        .select("id,name,sort_order")
+        .eq("user_id", uid)
+        .order("sort_order", { ascending: true }),
     ]);
 
     if (!domRes.error) {
@@ -317,7 +328,11 @@ export default function ThinkingClient() {
     if (decisionIds.length > 0) {
       const [ddRes, ciRes] = await Promise.all([
         supabase.from("decision_domains").select("decision_id,domain_id").eq("user_id", uid).in("decision_id", decisionIds),
-        supabase.from("constellation_items").select("decision_id,constellation_id").eq("user_id", uid).in("decision_id", decisionIds),
+        supabase
+          .from("constellation_items")
+          .select("decision_id,constellation_id")
+          .eq("user_id", uid)
+          .in("decision_id", decisionIds),
       ]);
 
       if (!ddRes.error) {
@@ -400,6 +415,53 @@ export default function ThinkingClient() {
     setLabelsEditForId((cur) => (cur && openId && cur === openId ? cur : null));
     setConfirmDeleteForId((cur) => (cur && openId && cur === openId ? cur : null));
   }, [openId]);
+
+  // ✅ Imported attachments: create signed URLs for the open draft (read-only)
+  useEffect(() => {
+    let mounted = true;
+
+    (async () => {
+      if (!userId || !openDraft) return;
+
+      const atts = normalizeAttachments(openDraft.attachments);
+      if (atts.length === 0) {
+        setImportedByDecisionId((prev) => {
+          if (!prev[openDraft.id]) return prev;
+          const next = { ...prev };
+          delete next[openDraft.id];
+          return next;
+        });
+        return;
+      }
+
+      // Avoid re-signing if we already have them (unless attachments length changed)
+      const existing = importedByDecisionId[openDraft.id];
+      if (existing && existing.length === atts.length) return;
+
+      const bucket = supabase.storage.from("captures");
+      const results = await Promise.all(
+        atts.map(async (a) => {
+          try {
+            const { data, error } = await bucket.createSignedUrl(a.path, 60 * 60); // 1 hour
+            if (error || !data?.signedUrl) return null;
+            return { ...a, url: data.signedUrl } as SignedAttachment;
+          } catch {
+            return null;
+          }
+        })
+      );
+
+      if (!mounted) return;
+
+      const signed = results.filter(Boolean) as SignedAttachment[];
+      setImportedByDecisionId((prev) => ({ ...prev, [openDraft.id]: signed }));
+    })();
+
+    return () => {
+      mounted = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId, openDraft?.id]);
 
   // Load summaries for the open draft (capped) — stays hidden unless any exist
   useEffect(() => {
@@ -582,6 +644,17 @@ export default function ThinkingClient() {
     if (labelsEditForId === d.id) setLabelsEditForId(null);
     if (confirmDeleteForId === d.id) setConfirmDeleteForId(null);
 
+    // ✅ Best-effort cleanup of dependent rows (prevents FK blocks)
+    try {
+      await supabase.from("decision_domains").delete().eq("user_id", userId).eq("decision_id", d.id);
+    } catch {}
+    try {
+      await supabase.from("constellation_items").delete().eq("user_id", userId).eq("decision_id", d.id);
+    } catch {}
+    try {
+      await supabase.from("decision_summaries").delete().eq("user_id", userId).eq("decision_id", d.id);
+    } catch {}
+
     // ✅ Verify deletion actually happened (RLS can fail silently with 0 rows)
     const { data, error } = await supabase
       .from("decisions")
@@ -594,11 +667,19 @@ export default function ThinkingClient() {
     const deletedCount = Array.isArray(data) ? data.length : 0;
 
     if (error || deletedCount === 0) {
-      showToast({ message: "Couldn’t delete right now." }, 3000);
+      showToast({ message: `Couldn’t delete right now.` }, 3000);
       setDrafts(prev);
       loadRef.current({ silent: true });
       return;
     }
+
+    // Also clear any cached imported URLs for this decision
+    setImportedByDecisionId((prevMap) => {
+      if (!prevMap[d.id]) return prevMap;
+      const next = { ...prevMap };
+      delete next[d.id];
+      return next;
+    });
 
     showToast({ message: "Draft deleted." }, 3000);
   };
@@ -775,7 +856,12 @@ export default function ThinkingClient() {
 
         <div className="space-y-4">
           <TilesRow title="Filter by area" items={domains} activeId={activeDomainId} onSelect={(id) => setActiveDomainId(id)} />
-          <TilesRow title="Filter by group" items={constellations} activeId={activeConstellationId} onSelect={(id) => setActiveConstellationId(id)} />
+          <TilesRow
+            title="Filter by group"
+            items={constellations}
+            activeId={activeConstellationId}
+            onSelect={(id) => setActiveConstellationId(id)}
+          />
         </div>
 
         <div className="text-xs text-zinc-500">{statusLine}</div>
@@ -783,7 +869,11 @@ export default function ThinkingClient() {
         {filteredDrafts.length > 0 && hasMore ? (
           <div className="flex items-center gap-2">
             <Chip onClick={() => setShowAll((v) => !v)}>{showAll ? "Show less" : "Show all"}</Chip>
-            {!showAll ? <div className="text-xs text-zinc-500">Showing {DEFAULT_LIMIT} of {filteredDrafts.length}</div> : null}
+            {!showAll ? (
+              <div className="text-xs text-zinc-500">
+                Showing {DEFAULT_LIMIT} of {filteredDrafts.length}
+              </div>
+            ) : null}
           </div>
         ) : null}
 
@@ -822,6 +912,8 @@ export default function ThinkingClient() {
               const originalSnapshot = originalCaptureById[d.id] ?? { title: d.title ?? "", captured: parts.captured ?? "" };
               const isEditingDraft = !!isEditingDraftById[d.id];
               const isConfirmingDelete = confirmDeleteForId === d.id;
+
+              const imported = importedByDecisionId[d.id] ?? [];
 
               return (
                 <div
@@ -932,7 +1024,9 @@ export default function ThinkingClient() {
 
                               {!isEditingDraft ? (
                                 <div className="whitespace-pre-wrap rounded-2xl border border-zinc-100 bg-zinc-50 px-4 py-3 text-[15px] leading-relaxed text-zinc-800">
-                                  {parts.draft?.trim() ? parts.draft : <span className="text-zinc-500">This is what I’m deciding… (optional)</span>}
+                                  {parts.draft?.trim() ? parts.draft : (
+                                    <span className="text-zinc-500">This is what I’m deciding… (optional)</span>
+                                  )}
                                 </div>
                               ) : (
                                 <textarea
@@ -1017,7 +1111,29 @@ export default function ThinkingClient() {
 
                           <div className="rounded-xl border border-zinc-200 bg-white p-3 space-y-2">
                             {userId ? (
-                              <AttachmentsBlock userId={userId} decisionId={d.id} title="Attachments" bucket="captures" />
+                              <>
+                                {imported.length > 0 ? (
+                                  <div className="space-y-2">
+                                    <div className="text-xs font-semibold text-zinc-700">Imported from Capture</div>
+                                    <div className="space-y-1">
+                                      {imported.map((a) => (
+                                        <a
+                                          key={a.path}
+                                          href={a.url}
+                                          target="_blank"
+                                          rel="noreferrer"
+                                          className="block rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800 hover:bg-zinc-50"
+                                          title={a.name}
+                                        >
+                                          {a.name}
+                                        </a>
+                                      ))}
+                                    </div>
+                                  </div>
+                                ) : null}
+
+                                <AttachmentsBlock userId={userId} decisionId={d.id} title="Attachments" bucket="captures" />
+                              </>
                             ) : (
                               <div className="text-sm text-zinc-600">Attachments unavailable.</div>
                             )}
