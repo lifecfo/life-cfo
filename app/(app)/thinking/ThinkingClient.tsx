@@ -415,7 +415,7 @@ export default function ThinkingClient() {
       if (!userId) return;
       if (!openDraft) return;
 
-      const imported = normalizeAttachments(openDraft.attachments);
+      const imported = normalizeAttachments(openDraft.attachments).filter((a: any) => (a?.origin ?? "capture") === "capture");
       if (imported.length === 0) return;
 
       const existingMap = importedUrlsByDecision[openDraft.id] ?? {};
@@ -895,14 +895,17 @@ export default function ThinkingClient() {
               const isEditingDraft = !!isEditingDraftById[d.id];
               const isConfirmingDelete = confirmDeleteForId === d.id;
 
-              const imported = normalizeAttachments(d.attachments);
+              const allAtt = normalizeAttachments(d.attachments) as any[];
+              const imported = allAtt.filter((a) => (a?.origin ?? "capture") === "capture");
+              const uploadedAtt = allAtt.filter((a) => (a?.origin ?? "capture") === "upload");
+
               const importedCount = imported.length;
+              const uploadedCount = uploadedAtt.length;
               const importedUrlMap = importedUrlsByDecision[d.id] ?? {};
 
-              const savedUploadsCount = savedUploadsCountByDecision[d.id] ?? 0;
-              const totalAttachmentsCount = importedCount + savedUploadsCount;
-              const attachmentsTitle = totalAttachmentsCount > 0 ? `Attachments (${totalAttachmentsCount})` : "Attachments";
-
+              const totalCount = importedCount + uploadedCount;
+              const attachmentsTitle = totalCount > 0 ? `Attachments (${totalCount})` : "Attachments";
+              
               return (
                 <div
                   key={d.id}
@@ -1137,9 +1140,6 @@ export default function ThinkingClient() {
                                 title={attachmentsTitle}
                                 bucket="captures"
                                 extraImportedCount={importedCount}
-                                onSavedCountChange={(count) =>
-                                 setSavedUploadsCountByDecision((prev) => (prev[d.id] === count ? prev : { ...prev, [d.id]: count }))
-                                }
                               />
 
                             ) : (

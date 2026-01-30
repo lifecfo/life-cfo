@@ -5,11 +5,15 @@ import { supabase } from "@/lib/supabaseClient";
 import { Chip } from "@/components/ui";
 import { softKB, type AttachmentMeta } from "@/lib/attachments";
 
+type Origin = "capture" | "upload";
+
 function safeFileName(name: string) {
   return name.replace(/[^\w.\-()+ ]/g, "_");
 }
 
-function normalizeAttachments(raw: any): AttachmentMeta[] {
+// We treat legacy items (no origin) as capture by default so existing data
+// continues to appear under “Imported from Capture”.
+function normalizeAttachments(raw: any): (AttachmentMeta & { origin?: Origin })[] {
   if (!raw || !Array.isArray(raw)) return [];
   return raw
     .filter((a) => a && typeof a.path === "string")
@@ -18,55 +22,44 @@ function normalizeAttachments(raw: any): AttachmentMeta[] {
       path: String(a.path),
       type: typeof a.type === "string" ? a.type : "application/octet-stream",
       size: typeof a.size === "number" ? a.size : 0,
+      origin: (a.origin === "upload" || a.origin === "capture" ? a.origin : "capture") as Origin,
     }));
 }
 
 export function AttachmentsBlock(props: {
   userId: string | null;
   decisionId: string;
-  // Optional: if the parent already has attachments, pass them to avoid a refetch
+
+  // Parent should pass ALL decision attachments (imported + uploaded) OR just uploaded;
+  // this component will preserve imported items in the DB either way if they are present.
   initial?: AttachmentMeta[] | null;
-  title?: string; // e.g. "Attachments"
-  bucket?: string; // default "captures" for fastest V1
 
-  // ✅ NEW: allows parent to show imported-from-capture count in the subtitle
+  title?: string;
+  bucket?: string;
+
+  // optional: for subtitle only
   extraImportedCount?: number;
-
-  // ✅ NEW: allow parent to update "Attachments (N)" including saved uploads
-  onSavedCountChange?: (count: number) => void;
 }) {
-  const {
-    userId,
-    decisionId,
-    initial,
-    title = "Attachments",
-    bucket = "captures",
-    extraImportedCount = 0,
-    onSavedCountChange,
-  } = props;
+  const { userId, decisionId, initial, title = "Attachments", bucket = "captures", extraImportedCount = 0 } = props;
 
   const [files, setFiles] = useState<File[]>([]);
   const [saving, setSaving] = useState(false);
 
-  // Local cached attachments from DB
-  const [attachments, setAttachments] = useState<AttachmentMeta[]>(() => normalizeAttachments(initial));
+  // All attachments from DB (imported + uploaded), kept locally
+  const [all, setAll] = useState<(AttachmentMeta & { origin?: Origin })[]>(() => normalizeAttachments(initial));
 
-  // ✅ NEW: keep local attachments in sync when parent initial changes
-  // (prevents "No attachments" getting stuck when initial arrives after mount)
+  // ✅ Sync when parent initial changes (prevents stuck “No attachments”)
   useEffect(() => {
-    // Don’t clobber while user is staging files; just update the saved list.
-    setAttachments(normalizeAttachments(initial));
+    setAll(normalizeAttachments(initial));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [JSON.stringify(initial ?? null)]);
-
-  // ✅ NEW: notify parent when saved count changes (for title count)
-  useEffect(() => {
-    onSavedCountChange?.(attachments.length);
-  }, [attachments.length, onSavedCountChange]);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const hasChanges = files.length > 0;
+
+  const uploadedSaved = useMemo(() => all.filter((a) => (a as any).origin === "upload"), [all]);
+  const importedSaved = useMemo(() => all.filter((a) => (a as any).origin !== "upload"), [all]); // capture + legacy
 
   const addPickedFiles = (picked: FileList | null) => {
     if (!picked) return;
@@ -89,22 +82,36 @@ export function AttachmentsBlock(props: {
     setFiles((prev) => prev.filter((_, i) => i !== idx));
   };
 
+  const persistAll = async (nextAll: (AttachmentMeta & { origin?: Origin })[]) => {
+    if (!userId) return;
+
+    const { error } = await supabase
+      .from("decisions")
+      .update({ attachments: nextAll })
+      .eq("id", decisionId)
+      .eq("user_id", userId);
+
+    if (error) throw error;
+  };
+
   const removeSavedAttachment = async (idx: number) => {
     if (!userId) return;
     if (saving) return;
 
-    const next = attachments.filter((_, i) => i !== idx);
-    setAttachments(next);
+    // idx is for uploadedSaved, not all
+    const target = uploadedSaved[idx];
+    if (!target) return;
 
-    // Persist immediately (keep it simple for V1)
-    const { error } = await supabase
-      .from("decisions")
-      .update({ attachments: next })
-      .eq("id", decisionId)
-      .eq("user_id", userId);
+    const nextAll = all.filter((a) => a.path !== target.path);
+    const prevAll = all;
 
-    // If it fails, silently revert (no nagging)
-    if (error) setAttachments(attachments);
+    setAll(nextAll);
+
+    try {
+      await persistAll(nextAll);
+    } catch {
+      setAll(prevAll);
+    }
   };
 
   const saveUploads = async () => {
@@ -114,14 +121,13 @@ export function AttachmentsBlock(props: {
 
     setSaving(true);
 
-    // Clear picked files early (release moment)
     const filesSnapshot = [...files];
     setFiles([]);
 
     try {
       const storage = supabase.storage.from(bucket);
 
-      const uploaded: AttachmentMeta[] = [];
+      const uploaded: (AttachmentMeta & { origin?: Origin })[] = [];
       for (const f of filesSnapshot) {
         const safeName = safeFileName(f.name);
         const stamp = Date.now();
@@ -139,33 +145,32 @@ export function AttachmentsBlock(props: {
           path,
           type: f.type || "application/octet-stream",
           size: f.size,
+          origin: "upload",
         });
       }
 
       if (uploaded.length === 0) return;
 
-      const merged = [...attachments, ...uploaded];
+      // ✅ Preserve imported items, append uploads
+      const nextAll = [...importedSaved, ...uploadedSaved, ...uploaded];
 
-      setAttachments(merged);
+      const prevAll = all;
+      setAll(nextAll);
 
-      const { error: updErr } = await supabase
-        .from("decisions")
-        .update({ attachments: merged })
-        .eq("id", decisionId)
-        .eq("user_id", userId);
-
-      // silent failure: revert local merge
-      if (updErr) setAttachments(attachments);
+      try {
+        await persistAll(nextAll);
+      } catch {
+        setAll(prevAll);
+      }
     } finally {
       setSaving(false);
     }
   };
 
   const subtitle = useMemo(() => {
-    // While files are staged, that status takes priority
     if (files.length > 0) return `${files.length} ready to upload`;
 
-    const savedCount = attachments.length;
+    const savedCount = uploadedSaved.length;
     const importedCount = Math.max(0, extraImportedCount);
 
     if (savedCount === 0 && importedCount === 0) return "No attachments.";
@@ -173,7 +178,7 @@ export function AttachmentsBlock(props: {
     if (savedCount > 0 && importedCount === 0) return `${savedCount} attached`;
 
     return `${savedCount} attached • ${importedCount} imported`;
-  }, [attachments.length, files.length, extraImportedCount]);
+  }, [uploadedSaved.length, files.length, extraImportedCount]);
 
   return (
     <div
@@ -245,9 +250,9 @@ export function AttachmentsBlock(props: {
         </div>
       ) : null}
 
-      {attachments.length > 0 ? (
+      {uploadedSaved.length > 0 ? (
         <div className="space-y-2">
-          {attachments.map((a, idx) => (
+          {uploadedSaved.map((a, idx) => (
             <div
               key={`${a.path}-${idx}`}
               className="flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-white px-4 py-2"
