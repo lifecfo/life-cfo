@@ -233,6 +233,9 @@ export default function ThinkingClient() {
   // ✅ Signed URLs for imported-from-capture attachments (decision_id -> path -> url)
   const [importedUrlsByDecision, setImportedUrlsByDecision] = useState<Record<string, Record<string, string>>>({});
 
+  // ✅ Saved uploads count coming from AttachmentsBlock (decision_id -> count)
+  const [savedUploadsCountByDecision, setSavedUploadsCountByDecision] = useState<Record<string, number>>({});
+  
   const scheduleReload = () => {
     if (reloadTimerRef.current) window.clearTimeout(reloadTimerRef.current);
     reloadTimerRef.current = window.setTimeout(() => {
@@ -896,7 +899,9 @@ export default function ThinkingClient() {
               const importedCount = imported.length;
               const importedUrlMap = importedUrlsByDecision[d.id] ?? {};
 
-              const attachmentsTitle = importedCount > 0 ? `Attachments (${importedCount})` : "Attachments";
+              const savedUploadsCount = savedUploadsCountByDecision[d.id] ?? 0;
+              const totalAttachmentsCount = importedCount + savedUploadsCount;
+              const attachmentsTitle = totalAttachmentsCount > 0 ? `Attachments (${totalAttachmentsCount})` : "Attachments";
 
               return (
                 <div
@@ -1132,6 +1137,9 @@ export default function ThinkingClient() {
                                 title={attachmentsTitle}
                                 bucket="captures"
                                 extraImportedCount={importedCount}
+                                onSavedCountChange={(count) =>
+                                 setSavedUploadsCountByDecision((prev) => (prev[d.id] === count ? prev : { ...prev, [d.id]: count }))
+                                }
                               />
 
                             ) : (

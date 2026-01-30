@@ -31,8 +31,19 @@ export function AttachmentsBlock(props: {
 
   // ✅ NEW: allows parent to show imported-from-capture count in the subtitle
   extraImportedCount?: number;
+
+  // ✅ NEW: allow parent to update "Attachments (N)" including saved uploads
+  onSavedCountChange?: (count: number) => void;
 }) {
-  const { userId, decisionId, initial, title = "Attachments", bucket = "captures", extraImportedCount = 0 } = props;
+  const {
+    userId,
+    decisionId,
+    initial,
+    title = "Attachments",
+    bucket = "captures",
+    extraImportedCount = 0,
+    onSavedCountChange,
+  } = props;
 
   const [files, setFiles] = useState<File[]>([]);
   const [saving, setSaving] = useState(false);
@@ -47,6 +58,11 @@ export function AttachmentsBlock(props: {
     setAttachments(normalizeAttachments(initial));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [JSON.stringify(initial ?? null)]);
+
+  // ✅ NEW: notify parent when saved count changes (for title count)
+  useEffect(() => {
+    onSavedCountChange?.(attachments.length);
+  }, [attachments.length, onSavedCountChange]);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
