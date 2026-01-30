@@ -227,9 +227,7 @@ export default function ThinkingClient() {
   const [draftBodyById, setDraftBodyById] = useState<Record<string, string>>({});
 
   // ✅ Keep a stable “Original capture” snapshot (read-only) per decision
-  const [originalCaptureById, setOriginalCaptureById] = useState<Record<string, { title: string; captured: string }>>(
-    {}
-  );
+  const [originalCaptureById, setOriginalCaptureById] = useState<Record<string, { title: string; captured: string }>>({});
 
   // ✅ Capture-style delete confirm (inline, stronger)
   const [confirmDeleteForId, setConfirmDeleteForId] = useState<string | null>(null);
@@ -293,11 +291,7 @@ export default function ThinkingClient() {
 
     const [domRes, conRes] = await Promise.all([
       supabase.from("domains").select("id,name,sort_order").eq("user_id", uid).order("sort_order", { ascending: true }),
-      supabase
-        .from("constellations")
-        .select("id,name,sort_order")
-        .eq("user_id", uid)
-        .order("sort_order", { ascending: true }),
+      supabase.from("constellations").select("id,name,sort_order").eq("user_id", uid).order("sort_order", { ascending: true }),
     ]);
 
     if (!domRes.error) {
@@ -328,11 +322,7 @@ export default function ThinkingClient() {
     if (decisionIds.length > 0) {
       const [ddRes, ciRes] = await Promise.all([
         supabase.from("decision_domains").select("decision_id,domain_id").eq("user_id", uid).in("decision_id", decisionIds),
-        supabase
-          .from("constellation_items")
-          .select("decision_id,constellation_id")
-          .eq("user_id", uid)
-          .in("decision_id", decisionIds),
+        supabase.from("constellation_items").select("decision_id,constellation_id").eq("user_id", uid).in("decision_id", decisionIds),
       ]);
 
       if (!ddRes.error) {
@@ -595,11 +585,7 @@ export default function ThinkingClient() {
         message: "Saved to Decisions.",
         undoLabel: "Undo",
         onUndo: async () => {
-          const { error: undoErr } = await supabase
-            .from("decisions")
-            .update({ status: "draft", decided_at: null })
-            .eq("id", d.id)
-            .eq("user_id", userId);
+          const { error: undoErr } = await supabase.from("decisions").update({ status: "draft", decided_at: null }).eq("id", d.id).eq("user_id", userId);
 
           if (undoErr) {
             showToast({ message: `Undo failed: ${undoErr.message}` }, 3500);
@@ -644,6 +630,15 @@ export default function ThinkingClient() {
     if (labelsEditForId === d.id) setLabelsEditForId(null);
     if (confirmDeleteForId === d.id) setConfirmDeleteForId(null);
 
+    // ✅ Unlink any Capture item that created this draft (prevents FK blocks; reopens the capture)
+    try {
+      await supabase
+        .from("decision_inbox")
+        .update({ framed_decision_id: null, status: "open" })
+        .eq("user_id", userId)
+        .eq("framed_decision_id", d.id);
+    } catch {}
+
     // ✅ Best-effort cleanup of dependent rows (prevents FK blocks)
     try {
       await supabase.from("decision_domains").delete().eq("user_id", userId).eq("decision_id", d.id);
@@ -667,7 +662,7 @@ export default function ThinkingClient() {
     const deletedCount = Array.isArray(data) ? data.length : 0;
 
     if (error || deletedCount === 0) {
-      showToast({ message: `Couldn’t delete right now.` }, 3000);
+      showToast({ message: `Couldn’t delete right now${error?.message ? `: ${error.message}` : ""}` }, 3500);
       setDrafts(prev);
       loadRef.current({ silent: true });
       return;
@@ -690,9 +685,7 @@ export default function ThinkingClient() {
     const existing = (d.context ?? "").trim();
     const chunk = summary.summary_text.trim();
 
-    const nextContext = existing
-      ? `${existing}\n\n---\nSummary added (${softWhen(summary.created_at)}):\n${chunk}`
-      : `Summary added (${softWhen(summary.created_at)}):\n${chunk}`;
+    const nextContext = existing ? `${existing}\n\n---\nSummary added (${softWhen(summary.created_at)}):\n${chunk}` : `Summary added (${softWhen(summary.created_at)}):\n${chunk}`;
 
     setDrafts((prev) => prev.map((x) => (x.id === d.id ? { ...x, context: nextContext } : x)));
 
@@ -743,12 +736,7 @@ export default function ThinkingClient() {
 
     try {
       if (has) {
-        const { error } = await supabase
-          .from("constellation_items")
-          .delete()
-          .eq("user_id", userId)
-          .eq("decision_id", decisionId)
-          .eq("constellation_id", constellationId);
+        const { error } = await supabase.from("constellation_items").delete().eq("user_id", userId).eq("decision_id", decisionId).eq("constellation_id", constellationId);
 
         if (error) throw error;
         showToast({ message: "Removed." }, 1800);
@@ -810,8 +798,7 @@ export default function ThinkingClient() {
   const saveDraftOverwrite = async (d: Decision) => {
     if (!userId) return;
 
-    const snapshot =
-      originalCaptureById[d.id] ?? { title: d.title ?? "", captured: splitThinkingContext(d.context).captured ?? "" };
+    const snapshot = originalCaptureById[d.id] ?? { title: d.title ?? "", captured: splitThinkingContext(d.context).captured ?? "" };
 
     const nextTitle = (draftTitleById[d.id] ?? "").trim() || d.title || "Untitled";
     const nextDraftBody = (draftBodyById[d.id] ?? "").trim();
@@ -821,12 +808,7 @@ export default function ThinkingClient() {
     setDrafts((prev) => prev.map((x) => (x.id === d.id ? { ...x, title: nextTitle, context: nextContext } : x)));
     setIsEditingDraftById((prev) => ({ ...prev, [d.id]: false }));
 
-    const { error } = await supabase
-      .from("decisions")
-      .update({ title: nextTitle, context: nextContext })
-      .eq("id", d.id)
-      .eq("user_id", userId)
-      .eq("status", "draft");
+    const { error } = await supabase.from("decisions").update({ title: nextTitle, context: nextContext }).eq("id", d.id).eq("user_id", userId).eq("status", "draft");
 
     if (error) {
       showToast({ message: `Couldn’t save: ${error.message}` }, 3500);
@@ -856,12 +838,7 @@ export default function ThinkingClient() {
 
         <div className="space-y-4">
           <TilesRow title="Filter by area" items={domains} activeId={activeDomainId} onSelect={(id) => setActiveDomainId(id)} />
-          <TilesRow
-            title="Filter by group"
-            items={constellations}
-            activeId={activeConstellationId}
-            onSelect={(id) => setActiveConstellationId(id)}
-          />
+          <TilesRow title="Filter by group" items={constellations} activeId={activeConstellationId} onSelect={(id) => setActiveConstellationId(id)} />
         </div>
 
         <div className="text-xs text-zinc-500">{statusLine}</div>
@@ -869,11 +846,7 @@ export default function ThinkingClient() {
         {filteredDrafts.length > 0 && hasMore ? (
           <div className="flex items-center gap-2">
             <Chip onClick={() => setShowAll((v) => !v)}>{showAll ? "Show less" : "Show all"}</Chip>
-            {!showAll ? (
-              <div className="text-xs text-zinc-500">
-                Showing {DEFAULT_LIMIT} of {filteredDrafts.length}
-              </div>
-            ) : null}
+            {!showAll ? <div className="text-xs text-zinc-500">Showing {DEFAULT_LIMIT} of {filteredDrafts.length}</div> : null}
           </div>
         ) : null}
 
@@ -914,6 +887,11 @@ export default function ThinkingClient() {
               const isConfirmingDelete = confirmDeleteForId === d.id;
 
               const imported = importedByDecisionId[d.id] ?? [];
+
+              // ✅ Use the capture inboxId folder (not decisionId) when listing files from the "captures" bucket
+              const inferredCaptureFolderId =
+                userId && (d.attachments?.[0]?.path || "").startsWith(`${userId}/`) ? String(d.attachments?.[0]?.path.split("/")[1] || "") : "";
+              const captureFolderId = inferredCaptureFolderId || d.id;
 
               return (
                 <div
@@ -1024,9 +1002,7 @@ export default function ThinkingClient() {
 
                               {!isEditingDraft ? (
                                 <div className="whitespace-pre-wrap rounded-2xl border border-zinc-100 bg-zinc-50 px-4 py-3 text-[15px] leading-relaxed text-zinc-800">
-                                  {parts.draft?.trim() ? parts.draft : (
-                                    <span className="text-zinc-500">This is what I’m deciding… (optional)</span>
-                                  )}
+                                  {parts.draft?.trim() ? parts.draft : <span className="text-zinc-500">This is what I’m deciding… (optional)</span>}
                                 </div>
                               ) : (
                                 <textarea
@@ -1132,7 +1108,7 @@ export default function ThinkingClient() {
                                   </div>
                                 ) : null}
 
-                                <AttachmentsBlock userId={userId} decisionId={d.id} title="Attachments" bucket="captures" />
+                                <AttachmentsBlock userId={userId} decisionId={captureFolderId} title="Attachments" bucket="captures" />
                               </>
                             ) : (
                               <div className="text-sm text-zinc-600">Attachments unavailable.</div>
@@ -1187,10 +1163,7 @@ export default function ThinkingClient() {
                               </div>
                             ) : (
                               <div className="flex flex-wrap items-center gap-2">
-                                <PrimaryActionButton
-                                  onClick={() => setChatForId((cur) => (cur === d.id ? null : d.id))}
-                                  title="Talk it through with Keystone"
-                                >
+                                <PrimaryActionButton onClick={() => setChatForId((cur) => (cur === d.id ? null : d.id))} title="Talk it through with Keystone">
                                   {isChatOpen ? "Hide chat" : "Talk this through"}
                                 </PrimaryActionButton>
 
@@ -1262,12 +1235,7 @@ export default function ThinkingClient() {
 
                           {isChatOpen ? (
                             <div className="pt-2">
-                              <ConversationPanel
-                                decisionId={d.id}
-                                decisionTitle={d.title}
-                                frame={{ decision_statement: d.title }}
-                                onClose={() => setChatForId(null)}
-                              />
+                              <ConversationPanel decisionId={d.id} decisionTitle={d.title} frame={{ decision_statement: d.title }} onClose={() => setChatForId(null)} />
                             </div>
                           ) : null}
                         </div>
