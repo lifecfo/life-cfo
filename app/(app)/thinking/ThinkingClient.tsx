@@ -571,7 +571,11 @@ export default function ThinkingClient() {
 
     setDrafts((prev) => prev.map((x) => (x.id === d.id ? { ...x, review_at } : x)));
 
-    const { error } = await supabase.from("decisions").update({ review_at }).eq("id", d.id).eq("user_id", userId);
+  const { error } = await supabase
+    .from("decisions")
+    .update({ review_at, reviewed_at: null })
+    .eq("id", d.id)
+    .eq("user_id", userId);
 
     if (error) {
       showToast({ message: `Couldn’t schedule: ${error.message}` }, 3500);
@@ -579,7 +583,7 @@ export default function ThinkingClient() {
       return;
     }
 
-    showToast({ message: "Revisit scheduled." }, 2200);
+    showToast({ message: "Review scheduled." }, 2200);
   };
 
   const scheduleRevisit = async (d: Decision, days: number) => {
@@ -899,7 +903,7 @@ export default function ThinkingClient() {
 
                             <div className="mt-1 text-xs text-zinc-500">
                               Started {softWhen(d.created_at)}
-                              {d.review_at ? ` • Revisit ${softWhen(d.review_at)}` : ""}
+                              {d.review_at ? ` • Review ${softWhen(d.review_at)}` : ""}
                             </div>
 
                             <div className="mt-2 flex flex-wrap gap-2">
@@ -1129,7 +1133,7 @@ export default function ThinkingClient() {
                                 </PrimaryActionButton>
 
                                 <div className="flex flex-wrap items-center gap-2">
-                                  <div className="text-xs text-zinc-500">Revisit</div>
+                                  <div className="text-xs text-zinc-500">Review</div>
 
                                   <select
                                     className="h-9 rounded-full border border-zinc-200 bg-white px-3 text-sm text-zinc-700"
@@ -1142,7 +1146,7 @@ export default function ThinkingClient() {
                                       if (v === "30") void scheduleRevisit(d, 30);
                                       if (v === "90") void scheduleRevisit(d, 90);
                                     }}
-                                    aria-label="Revisit schedule"
+                                    aria-label="Review schedule"
                                     title="Choose when to bring this back"
                                   >
                                     <option value="">Choose…</option>
@@ -1159,7 +1163,7 @@ export default function ThinkingClient() {
                                         className="h-9 rounded-full border border-zinc-200 bg-white px-3 text-sm text-zinc-700"
                                         value={customDate}
                                         onChange={(e) => setCustomDateById((prev) => ({ ...prev, [d.id]: e.target.value }))}
-                                        aria-label="Custom revisit date"
+                                        aria-label="Custom review date"
                                         title="Pick a date"
                                       />
                                       <Chip
@@ -1179,9 +1183,10 @@ export default function ThinkingClient() {
                                   ) : null}
                                 </div>
 
-                                <Chip onClick={() => router.push("/revisit")} title="Open Revisit to see scheduled items">
-                                  Go to Revisit
+                                <Chip onClick={() => router.push("/revisit")} title="Open Review to see scheduled items">
+                                  Go to Review
                                 </Chip>
+
 
                                 <Chip onClick={() => setConfirmDeleteForId(d.id)} title="Delete this draft">
                                   Delete
