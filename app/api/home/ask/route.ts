@@ -74,6 +74,12 @@ function isGoalsIntent(q: string) {
   return /\b(goal|goals|savings goal|savings goals|money goal|money goals|target|targets)\b/.test(s);
 }
 
+function isAffordIntent(q: string) {
+  const s = (q || "").trim().toLowerCase();
+  if (!s) return false;
+  return /\b(can we afford|afford|should we|safe to spend|is it safe to spend|can i spend|can we spend|spend)\b/.test(s);
+}
+
 function formatDateShort(iso: string) {
   const ms = Date.parse(iso);
   if (Number.isNaN(ms)) return iso;
@@ -664,6 +670,62 @@ export async function POST(req: Request) {
     }
 
     const facts = await buildFactsPack(userId);
+
+    // ✅ Deterministic AFFORD handling (skip AI)
+if (isAffordIntent(question)) {
+  const money = (facts as any)?.money_summary;
+
+  const balancesArr = Array.isArray(money?.balances_by_currency) ? money.balances_by_currency : [];
+  const billsArr = Array.isArray(money?.recurring_bills_totals_by_currency) ? money.recurring_bills_totals_by_currency : [];
+
+  const balances =
+    balancesArr.length > 0
+      ? balancesArr
+          .map((b: any) => {
+            const cur = typeof b?.currency === "string" ? b.currency : "";
+            const bal = typeof b?.balance === "string" ? b.balance : "—";
+            return `• ${cur}: ${bal}`;
+          })
+          .join("\n")
+      : "• (no account balances visible)";
+
+  const bills =
+    billsArr.length > 0
+      ? billsArr
+          .map((b: any) => {
+            const cur = typeof b?.currency === "string" ? b.currency : "";
+            const tot = typeof b?.total === "string" ? b.total : "—";
+            return `• ${cur}: ${tot}`;
+          })
+          .join("\n")
+      : "• (no recurring bills totals visible)";
+
+  return NextResponse.json({
+    answer: [
+      "Here’s what I can see right now:",
+      "",
+      "Available balances:",
+      balances,
+      "",
+      "Recurring commitments:",
+      bills,
+      "",
+      "I can’t say “yes” or “no” from here — but we can frame it safely.",
+    ].join("\n"),
+    action: "open_money",
+    suggested_next: "create_capture",
+    capture_seed: {
+      title: question,
+      prompt: question,
+      notes: [
+        "Affordability question — no permission granted",
+        "Known: current balances (accounts)",
+        "Known: recurring commitments (recurring bills totals)",
+        "Unknown: timing, one-off vs recurring, which account pays, required buffer",
+      ],
+    },
+  });
+}
 
     // ✅ Deterministic REVIEW handling (skip AI)
     if (isReviewIntent(question)) {
