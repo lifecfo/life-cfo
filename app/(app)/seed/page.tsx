@@ -6,6 +6,19 @@ import { supabase } from "@/lib/supabaseClient";
 import { Page } from "@/components/Page";
 import { Card, CardContent, Button, Chip, Badge, useToast } from "@/components/ui";
 
+export const dynamic = "force-dynamic";
+
+type SeedStatus = "idle" | "working" | "done" | "error";
+
+type SeedRunRow = {
+  user_id: string;
+  dataset_version: string;
+  run_id: string;
+  created_ids: Record<string, string[]>;
+  created_at: string;
+  updated_at: string;
+};
+
 function safeUUID() {
   try {
     if (typeof crypto !== "undefined" && "randomUUID" in crypto) return (crypto as any).randomUUID();
@@ -20,7 +33,61 @@ function toIsoLocalPlusDays(days: number, hour = 9, minute = 0) {
   return d.toISOString();
 }
 
-type SeedStatus = "idle" | "working" | "done" | "error";
+function toDatePlusDays(days: number) {
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  // YYYY-MM-DD
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+function todayDate() {
+  const d = new Date();
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+async function upsertSeedRun(
+  userId: string,
+  patch: Partial<SeedRunRow> & { created_ids?: Record<string, string[]> }
+) {
+  // 1 row per user
+  const base: Partial<SeedRunRow> = {
+    user_id: userId,
+    dataset_version: "v1",
+    run_id: safeUUID(),
+    created_ids: {},
+    ...patch,
+  };
+
+  const res = await (supabase as any)
+    .from("demo_seed_runs")
+    .upsert(
+      {
+        user_id: base.user_id,
+        dataset_version: base.dataset_version ?? "v1",
+        run_id: base.run_id,
+        created_ids: base.created_ids ?? {},
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "user_id" }
+    )
+    .select("*")
+    .single();
+
+  if (res?.error) throw res.error;
+  return res.data as SeedRunRow;
+}
+
+async function getSeedRun(userId: string) {
+  const res = await (supabase as any).from("demo_seed_runs").select("*").eq("user_id", userId).single();
+  if (res?.error) return null; // ok if missing
+  return res.data as SeedRunRow;
+}
 
 export default function SeedPage() {
   const toastApi: any = useToast();
@@ -43,7 +110,7 @@ export default function SeedPage() {
   };
 
   const [userId, setUserId] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loadingAuth, setLoadingAuth] = useState(true);
 
   const [status, setStatus] = useState<SeedStatus>("idle");
   const [statusLine, setStatusLine] = useState<string>("");
@@ -51,21 +118,51 @@ export default function SeedPage() {
   const [confirmText, setConfirmText] = useState("");
   const resetAllowed = useMemo(() => confirmText.trim().toUpperCase() === "RESET", [confirmText]);
 
+  const [seedRun, setSeedRun] = useState<SeedRunRow | null>(null);
+
   useEffect(() => {
+    let alive = true;
+
     (async () => {
-      setLoading(true);
+      setLoadingAuth(true);
       setStatusLine("");
+
       const { data, error } = await supabase.auth.getUser();
-      if (error || !data.user) {
+      if (!alive) return;
+
+      if (error || !data?.user) {
         setUserId(null);
-        setLoading(false);
+        setSeedRun(null);
+        setLoadingAuth(false);
         setStatusLine("Not signed in.");
         return;
       }
+
       setUserId(data.user.id);
-      setLoading(false);
+      setLoadingAuth(false);
+
+      const sr = await getSeedRun(data.user.id);
+      if (!alive) return;
+      setSeedRun(sr);
     })();
+
+    return () => {
+      alive = false;
+    };
   }, []);
+
+  const totalSeededCount = useMemo(() => {
+    const ids = seedRun?.created_ids ?? {};
+    return Object.values(ids).reduce((acc, arr) => acc + (Array.isArray(arr) ? arr.length : 0), 0);
+  }, [seedRun]);
+
+  const hasSeeded = totalSeededCount > 0;
+
+  async function refreshSeedRun() {
+    if (!userId) return;
+    const sr = await getSeedRun(userId);
+    setSeedRun(sr);
+  }
 
   async function runReset() {
     if (!userId) return;
@@ -75,196 +172,715 @@ export default function SeedPage() {
     }
 
     setStatus("working");
-    setStatusLine("Resetting your data…");
-
-    const steps: { label: string; fn: () => Promise<void> }[] = [
-      { label: "Delete bill_payments", fn: async () => void (await supabase.from("bill_payments").delete().eq("user_id", userId)) },
-      { label: "Delete recurring_bills", fn: async () => void (await supabase.from("recurring_bills").delete().eq("user_id", userId)) },
-      { label: "Delete recurring_income", fn: async () => void (await supabase.from("recurring_income").delete().eq("user_id", userId)) },
-      { label: "Delete accounts", fn: async () => void (await supabase.from("accounts").delete().eq("user_id", userId)) },
-      {
-        label: "Delete decisions (best effort)",
-        fn: async () => {
-          try {
-            await supabase.from("decisions").delete().eq("user_id", userId);
-          } catch {}
-        },
-      },
-      { label: "Delete decision_inbox", fn: async () => void (await supabase.from("decision_inbox").delete().eq("user_id", userId)) },
-    ];
+    setStatusLine("Resetting demo data…");
 
     try {
-      for (const s of steps) {
-        setStatusLine(`${s.label}…`);
-        await s.fn();
+      const sr = await getSeedRun(userId);
+      const ids = sr?.created_ids ?? {};
+
+      const trackedTotal = Object.values(ids).reduce((acc, arr) => acc + (Array.isArray(arr) ? arr.length : 0), 0);
+      if (!sr || trackedTotal === 0) {
+        setConfirmText("");
+        setStatus("done");
+        setStatusLine("Nothing to reset ✅");
+        notify({ title: "Nothing to reset", description: "No demo seed run found for your user." });
+        await refreshSeedRun();
+        return;
       }
+
+      const dbAny = supabase as any;
+
+      // Helper: delete by tracked ids (and user_id) where the table has an `id` column
+      const delByIds = async (table: string, idField = "id") => {
+        const arr = ids[table];
+        if (!arr || arr.length === 0) return;
+        const res = await dbAny.from(table).delete().eq("user_id", userId).in(idField, arr);
+        if (res?.error) throw res.error;
+      };
+
+      // --- Delete in FK-safe-ish order ---
+      setStatusLine("Deleting money goal updates…");
+      await delByIds("money_goal_updates");
+
+      setStatusLine("Deleting money goal accounts…");
+      await delByIds("money_goal_accounts");
+
+      setStatusLine("Deleting money goals…");
+      await delByIds("money_goals");
+
+      setStatusLine("Deleting transactions…");
+      await delByIds("transactions");
+
+      setStatusLine("Deleting bill payments…");
+      await delByIds("bill_payments");
+
+      setStatusLine("Deleting recurring bills…");
+      await delByIds("recurring_bills");
+
+      setStatusLine("Deleting recurring income…");
+      await delByIds("recurring_income");
+
+      setStatusLine("Deleting investment accounts…");
+      await delByIds("investment_accounts");
+
+      setStatusLine("Deleting liabilities…");
+      await delByIds("liabilities");
+
+      setStatusLine("Deleting budget items…");
+      await delByIds("budget_items");
+
+      setStatusLine("Deleting categories…");
+      await delByIds("categories");
+
+      // Decisions graph (some tables may or may not exist in your schema)
+      setStatusLine("Deleting decision summaries…");
+      await delByIds("decision_summaries");
+      setStatusLine("Deleting decision notes…");
+      await delByIds("decision_notes");
+      setStatusLine("Deleting decision links…");
+      await delByIds("decision_links");
+
+      // decision_domains has no id in some schemas; delete by decision_id list if we tracked it
+      setStatusLine("Deleting decision domains…");
+      const ddByDecision = ids["decision_domains:by_decision_id"];
+      if (ddByDecision?.length) {
+        const res = await dbAny
+          .from("decision_domains")
+          .delete()
+          .eq("user_id", userId)
+          .in("decision_id", ddByDecision);
+        if (res?.error) throw res.error;
+      }
+
+      // constellation_items has no id; delete by decision_id list if present
+      setStatusLine("Deleting constellation items…");
+      const ciByDecision = ids["constellation_items:by_decision_id"];
+      if (ciByDecision?.length) {
+        const res = await dbAny
+          .from("constellation_items")
+          .delete()
+          .eq("user_id", userId)
+          .in("decision_id", ciByDecision);
+        if (res?.error) throw res.error;
+      }
+
+      // domain_constellations has no id; delete by domain_id list if present
+      setStatusLine("Deleting domain constellations…");
+      const dcByDomain = ids["domain_constellations:by_domain_id"];
+      if (dcByDomain?.length) {
+        const res = await dbAny
+          .from("domain_constellations")
+          .delete()
+          .eq("user_id", userId)
+          .in("domain_id", dcByDomain);
+        if (res?.error) throw res.error;
+      }
+
+      setStatusLine("Deleting constellations…");
+      await delByIds("constellations");
+
+      setStatusLine("Deleting domains…");
+      await delByIds("domains");
+
+      setStatusLine("Deleting decisions…");
+      await delByIds("decisions");
+
+      setStatusLine("Deleting decision inbox…");
+      await delByIds("decision_inbox");
+
+      // Family
+      setStatusLine("Deleting pets…");
+      await delByIds("pets");
+
+      setStatusLine("Deleting family members…");
+      await delByIds("family_members");
+
+      // Accounts last
+      setStatusLine("Deleting accounts…");
+      await delByIds("accounts");
+
+      // Clear the run record
+      setStatusLine("Clearing demo seed run record…");
+      const clr = await upsertSeedRun(userId, { created_ids: {} });
+      setSeedRun(clr);
 
       setConfirmText("");
       setStatus("done");
       setStatusLine("Reset complete ✅");
-      notify({ title: "Reset complete", description: "Your test data was cleared." });
+      notify({ title: "Reset complete", description: "Only demo rows were removed." });
     } catch (e: any) {
       const msg = e?.message ?? "Reset failed.";
       setStatus("error");
       setStatusLine(msg);
       notify({ title: "Reset failed", description: msg });
+    } finally {
+      await refreshSeedRun();
     }
   }
 
-  async function runSeed() {
+  async function runSeedFull() {
     if (!userId) return;
 
     setStatus("working");
-    setStatusLine("Seeding demo data…");
+    setStatusLine("Checking for existing demo seed…");
 
-    const runId = safeUUID();
+    const dbAny = supabase as any;
 
     try {
-      // 1) Accounts (now includes balances + currency)
+      const existing = await getSeedRun(userId);
+      if (existing && (Object.values(existing.created_ids ?? {}).flat().length ?? 0) > 0) {
+        setSeedRun(existing);
+        setStatus("done");
+        setStatusLine("Already seeded ✅");
+        notify({ title: "Already seeded", description: "Reset first if you want a fresh demo dataset." });
+        return;
+      }
+
+      setStatusLine("Creating seed run…");
+      const runId = safeUUID();
+      let created_ids: Record<string, string[]> = {};
+
+      const remember = (key: string, newIds: string[]) => {
+        if (!created_ids[key]) created_ids[key] = [];
+        created_ids[key].push(...newIds);
+      };
+
+      // ✅ Stop TS2589 by breaking the chain and casting to any
+      const insertReturningIds = async (table: string, rows: any[], selectCols: string) => {
+        const q = dbAny.from(table).insert(rows).select(selectCols) as any;
+        const res = (await q) as any;
+
+        if (res?.error) throw res.error;
+
+        const data = (res?.data ?? []) as any[];
+        const ids = data.map((r) => String(r?.id)).filter(Boolean);
+        remember(table, ids);
+        return data;
+      };
+
+      // 1) FAMILY
+      setStatusLine("Seeding family…");
+      await insertReturningIds(
+        "family_members",
+        [
+          { user_id: userId, name: "Emily", relationship: "self", birth_year: 1990, about: "Primary user (demo)." },
+          { user_id: userId, name: "Ryan", relationship: "partner", birth_year: 1988, about: "Household partner (demo)." },
+          { user_id: userId, name: "Simba", relationship: "child", birth_year: 2022, about: "Child (demo)." },
+          { user_id: userId, name: "Hannah", relationship: "child", birth_year: 2025, about: "Child (demo)." },
+        ],
+        "id"
+      );
+
+      await insertReturningIds("pets", [{ user_id: userId, name: "Milo", type: "cat", notes: "Friendly household cat (demo)." }], "id");
+
+      // 2) ACCOUNTS
       setStatusLine("Seeding accounts…");
-      const accountsPayload = [
-        {
-          user_id: userId,
-          name: "Everyday Spending",
-          provider: "manual",
-          type: "cash",
-          status: "active",
-          archived: false,
-          current_balance_cents: 1250_00,
-          currency: "AUD",
-        },
-        {
-          user_id: userId,
-          name: "Bills Buffer",
-          provider: "manual",
-          type: "cash",
-          status: "active",
-          archived: false,
-          current_balance_cents: 600_00,
-          currency: "AUD",
-        },
-      ];
+      const accounts = await insertReturningIds(
+        "accounts",
+        [
+          {
+            user_id: userId,
+            name: "Everyday Spending",
+            provider: "manual",
+            type: "cash",
+            status: "active",
+            archived: false,
+            current_balance_cents: 1250_00,
+            currency: "AUD",
+          },
+          {
+            user_id: userId,
+            name: "Bills Buffer",
+            provider: "manual",
+            type: "cash",
+            status: "active",
+            archived: false,
+            current_balance_cents: 1800_00,
+            currency: "AUD",
+          },
+          {
+            user_id: userId,
+            name: "Savings",
+            provider: "manual",
+            type: "cash",
+            status: "active",
+            archived: false,
+            current_balance_cents: 6200_00,
+            currency: "AUD",
+          },
+        ],
+        "id"
+      );
 
-      const aRes = await supabase.from("accounts").insert(accountsPayload as any);
-      if (aRes.error) throw aRes.error;
+      const everydayId = String(accounts[0]?.id);
+      const billsBufferId = String(accounts[1]?.id);
+      const savingsId = String(accounts[2]?.id);
 
-      // 2) Income
+      // 3) INCOME
       setStatusLine("Seeding income…");
-      const incomePayload = [
-        {
-          user_id: userId,
-          name: "Wages",
-          amount_cents: 2400_00,
-          currency: "AUD",
-          cadence: "fortnightly",
-          next_pay_at: toIsoLocalPlusDays(3, 9, 0),
-          active: true,
-        },
-      ];
+      await insertReturningIds(
+        "recurring_income",
+        [
+          {
+            user_id: userId,
+            name: "Ryan salary",
+            amount_cents: 2400_00,
+            currency: "AUD",
+            cadence: "fortnightly",
+            next_pay_at: toIsoLocalPlusDays(3, 9, 0),
+            active: true,
+            notes: "Main household income (demo).",
+          },
+          {
+            user_id: userId,
+            name: "Side income",
+            amount_cents: 450_00,
+            currency: "AUD",
+            cadence: "monthly",
+            next_pay_at: toIsoLocalPlusDays(12, 9, 0),
+            active: true,
+            notes: "Small monthly income (demo).",
+          },
+        ],
+        "id"
+      );
 
-      const iRes = await supabase.from("recurring_income").insert(incomePayload as any);
-      if (iRes.error) throw iRes.error;
-
-      // 3) Bills
+      // 4) BILLS + PAYMENTS
       setStatusLine("Seeding bills…");
-      const billsPayload = [
-        {
-          user_id: userId,
-          name: "Internet",
-          amount_cents: 89_00,
-          currency: "AUD",
-          cadence: "monthly",
-          next_due_at: toIsoLocalPlusDays(4, 9, 0),
-          autopay: true,
-          active: true,
-        },
-        {
-          user_id: userId,
-          name: "Electricity",
-          amount_cents: 210_00,
-          currency: "AUD",
-          cadence: "monthly",
-          next_due_at: toIsoLocalPlusDays(9, 9, 0),
-          autopay: false,
-          active: true,
-        },
-        {
-          user_id: userId,
-          name: "Car rego (example)",
-          amount_cents: 780_00,
-          currency: "AUD",
-          cadence: "yearly",
-          next_due_at: toIsoLocalPlusDays(20, 9, 0),
-          autopay: false,
-          active: true,
-        },
+      const recurringBills = await insertReturningIds(
+        "recurring_bills",
+        [
+          {
+            user_id: userId,
+            name: "Internet",
+            amount_cents: 89_00,
+            currency: "AUD",
+            cadence: "monthly",
+            next_due_at: toIsoLocalPlusDays(4, 9, 0),
+            autopay: true,
+            active: true,
+            notes: "Autopay (demo).",
+          },
+          {
+            user_id: userId,
+            name: "Electricity",
+            amount_cents: 210_00,
+            currency: "AUD",
+            cadence: "monthly",
+            next_due_at: toIsoLocalPlusDays(9, 9, 0),
+            autopay: false,
+            active: true,
+            notes: "Manual payment (demo).",
+          },
+          {
+            user_id: userId,
+            name: "Car rego",
+            amount_cents: 780_00,
+            currency: "AUD",
+            cadence: "yearly",
+            next_due_at: toIsoLocalPlusDays(20, 9, 0),
+            autopay: false,
+            active: true,
+            notes: "Annual bill (demo).",
+          },
+        ],
+        "id"
+      );
+
+      setStatusLine("Seeding bill payments…");
+      const internetBillId = String(recurringBills[0]?.id);
+      const electricityBillId = String(recurringBills[1]?.id);
+
+      await insertReturningIds(
+        "bill_payments",
+        [
+          {
+            user_id: userId,
+            bill_id: internetBillId,
+            paid_at: toIsoLocalPlusDays(-10, 9, 0),
+            amount_cents: 89_00,
+            currency: "AUD",
+            note: "Paid (demo)",
+            source: "manual",
+          },
+          {
+            user_id: userId,
+            bill_id: electricityBillId,
+            paid_at: toIsoLocalPlusDays(-22, 9, 0),
+            amount_cents: 198_00,
+            currency: "AUD",
+            note: "Paid (demo)",
+            source: "manual",
+          },
+        ],
+        "id"
+      );
+
+      // 5) BUDGET + CATEGORIES
+      setStatusLine("Seeding budget…");
+      await insertReturningIds(
+        "budget_items",
+        [
+          { user_id: userId, name: "Groceries", kind: "expense", amount_cents: 950_00, cadence: "monthly", active: true, sort_order: 10 },
+          { user_id: userId, name: "Fuel", kind: "expense", amount_cents: 320_00, cadence: "monthly", active: true, sort_order: 20 },
+          { user_id: userId, name: "Kids", kind: "expense", amount_cents: 250_00, cadence: "monthly", active: true, sort_order: 30 },
+          { user_id: userId, name: "Bills", kind: "expense", amount_cents: 520_00, cadence: "monthly", active: true, sort_order: 40 },
+          { user_id: userId, name: "Savings", kind: "expense", amount_cents: 600_00, cadence: "monthly", active: true, sort_order: 50 },
+        ],
+        "id"
+      );
+
+      await insertReturningIds(
+        "categories",
+        [
+          { user_id: userId, name: "Groceries", group: "Living" },
+          { user_id: userId, name: "Transport", group: "Living" },
+          { user_id: userId, name: "Bills", group: "Living" },
+          { user_id: userId, name: "Kids", group: "Family" },
+          { user_id: userId, name: "Income", group: "Money" },
+        ],
+        "id"
+      );
+
+      // 6) TRANSACTIONS
+      setStatusLine("Seeding transactions…");
+      const t = todayDate();
+      const txRows = [
+        { user_id: userId, account_id: everydayId, date: t, amount: -143.22, description: "Woolworths", merchant: "Woolworths", category: "Groceries", pending: false },
+        { user_id: userId, account_id: everydayId, date: toDatePlusDays(-2), amount: -58.4, description: "Fuel", merchant: "BP", category: "Transport", pending: false },
+        { user_id: userId, account_id: everydayId, date: toDatePlusDays(-4), amount: -12.9, description: "Coffee", merchant: "Cafe", category: "Living", pending: false },
+        { user_id: userId, account_id: billsBufferId, date: toDatePlusDays(-6), amount: -89.0, description: "Internet", merchant: "ISP", category: "Bills", pending: false },
+        { user_id: userId, account_id: billsBufferId, date: toDatePlusDays(-8), amount: -210.0, description: "Electricity", merchant: "Energy Co", category: "Bills", pending: true },
+        { user_id: userId, account_id: savingsId, date: toDatePlusDays(-1), amount: 600.0, description: "Savings transfer", merchant: "Internal", category: "Savings", pending: false },
       ];
+      await insertReturningIds("transactions", txRows, "id");
 
-      const bRes = await supabase.from("recurring_bills").insert(billsPayload as any);
-      if (bRes.error) throw bRes.error;
+      // 7) INVESTMENTS + LIABILITIES
+      setStatusLine("Seeding investments & liabilities…");
+      await insertReturningIds(
+        "investment_accounts",
+        [
+          { user_id: userId, name: "Super", kind: "super", institution: "Example Super", approx_value: 52000, currency: "AUD", notes: "Approx value (demo)." },
+          { user_id: userId, name: "Brokerage", kind: "shares", institution: "Example Broker", approx_value: 8400, currency: "AUD", notes: "Approx value (demo)." },
+        ],
+        "id"
+      );
 
-      // 4) Inbox items (manual) — MUST include non-null dedupe_key
-      setStatusLine("Seeding inbox items…");
-      const inboxPayload = [
+      await insertReturningIds(
+        "liabilities",
+        [
+          { user_id: userId, name: "Car loan", current_balance_cents: 8200_00, currency: "AUD", notes: "Demo liability.", archived: false },
+          { user_id: userId, name: "Credit card", current_balance_cents: 1200_00, currency: "AUD", notes: "Demo liability.", archived: false },
+        ],
+        "id"
+      );
+
+      // 8) GOALS
+      setStatusLine("Seeding money goals…");
+      const goals = await insertReturningIds(
+        "money_goals",
+        [
+          {
+            user_id: userId,
+            title: "Emergency buffer",
+            currency: "AUD",
+            target_cents: 3000_00,
+            current_cents: 1800_00,
+            target_date: toDatePlusDays(90),
+            status: "active",
+            notes: "Primary goal (demo).",
+            is_primary: true,
+            sort_order: 10,
+          },
+          {
+            user_id: userId,
+            title: "Family getaway",
+            currency: "AUD",
+            target_cents: 2500_00,
+            current_cents: 600_00,
+            target_date: toDatePlusDays(160),
+            status: "active",
+            notes: "Secondary goal (demo).",
+            is_primary: false,
+            sort_order: 20,
+          },
+        ],
+        "id"
+      );
+
+      const emergencyId = String(goals[0]?.id);
+      const getawayId = String(goals[1]?.id);
+
+      setStatusLine("Linking goals to accounts…");
+      await insertReturningIds(
+        "money_goal_accounts",
+        [
+          { user_id: userId, goal_id: emergencyId, account_id: billsBufferId, weight: 70 },
+          { user_id: userId, goal_id: emergencyId, account_id: savingsId, weight: 30 },
+          { user_id: userId, goal_id: getawayId, account_id: savingsId, weight: 100 },
+        ],
+        "id"
+      );
+
+      setStatusLine("Seeding goal updates…");
+      await insertReturningIds(
+        "money_goal_updates",
+        [
+          { user_id: userId, goal_id: emergencyId, delta_cents: 200_00, currency: "AUD", note: "Added $200 (demo)", occurred_at: toIsoLocalPlusDays(-7, 9, 0) },
+          { user_id: userId, goal_id: getawayId, delta_cents: 100_00, currency: "AUD", note: "Added $100 (demo)", occurred_at: toIsoLocalPlusDays(-14, 9, 0) },
+        ],
+        "id"
+      );
+
+      // 9) DOMAINS + CONSTELLATIONS
+      setStatusLine("Seeding domains & constellations…");
+      const domains = await insertReturningIds(
+        "domains",
+        [
+          { user_id: userId, name: "Family", emoji: "🏡", sort_order: 10 },
+          { user_id: userId, name: "Money", emoji: "💸", sort_order: 20 },
+          { user_id: userId, name: "Health", emoji: "🌿", sort_order: 30 },
+        ],
+        "id"
+      );
+
+      const familyDomainId = String(domains[0]?.id);
+      const moneyDomainId = String(domains[1]?.id);
+
+      const constellations = await insertReturningIds(
+        "constellations",
+        [
+          { user_id: userId, name: "Home & stability", emoji: "🏠", sort_order: 10 },
+          { user_id: userId, name: "Cashflow", emoji: "📈", sort_order: 20 },
+        ],
+        "id"
+      );
+
+      const homeConstId = String(constellations[0]?.id);
+      const cashConstId = String(constellations[1]?.id);
+
+      // domain_constellations (no id): store domain ids for reset
+      {
+        const res = await (supabase as any).from("domain_constellations").insert([
+          { user_id: userId, domain_id: familyDomainId, constellation_id: homeConstId },
+          { user_id: userId, domain_id: moneyDomainId, constellation_id: cashConstId },
+        ]);
+        if (res?.error) throw res.error;
+        remember("domain_constellations:by_domain_id", [familyDomainId, moneyDomainId]);
+      }
+
+      // 10) CAPTURE / INBOX
+      setStatusLine("Seeding captures & inbox…");
+      const seedInboxRunId = safeUUID();
+
+      const inboxRows = [
         {
           user_id: userId,
-          run_id: runId,
-          type: "manual",
-          title: "Call insurance about renewal",
-          body: "Ask about coverage changes + price. Capture the new premium in Bills if it changed.",
+          run_id: seedInboxRunId,
+          type: "capture",
+          title: "Are we actually on track financially?",
+          body: "I feel like we’re working hard but not moving forward. I want clarity.",
           severity: 2,
           status: "open",
           snoozed_until: null,
-          dedupe_key: `seed:${runId}:manual:1`,
+          dedupe_key: `seed:${seedInboxRunId}:cap:1`,
           action_label: null,
           action_href: null,
+          framed_decision_id: null,
         },
         {
           user_id: userId,
-          run_id: runId,
+          run_id: seedInboxRunId,
+          type: "capture",
+          title: "Should we plan a small family getaway?",
+          body: "Not huge — just something to look forward to. But I don’t want money stress.",
+          severity: 1,
+          status: "open",
+          snoozed_until: null,
+          dedupe_key: `seed:${seedInboxRunId}:cap:2`,
+          action_label: null,
+          action_href: null,
+          framed_decision_id: null,
+        },
+        {
+          user_id: userId,
+          run_id: seedInboxRunId,
           type: "manual",
           title: "Review bills due soon",
           body: "Quick check: autopay vs manual. Mark paid where needed.",
           severity: 2,
           status: "open",
           snoozed_until: null,
-          dedupe_key: `seed:${runId}:manual:2`,
+          dedupe_key: `seed:${seedInboxRunId}:manual:1`,
           action_label: "Open Bills",
           action_href: "/bills",
+          framed_decision_id: null,
+        },
+        {
+          user_id: userId,
+          run_id: seedInboxRunId,
+          type: "manual",
+          title: "Look at your emergency buffer goal",
+          body: "Is it moving forward each month?",
+          severity: 1,
+          status: "open",
+          snoozed_until: null,
+          dedupe_key: `seed:${seedInboxRunId}:manual:2`,
+          action_label: "Open Goals",
+          action_href: "/goals",
+          framed_decision_id: null,
         },
       ];
 
-      const inboxRes = await supabase.from("decision_inbox").insert(inboxPayload as any);
-      if (inboxRes.error) throw inboxRes.error;
+      const inboxCreated = await insertReturningIds("decision_inbox", inboxRows, "id");
+      const cap1InboxId = String(inboxCreated[0]?.id);
+      const cap2InboxId = String(inboxCreated[1]?.id);
+
+      // 11) DECISIONS / REVIEW / CHAPTERS
+      setStatusLine("Seeding decisions…");
+      const decisions = await insertReturningIds(
+        "decisions",
+        [
+          {
+            user_id: userId,
+            inbox_item_id: cap1InboxId,
+            title: "Are we on track financially?",
+            context: "Captured:\nI feel like we’re working hard but not moving forward. I want clarity.",
+            status: "draft",
+            origin: "capture",
+            framed_at: new Date().toISOString(),
+            decided_at: null,
+            review_at: toIsoLocalPlusDays(14, 9, 0),
+            pinned: true,
+          },
+          {
+            user_id: userId,
+            inbox_item_id: cap2InboxId,
+            title: "Plan a small family getaway?",
+            context: "Captured:\nNot huge — just something to look forward to. But I don’t want money stress.",
+            status: "decided",
+            origin: "capture",
+            framed_at: new Date().toISOString(),
+            decided_at: toIsoLocalPlusDays(-5, 9, 0),
+            review_at: toIsoLocalPlusDays(30, 9, 0),
+            pinned: false,
+            user_reasoning: "We’ll keep it small and use the getaway goal to prevent guilt/spend drift.",
+          },
+          {
+            user_id: userId,
+            inbox_item_id: null,
+            title: "Close out the old storage unit",
+            context: "Decision completed and released.",
+            status: "chapter",
+            origin: "manual",
+            framed_at: toIsoLocalPlusDays(-40, 9, 0),
+            decided_at: toIsoLocalPlusDays(-35, 9, 0),
+            review_at: null,
+            chaptered_at: toIsoLocalPlusDays(-1, 9, 0),
+            pinned: false,
+          },
+        ],
+        "id"
+      );
+
+      const d1 = String(decisions[0]?.id);
+      const d2 = String(decisions[1]?.id);
+      const d3 = String(decisions[2]?.id);
+
+      // Mirror capture->decision linkage (so capture is "sent"/done)
+      setStatusLine("Linking captures to decisions…");
+      {
+        const res = await (supabase as any)
+          .from("decision_inbox")
+          .update({ framed_decision_id: d1, status: "done" })
+          .eq("user_id", userId)
+          .eq("id", cap1InboxId);
+        if (res?.error) throw res.error;
+      }
+      {
+        const res = await (supabase as any)
+          .from("decision_inbox")
+          .update({ framed_decision_id: d2, status: "done" })
+          .eq("user_id", userId)
+          .eq("id", cap2InboxId);
+        if (res?.error) throw res.error;
+      }
+
+      // Decision domains (no id) — track by decision ids for reset
+      setStatusLine("Seeding decision domains…");
+      {
+        const res = await (supabase as any).from("decision_domains").insert([
+          { user_id: userId, decision_id: d1, domain_id: moneyDomainId },
+          { user_id: userId, decision_id: d2, domain_id: familyDomainId },
+          { user_id: userId, decision_id: d3, domain_id: familyDomainId },
+        ]);
+        if (res?.error) throw res.error;
+        remember("decision_domains:by_decision_id", [d1, d2, d3]);
+      }
+
+      // Constellation items (no id) — track by decision ids for reset
+      setStatusLine("Seeding constellation items…");
+      {
+        const res = await (supabase as any).from("constellation_items").insert([
+          { user_id: userId, constellation_id: cashConstId, decision_id: d1 },
+          { user_id: userId, constellation_id: homeConstId, decision_id: d2 },
+        ]);
+        if (res?.error) throw res.error;
+        remember("constellation_items:by_decision_id", [d1, d2]);
+      }
+
+      // Notes + Summary + Links
+      setStatusLine("Seeding decision notes & summaries…");
+      await insertReturningIds(
+        "decision_notes",
+        [
+          { user_id: userId, decision_id: d1, kind: "note", body: "What would ‘on track’ mean for us? (demo note)" },
+          { user_id: userId, decision_id: d2, kind: "note", body: "Plan: small trip, off-peak, cap spend. (demo note)" },
+        ],
+        "id"
+      );
+
+      await insertReturningIds(
+        "decision_summaries",
+        [{ user_id: userId, decision_id: d2, summary_text: "Decided: plan a small getaway; use the goal to keep it calm and contained." }],
+        "id"
+      );
+
+      await insertReturningIds("decision_links", [{ user_id: userId, from_decision_id: d1, to_decision_id: d2, label: "informs" }], "id");
+
+      // Save seed run record at the end (single write)
+      setStatusLine("Saving demo seed run…");
+      const saved = await upsertSeedRun(userId, {
+        dataset_version: "v1",
+        run_id: runId,
+        created_ids,
+      });
+      setSeedRun(saved);
 
       setStatus("done");
       setStatusLine("Seed complete ✅");
-      notify({ title: "Seed complete", description: "Demo data added (accounts, income, bills, inbox items)." });
+      notify({ title: "Seed complete", description: "Full demo dataset added across Money + Decide + Family + Capture." });
     } catch (e: any) {
       const msg = e?.message ?? "Seed failed.";
       setStatus("error");
       setStatusLine(msg);
       notify({ title: "Seed failed", description: msg });
+    } finally {
+      await refreshSeedRun();
     }
-  }
-
-  async function runSeedThenEngine() {
-    if (!userId) return;
-    await runSeed();
-    notify({ title: "Next step", description: "Go to Engine and click Run v1 / v2 when you want." });
   }
 
   const statusChip =
     status === "working" ? <Chip>Working…</Chip> : status === "done" ? <Chip>Done</Chip> : status === "error" ? <Chip>Error</Chip> : <Chip>Idle</Chip>;
 
   return (
-    <Page title="Seed / Reset" subtitle="Testing harness. Creates repeatable demo data or clears only your own rows. Hidden from navigation by default.">
+    <Page title="Seed / Reset" subtitle="Testing harness. Creates repeatable demo data, or clears only the demo rows for your user.">
       <div className="grid gap-4">
         <Card>
           <CardContent>
             <div className="flex items-center justify-between gap-3 flex-wrap">
               <div className="flex items-center gap-2 flex-wrap">
-                {loading ? <Chip>Loading…</Chip> : <Chip>Ready</Chip>}
+                {loadingAuth ? <Chip>Loading…</Chip> : <Chip>Ready</Chip>}
                 {userId ? <Badge>Signed in</Badge> : <Badge>Signed out</Badge>}
                 {statusChip}
                 {statusLine ? <Chip>{statusLine}</Chip> : null}
@@ -273,32 +889,41 @@ export default function SeedPage() {
                 <Chip>Route: /seed</Chip>
               </div>
             </div>
+
+            {userId ? (
+              <div className="mt-3 text-xs text-zinc-600">
+                Demo seed run: {hasSeeded ? "present" : "none"} • Total seeded rows tracked: {totalSeededCount}
+              </div>
+            ) : null}
           </CardContent>
         </Card>
 
         <Card>
           <CardContent>
-            <div className="font-semibold mb-2">Seed demo data</div>
+            <div className="font-semibold mb-2">Seed full demo dataset (V1)</div>
             <div className="text-sm text-zinc-600">
-              Adds a small, realistic dataset (accounts, income, bills, and a couple Inbox items). Safe to run multiple times (you’ll just get more rows).
+              Populates Money, Decide, Review, Chapters, Family, and Capture with a coherent test “world”. It is idempotent: if already seeded, it won’t
+              duplicate.
             </div>
 
             <div className="mt-3 flex flex-wrap gap-2">
-              <Button onClick={runSeed} disabled={!userId || loading || status === "working"}>
-                Seed demo data
+              <Button onClick={runSeedFull} disabled={!userId || loadingAuth || status === "working"}>
+                Seed full demo dataset
               </Button>
-              <Button variant="secondary" onClick={runSeedThenEngine} disabled={!userId || loading || status === "working"}>
-                Seed + go run Engine manually
-              </Button>
+              {hasSeeded ? <Chip>Seeded</Chip> : <Chip>Not seeded</Chip>}
+            </div>
+
+            <div className="mt-2 text-xs text-zinc-500">
+              Requires <code>demo_seed_runs</code> table. If missing, seeding will fail safely with an error.
             </div>
           </CardContent>
         </Card>
 
         <Card>
           <CardContent>
-            <div className="font-semibold mb-2">Reset my data (destructive)</div>
+            <div className="font-semibold mb-2">Reset demo dataset (safe)</div>
             <div className="text-sm text-zinc-600">
-              Deletes only rows belonging to your <code>user_id</code> across the V1 tables. Requires explicit typed confirmation.
+              Deletes only rows created by the demo seed run (tracked IDs). Requires explicit typed confirmation.
             </div>
 
             <div className="mt-3 grid gap-3">
@@ -313,14 +938,15 @@ export default function SeedPage() {
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
-                <Button onClick={runReset} disabled={!userId || loading || status === "working" || !resetAllowed}>
-                  Reset my data
+                <Button onClick={runReset} disabled={!userId || loadingAuth || status === "working" || !resetAllowed}>
+                  Reset demo dataset
                 </Button>
                 {!resetAllowed ? <Chip>Confirmation required</Chip> : <Chip>Enabled</Chip>}
               </div>
 
               <div className="text-xs text-zinc-500">
-                Note: Reset order is chosen to respect likely foreign keys (payments → bills → income → accounts → decisions → inbox). If a table blocks deletion via policy, the reset will stop and show the error.
+                Reset order respects likely foreign keys (goal updates → goal accounts → goals → transactions → payments → bills → income → decisions graph → inbox
+                → family → accounts).
               </div>
             </div>
           </CardContent>
