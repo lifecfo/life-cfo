@@ -36,7 +36,6 @@ function toIsoLocalPlusDays(days: number, hour = 9, minute = 0) {
 function toDatePlusDays(days: number) {
   const d = new Date();
   d.setDate(d.getDate() + days);
-  // YYYY-MM-DD
   const yyyy = d.getFullYear();
   const mm = String(d.getMonth() + 1).padStart(2, "0");
   const dd = String(d.getDate()).padStart(2, "0");
@@ -187,7 +186,6 @@ export default function SeedPage() {
 
       const dbAny = supabase as any;
 
-      // Helper: delete by tracked ids (and user_id) where the table has an `id` column
       const delByIds = async (table: string, idField = "id") => {
         const arr = ids[table];
         if (!arr || arr.length === 0) return;
@@ -195,7 +193,6 @@ export default function SeedPage() {
         if (res?.error) throw res.error;
       };
 
-      // --- Delete in FK-safe-ish order ---
       setStatusLine("Deleting money goal updates…");
       await delByIds("money_goal_updates");
 
@@ -229,7 +226,6 @@ export default function SeedPage() {
       setStatusLine("Deleting categories…");
       await delByIds("categories");
 
-      // Decisions graph (some tables may or may not exist in your schema)
       setStatusLine("Deleting decision summaries…");
       await delByIds("decision_summaries");
       setStatusLine("Deleting decision notes…");
@@ -237,7 +233,6 @@ export default function SeedPage() {
       setStatusLine("Deleting decision links…");
       await delByIds("decision_links");
 
-      // decision_domains has no id in some schemas; delete by decision_id list if we tracked it
       setStatusLine("Deleting decision domains…");
       const ddByDecision = ids["decision_domains:by_decision_id"];
       if (ddByDecision?.length) {
@@ -245,7 +240,6 @@ export default function SeedPage() {
         if (res?.error) throw res.error;
       }
 
-      // constellation_items has no id; delete by decision_id list if present
       setStatusLine("Deleting constellation items…");
       const ciByDecision = ids["constellation_items:by_decision_id"];
       if (ciByDecision?.length) {
@@ -253,7 +247,6 @@ export default function SeedPage() {
         if (res?.error) throw res.error;
       }
 
-      // domain_constellations has no id; delete by domain_id list if present
       setStatusLine("Deleting domain constellations…");
       const dcByDomain = ids["domain_constellations:by_domain_id"];
       if (dcByDomain?.length) {
@@ -273,18 +266,15 @@ export default function SeedPage() {
       setStatusLine("Deleting decision inbox…");
       await delByIds("decision_inbox");
 
-      // Family
       setStatusLine("Deleting pets…");
       await delByIds("pets");
 
       setStatusLine("Deleting family members…");
       await delByIds("family_members");
 
-      // Accounts last
       setStatusLine("Deleting accounts…");
       await delByIds("accounts");
 
-      // Clear the run record
       setStatusLine("Clearing demo seed run record…");
       const clr = await upsertSeedRun(userId, { created_ids: {} });
       setSeedRun(clr);
@@ -330,11 +320,9 @@ export default function SeedPage() {
         created_ids[key].push(...newIds);
       };
 
-      // ✅ Stop TS2589 by breaking the chain and casting to any
       const insertReturningIds = async (table: string, rows: any[], selectCols: string) => {
         const q = dbAny.from(table).insert(rows).select(selectCols) as any;
         const res = (await q) as any;
-
         if (res?.error) throw res.error;
 
         const data = (res?.data ?? []) as any[];
@@ -343,17 +331,65 @@ export default function SeedPage() {
         return data;
       };
 
-      // ✅ Idempotent upsert (used only where needed to prevent seed abort)
-      const upsertReturningIds = async (table: string, rows: any[], selectCols: string, onConflict: string) => {
-        const q = dbAny.from(table).upsert(rows, { onConflict }).select(selectCols) as any;
-        const res = (await q) as any;
+      // ✅ NEW: idempotent ensure-by-name (no ON CONFLICT required)
+      const ensureByName = async (table: string, rows: any[], nameField = "name") => {
+        const names = rows.map((r) => String(r?.[nameField] ?? "")).filter(Boolean);
+        if (names.length === 0) return [];
 
+        // 1) fetch existing
+        const existingRes = await dbAny
+          .from(table)
+          .select(`id,${nameField}`)
+          .eq("user_id", userId)
+          .in(nameField, names);
+
+        if (existingRes?.error) throw existingRes.error;
+
+        const existingRows: any[] = existingRes?.data ?? [];
+        const existingByName = new Map(existingRows.map((r) => [String(r?.[nameField]), r]));
+
+        // 2) insert missing
+        const missing = rows.filter((r) => !existingByName.has(String(r?.[nameField])));
+        let inserted: any[] = [];
+        if (missing.length) {
+          const insertedRes = await dbAny.from(table).insert(missing).select(`id,${nameField}`);
+          if (insertedRes?.error) throw insertedRes.error;
+          inserted = insertedRes?.data ?? [];
+
+          // track only what we actually created (safe reset)
+          const newIds = inserted.map((r: any) => String(r?.id)).filter(Boolean);
+          if (newIds.length) remember(table, newIds);
+
+          for (const r of inserted) existingByName.set(String(r?.[nameField]), r);
+        }
+
+        // 3) return in the same order as requested rows
+        return rows.map((r) => existingByName.get(String(r?.[nameField]))).filter(Boolean);
+      };
+
+      // ✅ NEW: idempotent join insert for domain_constellations
+      const ensureDomainConstellations = async (pairs: { domain_id: string; constellation_id: string }[]) => {
+        if (!pairs.length) return;
+
+        const domainIds = Array.from(new Set(pairs.map((p) => p.domain_id))).filter(Boolean);
+        const constIds = Array.from(new Set(pairs.map((p) => p.constellation_id))).filter(Boolean);
+
+        const existingRes = await dbAny
+          .from("domain_constellations")
+          .select("domain_id,constellation_id")
+          .eq("user_id", userId)
+          .in("domain_id", domainIds)
+          .in("constellation_id", constIds);
+
+        if (existingRes?.error) throw existingRes.error;
+
+        const existing = new Set((existingRes?.data ?? []).map((r: any) => `${r.domain_id}::${r.constellation_id}`));
+        const missing = pairs.filter((p) => !existing.has(`${p.domain_id}::${p.constellation_id}`));
+
+        if (!missing.length) return;
+
+        const res = await dbAny.from("domain_constellations").insert(missing.map((m) => ({ user_id: userId, ...m })));
         if (res?.error) throw res.error;
-
-        const data = (res?.data ?? []) as any[];
-        const ids = data.map((r) => String(r?.id)).filter(Boolean);
-        remember(table, ids);
-        return data;
       };
 
       // 1) FAMILY
@@ -630,42 +666,35 @@ export default function SeedPage() {
         "id"
       );
 
-      // 9) DOMAINS + CONSTELLATIONS
+      // 9) DOMAINS + CONSTELLATIONS (FIXED: NO upsert / ON CONFLICT)
       setStatusLine("Seeding domains & constellations…");
 
-      // ✅ FIX: domains must be idempotent (unique: user_id + name)
-      const domains = await upsertReturningIds(
+      const domains = await ensureByName(
         "domains",
         [
           { user_id: userId, name: "Family", emoji: "🏡", sort_order: 10 },
           { user_id: userId, name: "Money", emoji: "💸", sort_order: 20 },
           { user_id: userId, name: "Health", emoji: "🌿", sort_order: 30 },
         ],
-        "id,name",
-        "user_id,name"
+        "name"
       );
 
-      // ✅ FIX: resolve IDs by name (order not guaranteed)
       const familyDomainId = String((domains as any[]).find((d) => d?.name === "Family")?.id);
       const moneyDomainId = String((domains as any[]).find((d) => d?.name === "Money")?.id);
 
-      // ✅ FIX: hard fail if we can't resolve (prevents silent "undefined" IDs)
       if (!familyDomainId || familyDomainId === "undefined" || !moneyDomainId || moneyDomainId === "undefined") {
-        throw new Error("Seeding failed: could not resolve Family/Money domain IDs.");
+        throw new Error("Seeding failed: could not resolve domain IDs.");
       }
 
-      // ✅ FIX: constellations must be idempotent (unique: user_id + name)
-      const constellations = await upsertReturningIds(
+      const constellations = await ensureByName(
         "constellations",
         [
           { user_id: userId, name: "Home & stability", emoji: "🏠", sort_order: 10 },
           { user_id: userId, name: "Cashflow", emoji: "📈", sort_order: 20 },
         ],
-        "id,name",
-        "user_id,name"
+        "name"
       );
 
-      // ✅ FIX: resolve IDs by name (order not guaranteed)
       const homeConstId = String((constellations as any[]).find((c) => c?.name === "Home & stability")?.id);
       const cashConstId = String((constellations as any[]).find((c) => c?.name === "Cashflow")?.id);
 
@@ -673,22 +702,14 @@ export default function SeedPage() {
         throw new Error("Seeding failed: could not resolve constellation IDs.");
       }
 
-      // ✅ FIX: domain_constellations should be idempotent too (prevents abort before saving demo_seed_runs)
-      {
-        const res = await (supabase as any)
-          .from("domain_constellations")
-          .upsert(
-            [
-              { user_id: userId, domain_id: familyDomainId, constellation_id: homeConstId },
-              { user_id: userId, domain_id: moneyDomainId, constellation_id: cashConstId },
-            ],
-            { onConflict: "user_id,domain_id,constellation_id" }
-          );
-        if (res?.error) throw res.error;
+      // domain_constellations (no id) — idempotent insert
+      await ensureDomainConstellations([
+        { domain_id: familyDomainId, constellation_id: homeConstId },
+        { domain_id: moneyDomainId, constellation_id: cashConstId },
+      ]);
 
-        // Track by domain ids for reset (same as before)
-        remember("domain_constellations:by_domain_id", [familyDomainId, moneyDomainId]);
-      }
+      // track by domain ids for reset (unchanged)
+      remember("domain_constellations:by_domain_id", [familyDomainId, moneyDomainId]);
 
       // 10) CAPTURE / INBOX
       setStatusLine("Seeding captures & inbox…");
@@ -808,7 +829,6 @@ export default function SeedPage() {
       const d2 = String(decisions[1]?.id);
       const d3 = String(decisions[2]?.id);
 
-      // Mirror capture->decision linkage (so capture is "sent"/done)
       setStatusLine("Linking captures to decisions…");
       {
         const res = await (supabase as any)
@@ -827,7 +847,6 @@ export default function SeedPage() {
         if (res?.error) throw res.error;
       }
 
-      // Decision domains (no id) — track by decision ids for reset
       setStatusLine("Seeding decision domains…");
       {
         const res = await (supabase as any).from("decision_domains").insert([
@@ -839,7 +858,6 @@ export default function SeedPage() {
         remember("decision_domains:by_decision_id", [d1, d2, d3]);
       }
 
-      // Constellation items (no id) — track by decision ids for reset
       setStatusLine("Seeding constellation items…");
       {
         const res = await (supabase as any).from("constellation_items").insert([
@@ -850,7 +868,6 @@ export default function SeedPage() {
         remember("constellation_items:by_decision_id", [d1, d2]);
       }
 
-      // Notes + Summary + Links
       setStatusLine("Seeding decision notes & summaries…");
       await insertReturningIds(
         "decision_notes",
@@ -869,7 +886,6 @@ export default function SeedPage() {
 
       await insertReturningIds("decision_links", [{ user_id: userId, from_decision_id: d1, to_decision_id: d2, label: "informs" }], "id");
 
-      // Save seed run record at the end (single write)
       setStatusLine("Saving demo seed run…");
       const saved = await upsertSeedRun(userId, {
         dataset_version: "v1",
@@ -923,8 +939,7 @@ export default function SeedPage() {
           <CardContent>
             <div className="font-semibold mb-2">Seed full demo dataset (V1)</div>
             <div className="text-sm text-zinc-600">
-              Populates Money, Decide, Review, Chapters, Family, and Capture with a coherent test “world”. It is idempotent: if already seeded, it won’t
-              duplicate.
+              Populates Money, Decide, Review, Chapters, Family, and Capture with a coherent test “world”. It is idempotent: if already seeded, it won’t duplicate.
             </div>
 
             <div className="mt-3 flex flex-wrap gap-2">
@@ -966,8 +981,7 @@ export default function SeedPage() {
               </div>
 
               <div className="text-xs text-zinc-500">
-                Reset order respects likely foreign keys (goal updates → goal accounts → goals → transactions → payments → bills → income → decisions graph → inbox
-                → family → accounts).
+                Reset order respects likely foreign keys (goal updates → goal accounts → goals → transactions → payments → bills → income → decisions graph → inbox → family → accounts).
               </div>
             </div>
           </CardContent>
