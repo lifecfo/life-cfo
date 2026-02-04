@@ -415,15 +415,22 @@ export default function SeedPage() {
       // 1) FAMILY
       setStatusLine("Seeding family…");
       await insertReturningIds(
-        "family_members",
-        [
-          { user_id: userId, name: "Emily", relationship: "self", birth_year: 1990, about: "Primary user (demo)." },
-          { user_id: userId, name: "Ryan", relationship: "partner", birth_year: 1988, about: "Household partner (demo)." },
-          { user_id: userId, name: "Simba", relationship: "child", birth_year: 2022, about: "Child (demo)." },
-          { user_id: userId, name: "Hannah", relationship: "child", birth_year: 2025, about: "Child (demo)." },
-        ],
-        "id"
-      );
+      "family_members",
+      [
+        { user_id: userId, name: "Alex", relationship: "self", birth_year: 1990, about: "Primary user (demo)." },
+        { user_id: userId, name: "Jordan", relationship: "partner", birth_year: 1988, about: "Household partner (demo)." },
+        { user_id: userId, name: "Casey", relationship: "child", birth_year: 2019, about: "Child (demo)." },
+        { user_id: userId, name: "Riley", relationship: "child", birth_year: 2022, about: "Child (demo)." },
+        { user_id: userId, name: "Taylor", relationship: "child", birth_year: 2025, about: "Child (demo)." },
+      ],
+      "id"
+    );
+
+    await insertReturningIds(
+      "pets",
+      [{ user_id: userId, name: "Buddy", type: "dog", notes: "Family dog (demo)." }],
+      "id"
+    );
 
       await insertReturningIds("pets", [{ user_id: userId, name: "Milo", type: "cat", notes: "Friendly household cat (demo)." }], "id");
 
@@ -448,8 +455,8 @@ export default function SeedPage() {
       await insertReturningIds(
         "recurring_income",
         [
-          { user_id: userId, name: "Ryan salary", amount_cents: 2400_00, currency: "AUD", cadence: "fortnightly", next_pay_at: toIsoLocalPlusDays(3, 9, 0), active: true, notes: "Main household income (demo)." },
-          { user_id: userId, name: "Side income", amount_cents: 450_00, currency: "AUD", cadence: "monthly", next_pay_at: toIsoLocalPlusDays(12, 9, 0), active: true, notes: "Small monthly income (demo)." },
+          { user_id: userId, name: "Primary income", amount_cents: 2400_00, currency: "AUD", cadence: "fortnightly", next_pay_at: toIsoLocalPlusDays(3, 9, 0), active: true, notes: "Main household income (demo)." },
+          { user_id: userId, name: "Secondary income", amount_cents: 450_00, currency: "AUD", cadence: "monthly", next_pay_at: toIsoLocalPlusDays(12, 9, 0), active: true, notes: "Small monthly income (demo)." },
         ],
         "id"
       );
