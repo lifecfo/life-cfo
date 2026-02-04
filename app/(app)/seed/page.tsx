@@ -52,6 +52,19 @@ function todayDate() {
   return `${yyyy}-${mm}-${dd}`;
 }
 
+// ----- UUID safety: never allow "undefined" into FK inserts -----
+function isUuid(v: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
+}
+
+function mustUuid(v: unknown, label: string) {
+  const s = typeof v === "string" ? v : "";
+  if (!s || s === "undefined" || !isUuid(s)) {
+    throw new Error(`Seed failed — missing/invalid ${label} (got: ${String(v)})`);
+  }
+  return s;
+}
+
 async function upsertSeedRun(userId: string, patch: Partial<SeedRunRow> & { created_ids?: Record<string, string[]> }) {
   const base: Partial<SeedRunRow> = {
     user_id: userId,
@@ -173,32 +186,18 @@ export default function SeedPage() {
       .from("decisions")
       .delete()
       .eq("user_id", uid)
-      .in("title", [
-        "Can we afford private school next year?",
-        "Plan a 3-week overseas holiday (next year)?",
-        "Close out the old subscription bundle",
-      ]);
+      .in("title", ["Can we afford private school next year?", "Plan a 3-week overseas holiday (next year)?", "Close out the old subscription bundle"]);
 
     await dbAny
       .from("decision_inbox")
       .delete()
       .eq("user_id", uid)
-      .in("title", [
-        "Are we on track financially?",
-        "Private school: what would it take?",
-        "Overseas holiday: can we do it calmly?",
-        "Bills due soon",
-        "Review goals progress",
-      ]);
+      .in("title", ["Are we on track financially?", "Private school: what would it take?", "Overseas holiday: can we do it calmly?", "Bills due soon", "Review goals progress"]);
 
     // Money (signature names)
     await dbAny.from("money_goal_updates").delete().eq("user_id", uid);
     await dbAny.from("money_goal_accounts").delete().eq("user_id", uid);
-    await dbAny
-      .from("money_goals")
-      .delete()
-      .eq("user_id", uid)
-      .in("title", ["Emergency buffer", "Overseas holiday", "Private school buffer"]);
+    await dbAny.from("money_goals").delete().eq("user_id", uid).in("title", ["Emergency buffer", "Overseas holiday", "Private school buffer"]);
 
     await dbAny.from("bill_payments").delete().eq("user_id", uid);
     await dbAny
@@ -406,20 +405,8 @@ export default function SeedPage() {
       await insertReturningIds(
         "family_members",
         [
-          {
-            user_id: userId,
-            name: "Alex",
-            relationship: "self",
-            birth_year: 1991,
-            about: "Stay-at-home mum (previously an engineer). Mid 30s household (demo).",
-          },
-          {
-            user_id: userId,
-            name: "Jordan",
-            relationship: "partner",
-            birth_year: 1989,
-            about: "Professional dad (engineer/doctor type role). Mid 30s household (demo).",
-          },
+          { user_id: userId, name: "Alex", relationship: "self", birth_year: 1991, about: "Stay-at-home mum (previously an engineer). Mid 30s household (demo)." },
+          { user_id: userId, name: "Jordan", relationship: "partner", birth_year: 1989, about: "Professional dad (engineer/doctor type role). Mid 30s household (demo)." },
           { user_id: userId, name: "Casey", relationship: "child", birth_year: 2017, about: "Child (demo)." },
           { user_id: userId, name: "Riley", relationship: "child", birth_year: 2020, about: "Child (demo)." },
           { user_id: userId, name: "Taylor", relationship: "child", birth_year: 2023, about: "Child (demo)." },
@@ -430,77 +417,32 @@ export default function SeedPage() {
       await insertReturningIds("pets", [{ user_id: userId, name: "Buddy", type: "dog", notes: "Family dog (demo)." }], "id");
 
       // -----------------------------
-      // 2) ACCOUNTS (cash is a bit healthier)
+      // 2) ACCOUNTS
       // -----------------------------
       setStatusLine("Seeding accounts…");
       const accounts = await insertReturningIds(
         "accounts",
         [
-          {
-            user_id: userId,
-            name: "Everyday Spending",
-            provider: "manual",
-            type: "cash",
-            status: "active",
-            archived: false,
-            current_balance_cents: 6200_00,
-            currency: "AUD",
-          },
-          {
-            user_id: userId,
-            name: "Bills Buffer",
-            provider: "manual",
-            type: "cash",
-            status: "active",
-            archived: false,
-            current_balance_cents: 12500_00,
-            currency: "AUD",
-          },
-          {
-            user_id: userId,
-            name: "Savings",
-            provider: "manual",
-            type: "cash",
-            status: "active",
-            archived: false,
-            current_balance_cents: 28000_00,
-            currency: "AUD",
-          },
+          { user_id: userId, name: "Everyday Spending", provider: "manual", type: "cash", status: "active", archived: false, current_balance_cents: 6200_00, currency: "AUD" },
+          { user_id: userId, name: "Bills Buffer", provider: "manual", type: "cash", status: "active", archived: false, current_balance_cents: 12500_00, currency: "AUD" },
+          { user_id: userId, name: "Savings", provider: "manual", type: "cash", status: "active", archived: false, current_balance_cents: 28000_00, currency: "AUD" },
         ],
         "id"
       );
 
-      const everydayId = String(accounts[0]?.id);
-      const billsBufferId = String(accounts[1]?.id);
-      const savingsId = String(accounts[2]?.id);
+      const everydayId = mustUuid(accounts[0]?.id, "Everyday account id");
+      const billsBufferId = mustUuid(accounts[1]?.id, "Bills Buffer account id");
+      const savingsId = mustUuid(accounts[2]?.id, "Savings account id");
 
       // -----------------------------
-      // 3) INCOME (primary $5,400/fortnight)
+      // 3) INCOME
       // -----------------------------
       setStatusLine("Seeding income…");
       await insertReturningIds(
         "recurring_income",
         [
-          {
-            user_id: userId,
-            name: "Primary income",
-            amount_cents: 5400_00,
-            currency: "AUD",
-            cadence: "fortnightly",
-            next_pay_at: toIsoLocalPlusDays(3, 9, 0),
-            active: true,
-            notes: "Professional salary (demo).",
-          },
-          {
-            user_id: userId,
-            name: "Secondary income",
-            amount_cents: 1200_00,
-            currency: "AUD",
-            cadence: "monthly",
-            next_pay_at: toIsoLocalPlusDays(12, 9, 0),
-            active: true,
-            notes: "Small side income (demo).",
-          },
+          { user_id: userId, name: "Primary income", amount_cents: 5400_00, currency: "AUD", cadence: "fortnightly", next_pay_at: toIsoLocalPlusDays(3, 9, 0), active: true, notes: "Professional salary (demo)." },
+          { user_id: userId, name: "Secondary income", amount_cents: 1200_00, currency: "AUD", cadence: "monthly", next_pay_at: toIsoLocalPlusDays(12, 9, 0), active: true, notes: "Small side income (demo)." },
         ],
         "id"
       );
@@ -509,114 +451,40 @@ export default function SeedPage() {
       // 4) BILLS + PAYMENTS (includes 10% tithe)
       // -----------------------------
       setStatusLine("Seeding bills…");
-      const recurringBills = await insertReturningIds(
+      await insertReturningIds(
         "recurring_bills",
         [
-          {
-            user_id: userId,
-            name: "Internet",
-            amount_cents: 95_00,
-            currency: "AUD",
-            cadence: "monthly",
-            next_due_at: toIsoLocalPlusDays(4, 9, 0),
-            autopay: true,
-            active: true,
-            notes: "Autopay (demo).",
-          },
-          {
-            user_id: userId,
-            name: "Electricity",
-            amount_cents: 260_00,
-            currency: "AUD",
-            cadence: "monthly",
-            next_due_at: toIsoLocalPlusDays(9, 9, 0),
-            autopay: false,
-            active: true,
-            notes: "Manual payment (demo).",
-          },
-          {
-            user_id: userId,
-            name: "Home insurance",
-            amount_cents: 180_00,
-            currency: "AUD",
-            cadence: "monthly",
-            next_due_at: toIsoLocalPlusDays(6, 9, 0),
-            autopay: true,
-            active: true,
-            notes: "Autopay (demo).",
-          },
-          {
-            user_id: userId,
-            name: "Mortgage repayment",
-            amount_cents: 4200_00,
-            currency: "AUD",
-            cadence: "monthly",
-            next_due_at: toIsoLocalPlusDays(5, 9, 0),
-            autopay: true,
-            active: true,
-            notes: "Home loan repayment (demo).",
-          },
-          {
-            user_id: userId,
-            name: "Private school fees (est.)",
-            amount_cents: 1800_00,
-            currency: "AUD",
-            cadence: "monthly",
-            next_due_at: toIsoLocalPlusDays(15, 9, 0),
-            autopay: false,
-            active: true,
-            notes: "Estimated monthly equivalent (demo).",
-          },
-          {
-            user_id: userId,
-            name: "Tithe (10%)",
-            amount_cents: 1170_00,
-            currency: "AUD",
-            cadence: "monthly",
-            next_due_at: toIsoLocalPlusDays(2, 9, 0),
-            autopay: true,
-            active: true,
-            notes: "Giving to church (demo).",
-          },
+          { user_id: userId, name: "Internet", amount_cents: 95_00, currency: "AUD", cadence: "monthly", next_due_at: toIsoLocalPlusDays(4, 9, 0), autopay: true, active: true, notes: "Autopay (demo)." },
+          { user_id: userId, name: "Electricity", amount_cents: 260_00, currency: "AUD", cadence: "monthly", next_due_at: toIsoLocalPlusDays(9, 9, 0), autopay: false, active: true, notes: "Manual payment (demo)." },
+          { user_id: userId, name: "Home insurance", amount_cents: 180_00, currency: "AUD", cadence: "monthly", next_due_at: toIsoLocalPlusDays(6, 9, 0), autopay: true, active: true, notes: "Autopay (demo)." },
+          { user_id: userId, name: "Mortgage repayment", amount_cents: 4200_00, currency: "AUD", cadence: "monthly", next_due_at: toIsoLocalPlusDays(5, 9, 0), autopay: true, active: true, notes: "Home loan repayment (demo)." },
+          { user_id: userId, name: "Private school fees (est.)", amount_cents: 1800_00, currency: "AUD", cadence: "monthly", next_due_at: toIsoLocalPlusDays(15, 9, 0), autopay: false, active: true, notes: "Estimated monthly equivalent (demo)." },
+          { user_id: userId, name: "Tithe (10%)", amount_cents: 1170_00, currency: "AUD", cadence: "monthly", next_due_at: toIsoLocalPlusDays(2, 9, 0), autopay: true, active: true, notes: "Giving to church (demo)." },
         ],
         "id"
       );
 
-      setStatusLine("Seeding bill payments…");
-      const internetBillId = String(recurringBills.find((b: any) => b.name === "Internet")?.id);
-      const mortgageBillId = String(recurringBills.find((b: any) => b.name === "Mortgage repayment")?.id);
-      const titheBillId = String(recurringBills.find((b: any) => b.name === "Tithe (10%)")?.id);
+      // Fetch IDs by name so we never end up with "undefined" FK values
+      setStatusLine("Resolving bill IDs…");
+      const { data: billIds, error: billIdsErr } = await supabase
+        .from("recurring_bills")
+        .select("id,name")
+        .eq("user_id", userId)
+        .in("name", ["Internet", "Mortgage repayment", "Tithe (10%)"]);
 
+      if (billIdsErr) throw billIdsErr;
+
+      const internetBillId = mustUuid(billIds?.find((b: any) => b.name === "Internet")?.id, "Internet bill id");
+      const mortgageBillId = mustUuid(billIds?.find((b: any) => b.name === "Mortgage repayment")?.id, "Mortgage repayment bill id");
+      const titheBillId = mustUuid(billIds?.find((b: any) => b.name === "Tithe (10%)")?.id, "Tithe bill id");
+
+      setStatusLine("Seeding bill payments…");
       await insertReturningIds(
         "bill_payments",
         [
-          {
-            user_id: userId,
-            bill_id: internetBillId,
-            paid_at: toIsoLocalPlusDays(-15, 9, 0),
-            amount_cents: 95_00,
-            currency: "AUD",
-            note: "Paid (demo)",
-            source: "manual",
-          },
-          {
-            user_id: userId,
-            bill_id: mortgageBillId,
-            paid_at: toIsoLocalPlusDays(-8, 9, 0),
-            amount_cents: 4200_00,
-            currency: "AUD",
-            note: "Paid (demo)",
-            source: "manual",
-          },
-          {
-            user_id: userId,
-            bill_id: titheBillId,
-            paid_at: toIsoLocalPlusDays(-5, 9, 0),
-            amount_cents: 1170_00,
-            currency: "AUD",
-            note: "Paid (demo)",
-            source: "manual",
-          },
+          { user_id: userId, bill_id: internetBillId, paid_at: toIsoLocalPlusDays(-15, 9, 0), amount_cents: 95_00, currency: "AUD", note: "Paid (demo)", source: "manual" },
+          { user_id: userId, bill_id: mortgageBillId, paid_at: toIsoLocalPlusDays(-8, 9, 0), amount_cents: 4200_00, currency: "AUD", note: "Paid (demo)", source: "manual" },
+          { user_id: userId, bill_id: titheBillId, paid_at: toIsoLocalPlusDays(-5, 9, 0), amount_cents: 1170_00, currency: "AUD", note: "Paid (demo)", source: "manual" },
         ],
         "id"
       );
@@ -654,26 +522,22 @@ export default function SeedPage() {
       );
 
       // -----------------------------
-      // 6) TRANSACTIONS (so Home Ask + Money pages feel real)
+      // 6) TRANSACTIONS
       // -----------------------------
       setStatusLine("Seeding transactions…");
       const t = todayDate();
       const txRows = [
-        // Income
         { user_id: userId, account_id: everydayId, date: toDatePlusDays(-3), amount: 5400.0, description: "Salary", merchant: "Employer", category: "Income", pending: false },
         { user_id: userId, account_id: everydayId, date: toDatePlusDays(-15), amount: 5400.0, description: "Salary", merchant: "Employer", category: "Income", pending: false },
 
-        // Everyday spending
         { user_id: userId, account_id: everydayId, date: t, amount: -182.45, description: "Groceries", merchant: "Woolworths", category: "Groceries", pending: false },
         { user_id: userId, account_id: everydayId, date: toDatePlusDays(-1), amount: -64.9, description: "Fuel", merchant: "BP", category: "Transport", pending: false },
         { user_id: userId, account_id: everydayId, date: toDatePlusDays(-2), amount: -28.5, description: "Coffee", merchant: "Cafe", category: "Living", pending: false },
 
-        // Bills buffer items
         { user_id: userId, account_id: billsBufferId, date: toDatePlusDays(-5), amount: -1170.0, description: "Tithe (10%)", merchant: "Church", category: "Giving", pending: false },
         { user_id: userId, account_id: billsBufferId, date: toDatePlusDays(-8), amount: -4200.0, description: "Mortgage repayment", merchant: "Bank", category: "Bills", pending: false },
         { user_id: userId, account_id: billsBufferId, date: toDatePlusDays(-10), amount: -95.0, description: "Internet", merchant: "ISP", category: "Bills", pending: false },
 
-        // Savings / investing moves
         { user_id: userId, account_id: savingsId, date: toDatePlusDays(-4), amount: 1200.0, description: "Secondary income", merchant: "Side income", category: "Income", pending: false },
         { user_id: userId, account_id: savingsId, date: toDatePlusDays(-6), amount: 900.0, description: "Holiday fund transfer", merchant: "Internal", category: "Savings", pending: false },
         { user_id: userId, account_id: savingsId, date: toDatePlusDays(-7), amount: -350.0, description: "Shares top-up", merchant: "Broker", category: "Investing", pending: false },
@@ -681,30 +545,14 @@ export default function SeedPage() {
       await insertReturningIds("transactions", txRows, "id");
 
       // -----------------------------
-      // 7) INVESTMENTS + LIABILITIES (Net Worth page)
+      // 7) INVESTMENTS + LIABILITIES
       // -----------------------------
       setStatusLine("Seeding investments & liabilities…");
       await insertReturningIds(
         "investment_accounts",
         [
-          {
-            user_id: userId,
-            name: "Super (household)",
-            kind: "super",
-            institution: "Example Super",
-            approx_value: 220000,
-            currency: "AUD",
-            notes: "Approx combined household super (demo).",
-          },
-          {
-            user_id: userId,
-            name: "Long-term shares",
-            kind: "shares",
-            institution: "Example Broker",
-            approx_value: 45000,
-            currency: "AUD",
-            notes: "Long-term holdings (demo).",
-          },
+          { user_id: userId, name: "Super (household)", kind: "super", institution: "Example Super", approx_value: 220000, currency: "AUD", notes: "Approx combined household super (demo)." },
+          { user_id: userId, name: "Long-term shares", kind: "shares", institution: "Example Broker", approx_value: 45000, currency: "AUD", notes: "Long-term holdings (demo)." },
         ],
         "id"
       );
@@ -712,14 +560,7 @@ export default function SeedPage() {
       await insertReturningIds(
         "liabilities",
         [
-          {
-            user_id: userId,
-            name: "Home mortgage",
-            current_balance_cents: 800_000_00,
-            currency: "AUD",
-            notes: "Primary residence mortgage (demo).",
-            archived: false,
-          },
+          { user_id: userId, name: "Home mortgage", current_balance_cents: 800_000_00, currency: "AUD", notes: "Primary residence mortgage (demo).", archived: false },
           { user_id: userId, name: "Car loan", current_balance_cents: 14_500_00, currency: "AUD", notes: "Demo liability.", archived: false },
           { user_id: userId, name: "Credit card", current_balance_cents: 800_00, currency: "AUD", notes: "Paid down monthly (demo).", archived: false },
         ],
@@ -727,55 +568,31 @@ export default function SeedPage() {
       );
 
       // -----------------------------
-      // 8) GOALS (Goals page)
+      // 8) GOALS
       // -----------------------------
       setStatusLine("Seeding money goals…");
-      const goals = await insertReturningIds(
+      await insertReturningIds(
         "money_goals",
         [
-          {
-            user_id: userId,
-            title: "Emergency buffer",
-            currency: "AUD",
-            target_cents: 20000_00,
-            current_cents: 12500_00,
-            target_date: toDatePlusDays(120),
-            status: "active",
-            notes: "Keep the household calm if anything unexpected happens (demo).",
-            is_primary: true,
-            sort_order: 10,
-          },
-          {
-            user_id: userId,
-            title: "Overseas holiday",
-            currency: "AUD",
-            target_cents: 15000_00,
-            current_cents: 3500_00,
-            target_date: toDatePlusDays(320),
-            status: "active",
-            notes: "3-week overseas holiday (demo).",
-            is_primary: false,
-            sort_order: 20,
-          },
-          {
-            user_id: userId,
-            title: "Private school buffer",
-            currency: "AUD",
-            target_cents: 10000_00,
-            current_cents: 2200_00,
-            target_date: toDatePlusDays(240),
-            status: "active",
-            notes: "Build a buffer before committing (demo).",
-            is_primary: false,
-            sort_order: 30,
-          },
+          { user_id: userId, title: "Emergency buffer", currency: "AUD", target_cents: 20000_00, current_cents: 12500_00, target_date: toDatePlusDays(120), status: "active", notes: "Keep the household calm if anything unexpected happens (demo).", is_primary: true, sort_order: 10 },
+          { user_id: userId, title: "Overseas holiday", currency: "AUD", target_cents: 15000_00, current_cents: 3500_00, target_date: toDatePlusDays(320), status: "active", notes: "3-week overseas holiday (demo).", is_primary: false, sort_order: 20 },
+          { user_id: userId, title: "Private school buffer", currency: "AUD", target_cents: 10000_00, current_cents: 2200_00, target_date: toDatePlusDays(240), status: "active", notes: "Build a buffer before committing (demo).", is_primary: false, sort_order: 30 },
         ],
         "id"
       );
 
-      const emergencyId = String(goals.find((g: any) => g.title === "Emergency buffer")?.id);
-      const holidayId = String(goals.find((g: any) => g.title === "Overseas holiday")?.id);
-      const schoolId = String(goals.find((g: any) => g.title === "Private school buffer")?.id);
+      setStatusLine("Resolving goal IDs…");
+      const { data: goalIds, error: goalIdsErr } = await supabase
+        .from("money_goals")
+        .select("id,title")
+        .eq("user_id", userId)
+        .in("title", ["Emergency buffer", "Overseas holiday", "Private school buffer"]);
+
+      if (goalIdsErr) throw goalIdsErr;
+
+      const emergencyId = mustUuid(goalIds?.find((g: any) => g.title === "Emergency buffer")?.id, "Emergency buffer goal id");
+      const holidayId = mustUuid(goalIds?.find((g: any) => g.title === "Overseas holiday")?.id, "Overseas holiday goal id");
+      const schoolId = mustUuid(goalIds?.find((g: any) => g.title === "Private school buffer")?.id, "Private school buffer goal id");
 
       setStatusLine("Linking goals to accounts…");
       await insertReturningIds(
@@ -801,88 +618,22 @@ export default function SeedPage() {
       );
 
       // -----------------------------
-      // 9) CAPTURE / INBOX (Capture page)
+      // 9) CAPTURE / INBOX
       // -----------------------------
       setStatusLine("Seeding captures & inbox…");
       const seedInboxRunId = safeUUID();
 
       const inboxRows = [
-        {
-          user_id: userId,
-          run_id: seedInboxRunId,
-          type: "capture",
-          title: "Are we on track financially?",
-          body: "We’re doing okay, but I want clarity: are we actually moving forward month to month?",
-          severity: 2,
-          status: "open",
-          snoozed_until: null,
-          dedupe_key: `seed:${seedInboxRunId}:cap:1`,
-          action_label: null,
-          action_href: null,
-          framed_decision_id: null,
-        },
-        {
-          user_id: userId,
-          run_id: seedInboxRunId,
-          type: "capture",
-          title: "Private school: what would it take?",
-          body: "We want the option for private school, but I don’t want that decision to create stress.",
-          severity: 2,
-          status: "open",
-          snoozed_until: null,
-          dedupe_key: `seed:${seedInboxRunId}:cap:2`,
-          action_label: null,
-          action_href: null,
-          framed_decision_id: null,
-        },
-        {
-          user_id: userId,
-          run_id: seedInboxRunId,
-          type: "capture",
-          title: "Overseas holiday: can we do it calmly?",
-          body: "We’d love a 3-week overseas trip next year, but only if it’s contained and guilt-free.",
-          severity: 1,
-          status: "open",
-          snoozed_until: null,
-          dedupe_key: `seed:${seedInboxRunId}:cap:3`,
-          action_label: null,
-          action_href: null,
-          framed_decision_id: null,
-        },
-        {
-          user_id: userId,
-          run_id: seedInboxRunId,
-          type: "manual",
-          title: "Bills due soon",
-          body: "Quick check: what’s coming up, and what’s autopay vs manual?",
-          severity: 2,
-          status: "open",
-          snoozed_until: null,
-          dedupe_key: `seed:${seedInboxRunId}:manual:1`,
-          action_label: "Open Bills",
-          action_href: "/bills",
-          framed_decision_id: null,
-        },
-        {
-          user_id: userId,
-          run_id: seedInboxRunId,
-          type: "manual",
-          title: "Review goals progress",
-          body: "Is the emergency buffer + holiday fund moving each month?",
-          severity: 1,
-          status: "open",
-          snoozed_until: null,
-          dedupe_key: `seed:${seedInboxRunId}:manual:2`,
-          action_label: "Open Goals",
-          action_href: "/goals",
-          framed_decision_id: null,
-        },
+        { user_id: userId, run_id: seedInboxRunId, type: "capture", title: "Are we on track financially?", body: "We’re doing okay, but I want clarity: are we actually moving forward month to month?", severity: 2, status: "open", snoozed_until: null, dedupe_key: `seed:${seedInboxRunId}:cap:1`, action_label: null, action_href: null, framed_decision_id: null },
+        { user_id: userId, run_id: seedInboxRunId, type: "capture", title: "Private school: what would it take?", body: "We want the option for private school, but I don’t want that decision to create stress.", severity: 2, status: "open", snoozed_until: null, dedupe_key: `seed:${seedInboxRunId}:cap:2`, action_label: null, action_href: null, framed_decision_id: null },
+        { user_id: userId, run_id: seedInboxRunId, type: "capture", title: "Overseas holiday: can we do it calmly?", body: "We’d love a 3-week overseas trip next year, but only if it’s contained and guilt-free.", severity: 1, status: "open", snoozed_until: null, dedupe_key: `seed:${seedInboxRunId}:cap:3`, action_label: null, action_href: null, framed_decision_id: null },
+        { user_id: userId, run_id: seedInboxRunId, type: "manual", title: "Bills due soon", body: "Quick check: what’s coming up, and what’s autopay vs manual?", severity: 2, status: "open", snoozed_until: null, dedupe_key: `seed:${seedInboxRunId}:manual:1`, action_label: "Open Bills", action_href: "/bills", framed_decision_id: null },
+        { user_id: userId, run_id: seedInboxRunId, type: "manual", title: "Review goals progress", body: "Is the emergency buffer + holiday fund moving each month?", severity: 1, status: "open", snoozed_until: null, dedupe_key: `seed:${seedInboxRunId}:manual:2`, action_label: "Open Goals", action_href: "/goals", framed_decision_id: null },
       ];
 
       const inboxCreated = await insertReturningIds("decision_inbox", inboxRows, "id");
-      const cap1InboxId = String(inboxCreated[0]?.id);
-      const cap2InboxId = String(inboxCreated[1]?.id);
-      const cap3InboxId = String(inboxCreated[2]?.id);
+      const cap2InboxId = mustUuid(inboxCreated[1]?.id, "Private school capture inbox id");
+      const cap3InboxId = mustUuid(inboxCreated[2]?.id, "Overseas holiday capture inbox id");
 
       // -----------------------------
       // 10) DECISIONS / REVIEW / CHAPTERS
@@ -895,24 +646,26 @@ export default function SeedPage() {
             user_id: userId,
             inbox_item_id: cap2InboxId,
             title: "Can we afford private school next year?",
-            context: "Captured:\nWe want the option for private school, but I don’t want that decision to create stress.\n\nAssumptions:\n- treat fees as a contained monthly amount\n- preserve emergency buffer",
+            context:
+              "Captured:\nWe want the option for private school, but I don’t want that decision to create stress.\n\nAssumptions:\n- treat fees as a contained monthly amount\n- preserve emergency buffer",
             status: "draft",
             origin: "capture",
             framed_at: new Date().toISOString(),
             decided_at: null,
-            review_at: toIsoLocalPlusDays(21, 9, 0), // Review page
+            review_at: toIsoLocalPlusDays(21, 9, 0),
             pinned: true,
           },
           {
             user_id: userId,
             inbox_item_id: cap3InboxId,
             title: "Plan a 3-week overseas holiday (next year)?",
-            context: "Captured:\nWe’d love a 3-week overseas trip next year, but only if it’s contained and guilt-free.\n\nConstraint:\n- fund it via the holiday goal only",
+            context:
+              "Captured:\nWe’d love a 3-week overseas trip next year, but only if it’s contained and guilt-free.\n\nConstraint:\n- fund it via the holiday goal only",
             status: "decided",
             origin: "capture",
             framed_at: new Date().toISOString(),
             decided_at: toIsoLocalPlusDays(-6, 9, 0),
-            review_at: toIsoLocalPlusDays(60, 9, 0), // Review page
+            review_at: toIsoLocalPlusDays(60, 9, 0),
             pinned: false,
             user_reasoning: "Yes, but only via the goal (no credit card), and we keep the emergency buffer intact.",
           },
@@ -926,32 +679,37 @@ export default function SeedPage() {
             framed_at: toIsoLocalPlusDays(-50, 9, 0),
             decided_at: toIsoLocalPlusDays(-45, 9, 0),
             review_at: null,
-            chaptered_at: toIsoLocalPlusDays(-3, 9, 0), // Chapters page
+            chaptered_at: toIsoLocalPlusDays(-3, 9, 0),
             pinned: false,
           },
         ],
         "id"
       );
 
-      const dDraft = String(decisions[0]?.id);
-      const dHoliday = String(decisions[1]?.id);
+      const dDraft = mustUuid(decisions[0]?.id, "Private school decision id");
+      const dHoliday = mustUuid(decisions[1]?.id, "Holiday decision id");
 
       // Mirror capture->decision linkage (so capture is "sent"/done)
       setStatusLine("Linking captures to decisions…");
-      await (supabase as any)
-        .from("decision_inbox")
-        .update({ framed_decision_id: dDraft, status: "done" })
-        .eq("user_id", userId)
-        .eq("id", cap2InboxId);
+      {
+        const r1 = await (supabase as any)
+          .from("decision_inbox")
+          .update({ framed_decision_id: dDraft, status: "done" })
+          .eq("user_id", userId)
+          .eq("id", cap2InboxId);
+        if (r1?.error) throw r1.error;
+      }
 
-      await (supabase as any)
-        .from("decision_inbox")
-        .update({ framed_decision_id: dHoliday, status: "done" })
-        .eq("user_id", userId)
-        .eq("id", cap3InboxId);
+      {
+        const r2 = await (supabase as any)
+          .from("decision_inbox")
+          .update({ framed_decision_id: dHoliday, status: "done" })
+          .eq("user_id", userId)
+          .eq("id", cap3InboxId);
+        if (r2?.error) throw r2.error;
+      }
 
-      // Decision notes (Thinking page / Framing page surfaces)
-      // ✅ Your CHECK constraint: kind must be 'framing' or 'thinking'
+      // Decision notes (Thinking / Framing)
       setStatusLine("Seeding decision notes & summaries…");
       await insertReturningIds(
         "decision_notes",
@@ -960,13 +718,15 @@ export default function SeedPage() {
             user_id: userId,
             decision_id: dDraft,
             kind: "framing",
-            body: "Define success:\n- emergency buffer stays ≥ $20k target\n- school fees are funded monthly without stress\n- tithing remains consistent",
+            body:
+              "Define success:\n- emergency buffer stays ≥ $20k target\n- school fees are funded monthly without stress\n- tithing remains consistent",
           },
           {
             user_id: userId,
             decision_id: dDraft,
             kind: "thinking",
-            body: "First pass:\n- treat school fees as a fixed monthly bill\n- confirm cashflow margin after mortgage + tithe + essentials\n- if margin is tight, delay 12 months and build buffer",
+            body:
+              "First pass:\n- treat school fees as a fixed monthly bill\n- confirm cashflow margin after mortgage + tithe + essentials\n- if margin is tight, delay 12 months and build buffer",
           },
           {
             user_id: userId,
@@ -984,17 +744,14 @@ export default function SeedPage() {
           {
             user_id: userId,
             decision_id: dHoliday,
-            summary_text: "Decided: plan a 3-week overseas holiday next year, funded only via the holiday goal (no debt), while protecting the emergency buffer.",
+            summary_text:
+              "Decided: plan a 3-week overseas holiday next year, funded only via the holiday goal (no debt), while protecting the emergency buffer.",
           },
         ],
         "id"
       );
 
-      await insertReturningIds(
-        "decision_links",
-        [{ user_id: userId, from_decision_id: dDraft, to_decision_id: dHoliday, label: "constraints" }],
-        "id"
-      );
+      await insertReturningIds("decision_links", [{ user_id: userId, from_decision_id: dDraft, to_decision_id: dHoliday, label: "constraints" }], "id");
 
       // Save seed run record at the end (single write)
       setStatusLine("Saving demo seed run…");
