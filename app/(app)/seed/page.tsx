@@ -654,17 +654,24 @@ export default function SeedPage() {
         throw new Error("Seeding failed: could not resolve Family/Money domain IDs.");
       }
 
-      const constellations = await insertReturningIds(
+      // ✅ FIX: constellations must be idempotent (unique: user_id + name)
+      const constellations = await upsertReturningIds(
         "constellations",
         [
           { user_id: userId, name: "Home & stability", emoji: "🏠", sort_order: 10 },
           { user_id: userId, name: "Cashflow", emoji: "📈", sort_order: 20 },
         ],
-        "id"
+        "id,name",
+        "user_id,name"
       );
 
-      const homeConstId = String(constellations[0]?.id);
-      const cashConstId = String(constellations[1]?.id);
+      // ✅ FIX: resolve IDs by name (order not guaranteed)
+      const homeConstId = String((constellations as any[]).find((c) => c?.name === "Home & stability")?.id);
+      const cashConstId = String((constellations as any[]).find((c) => c?.name === "Cashflow")?.id);
+
+      if (!homeConstId || homeConstId === "undefined" || !cashConstId || cashConstId === "undefined") {
+        throw new Error("Seeding failed: could not resolve constellation IDs.");
+      }
 
       // ✅ FIX: domain_constellations should be idempotent too (prevents abort before saving demo_seed_runs)
       {
