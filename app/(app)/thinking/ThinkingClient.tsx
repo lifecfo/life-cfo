@@ -241,6 +241,25 @@ export default function ThinkingClient() {
 
   const openDraft = useMemo(() => drafts.find((d) => d.id === openId) ?? null, [drafts, openId]);
 
+  const reloadSummaries = async (decisionId: string) => {
+    if (!userId) return;
+
+    const { data, error } = await supabase
+      .from("decision_summaries")
+      .select("id,decision_id,summary_text,created_at")
+      .eq("user_id", userId)
+      .eq("decision_id", decisionId)
+      .order("created_at", { ascending: false })
+      .limit(3);
+
+    if (error) {
+      setSummaries([]);
+      return;
+    }
+
+    setSummaries((data ?? []) as DecisionSummary[]);
+  };
+
   const load = async (opts?: { silent?: boolean }) => {
     const silent = !!opts?.silent;
     if (!silent) setStatusLine("Loading…");
@@ -413,33 +432,12 @@ export default function ThinkingClient() {
 
   // Load summaries for the open draft (capped) — stays hidden unless any exist
   useEffect(() => {
-    let mounted = true;
-
-    (async () => {
+    if (!userId || !openDraft) {
       setSummaries([]);
-      if (!userId || !openDraft) return;
-
-      const { data, error } = await supabase
-        .from("decision_summaries")
-        .select("id,decision_id,summary_text,created_at")
-        .eq("user_id", userId)
-        .eq("decision_id", openDraft.id)
-        .order("created_at", { ascending: false })
-        .limit(3);
-
-      if (!mounted) return;
-
-      if (error) {
-        setSummaries([]);
-        return;
-      }
-
-      setSummaries((data ?? []) as DecisionSummary[]);
-    })();
-
-    return () => {
-      mounted = false;
-    };
+      return;
+    }
+    void reloadSummaries(openDraft.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId, openDraft?.id]);
 
   // Realtime: draft decisions
@@ -571,11 +569,11 @@ export default function ThinkingClient() {
 
     setDrafts((prev) => prev.map((x) => (x.id === d.id ? { ...x, review_at } : x)));
 
-  const { error } = await supabase
-    .from("decisions")
-    .update({ review_at, reviewed_at: null })
-    .eq("id", d.id)
-    .eq("user_id", userId);
+    const { error } = await supabase
+      .from("decisions")
+      .update({ review_at, reviewed_at: null })
+      .eq("id", d.id)
+      .eq("user_id", userId);
 
     if (error) {
       showToast({ message: `Couldn’t schedule: ${error.message}` }, 3500);
@@ -1187,7 +1185,6 @@ export default function ThinkingClient() {
                                   Go to Review
                                 </Chip>
 
-
                                 <Chip onClick={() => setConfirmDeleteForId(d.id)} title="Delete this draft">
                                   Delete
                                 </Chip>
@@ -1202,6 +1199,7 @@ export default function ThinkingClient() {
                                 decisionTitle={d.title}
                                 frame={{ decision_statement: d.title }}
                                 onClose={() => setChatForId(null)}
+                                onSummarySaved={() => void reloadSummaries(d.id)}
                               />
                             </div>
                           ) : null}

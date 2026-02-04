@@ -1,3 +1,4 @@
+// app/(app)/thinking/ConversationPanel.tsx
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -20,8 +21,9 @@ export function ConversationPanel(props: {
   decisionTitle: string;
   frame?: Frame | null;
   onClose: () => void;
+  onSummarySaved?: () => void;
 }) {
-  const { decisionId, decisionTitle, frame, onClose } = props;
+  const { decisionId, decisionTitle, frame, onClose, onSummarySaved } = props;
 
   const [userId, setUserId] = useState<string | null>(null);
   const [status, setStatus] = useState<string>("");
@@ -287,6 +289,7 @@ export function ConversationPanel(props: {
 
       setAddedSummary(true);
       setAddSummaryStatus("Added to decision.");
+      onSummarySaved?.();
     } catch (e: any) {
       setAddSummaryStatus(e?.message ?? "Couldn’t add summary.");
     } finally {
