@@ -3,11 +3,13 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { createServerClient } from "@supabase/ssr";
 
+const DEFAULT_AFTER_AUTH = "/fine-print?next=%2F";
+
 function safeNext(input: unknown) {
-  if (typeof input !== "string") return "/home";
-  if (!input.startsWith("/")) return "/home";
-  if (input.startsWith("//")) return "/home";
-  if (input.includes("http://") || input.includes("https://")) return "/home";
+  if (typeof input !== "string") return DEFAULT_AFTER_AUTH;
+  if (!input.startsWith("/")) return DEFAULT_AFTER_AUTH;
+  if (input.startsWith("//")) return DEFAULT_AFTER_AUTH;
+  if (input.includes("http://") || input.includes("https://")) return DEFAULT_AFTER_AUTH;
   return input;
 }
 
@@ -40,7 +42,15 @@ export default async function AuthCallbackPage({
       : undefined;
 
   // If this is a recovery link, ALWAYS go to /reset
-  const nextPath = type === "recovery" ? "/reset" : safeNext(nextParam);
+  // If this is a signup/magiclink and no next provided, go to Fine print first.
+  const nextPath =
+    type === "recovery"
+      ? "/reset"
+      : type === "signup" || type === "magiclink"
+      ? nextParam
+        ? safeNext(nextParam)
+        : DEFAULT_AFTER_AUTH
+      : safeNext(nextParam);
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -54,7 +64,7 @@ export default async function AuthCallbackPage({
           cookieStore.set({ name, value, ...options });
         },
         remove(name: string, options: any) {
-          cookieStore.set({ name, value: "", ...options });
+          cookieStore.set({ name, value: "", ...options, maxAge: 0 });
         },
       },
     }
@@ -63,9 +73,7 @@ export default async function AuthCallbackPage({
   if (code) {
     const { error } = await supabase.auth.exchangeCodeForSession(code);
     if (error) {
-      redirect(
-        `/login?next=${encodeURIComponent(nextPath)}&err=${encodeURIComponent(error.message)}`
-      );
+      redirect(`/login?next=${encodeURIComponent(nextPath)}&err=${encodeURIComponent(error.message)}`);
     }
   }
 
