@@ -1,7 +1,7 @@
 // app/(app)/lifecfo-home/page.tsx
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { Page } from "@/components/Page";
 import { Card, CardContent, Chip } from "@/components/ui";
@@ -20,37 +20,6 @@ function firstNameOf(full: string) {
 function isYesish(s: string) {
   const t = s.trim().toLowerCase();
   return t === "y" || t === "yes" || t === "yep" || t === "yeah" || t === "sure" || t === "ok" || t === "okay";
-}
-
-function inferIntent(raw: string): "ask" | "hold" {
-  const s = raw.trim();
-  if (!s) return "hold";
-
-  const lower = s.toLowerCase();
-
-  // Explicit question cues
-  if (s.includes("?")) return "ask";
-  if (/^(what|when|why|how|can|should|do i|did i|am i|are we)\b/i.test(lower)) return "ask";
-
-  // ✅ Life CFO: guidance / help requests should be treated as ASK even without "?"
-  // Examples:
-  // - "we need to know..."
-  // - "help us..."
-  // - "best way to..."
-  // - "how do we manage..."
-  // - "what should we do..."
-  if (
-    /\b(need to know|help me|help us|can you help|best way|best approach|what's the best|how do we|how should we|what should we|what should we do|figure out|work out|manage our|set up|structure|plan)\b/i.test(
-      lower
-    )
-  ) {
-    return "ask";
-  }
-
-  // Money-ish cues (includes accounts)
-  if (/\b(bill|bills|due|total|this month|month|next|days|afford|balance|spend|spent|account|accounts|bank)\b/i.test(lower)) return "ask";
-
-  return "hold";
 }
 
 // Treat these as “bills window” questions:
@@ -170,7 +139,7 @@ export default function LifeCFOHomePage() {
   const [ask, setAsk] = useState<AskState>({ status: "idle" });
   const [showExamplesPanel, setShowExamplesPanel] = useState(false);
 
-  // ✅ Never silently “eat” a capture — show what happened + where it went
+  // Never silently “eat” a capture — show what happened + where it went
   const [lastSaved, setLastSaved] = useState<{ kind: "capture"; text: string; href: string } | null>(null);
 
   const affirmationTimerRef = useRef<number | null>(null);
@@ -422,6 +391,7 @@ export default function LifeCFOHomePage() {
 
     const msg = raw;
 
+    // Clear UI immediately (feels fast), but route intent correctly below
     setText("");
     setShowExamplesPanel(false);
     focusInput();
@@ -457,11 +427,13 @@ export default function LifeCFOHomePage() {
       return;
     }
 
-    const intent = inferIntent(msg);
+    // ✅ Life CFO intent rule:
+    // Default to answering, unless the user is explicitly making a note to save.
+    const isExplicitHold = (/^\s*(remember|note|save|log)\b/i.test(msg) || msg.toLowerCase().startsWith("remind me")) && !msg.includes("?");
 
     // Bills questions: deterministic + richer (month or next X days)
     const billsWindow = billsWindowFromQuestion(msg);
-    if (intent === "ask" && billsWindow) {
+    if (billsWindow) {
       flashAffirmation("Held.");
       setLastSaved(null);
       const fb = await localBillsAnswer(userId, billsWindow);
@@ -469,14 +441,15 @@ export default function LifeCFOHomePage() {
       return;
     }
 
-    if (intent === "ask") {
+    // ASK (default)
+    if (!isExplicitHold) {
       flashAffirmation("Held.");
       setLastSaved(null);
       await askHome(userId, msg);
       return;
     }
 
-    // HOLD: save quietly (explicit dual-use) — but never silently
+    // HOLD (explicit notes only) — never silent
     flashAffirmation("Saved.");
     setAsk({ status: "idle" });
     setLastSaved({ kind: "capture", text: msg, href: "/capture" });
@@ -498,11 +471,6 @@ export default function LifeCFOHomePage() {
       {ex}
     </button>
   );
-
-  const memoLine = useMemo(() => {
-    if (authStatus !== "signed_in") return null;
-    return "You’re okay right now. You don’t need to do anything right now.";
-  }, [authStatus]);
 
   return (
     <Page title="Home" subtitle={subtitle} right={<div className="flex items-center gap-2"></div>}>
@@ -555,7 +523,8 @@ export default function LifeCFOHomePage() {
                 <div className="text-[15px] leading-relaxed text-zinc-800">Sign in to see your Life CFO check-in.</div>
               ) : (
                 <>
-                  <div className="text-[15px] leading-relaxed text-zinc-800">{memoLine}</div>
+                  <div className="text-[15px] leading-relaxed text-zinc-800">You’re okay right now.</div>
+                  <div className="text-[15px] leading-relaxed text-zinc-700">You don’t need to do anything right now.</div>
                   <div className="text-xs text-zinc-600">Life CFO is keeping an eye on bills and decisions.</div>
                 </>
               )}
@@ -691,7 +660,7 @@ export default function LifeCFOHomePage() {
           </CardContent>
         </Card>
 
-        {/* ✅ Saved confirmation (never silent) */}
+        {/* Saved confirmation (never silent) */}
         {lastSaved ? (
           <Card className="border-zinc-200 bg-white">
             <CardContent>
