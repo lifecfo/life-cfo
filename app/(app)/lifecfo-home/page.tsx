@@ -40,6 +40,57 @@ function actionToHref(action: AskApiResponse["action"]): string | null {
   }
 }
 
+/**
+ * Make AI output look calm and readable even if it returns markdown.
+ * We intentionally keep this lightweight + non-destructive.
+ */
+function toCleanLines(raw: string): string[] {
+  const s = (raw || "").trim();
+  if (!s) return [];
+
+  // Normalize line endings
+  let t = s.replace(/\r\n/g, "\n");
+
+  // Convert bold headings like "**Active Accounts:**" to "Active Accounts:"
+  t = t.replace(/\*\*(.+?)\*\*/g, "$1");
+
+  // Remove leading markdown bullets "- " (keep content)
+  t = t.replace(/^\s*-\s+/gm, "• ");
+
+  // Remove accidental double bullets
+  t = t.replace(/^•\s*•\s+/gm, "• ");
+
+  // Trim extra blank lines (cap at 1)
+  const lines = t.split("\n");
+  const out: string[] = [];
+  let blank = 0;
+  for (const line of lines) {
+    const cleaned = line.trimEnd();
+    if (cleaned.trim() === "") {
+      blank += 1;
+      if (blank <= 1) out.push("");
+      continue;
+    }
+    blank = 0;
+    out.push(cleaned);
+  }
+
+  // If the model used section headings with trailing colon, add spacing before them for readability
+  const final: string[] = [];
+  for (let i = 0; i < out.length; i++) {
+    const line = out[i];
+    const isHeading = /:$/.test(line) && line.length <= 40 && !line.startsWith("• ");
+    if (isHeading && final.length > 0 && final[final.length - 1] !== "") final.push("");
+    final.push(line);
+  }
+
+  // Remove leading/trailing blank lines
+  while (final.length && final[0] === "") final.shift();
+  while (final.length && final[final.length - 1] === "") final.pop();
+
+  return final;
+}
+
 export default function LifeCFOHomePage() {
   const router = useRouter();
   const { toast } = useToast();
@@ -54,7 +105,8 @@ export default function LifeCFOHomePage() {
   const [resp, setResp] = useState<AskApiResponse | null>(null);
   const lastAskedRef = useRef<string>("");
 
-  // minimal auth: userId only
+  const answerRef = useRef<HTMLDivElement | null>(null);
+
   useEffect(() => {
     let alive = true;
     (async () => {
@@ -82,13 +134,19 @@ export default function LifeCFOHomePage() {
 
   const actionHref = useMemo(() => actionToHref(resp?.action), [resp?.action]);
 
+  const cleanLines = useMemo(() => toCleanLines(safeStr(resp?.answer)), [resp?.answer]);
+
+  const scrollToAnswer = () => {
+    window.setTimeout(() => answerRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 60);
+  };
+
   async function ask() {
     const q = text.trim();
     if (!q) return;
 
     if (authStatus !== "signed_in" || !userId) {
       setState("error");
-      setErrorMsg("Please sign in to ask Life CFO.");
+      setErrorMsg("Sign in to ask Life CFO.");
       return;
     }
 
@@ -109,14 +167,17 @@ export default function LifeCFOHomePage() {
       if (!res.ok) {
         setState("error");
         setErrorMsg(json?.error ? String(json.error) : "I couldn’t answer that right now.");
+        scrollToAnswer();
         return;
       }
 
       setResp(json);
       setState("answered");
+      scrollToAnswer();
     } catch (e: any) {
       setState("error");
       setErrorMsg(e?.message ? String(e.message) : "I couldn’t answer that right now.");
+      scrollToAnswer();
     }
   }
 
@@ -125,7 +186,7 @@ export default function LifeCFOHomePage() {
     if (!s) return;
     try {
       await navigator.clipboard.writeText(s);
-      toast({ title: "Copied", description: "Paste it anywhere you like." });
+      toast({ title: "Copied", description: "Ready to paste." });
     } catch {
       toast({ title: "Couldn’t copy", description: "Your browser blocked clipboard access." });
     }
@@ -142,157 +203,172 @@ export default function LifeCFOHomePage() {
   return (
     <Page
       title="Life CFO"
-      subtitle={<span className="text-sm">Ask anything. I’ll answer first. Saving is always optional.</span>}
+      subtitle={<span className="text-sm">You don’t need to do anything right now.</span>}
       right={
         <div className="flex items-center gap-2">
           <Chip onClick={() => router.push("/lifecfo-home-v2")} className="text-xs" title="Open v2 route">
             v2 route
           </Chip>
-          <Chip onClick={() => router.push("/home")} className="text-xs" title="Keystone Home">
+          <Chip onClick={() => router.push("/home")} className="text-xs" title="Keystone">
             Keystone
           </Chip>
         </div>
       }
     >
       <div className="mx-auto max-w-[760px] space-y-4">
-        {/* 🔴 BUILD STAMP: if you don't see this, you're not running this file */}
-        <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-xs text-zinc-600">
+        {/* tiny stamp (keep it subtle; remove later) */}
+        <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-[11px] text-zinc-500">
           BUILD STAMP: LIFECFO_HOME_ANSWER_FIRST__2026-02-06__A
         </div>
 
-        <Card>
-          <CardContent className="space-y-2">
-            <div className="text-sm font-medium">Status</div>
-            {authStatus === "loading" ? (
-              <div className="text-sm opacity-80">Checking sign-in…</div>
-            ) : authStatus === "signed_out" ? (
-              <div className="text-sm opacity-80">You’re signed out. Sign in to ask questions.</div>
+        <Card className="border-zinc-200 bg-white">
+          <CardContent className="space-y-1">
+            <div className="text-sm font-semibold text-zinc-900">Life CFO</div>
+            {authStatus === "signed_out" ? (
+              <div className="text-sm text-zinc-700">Sign in to ask a question.</div>
             ) : (
-              <div className="text-sm opacity-80">You’re signed in.</div>
+              <div className="text-sm text-zinc-700">Ask anything — I’ll answer first. Saving is always optional.</div>
             )}
           </CardContent>
         </Card>
 
-        <Card>
-          <CardContent className="space-y-3">
-            <div className="space-y-2">
-              <div className="text-sm font-medium">What’s on your mind?</div>
-              <textarea
-                value={text}
-                onChange={(e) => setText(e.target.value)}
-                placeholder="e.g. ‘Husband and I need to know how to best manage our accounts…’"
-                className="min-h-[120px] w-full resize-y rounded-xl border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[var(--ring)]"
-                disabled={authStatus !== "signed_in"}
-                onKeyDown={(e) => {
-                  const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad|iPod/.test(navigator.platform);
-                  const cmdOrCtrl = isMac ? e.metaKey : e.ctrlKey;
+        <Card className="border-zinc-200 bg-white">
+          <CardContent>
+            <div className="text-sm font-semibold text-zinc-900">What’s on your mind?</div>
 
-                  if (cmdOrCtrl && e.key === "Enter") {
-                    e.preventDefault();
-                    void ask();
-                    return;
-                  }
+            <textarea
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              placeholder="e.g. ‘Husband and I need to know how to best manage our accounts…’"
+              className="mt-2 min-h-[140px] w-full resize-y rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-[15px] leading-relaxed text-zinc-800 placeholder:text-zinc-500 outline-none focus:ring-2 focus:ring-zinc-200"
+              disabled={authStatus !== "signed_in"}
+              onKeyDown={(e) => {
+                const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad|iPod/.test(navigator.platform);
+                const cmdOrCtrl = isMac ? e.metaKey : e.ctrlKey;
 
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault();
-                    void ask();
-                  }
-                }}
-              />
-              <div className="text-xs opacity-70">Enter to ask • Shift+Enter for a new line • Cmd/Ctrl+Enter also works</div>
-            </div>
+                if (cmdOrCtrl && e.key === "Enter") {
+                  e.preventDefault();
+                  void ask();
+                  return;
+                }
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  void ask();
+                }
+              }}
+            />
 
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="mt-3 flex flex-wrap items-center gap-2">
               <Button onClick={ask} disabled={!canSubmit}>
-                {state === "asking" ? "Asking…" : "Ask"}
+                {state === "asking" ? "Thinking…" : "Ask"}
               </Button>
 
-              <Button variant="ghost" onClick={() => copyToClipboard(text)} disabled={text.trim().length === 0}>
+              <Chip className="text-xs" title="Copy" onClick={() => copyToClipboard(text)} disabled={text.trim().length === 0}>
                 Copy
-              </Button>
+              </Chip>
 
-              <Button variant="ghost" onClick={clear} disabled={state === "asking"}>
+              <Chip className="text-xs" title="Clear" onClick={clear} disabled={state === "asking"}>
                 Clear
-              </Button>
+              </Chip>
 
-              <div className="ml-auto text-xs opacity-70">
-                {state === "idle" && "Ready"}
-                {state === "asking" && "Thinking…"}
-                {state === "answered" && "Answered"}
-                {state === "error" && "Couldn’t answer"}
+              <div className="ml-auto text-xs text-zinc-500">
+                {state === "idle" ? "Ready" : state === "asking" ? "Thinking…" : state === "answered" ? "Updated just now" : "—"}
               </div>
             </div>
           </CardContent>
         </Card>
 
-        {state === "error" ? (
-          <Card>
-            <CardContent className="space-y-2">
-              <div className="text-sm font-medium">Couldn’t answer</div>
-              <div className="text-sm opacity-80">{errorMsg || "Unknown error."}</div>
-              <div className="flex flex-wrap gap-2 pt-2">
-                <Chip className="text-xs" title="Try again" onClick={() => void ask()}>
-                  Try again
-                </Chip>
-                <Chip className="text-xs" title="Clear" onClick={clear}>
-                  Clear
-                </Chip>
-              </div>
-            </CardContent>
-          </Card>
-        ) : null}
+        {(state === "error" || state === "answered") ? (
+          <div ref={answerRef}>
+            <Card className="border-zinc-200 bg-white">
+              <CardContent className="space-y-3">
+                <div className="text-sm font-semibold text-zinc-900">Life CFO</div>
 
-        {state === "answered" && resp ? (
-          <Card>
-            <CardContent className="space-y-3">
-              <div className="space-y-1">
-                <div className="text-sm font-medium">Life CFO</div>
-                <div className="whitespace-pre-wrap text-sm leading-relaxed opacity-90">{safeStr(resp.answer) || "—"}</div>
-                <div className="text-xs opacity-70">
-                  <span className="font-medium">You asked:</span> {lastAskedRef.current}
-                </div>
-              </div>
+                {state === "error" ? (
+                  <div className="space-y-2">
+                    <div className="text-sm text-zinc-700">{errorMsg || "I couldn’t answer that right now."}</div>
+                    <div className="flex flex-wrap gap-2">
+                      <Chip className="text-xs" title="Try again" onClick={() => void ask()}>
+                        Try again
+                      </Chip>
+                      <Chip className="text-xs" title="Done" onClick={() => setState("idle")}>
+                        Done
+                      </Chip>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <div className="space-y-1">
+                      {cleanLines.length > 0 ? (
+                        cleanLines.map((line, idx) =>
+                          line === "" ? (
+                            <div key={idx} className="h-2" />
+                          ) : (
+                            <div key={idx} className="text-[15px] leading-relaxed text-zinc-800">
+                              {line}
+                            </div>
+                          )
+                        )
+                      ) : (
+                        <div className="text-sm text-zinc-700">—</div>
+                      )}
+                    </div>
 
-              <div className="flex flex-wrap gap-2 pt-1">
-                {actionHref ? (
-                  <Chip className="text-xs" title="Open suggested page" onClick={() => router.push(actionHref)}>
-                    Open
-                  </Chip>
-                ) : null}
+                    <div className="text-xs text-zinc-500">
+                      <span className="font-medium text-zinc-600">You asked:</span> {lastAskedRef.current}
+                    </div>
 
-                <Chip className="text-xs" title="Copy answer" onClick={() => copyToClipboard(safeStr(resp.answer))}>
-                  Copy answer
-                </Chip>
-              </div>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {actionHref ? (
+                        <Chip className="text-xs" title="Open suggested page" onClick={() => router.push(actionHref)}>
+                          Open
+                        </Chip>
+                      ) : null}
 
-              <div className="pt-2">
-                <div className="mb-2 text-xs font-medium opacity-70">Optional next step</div>
-                <div className="flex flex-wrap gap-2">
-                  <Chip
-                    className="text-xs"
-                    title="Create a Capture (you’ll paste it)"
-                    onClick={async () => {
-                      await copyToClipboard(lastAskedRef.current);
-                      router.push("/capture");
-                    }}
-                  >
-                    Create a capture →
-                  </Chip>
+                      <Chip className="text-xs" title="Copy answer" onClick={() => copyToClipboard(safeStr(resp?.answer ?? ""))}>
+                        Copy answer
+                      </Chip>
 
-                  <Chip
-                    className="text-xs"
-                    title="Save as a Decision (you’ll paste it)"
-                    onClick={async () => {
-                      await copyToClipboard(lastAskedRef.current);
-                      router.push("/framing");
-                    }}
-                  >
-                    Save as a decision →
-                  </Chip>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+                      <Chip className="text-xs" title="Ask follow-up" onClick={() => window.setTimeout(() => document.querySelector("textarea")?.focus(), 0)}>
+                        Ask follow-up
+                      </Chip>
+
+                      <Chip className="text-xs" title="Done" onClick={() => setState("idle")}>
+                        Done
+                      </Chip>
+                    </div>
+
+                    <div className="pt-3">
+                      <div className="mb-2 text-xs font-medium text-zinc-600">Optional</div>
+                      <div className="flex flex-wrap gap-2">
+                        <Chip
+                          className="text-xs"
+                          title="Create a capture (paste your question)"
+                          onClick={async () => {
+                            await copyToClipboard(lastAskedRef.current);
+                            router.push("/capture");
+                          }}
+                        >
+                          Hold this as a capture →
+                        </Chip>
+
+                        <Chip
+                          className="text-xs"
+                          title="Save as a decision (paste your question)"
+                          onClick={async () => {
+                            await copyToClipboard(lastAskedRef.current);
+                            router.push("/framing");
+                          }}
+                        >
+                          Save as a decision →
+                        </Chip>
+                      </div>
+                    </div>
+                  </>
+                )}
+              </CardContent>
+            </Card>
+          </div>
         ) : null}
       </div>
     </Page>
