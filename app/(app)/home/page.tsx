@@ -153,21 +153,33 @@ export default function HomePage() {
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
 
   // --- One-time onboarding nudge (Home) ---
-  const ONBOARDING_KEY = "keystone_onboarding_seen_v1";
+  // ✅ make it per-user so new signups see it again
+  const ONBOARDING_KEY_PREFIX = "keystone_onboarding_seen_v1:";
   const [showOnboarding, setShowOnboarding] = useState(false);
 
   useEffect(() => {
+    // Wait until we know who the user is. If signed out, don’t show.
+    if (authStatus !== "signed_in" || !userId) {
+      setShowOnboarding(false);
+      return;
+    }
+
     try {
-      const seen = typeof window !== "undefined" ? window.localStorage.getItem(ONBOARDING_KEY) : "1";
-      if (!seen) setShowOnboarding(true);
+      const key = `${ONBOARDING_KEY_PREFIX}${userId}`;
+      const seen = typeof window !== "undefined" ? window.localStorage.getItem(key) : "1";
+      setShowOnboarding(!seen);
     } catch {
       setShowOnboarding(false);
     }
-  }, []);
+  }, [authStatus, userId]);
 
   const dismissOnboarding = () => {
+    if (!userId) {
+      setShowOnboarding(false);
+      return;
+    }
     try {
-      window.localStorage.setItem(ONBOARDING_KEY, "1");
+      window.localStorage.setItem(`${ONBOARDING_KEY_PREFIX}${userId}`, "1");
     } catch {}
     setShowOnboarding(false);
   };
@@ -484,9 +496,7 @@ export default function HomePage() {
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <div className="text-sm font-semibold text-zinc-900">New here?</div>
-                  <div className="mt-1 text-sm leading-relaxed text-zinc-700">
-                    If you want a quick sense of how Keystone works, start here.
-                  </div>
+                  <div className="mt-1 text-sm leading-relaxed text-zinc-700">If you want a quick sense of how Keystone works, start here.</div>
 
                   <div className="mt-3 flex flex-wrap items-center gap-2">
                     <Chip onClick={() => router.push("/how-keystone-works")} title="How Keystone works" className="text-xs">
@@ -678,11 +688,7 @@ export default function HomePage() {
             <CardContent>
               <div className="flex items-center justify-between gap-3">
                 <div className="text-sm font-semibold text-zinc-900">Notes from Keystone</div>
-                {orientation.loading ? (
-                  <div className="text-xs text-zinc-500">Updating…</div>
-                ) : (
-                  <div className="h-4" aria-hidden="true" />
-                )}
+                {orientation.loading ? <div className="text-xs text-zinc-500">Updating…</div> : <div className="h-4" aria-hidden="true" />}
               </div>
 
               <div className="mt-3">
