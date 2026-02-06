@@ -16,17 +16,24 @@ function safeStr(v: unknown) {
   return typeof v === "string" ? v : "";
 }
 
+function safeNext(input: unknown) {
+  if (typeof input !== "string") return "/home";
+  const n = input.trim();
+  if (!n.startsWith("/")) return "/home";
+  if (n.startsWith("//")) return "/home";
+  if (n.includes("http://") || n.includes("https://")) return "/home";
+  return n;
+}
+
 export default function FinePrintClient({ nextPath }: FinePrintClientProps) {
   const router = useRouter();
   const toastApi: any = useToast();
 
-  // Keystone UI toast convention in this repo: showToast({ message })
   const toast = (message: string) => {
     if (toastApi?.showToast) {
       toastApi.showToast({ message });
       return;
     }
-    // fallback if showToast not present
     if (toastApi?.toast) {
       toastApi.toast({ description: message });
     }
@@ -63,9 +70,6 @@ export default function FinePrintClient({ nextPath }: FinePrintClientProps) {
         return;
       }
 
-      // IMPORTANT:
-      // - Your profiles table does NOT include updated_at (per your column screenshot)
-      // - It DOES include user_id (and likely requires it)
       const payload = {
         user_id: auth.user.id,
         fine_print_accepted_at: new Date().toISOString(),
@@ -77,8 +81,11 @@ export default function FinePrintClient({ nextPath }: FinePrintClientProps) {
       if (error) throw error;
 
       toast("Saved.");
-      router.replace(nextPath || "/home");
-      router.refresh();
+
+      // ✅ Hard navigate so it always moves on the first click (no router edge cases)
+      const dest = safeNext(nextPath || "/home");
+      window.location.assign(dest);
+      return;
     } catch (e: any) {
       const msg = safeStr(e?.message) || "Couldn’t save. Please try again.";
       setStatus(msg);
@@ -94,10 +101,15 @@ export default function FinePrintClient({ nextPath }: FinePrintClientProps) {
         <CardContent>
           <div className="space-y-2">
             <div className="text-sm font-semibold text-zinc-900">What Keystone is</div>
+            <div className="text-sm text-zinc-700">Keystone is a calm decision system.</div>
             <div className="text-sm text-zinc-700">
-              Keystone is a calm place to hold decisions and inputs so you can see life more clearly and stop carrying mental loops.
+              It brings together your information — decisions, money, notes, and timing — with AI that helps you understand what’s going on,
+              answer questions about your life, and make informed choices.
             </div>
-            <div className="text-sm text-zinc-700">It’s built for orientation and repeatable good decisions — not dashboards, not hustle.</div>
+            <div className="text-sm text-zinc-700">
+              Keystone’s job is not to push you to act. It’s to make sure the right information is available, connected, and understandable,
+              so decisions feel clearer and lighter.
+            </div>
           </div>
         </CardContent>
       </Card>
