@@ -1,4 +1,3 @@
-// app/(app)/lifecfo-home/page.tsx
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -77,9 +76,107 @@ function cleanAnswer(raw: string) {
   return t.trim();
 }
 
+/* ---------- CFO memo shaping ---------- */
+
+type MemoTone = "ok" | "tight" | "attention";
+
+function inferTone(text: string): MemoTone {
+  const t = (text || "").toLowerCase();
+
+  // attention signals
+  if (
+    /(insufficient|overdue|past due|urgent|immediately|cannot|can’t|risk|at risk|missed|late fee|failed|error|shortfall|negative)/i.test(t)
+  ) {
+    return "attention";
+  }
+
+  // tight but not alarming
+  if (/(tight|close|careful|reduce|cut back|watch|monitor|buffer|low|smaller margin|limited)/i.test(t)) {
+    return "tight";
+  }
+
+  // default calm
+  return "ok";
+}
+
+function splitHeadlineAndBody(answer: string): { headline: string; body: string } {
+  const a = (answer || "").trim();
+  if (!a) return { headline: "", body: "" };
+
+  // Prefer first non-empty line as headline if it reads like a sentence.
+  const lines = a.split("\n").map((s) => s.trim()).filter(Boolean);
+  if (lines.length === 0) return { headline: "", body: "" };
+
+  const first = lines[0];
+
+  // If first line is short bullet-like, try first sentence from whole text.
+  const looksBullet = first.startsWith("•") || first.startsWith("-") || first.startsWith("*");
+  const looksTooShort = first.length < 24;
+
+  if (looksBullet || looksTooShort) {
+    const firstSentence = a.split(/(?<=[.!?])\s+/)[0]?.trim() || first;
+    const rest = a.slice(firstSentence.length).trim();
+    return { headline: firstSentence, body: rest };
+  }
+
+  // If first line is long, keep it as headline, rest as body.
+  const body = lines.slice(1).join("\n").trim();
+  return { headline: first, body };
+}
+
+function extractBullets(text: string): string[] {
+  const lines = (text || "").split("\n").map((s) => s.trim());
+  const bullets = lines
+    .filter((l) => l.startsWith("• "))
+    .map((l) => l.replace(/^•\s+/, "").trim())
+    .filter(Boolean);
+
+  // If there are no bullets, create a light structure from paragraphs (max 3).
+  if (bullets.length === 0) {
+    const paras = (text || "")
+      .split("\n")
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .filter((l) => !l.toLowerCase().startsWith("you asked:"));
+
+    // Take up to 3 meaningful lines
+    return paras.slice(0, 3);
+  }
+
+  return bullets.slice(0, 5);
+}
+
+function tonePill(tone: MemoTone) {
+  if (tone === "attention") return { label: "Needs attention", className: "bg-zinc-900 text-white" };
+  if (tone === "tight") return { label: "A bit tight", className: "bg-zinc-100 text-zinc-800 border border-zinc-200" };
+  return { label: "All clear", className: "bg-zinc-50 text-zinc-700 border border-zinc-200" };
+}
+
+function calmWhatWouldChange(tone: MemoTone): string[] {
+  if (tone === "attention") {
+    return [
+      "If income lands later than expected",
+      "If a bill date is earlier than listed",
+      "If current balances are lower than recorded",
+    ];
+  }
+  if (tone === "tight") {
+    return ["If one extra cost appears this week", "If a bill is higher than usual", "If income timing shifts"];
+  }
+  return ["If a new bill is added", "If income timing changes", "If a large one-off expense appears"];
+}
+
+function calmAssumptions(): string[] {
+  return ["Bills and due dates are up to date", "Account balances are current", "No large untracked expenses are pending"];
+}
+
+/* ---------- page ---------- */
+
 export default function LifeCFOHomePage() {
   const router = useRouter();
   const { toast } = useToast();
+
+  const buildStamp = process.env.NEXT_PUBLIC_BUILD_STAMP || "";
 
   const [userId, setUserId] = useState<string | null>(null);
   const [authStatus, setAuthStatus] = useState<"loading" | "signed_out" | "signed_in">("loading");
@@ -87,6 +184,10 @@ export default function LifeCFOHomePage() {
 
   const [text, setText] = useState("");
   const [ask, setAsk] = useState<AskState>({ status: "idle" });
+
+  const [showDetails, setShowDetails] = useState(false);
+  const [showWhy, setShowWhy] = useState(false);
+  const [showAssumptions, setShowAssumptions] = useState(false);
 
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const answerRef = useRef<HTMLDivElement | null>(null);
@@ -141,6 +242,9 @@ export default function LifeCFOHomePage() {
     if (!userId) return;
 
     setAsk({ status: "loading", question });
+    setShowDetails(false);
+    setShowWhy(false);
+    setShowAssumptions(false);
 
     try {
       const res = await fetch("/api/home/ask", {
@@ -207,42 +311,59 @@ export default function LifeCFOHomePage() {
       return;
     }
 
-    // Always ASK (no intent routing here)
     await askHome(msg);
   };
 
-  /* ---------- render ---------- */
+  /* ---------- memo view model ---------- */
+
+  const memo = useMemo(() => {
+    if (ask.status !== "done") return null;
+    const tone = inferTone(ask.answer || "");
+    const { headline, body } = splitHeadlineAndBody(ask.answer || "");
+    const bullets = extractBullets(body || "");
+    return { tone, headline, body, bullets };
+  }, [ask]);
 
   const subtitle = preferredName ? `Good to see you, ${preferredName}.` : undefined;
-
   const canType = authStatus === "signed_in";
 
   return (
     <Page title="Home" subtitle={subtitle}>
       <div className="mx-auto max-w-[760px] space-y-6">
-        {/* Top calm orientation card (keep the original vibe/copy) */}
+        {/* Orientation card */}
         <Card className="border-zinc-200 bg-white">
           <CardContent>
             <div className="space-y-2">
-              <div className="text-sm font-semibold text-zinc-900">Life CFO</div>
+              <div className="flex items-center justify-between gap-3">
+                <div className="text-sm font-semibold text-zinc-900">Life CFO</div>
+                <div className="flex items-center gap-2">
+                  <Chip className="text-xs" title="How it works" onClick={() => router.push("/how-life-cfo-works")}>
+                    How it works
+                  </Chip>
+                </div>
+              </div>
 
               {authStatus === "signed_out" ? (
-                <div className="text-sm text-zinc-700">Sign in to use Home.</div>
+                <div className="text-sm text-zinc-700">Sign in to ask a question and get a clear answer.</div>
               ) : (
-                <div className="text-sm text-zinc-700">You don’t need to do anything right now.</div>
+                <div className="text-sm text-zinc-700">
+                  One place. One question. One answer. <span className="text-zinc-500">Nothing saves unless you choose.</span>
+                </div>
               )}
+
+              {buildStamp ? <div className="text-[11px] text-zinc-400">Build {buildStamp}</div> : null}
             </div>
           </CardContent>
         </Card>
 
-        {/* Input card (same copy / same feel) */}
+        {/* Input card */}
         <Card className="border-zinc-200 bg-white">
           <CardContent>
             <textarea
               ref={inputRef}
               value={text}
               onChange={(e) => setText(e.target.value)}
-              placeholder="What’s on your mind?"
+              placeholder="Ask Life CFO… (or just unload what’s in your head)"
               className="w-full min-h-[140px] resize-y rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-[15px] leading-relaxed text-zinc-800 placeholder:text-zinc-500 outline-none focus:ring-2 focus:ring-zinc-200"
               disabled={!canType}
               onKeyDown={(e) => {
@@ -263,20 +384,17 @@ export default function LifeCFOHomePage() {
             />
 
             <div className="mt-2 flex justify-between text-xs text-zinc-500">
-              <span>Ask a question or put something down.</span>
-
-              {/* keep the right side quiet + non-system-y */}
+              <span>Ask anything. Save only if you want to.</span>
               {ask.status === "loading" ? <span aria-live="polite">Thinking…</span> : <span className="h-4" aria-hidden="true" />}
             </div>
 
-            {/* Optional button (only if you want it visible; keeping it subtle) */}
             <div className="mt-3 flex gap-2">
               <Button
                 onClick={() => void submit()}
                 disabled={!canType || !text.trim() || ask.status === "loading"}
                 className="rounded-2xl"
               >
-                Ask
+                Get answer
               </Button>
               <Chip
                 className="text-xs"
@@ -287,10 +405,24 @@ export default function LifeCFOHomePage() {
                 Clear
               </Chip>
             </div>
+
+            <div className="mt-3 flex flex-wrap gap-2">
+              {["Are we okay this month?", "What bills are due soon?", "What changed recently?", "Can we afford $___?"].map((ex) => (
+                <Chip
+                  key={ex}
+                  className="text-xs"
+                  title={ex}
+                  disabled={!canType || ask.status === "loading"}
+                  onClick={() => setText(ex)}
+                >
+                  {ex}
+                </Chip>
+              ))}
+            </div>
           </CardContent>
         </Card>
 
-        {/* Answer card */}
+        {/* CFO Memo card */}
         {ask.status !== "idle" ? (
           <div ref={answerRef}>
             <Card className="border-zinc-200 bg-white">
@@ -314,90 +446,175 @@ export default function LifeCFOHomePage() {
                     </div>
                   </div>
                 ) : (
-                  <div className="space-y-3">
-                    <div className="text-sm font-semibold text-zinc-900">Life CFO</div>
+                  <div className="space-y-4">
+                    {/* Memo header */}
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="space-y-1">
+                        <div className="text-sm font-semibold text-zinc-900">Life CFO memo</div>
+                        <div className="text-xs text-zinc-500">
+                          <span className="font-medium text-zinc-600">Question:</span> {ask.question}
+                        </div>
+                      </div>
 
-                    {/* Cleaned, calm rendering */}
-                    <div className="whitespace-pre-wrap text-[15px] leading-relaxed text-zinc-800">{ask.answer}</div>
-
-                    <div className="text-xs text-zinc-500">
-                      <span className="font-medium text-zinc-600">You asked:</span> {ask.question}
+                      {memo ? (
+                        <div className={"rounded-full px-3 py-1 text-xs font-medium " + tonePill(memo.tone).className}>
+                          {tonePill(memo.tone).label}
+                        </div>
+                      ) : null}
                     </div>
 
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      {ask.actionHref ? (
-                        <Chip className="text-xs" title="Open" onClick={() => router.push(ask.actionHref!)}>
-                          Open
-                        </Chip>
-                      ) : null}
+                    {/* One-sentence headline */}
+                    <div className="text-[16px] leading-relaxed text-zinc-900">
+                      <span className="font-medium">{memo?.headline || ask.answer}</span>
+                    </div>
+
+                    {/* Key points (recognition-first) */}
+                    {memo ? (
+                      <div className="space-y-2">
+                        {memo.bullets.length > 0 ? (
+                          <ul className="space-y-1">
+                            {memo.bullets.slice(0, 3).map((b, idx) => (
+                              <li key={idx} className="text-[14px] leading-relaxed text-zinc-800">
+                                <span className="text-zinc-400">• </span>
+                                {b}
+                              </li>
+                            ))}
+                          </ul>
+                        ) : null}
+                      </div>
+                    ) : null}
+
+                    {/* Controls */}
+                    <div className="flex flex-wrap gap-2">
+                      <Chip className="text-xs" title="Ask follow-up" onClick={focusInput}>
+                        Ask follow-up
+                      </Chip>
 
                       <Chip
                         className="text-xs"
-                        title="Copy answer"
+                        title="Copy"
                         onClick={async () => {
                           try {
-                            await navigator.clipboard.writeText(ask.answer || "");
+                            await navigator.clipboard.writeText((memo?.headline ? memo.headline + "\n\n" : "") + (ask.answer || ""));
                             toast({ title: "Copied", description: "Ready to paste." });
                           } catch {
                             toast({ title: "Couldn’t copy", description: "Your browser blocked clipboard access." });
                           }
                         }}
                       >
-                        Copy answer
+                        Copy
                       </Chip>
 
-                      <Chip className="text-xs" title="Ask follow-up" onClick={focusInput}>
-                        Ask follow-up
-                      </Chip>
+                      {ask.actionHref ? (
+                        <Chip className="text-xs" title="Open" onClick={() => router.push(ask.actionHref!)}>
+                          Open details
+                        </Chip>
+                      ) : null}
 
                       <Chip className="text-xs" title="Done" onClick={() => setAsk({ status: "idle" })}>
                         Done
                       </Chip>
                     </div>
 
-                    {/* Permissioned saving (quiet, optional, post-answer) */}
+                    {/* Optional depth (never required) */}
+                    {memo ? (
+                      <div className="space-y-3 pt-1">
+                        <div className="flex flex-wrap gap-2">
+                          <Chip className="text-xs" title="Details" onClick={() => setShowDetails((v) => !v)}>
+                            {showDetails ? "Hide details" : "Details"}
+                          </Chip>
+                          <Chip className="text-xs" title="What would change this?" onClick={() => setShowWhy((v) => !v)}>
+                            {showWhy ? "Hide what would change this" : "What would change this?"}
+                          </Chip>
+                          <Chip className="text-xs" title="Assumptions" onClick={() => setShowAssumptions((v) => !v)}>
+                            {showAssumptions ? "Hide assumptions" : "Assumptions"}
+                          </Chip>
+                        </div>
+
+                        {showDetails ? (
+                          <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3">
+                            <div className="text-xs font-medium text-zinc-700">Details</div>
+                            <div className="mt-2 whitespace-pre-wrap text-[14px] leading-relaxed text-zinc-800">
+                              {memo.body ? memo.body : ask.answer}
+                            </div>
+                          </div>
+                        ) : null}
+
+                        {showWhy ? (
+                          <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3">
+                            <div className="text-xs font-medium text-zinc-700">What would change this</div>
+                            <ul className="mt-2 space-y-1">
+                              {calmWhatWouldChange(memo.tone).map((x) => (
+                                <li key={x} className="text-[14px] leading-relaxed text-zinc-800">
+                                  <span className="text-zinc-400">• </span>
+                                  {x}
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        ) : null}
+
+                        {showAssumptions ? (
+                          <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3">
+                            <div className="text-xs font-medium text-zinc-700">Assumptions</div>
+                            <ul className="mt-2 space-y-1">
+                              {calmAssumptions().map((x) => (
+                                <li key={x} className="text-[14px] leading-relaxed text-zinc-800">
+                                  <span className="text-zinc-400">• </span>
+                                  {x}
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : null}
+
+                    {/* Permissioned save (post-answer, calm) */}
                     <div className="pt-2">
-                      <div className="text-xs font-medium text-zinc-600">Would you like me to hold onto this?</div>
+                      <div className="text-xs font-medium text-zinc-600">Want me to hold onto this?</div>
                       <div className="mt-2 flex flex-wrap gap-2">
                         <Chip
                           className="text-xs"
-                          title="Create a capture"
+                          title="Save a note"
                           onClick={async () => {
-                            // Keep it simple: copy the question so user can paste, then navigate.
                             try {
                               await navigator.clipboard.writeText(ask.question);
-                              toast({ title: "Copied", description: "Question copied. Paste it into Capture." });
+                              toast({ title: "Copied", description: "Paste into Notes." });
                             } catch {}
                             router.push("/capture");
                           }}
                         >
-                          Create a capture →
+                          Save a note
                         </Chip>
 
                         <Chip
                           className="text-xs"
-                          title="Save as a decision"
+                          title="Save a decision"
                           onClick={async () => {
                             try {
                               await navigator.clipboard.writeText(ask.question);
-                              toast({ title: "Copied", description: "Question copied. Paste it into a Decision." });
+                              toast({ title: "Copied", description: "Paste into a Decision." });
                             } catch {}
                             router.push("/framing");
                           }}
                         >
-                          Save as a decision →
+                          Save a decision
                         </Chip>
 
-                        <Chip className="text-xs" title="Leave it for now" onClick={() => {}}>
-                          Leave it for now
+                        <Chip
+                          className="text-xs"
+                          title="Leave it"
+                          onClick={() => {
+                            toast({ title: "Okay", description: "Nothing saved." });
+                          }}
+                        >
+                          Leave it
                         </Chip>
                       </div>
 
-                      {/* If API suggests "create_capture", we keep it calm and non-directive */}
                       {ask.suggestedNext === "create_capture" ? (
-                        <div className="mt-2 text-xs text-zinc-500">
-                          If you want, we can hold this as a capture so you don’t have to carry it.
-                        </div>
+                        <div className="mt-2 text-xs text-zinc-500">If you’d like, we can save this so it doesn’t stay in your head.</div>
                       ) : null}
                     </div>
                   </div>
