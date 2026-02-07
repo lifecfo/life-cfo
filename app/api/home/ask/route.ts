@@ -12,6 +12,15 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
 type Action = "open_bills" | "open_money" | "open_decisions" | "open_review" | "open_chapters" | "none";
 type SuggestedNext = "none" | "create_capture" | "open_thinking";
 
+type Verdict =
+  | "CLEAR_YES"
+  | "YES_NEEDS_PLANNING"
+  | "NOT_YET"
+  | "NEEDS_ATTENTION"
+  | "NO"
+  | "INSUFFICIENT_DATA"
+  | "INFO";
+
 type AskRequest = { userId: string; question: string };
 
 function isAction(x: unknown): x is Action {
@@ -22,6 +31,12 @@ function isAction(x: unknown): x is Action {
 }
 function isSuggestedNext(x: unknown): x is SuggestedNext {
   return typeof x === "string" && (["none", "create_capture", "open_thinking"] as const).includes(x as SuggestedNext);
+}
+function isVerdict(x: unknown): x is Verdict {
+  return (
+    typeof x === "string" &&
+    (["CLEAR_YES", "YES_NEEDS_PLANNING", "NOT_YET", "NEEDS_ATTENTION", "NO", "INSUFFICIENT_DATA", "INFO"] as const).includes(x as Verdict)
+  );
 }
 
 function monthBoundsLocal() {
@@ -103,6 +118,77 @@ function formatDateShort(iso: string) {
   });
 }
 
+/* ---------------- canonical verdict language ---------------- */
+
+function verdictSentence(v: Verdict): string {
+  // Keep these short, calm, and unambiguous.
+  switch (v) {
+    case "CLEAR_YES":
+      return "Yes — this fits comfortably within your current position.";
+    case "YES_NEEDS_PLANNING":
+      return "This is achievable, but it would need planning.";
+    case "NOT_YET":
+      return "Not yet — this would stretch things too far right now.";
+    case "NEEDS_ATTENTION":
+      return "This needs attention before you commit.";
+    case "NO":
+      return "No — this doesn’t fit within your current financial reality.";
+    case "INSUFFICIENT_DATA":
+      return "I don’t have enough information to answer this safely yet.";
+    case "INFO":
+      return "Here’s what I can see right now.";
+    default:
+      return "Here’s what I can see right now.";
+  }
+}
+
+/* ---------------- memo formatting helpers ---------------- */
+
+function mdSection(title: string, lines: string[]) {
+  const body = lines.filter(Boolean).join("\n");
+  return body ? `**${title}**\n${body}` : "";
+}
+
+function mdBullets(items: string[]) {
+  return items.filter(Boolean).map((x) => `- ${x}`).join("\n");
+}
+
+function buildMemoAnswer(params: {
+  verdict_sentence: string;
+  key_points?: string[];
+  details?: string;
+  assumptions?: string[];
+  what_would_change?: string[];
+}) {
+  const verdict_sentence = (params.verdict_sentence || "").trim();
+
+  const keyPoints = Array.isArray(params.key_points) ? params.key_points.map((x) => String(x || "").trim()).filter(Boolean) : [];
+  const assumptions = Array.isArray(params.assumptions) ? params.assumptions.map((x) => String(x || "").trim()).filter(Boolean) : [];
+  const changes = Array.isArray(params.what_would_change)
+    ? params.what_would_change.map((x) => String(x || "").trim()).filter(Boolean)
+    : [];
+  const details = typeof params.details === "string" ? params.details.trim() : "";
+
+  const blocks: string[] = [];
+  if (verdict_sentence) blocks.push(verdict_sentence);
+
+  const kpBlock = mdSection("Key points", [mdBullets(keyPoints)]);
+  if (kpBlock) blocks.push(kpBlock);
+
+  const detailsBlock = mdSection("Details", [details]);
+  if (detailsBlock) blocks.push(detailsBlock);
+
+  const changesBlock = mdSection("What would change this", [mdBullets(changes)]);
+  if (changesBlock) blocks.push(changesBlock);
+
+  const assumptionsBlock = mdSection("Assumptions", [mdBullets(assumptions)]);
+  if (assumptionsBlock) blocks.push(assumptionsBlock);
+
+  return blocks.filter(Boolean).join("\n\n").trim();
+}
+
+/* ---------------- facts pack ---------------- */
+
 type RecurringBillFact = {
   id: string;
   name: string | null;
@@ -160,8 +246,8 @@ type MoneyGoalRow = {
   current_cents: number | null;
   status: string | null;
 
-  target_date: string | null;     // date
-  deadline_at: string | null;     // timestamp w/ tz
+  target_date: string | null; // date
+  deadline_at: string | null; // timestamp w/ tz
 
   notes: string | null;
   is_primary?: boolean | null;
@@ -211,19 +297,14 @@ async function buildFactsPack(userId: string) {
 
   const acct = (accounts ?? []) as AccountFact[];
 
-    // --- Goal ↔ Account links (V1: explicit join only) ---
+  // --- Goal ↔ Account links (V1: explicit join only) ---
   type GoalAccountLinkRow = { goal_id: string; account_id: string; weight: number | null };
 
   let goalAccountLinks: GoalAccountLinkRow[] = [];
   let goalAccountsErrFlag = false;
 
   try {
-    const { data, error } = await supabase
-      .from("money_goal_accounts")
-      .select("goal_id,account_id,weight")
-      .eq("user_id", userId)
-      .limit(500);
-
+    const { data, error } = await supabase.from("money_goal_accounts").select("goal_id,account_id,weight").eq("user_id", userId).limit(500);
     goalAccountsErrFlag = !!error;
     if (!error && Array.isArray(data)) goalAccountLinks = data as GoalAccountLinkRow[];
   } catch {
@@ -264,15 +345,11 @@ async function buildFactsPack(userId: string) {
       id: a.id,
       name: a.name,
       currency: a.currency,
-      current_balance_cents: typeof a.current_balance_cents === "number" && Number.isFinite(a.current_balance_cents)
-        ? a.current_balance_cents
-        : null,
+      current_balance_cents: typeof a.current_balance_cents === "number" && Number.isFinite(a.current_balance_cents) ? a.current_balance_cents : null,
       weight: typeof link.weight === "number" && Number.isFinite(link.weight) ? link.weight : 100,
     });
     linkedAccountsByGoalId.set(goalId, arr);
   }
-
-  // We'll use linkedAccountsByGoalId later when building goals facts.
 
   const { data: decisions, error: decErr } = await supabase
     .from("decisions")
@@ -353,12 +430,7 @@ async function buildFactsPack(userId: string) {
   }
 
   try {
-    const { data, error } = await supabase
-      .from("pets")
-      .select("id,name,type,notes,created_at")
-      .eq("user_id", userId)
-      .order("created_at", { ascending: true })
-      .limit(20);
+    const { data, error } = await supabase.from("pets").select("id,name,type,notes,created_at").eq("user_id", userId).order("created_at", { ascending: true }).limit(20);
 
     petsErrFlag = !!error;
     if (!error && Array.isArray(data)) {
@@ -442,17 +514,12 @@ async function buildFactsPack(userId: string) {
     chapterItems = [];
   }
 
-  // --- Goals (new) ---
+  // --- Goals ---
   let goalsErrFlag = false;
   let goalsRows: MoneyGoalRow[] = [];
 
   try {
-    const { data, error } = await supabase
-      .from("money_goals")
-      .select("*")
-      .eq("user_id", userId)
-      .limit(200);
-
+    const { data, error } = await supabase.from("money_goals").select("*").eq("user_id", userId).limit(200);
     goalsErrFlag = !!error;
     if (!error && Array.isArray(data)) goalsRows = data as MoneyGoalRow[];
   } catch {
@@ -464,8 +531,7 @@ async function buildFactsPack(userId: string) {
     const status = normalizeGoalStatus(g.status);
     const currency = String(g.currency ?? "AUD").toUpperCase();
     const targetCents = typeof g.target_cents === "number" ? g.target_cents : g.target_cents == null ? null : Number(g.target_cents);
-    const currentCents =
-      typeof g.current_cents === "number" ? g.current_cents : g.current_cents == null ? null : Number(g.current_cents);
+    const currentCents = typeof g.current_cents === "number" ? g.current_cents : g.current_cents == null ? null : Number(g.current_cents);
 
     return {
       id: String(g.id),
@@ -502,12 +568,7 @@ async function buildFactsPack(userId: string) {
 
   const accountBalances = acct
     .map((a) => {
-      const cents =
-        typeof a.current_balance_cents === "number"
-          ? a.current_balance_cents
-          : a.current_balance_cents == null
-            ? null
-            : Number(a.current_balance_cents);
+      const cents = typeof a.current_balance_cents === "number" ? a.current_balance_cents : a.current_balance_cents == null ? null : Number(a.current_balance_cents);
       if (typeof cents !== "number" || !Number.isFinite(cents)) return null;
       return {
         id: a.id,
@@ -598,8 +659,7 @@ async function buildFactsPack(userId: string) {
       members: familyMembers,
       count_pets: pets.length,
       pets,
-      notes:
-        "Family is read-only. Ages are approximate (derived from birth_year). Relationships are free-text if provided. Pets are included as part of the household.",
+      notes: "Family is read-only. Ages are approximate (derived from birth_year). Relationships are free-text if provided. Pets are included as part of the household.",
     },
     review: {
       count: reviewItems.length,
@@ -615,52 +675,45 @@ async function buildFactsPack(userId: string) {
       count_total: goalsClean.length,
       count_active: goalsActive.length,
       preview_titles: goalsPreviewTitles,
-primary: goalsPrimary
-  ? (() => {
-      const cur = typeof goalsPrimary.current_cents === "number" ? goalsPrimary.current_cents : 0;
-      const tgt = typeof goalsPrimary.target_cents === "number" ? goalsPrimary.target_cents : 0;
-      const remaining = tgt > 0 ? Math.max(0, tgt - cur) : null;
-      return {
-        id: goalsPrimary.id,
-        title: goalsPrimary.title,
-        status: goalsPrimary.status,
-        currency: goalsPrimary.currency,
-
-        // display strings
-        target: moneyFromCents(goalsPrimary.target_cents ?? null, goalsPrimary.currency),
-        current: moneyFromCents(goalsPrimary.current_cents ?? null, goalsPrimary.currency),
-        remaining: remaining == null ? null : moneyFromCents(remaining, goalsPrimary.currency),
-
-        // raw numbers (for deterministic %)
-        target_cents: tgt > 0 ? tgt : null,
-        current_cents: cur,
-        remaining_cents: remaining,
-        percent: tgt > 0 ? pct(cur, tgt) : null,
-
-        target_date: (goalsPrimary as any).target_date ?? null,
-      };
-    })()
-  : null,
+      primary: goalsPrimary
+        ? (() => {
+            const cur = typeof goalsPrimary.current_cents === "number" ? goalsPrimary.current_cents : 0;
+            const tgt = typeof goalsPrimary.target_cents === "number" ? goalsPrimary.target_cents : 0;
+            const remaining = tgt > 0 ? Math.max(0, tgt - cur) : null;
+            return {
+              id: goalsPrimary.id,
+              title: goalsPrimary.title,
+              status: goalsPrimary.status,
+              currency: goalsPrimary.currency,
+              target: moneyFromCents(goalsPrimary.target_cents ?? null, goalsPrimary.currency),
+              current: moneyFromCents(goalsPrimary.current_cents ?? null, goalsPrimary.currency),
+              remaining: remaining == null ? null : moneyFromCents(remaining, goalsPrimary.currency),
+              target_cents: tgt > 0 ? tgt : null,
+              current_cents: cur,
+              remaining_cents: remaining,
+              percent: tgt > 0 ? pct(cur, tgt) : null,
+              target_date: (goalsPrimary as any).target_date ?? null,
+              linked_accounts: (linkedAccountsByGoalId.get(String(goalsPrimary.id)) ?? []).sort((a, b) => (a.weight ?? 100) - (b.weight ?? 100)),
+            };
+          })()
+        : null,
       active: goalsActive.slice(0, 20).map((g) => ({
         id: g.id,
         title: g.title,
         status: g.status,
         currency: g.currency,
-target: moneyFromCents(g.target_cents ?? null, g.currency),
-current: moneyFromCents(g.current_cents ?? null, g.currency),
-
-target_cents: typeof g.target_cents === "number" ? g.target_cents : null,
-current_cents: typeof g.current_cents === "number" ? g.current_cents : 0,
-remaining_cents:
-  typeof g.target_cents === "number"
-    ? Math.max(0, (g.target_cents ?? 0) - (typeof g.current_cents === "number" ? g.current_cents : 0))
-    : null,
-percent:
-  typeof g.target_cents === "number"
-    ? pct(typeof g.current_cents === "number" ? g.current_cents : 0, g.target_cents)
-    : null,
-      target_date: (g as any).target_date ?? null,
+        target: moneyFromCents(g.target_cents ?? null, g.currency),
+        current: moneyFromCents(g.current_cents ?? null, g.currency),
+        target_cents: typeof g.target_cents === "number" ? g.target_cents : null,
+        current_cents: typeof g.current_cents === "number" ? g.current_cents : 0,
+        remaining_cents:
+          typeof g.target_cents === "number"
+            ? Math.max(0, (g.target_cents ?? 0) - (typeof g.current_cents === "number" ? g.current_cents : 0))
+            : null,
+        percent: typeof g.target_cents === "number" ? pct(typeof g.current_cents === "number" ? g.current_cents : 0, g.target_cents) : null,
+        target_date: (g as any).target_date ?? null,
         is_primary: g.is_primary === true,
+        linked_accounts: (linkedAccountsByGoalId.get(String(g.id)) ?? []).sort((a, b) => (a.weight ?? 100) - (b.weight ?? 100)),
       })),
       notes: "Goals come from money_goals. Read-only in Home Ask.",
     },
@@ -678,80 +731,65 @@ percent:
   };
 }
 
+/* ---------------- prompt ---------------- */
+
 const SYSTEM = `
-You are Keystone Home Ask.
+You are Life CFO Home Ask.
 
-RULES:
-- You may ONLY answer using FACTS PACK (+ now_iso).
-- If required data isn't present, say what you can/can't see and STOP.
-- No guessing. No invention. Calm and non-directive.
-- No urgency. No "you should". No pretending anything was saved.
-- Prefer: direct answer (1–2 lines), then bullets, then totals/ranges when relevant.
-- If time-based, state the window explicitly.
+You must respond as a calm, careful household CFO.
 
-OPEN DECISIONS:
-- Primary source for examples is facts.open_decisions_preview (count + titles).
-- When the user asks about open decisions (any wording like "open decisions", "still deciding", "any open decisions"):
-  - Always give the count first (use facts.open_decisions_preview.count).
-  - If facts.open_decisions_preview.count > 0 AND facts.open_decisions_preview.titles has at least 1 title:
-    - You MUST include the preview titles in the same response (up to 3).
-    - Use ONLY the provided titles. Never invent titles.
-    - Prefer one calm sentence: "There are X open decisions, including: A, B, C."
-  - If there are no preview titles available, just give the count.
-  - Never infer "most important" or urgency.
-  - If the user explicitly asks to list them, you may list up to 5 titles using facts.decisions_open (still: do not invent).
-- Set action="open_decisions" when user asks about open decisions.
+NON-NEGOTIABLE RULES
+- You may ONLY answer using FACTS PACK (+ now_iso). No web. No guessing. No invention.
+- If required data isn't present, say what you can/can’t see and STOP.
+- No urgency. No pressure. No “you should”. No pretending anything was saved.
+- Answer-first. Save-later. Never imply persistence.
 
-GOALS:
+CANONICAL OUTPUT (ONE SOURCE OF TRUTH)
+Return JSON ONLY with these fields:
+- verdict: one of
+  "CLEAR_YES" | "YES_NEEDS_PLANNING" | "NOT_YET" | "NEEDS_ATTENTION" | "NO" | "INSUFFICIENT_DATA" | "INFO"
+- verdict_sentence: one short sentence (front door). Must match verdict. Keep it calm.
+- key_points: 0–3 bullets max. Must be immediately clarifying and factual.
+- details: optional. Short paragraph(s) or a short list. Facts only.
+- what_would_change: 0–3 bullets max. What would change the conclusion (factual).
+- assumptions: 0–3 bullets max. Explicit assumptions based on visible data only.
+
+Also include:
+- action: open_bills | open_money | open_decisions | open_review | open_chapters | none
+- suggested_next: none | create_capture | open_thinking
+- capture_seed: only when suggested_next="create_capture", else null
+- answer: a memo-shaped readable string built from the structured fields (front door first)
+
+OPEN DECISIONS
+- Use facts.open_decisions_preview for examples (count + up to 3 titles).
+- If asked about open decisions: give count first and include preview titles if present.
+- Never invent titles.
+
+GOALS
 - Use facts.goals only.
-- Always give the active count first: facts.goals.count_active.
-- If facts.goals.count_active > 0 and facts.goals.preview_titles has items, include up to 3 titles in the same response.
-- If facts.goals.primary exists, you may mention it as "Primary goal: <title>" and include current/target if present.
-- Do not suggest tactics or advice. Fact-only.
-- Set action="open_money" for goal questions (Goals live under Money).
+- Give active count first; include up to 3 preview titles if present.
+- If primary exists, include current/target/remaining/percent when present.
+- No tactics. Fact-only.
 
-FAMILY:
-- Use facts.family only.
-- Answer factually: counts, names, relationships (if provided), and ages if available.
-- Ages are approximate (derived from birth_year). If birth_year is missing, say you can’t see an age for that person.
-- Do not infer roles beyond what is stated (relationship is free-text). Do not guess relationships.
-- Pets are part of the household. If asked, list pets with name + type if present.
-- Do not give parenting advice or commentary. If asked something subjective, say you can’t answer and STOP.
-- If a user asks to change/edit family members, explain you can’t do that here and suggest going to the Family page.
+REVIEW
+- Use facts.review only.
+- Always count first. If items exist, list up to 3 with “scheduled for <date>”.
+- Never say “due”.
 
-REVIEW:
-- Use facts.review ONLY.
-- Review items are decisions with a review_at date that have not been reviewed yet (reviewed_at is null).
-- NEVER use bills, money, or time-window heuristics for review questions.
-- When the user asks about review / revisit / check-in:
-  - Always answer from facts.review.
-  - Always give the count first.
-  - If items exist:
-    - Prefer a short bullet list (up to 3 items).
-    - Each item should include the title and its review date.
-    - Use calm phrasing like: "scheduled for Tue, 4 Feb 2026".
-    - Never say "due".
-  - Keep tone calm and non-urgent.
-- Set action="open_review" for review questions.
-- Do not suggest action.
-- If no review items exist, say so plainly and STOP.
+CHAPTERS
+- Use facts.chapters only.
+- Always count first. List up to 3 titles; include “closed on <date>” if present.
 
-CHAPTERS:
-- Use facts.chapters ONLY.
-- Chapters are completed decisions kept for reference (status='chapter' or chaptered_at set).
-- Always give the count first.
-- If count > 0 and facts.chapters.recent has items, include up to 3 titles (and dates if present).
-- Do not interpret or summarise meaning. Do not suggest next steps.
-- Set action="open_chapters" when the user asks about chapters / completed decisions / what we’ve closed / wrapped up.
-- If no chapters exist, say so plainly and STOP.
-
-AFFORD / SHOULD-WE:
+AFFORD / SHOULD-WE
 - Never grant permission.
-- Provide a bounded frame (accounts + upcoming bills) if relevant.
-- If it needs more context/tradeoffs/missing inputs, set suggested_next="create_capture"
+- Provide bounded facts (balances + recurring commitments).
+- If you can't answer safely, verdict MUST be "INSUFFICIENT_DATA".
+- suggested_next should be "create_capture" when more context is needed.
 
-Return JSON only matching schema.
+Return JSON only.
 `.trim();
+
+/* ---------------- route ---------------- */
 
 export async function POST(req: Request) {
   try {
@@ -764,75 +802,109 @@ export async function POST(req: Request) {
     }
 
     // 🔒 SAFETY INTERCEPT (V1 REQUIRED)
-    // Pre-answer gate. Hard stop. No facts pack. No AI. No routing.
     const intercept = maybeCrisisIntercept(question);
     if (intercept) {
-      return NextResponse.json({
-        answer: intercept.content,
-        action: "none",
-        suggested_next: "none",
-        capture_seed: null,
+      const verdict: Verdict = "NEEDS_ATTENTION";
+      const verdict_sentence = intercept.content.trim() || verdictSentence(verdict);
+
+      const payload = {
+        verdict,
+        verdict_sentence,
+        key_points: [] as string[],
+        details: "",
+        what_would_change: [] as string[],
+        assumptions: [] as string[],
+        action: "none" as Action,
+        suggested_next: "none" as SuggestedNext,
+        capture_seed: null as any,
+        answer: buildMemoAnswer({
+          verdict_sentence,
+          key_points: [],
+          details: "",
+          what_would_change: [],
+          assumptions: [],
+        }),
         kind: intercept.kind,
-      });
+      };
+
+      return NextResponse.json(payload);
     }
 
     const facts = await buildFactsPack(userId);
 
     // ✅ Deterministic AFFORD handling (skip AI)
-if (isAffordIntent(question)) {
-  const money = (facts as any)?.money_summary;
+    if (isAffordIntent(question)) {
+      const money = (facts as any)?.money_summary;
 
-  const balancesArr = Array.isArray(money?.balances_by_currency) ? money.balances_by_currency : [];
-  const billsArr = Array.isArray(money?.recurring_bills_totals_by_currency) ? money.recurring_bills_totals_by_currency : [];
+      const balancesArr = Array.isArray(money?.balances_by_currency) ? money.balances_by_currency : [];
+      const billsArr = Array.isArray(money?.recurring_bills_totals_by_currency) ? money.recurring_bills_totals_by_currency : [];
 
-  const balances =
-    balancesArr.length > 0
-      ? balancesArr
-          .map((b: any) => {
-            const cur = typeof b?.currency === "string" ? b.currency : "";
-            const bal = typeof b?.balance === "string" ? b.balance : "—";
-            return `• ${cur}: ${bal}`;
-          })
-          .join("\n")
-      : "• (no account balances visible)";
+      const balancesList =
+        balancesArr.length > 0
+          ? balancesArr.map((b: any) => {
+              const cur = typeof b?.currency === "string" ? b.currency : "";
+              const bal = typeof b?.balance === "string" ? b.balance : "—";
+              return `${cur}: ${bal}`;
+            })
+          : ["(no account balances visible)"];
 
-  const bills =
-    billsArr.length > 0
-      ? billsArr
-          .map((b: any) => {
-            const cur = typeof b?.currency === "string" ? b.currency : "";
-            const tot = typeof b?.total === "string" ? b.total : "—";
-            return `• ${cur}: ${tot}`;
-          })
-          .join("\n")
-      : "• (no recurring bills totals visible)";
+      const billsList =
+        billsArr.length > 0
+          ? billsArr.map((b: any) => {
+              const cur = typeof b?.currency === "string" ? b.currency : "";
+              const tot = typeof b?.total === "string" ? b.total : "—";
+              return `${cur}: ${tot}`;
+            })
+          : ["(no recurring commitments visible)"];
 
-  return NextResponse.json({
-    answer: [
-      "Here’s what I can see right now:",
-      "",
-      "Available balances:",
-      balances,
-      "",
-      "Recurring commitments:",
-      bills,
-      "",
-      "I can’t say “yes” or “no” from here — but we can frame it safely.",
-    ].join("\n"),
-    action: "open_money",
-    suggested_next: "create_capture",
-    capture_seed: {
-      title: question,
-      prompt: question,
-      notes: [
-        "Affordability question — no permission granted",
-        "Known: current balances (accounts)",
-        "Known: recurring commitments (recurring bills totals)",
-        "Unknown: timing, one-off vs recurring, which account pays, required buffer",
-      ],
-    },
-  });
-}
+      const verdict: Verdict = "INSUFFICIENT_DATA";
+      const verdict_sentence = verdictSentence(verdict);
+
+      const key_points = [
+        "I can show your current balances and recurring commitments.",
+        "I can’t confirm affordability without timing + which account pays + the buffer you want to protect.",
+      ];
+
+      const details = [
+        "**Available balances**",
+        mdBullets(balancesList),
+        "",
+        "**Recurring commitments**",
+        mdBullets(billsList),
+      ].join("\n");
+
+      const what_would_change = [
+        "If the spend is before or after income lands",
+        "If it must come from a specific account",
+        "If it’s one-off or ongoing",
+      ];
+
+      const assumptions = ["Balances reflect your active accounts", "Commitments reflect active recurring bills"];
+
+      const answer = buildMemoAnswer({ verdict_sentence, key_points, details, what_would_change, assumptions });
+
+      return NextResponse.json({
+        verdict,
+        verdict_sentence,
+        key_points,
+        details,
+        what_would_change,
+        assumptions,
+        answer,
+        action: "open_money",
+        suggested_next: "create_capture",
+        capture_seed: {
+          title: question,
+          prompt: question,
+          notes: [
+            "Affordability question — no permission granted",
+            "Known: current balances (accounts)",
+            "Known: recurring commitments (recurring bills totals)",
+            "Unknown: timing, one-off vs ongoing, paying account, required buffer",
+          ],
+        },
+      });
+    }
 
     // ✅ Deterministic REVIEW handling (skip AI)
     if (isReviewIntent(question)) {
@@ -840,25 +912,54 @@ if (isAffordIntent(question)) {
       const count = typeof review?.count === "number" ? review.count : 0;
       const upcoming = Array.isArray(review?.upcoming) ? review.upcoming : [];
 
+      const verdict: Verdict = "INFO";
+      const verdict_sentence = verdictSentence(verdict);
+
       if (count <= 0 || upcoming.length === 0) {
+        const key_points = ["There are no items scheduled for review (from what I can see)."];
+        const assumptions = ["Review items come from decisions with review_at set and reviewed_at still empty"];
+
+        const answer = buildMemoAnswer({
+          verdict_sentence,
+          key_points,
+          details: "",
+          what_would_change: [],
+          assumptions,
+        });
+
         return NextResponse.json({
-          answer: "There are no items scheduled for review (from what I can see).",
+          verdict,
+          verdict_sentence,
+          key_points,
+          details: "",
+          what_would_change: [],
+          assumptions,
+          answer,
           action: "open_review",
           suggested_next: "none",
           capture_seed: null,
         });
       }
 
-      const lines = upcoming.slice(0, 3).map((it: any) => {
+      const items = upcoming.slice(0, 3).map((it: any) => {
         const title = typeof it?.title === "string" ? it.title.trim() : "Decision";
         const at = typeof it?.review_at === "string" ? it.review_at : "";
         const when = at ? formatDateShort(at) : "";
-        return `• ${title}${when ? ` — scheduled for ${when}` : ""}`;
+        return `${title}${when ? ` — scheduled for ${when}` : ""}`;
       });
 
-      const answer = `There are ${count} items scheduled for review.\n\n${lines.join("\n")}`;
+      const key_points = [`There are ${count} items scheduled for review.`, ...items].slice(0, 3);
+
+      const assumptions = ["Review items come from decisions with review_at set and reviewed_at still empty"];
+      const answer = buildMemoAnswer({ verdict_sentence, key_points, details: "", what_would_change: [], assumptions });
 
       return NextResponse.json({
+        verdict,
+        verdict_sentence,
+        key_points,
+        details: "",
+        what_would_change: [],
+        assumptions,
         answer,
         action: "open_review",
         suggested_next: "none",
@@ -872,25 +973,47 @@ if (isAffordIntent(question)) {
       const count = typeof chapters?.count === "number" ? chapters.count : 0;
       const recent = Array.isArray(chapters?.recent) ? chapters.recent : [];
 
+      const verdict: Verdict = "INFO";
+      const verdict_sentence = verdictSentence(verdict);
+
       if (count <= 0 || recent.length === 0) {
+        const key_points = ["There are no chapters yet (from what I can see)."];
+        const assumptions = ["Chapters are decisions marked as chapter or with chaptered_at set"];
+        const answer = buildMemoAnswer({ verdict_sentence, key_points, details: "", what_would_change: [], assumptions });
+
         return NextResponse.json({
-          answer: "There are no chapters yet (from what I can see).",
+          verdict,
+          verdict_sentence,
+          key_points,
+          details: "",
+          what_would_change: [],
+          assumptions,
+          answer,
           action: "open_chapters",
           suggested_next: "none",
           capture_seed: null,
         });
       }
 
-      const lines = recent.slice(0, 3).map((it: any) => {
+      const items = recent.slice(0, 3).map((it: any) => {
         const title = typeof it?.title === "string" ? it.title.trim() : "Decision";
         const at = typeof it?.chaptered_at === "string" ? it.chaptered_at : "";
         const when = at ? formatDateShort(at) : "";
-        return `• ${title}${when ? ` — closed on ${when}` : ""}`;
+        return `${title}${when ? ` — closed on ${when}` : ""}`;
       });
 
-      const answer = `There are ${count} chapters.\n\n${lines.join("\n")}`;
+      const key_points = [`There are ${count} chapters.`, ...items].slice(0, 3);
+
+      const assumptions = ["Chapters are decisions marked as chapter or with chaptered_at set"];
+      const answer = buildMemoAnswer({ verdict_sentence, key_points, details: "", what_would_change: [], assumptions });
 
       return NextResponse.json({
+        verdict,
+        verdict_sentence,
+        key_points,
+        details: "",
+        what_would_change: [],
+        assumptions,
         answer,
         action: "open_chapters",
         suggested_next: "none",
@@ -898,122 +1021,174 @@ if (isAffordIntent(question)) {
       });
     }
 
-// ✅ Deterministic GOALS handling (skip AI)
-if (isGoalsIntent(question) || isBufferIntent(question)) {
-  const goals = (facts as any)?.goals;
-  const countActive = typeof goals?.count_active === "number" ? goals.count_active : 0;
-  const previewTitles = Array.isArray(goals?.preview_titles) ? goals.preview_titles : [];
-  const primary = goals?.primary ?? null;
-  const active = Array.isArray(goals?.active) ? goals.active : [];
+    // ✅ Deterministic GOALS handling (skip AI)
+    if (isGoalsIntent(question) || isBufferIntent(question)) {
+      const goals = (facts as any)?.goals;
+      const countActive = typeof goals?.count_active === "number" ? goals.count_active : 0;
+      const previewTitles = Array.isArray(goals?.preview_titles) ? goals.preview_titles : [];
+      const primary = goals?.primary ?? null;
+      const active = Array.isArray(goals?.active) ? goals.active : [];
 
-  if (countActive <= 0) {
-    return NextResponse.json({
-      answer: "There are no active goals (from what I can see).",
-      action: "open_money",
-      suggested_next: "none",
-      capture_seed: null,
-    });
-  }
+      const verdict: Verdict = "INFO";
+      const verdict_sentence = verdictSentence(verdict);
 
-  // If they asked about “buffer”, try to locate a buffer goal deterministically:
-  if (isBufferIntent(question)) {
-    const buffer = (() => {
-      // 1) prefer primary if it looks like buffer
-      if (primary?.title && typeof primary.title === "string" && /buffer|emergency|rainy/i.test(primary.title)) return primary;
+      if (countActive <= 0) {
+        const key_points = ["There are no active goals (from what I can see)."];
+        const assumptions = ["Goals come from money_goals"];
+        const answer = buildMemoAnswer({ verdict_sentence, key_points, details: "", what_would_change: [], assumptions });
 
-      // 2) search active list for a title match
-      const hit = active.find((g: any) => typeof g?.title === "string" && /buffer|emergency|rainy/i.test(g.title));
-      if (hit) return hit;
+        return NextResponse.json({
+          verdict,
+          verdict_sentence,
+          key_points,
+          details: "",
+          what_would_change: [],
+          assumptions,
+          answer,
+          action: "open_money",
+          suggested_next: "none",
+          capture_seed: null,
+        });
+      }
 
-      // 3) fallback: if only one goal exists, treat it as “the buffer you mean” is unknown; don’t guess
-      return null;
-    })();
+      // Buffer intent: locate an explicit buffer goal only (no guessing)
+      if (isBufferIntent(question)) {
+        const buffer = (() => {
+          if (primary?.title && typeof primary.title === "string" && /buffer|emergency|rainy/i.test(primary.title)) return primary;
+          const hit = active.find((g: any) => typeof g?.title === "string" && /buffer|emergency|rainy/i.test(g.title));
+          if (hit) return hit;
+          return null;
+        })();
 
-    if (!buffer) {
-      return NextResponse.json({
-        answer:
-          "I can see your goals, but I can’t see one explicitly named like “buffer” / “emergency fund”. If you tell me the goal’s name, I can report its progress exactly.",
-        action: "open_money",
-        suggested_next: "none",
-        capture_seed: null,
-      });
-    }
+        if (!buffer) {
+          const key_points = [
+            `I can see ${countActive} active goals, but none is explicitly named like “buffer” / “emergency fund”.`,
+            "If you tell me the goal’s exact name, I can report its progress precisely.",
+          ];
+          const assumptions = ["Goals come from money_goals"];
+          const answer = buildMemoAnswer({ verdict_sentence, key_points, details: "", what_would_change: [], assumptions });
 
-    const title = String(buffer.title || "Buffer").trim() || "Buffer";
-    const cur = typeof buffer.current === "string" ? buffer.current : null;
-    const tgt = typeof buffer.target === "string" ? buffer.target : null;
-    const rem = typeof buffer.remaining === "string" ? buffer.remaining : null;
-    const p = typeof buffer.percent === "number" ? buffer.percent : null;
+          return NextResponse.json({
+            verdict,
+            verdict_sentence,
+            key_points,
+            details: "",
+            what_would_change: [],
+            assumptions,
+            answer,
+            action: "open_money",
+            suggested_next: "none",
+            capture_seed: null,
+          });
+        }
 
-    // If there’s no target, we can’t compute “how close” — say that plainly.
-    if (!tgt) {
-      return NextResponse.json({
-        answer: `Your “${title}” goal is currently at ${cur ?? "—"} (from what I can see). I can’t calculate “how close” because I can’t see a target amount for it.`,
-        action: "open_money",
-        suggested_next: "none",
-        capture_seed: null,
-      });
-    }
+        const title = String(buffer.title || "Buffer").trim() || "Buffer";
+        const cur = typeof buffer.current === "string" ? buffer.current : null;
+        const tgt = typeof buffer.target === "string" ? buffer.target : null;
+        const rem = typeof buffer.remaining === "string" ? buffer.remaining : null;
+        const p = typeof buffer.percent === "number" ? buffer.percent : null;
 
-    const bits: string[] = [];
-    bits.push(`Your buffer goal (“${title}”) is at ${cur ?? "—"} / ${tgt}${p != null ? ` (${p}%)` : ""}.`);
-    if (rem) bits.push(`Remaining: ${rem}.`);
+        if (!tgt) {
+          const verdict2: Verdict = "INSUFFICIENT_DATA";
+          const vs2 = verdictSentence(verdict2);
+          const key_points = [`Your “${title}” goal is currently at ${cur ?? "—"}.`, "I can’t calculate progress because I can’t see a target amount for it."];
+          const assumptions = ["Goal target must be set to calculate remaining and percent"];
+          const answer = buildMemoAnswer({ verdict_sentence: vs2, key_points, details: "", what_would_change: [], assumptions });
+
+          return NextResponse.json({
+            verdict: verdict2,
+            verdict_sentence: vs2,
+            key_points,
+            details: "",
+            what_would_change: [],
+            assumptions,
+            answer,
+            action: "open_money",
+            suggested_next: "none",
+            capture_seed: null,
+          });
+        }
 
         const linked = Array.isArray((buffer as any).linked_accounts) ? (buffer as any).linked_accounts : [];
-    if (linked.length > 0) {
-      const preview = linked
-        .slice(0, 3)
-        .map((a: any) => {
-          const name = typeof a?.name === "string" ? a.name : "Account";
-          const bal = moneyFromCents(a?.current_balance_cents ?? null, a?.currency ?? "AUD") ?? "—";
-          return `${name} (${bal})`;
-        })
-        .join(", ");
-      bits.push(`Funds visible in: ${preview}${linked.length > 3 ? ` +${linked.length - 3} more` : ""}.`);
-    } else {
-      bits.push("I can’t see which account funds this goal yet.");
+        const fundsVisible =
+          linked.length > 0
+            ? linked
+                .slice(0, 3)
+                .map((a: any) => {
+                  const name = typeof a?.name === "string" ? a.name : "Account";
+                  const bal = moneyFromCents(a?.current_balance_cents ?? null, a?.currency ?? "AUD") ?? "—";
+                  return `${name} (${bal})`;
+                })
+                .join(", ") + (linked.length > 3 ? ` +${linked.length - 3} more` : "")
+            : "";
+
+        const key_points = [
+          `Buffer goal: ${title}`,
+          `${cur ?? "—"} / ${tgt}${p != null ? ` (${p}%)` : ""}${rem ? ` — remaining ${rem}` : ""}.`,
+          linked.length > 0 ? `Funds visible in: ${fundsVisible}.` : "I can’t see which account funds this goal yet.",
+        ];
+
+        const assumptions = ["Progress is based on the goal’s current and target values in money_goals"];
+        const answer = buildMemoAnswer({ verdict_sentence, key_points, details: "", what_would_change: [], assumptions });
+
+        return NextResponse.json({
+          verdict,
+          verdict_sentence,
+          key_points: key_points.slice(0, 3),
+          details: "",
+          what_would_change: [],
+          assumptions,
+          answer,
+          action: "open_money",
+          suggested_next: "none",
+          capture_seed: null,
+        });
+      }
+
+      // General goals summary
+      const key_points: string[] = [];
+      key_points.push(`There are ${countActive} active goals.`);
+
+      if (primary && typeof primary?.title === "string" && primary.title.trim()) {
+        const cur = typeof primary?.current === "string" ? primary.current : null;
+        const tgt = typeof primary?.target === "string" ? primary.target : null;
+        const p = typeof primary?.percent === "number" ? primary.percent : null;
+        const rem = typeof primary?.remaining === "string" ? primary.remaining : null;
+
+        const bits: string[] = [];
+        if (cur) bits.push(cur);
+        if (tgt) bits.push(`of ${tgt}`);
+        if (p != null) bits.push(`${p}%`);
+        if (rem) bits.push(`remaining ${rem}`);
+
+        key_points.push(`Primary goal: ${primary.title.trim()}${bits.length ? ` (${bits.join(", ")})` : ""}.`);
+      }
+
+      const titles = previewTitles
+        .map((t: any) => (typeof t === "string" ? t.trim() : ""))
+        .filter(Boolean)
+        .slice(0, 3);
+
+      if (titles.length) key_points.push(`Including: ${titles.join(", ")}.`);
+
+      const assumptions = ["Goals come from money_goals"];
+      const answer = buildMemoAnswer({ verdict_sentence, key_points: key_points.slice(0, 3), details: "", what_would_change: [], assumptions });
+
+      return NextResponse.json({
+        verdict,
+        verdict_sentence,
+        key_points: key_points.slice(0, 3),
+        details: "",
+        what_would_change: [],
+        assumptions,
+        answer,
+        action: "open_money",
+        suggested_next: "none",
+        capture_seed: null,
+      });
     }
 
-    return NextResponse.json({
-      answer: bits.join(" "),
-      action: "open_money",
-      suggested_next: "none",
-      capture_seed: null,
-    });
-  }
-
-  // Normal goals summary (non-buffer)
-  const parts: string[] = [];
-  parts.push(`There are ${countActive} active goals.`);
-
-  if (primary && typeof primary?.title === "string" && primary.title.trim()) {
-    const cur = typeof primary?.current === "string" ? primary.current : null;
-    const tgt = typeof primary?.target === "string" ? primary.target : null;
-    const p = typeof primary?.percent === "number" ? primary.percent : null;
-    const rem = typeof primary?.remaining === "string" ? primary.remaining : null;
-
-    const progress =
-      cur && tgt ? ` (${cur} / ${tgt}${p != null ? `, ${p}%` : ""}${rem ? `, remaining ${rem}` : ""})` : cur ? ` (${cur})` : "";
-
-    parts.push(`Primary goal: ${primary.title.trim()}${progress}.`);
-  }
-
-  if (previewTitles.length > 0) {
-    const titles = previewTitles
-      .map((t: any) => (typeof t === "string" ? t.trim() : ""))
-      .filter(Boolean)
-      .slice(0, 3);
-    if (titles.length > 0) parts.push(`Including: ${titles.join(", ")}.`);
-  }
-
-  return NextResponse.json({
-    answer: parts.join(" "),
-    action: "open_money",
-    suggested_next: "none",
-    capture_seed: null,
-  });
-}
-
+    // ---- AI path (structured verdict output) ----
     const resp = await openai.responses.create({
       model: "gpt-4o-mini",
       input: [
@@ -1023,17 +1198,23 @@ if (isGoalsIntent(question) || isBufferIntent(question)) {
       text: {
         format: {
           type: "json_schema",
-          name: "keystone_home_ask",
+          name: "life_cfo_home_ask",
           strict: true,
           schema: {
             type: "object",
             additionalProperties: false,
             properties: {
-              answer: { type: "string" },
-              action: {
+              verdict: {
                 type: "string",
-                enum: ["open_bills", "open_money", "open_decisions", "open_review", "open_chapters", "none"],
+                enum: ["CLEAR_YES", "YES_NEEDS_PLANNING", "NOT_YET", "NEEDS_ATTENTION", "NO", "INSUFFICIENT_DATA", "INFO"],
               },
+              verdict_sentence: { type: "string" },
+              key_points: { type: "array", items: { type: "string" } },
+              details: { type: "string" },
+              what_would_change: { type: "array", items: { type: "string" } },
+              assumptions: { type: "array", items: { type: "string" } },
+
+              action: { type: "string", enum: ["open_bills", "open_money", "open_decisions", "open_review", "open_chapters", "none"] },
               suggested_next: { type: "string", enum: ["none", "create_capture", "open_thinking"] },
               capture_seed: {
                 anyOf: [
@@ -1050,8 +1231,21 @@ if (isGoalsIntent(question) || isBufferIntent(question)) {
                   },
                 ],
               },
+
+              answer: { type: "string" },
             },
-            required: ["answer", "action", "suggested_next", "capture_seed"],
+            required: [
+              "verdict",
+              "verdict_sentence",
+              "key_points",
+              "details",
+              "what_would_change",
+              "assumptions",
+              "action",
+              "suggested_next",
+              "capture_seed",
+              "answer",
+            ],
           },
         },
       },
@@ -1063,15 +1257,38 @@ if (isGoalsIntent(question) || isBufferIntent(question)) {
     try {
       parsed = JSON.parse(raw);
     } catch {
+      const fallbackVerdict: Verdict = "INSUFFICIENT_DATA";
+      const vs = verdictSentence(fallbackVerdict);
+
       return NextResponse.json(
-        { answer: "I couldn’t format that safely. Try again.", action: "none", suggested_next: "none", capture_seed: null },
+        {
+          verdict: fallbackVerdict,
+          verdict_sentence: vs,
+          key_points: ["I couldn’t format that safely. Try again."],
+          details: "",
+          what_would_change: [],
+          assumptions: [],
+          action: "none",
+          suggested_next: "none",
+          capture_seed: null,
+          answer: buildMemoAnswer({ verdict_sentence: vs, key_points: ["I couldn’t format that safely. Try again."], details: "", what_would_change: [], assumptions: [] }),
+        },
         { status: 502 }
       );
     }
 
     const obj = parsed as Record<string, unknown>;
 
-    const answer = String(obj.answer ?? "").trim().slice(0, 4000);
+    const verdict: Verdict = isVerdict(obj.verdict) ? (obj.verdict as Verdict) : "INFO";
+    const verdict_sentence = String(obj.verdict_sentence ?? "").trim().slice(0, 240) || verdictSentence(verdict);
+
+    const key_points = Array.isArray(obj.key_points) ? (obj.key_points as unknown[]).map((x) => String(x)).map((s) => s.trim()).filter(Boolean).slice(0, 3) : [];
+    const what_would_change = Array.isArray(obj.what_would_change)
+      ? (obj.what_would_change as unknown[]).map((x) => String(x)).map((s) => s.trim()).filter(Boolean).slice(0, 3)
+      : [];
+    const assumptions = Array.isArray(obj.assumptions) ? (obj.assumptions as unknown[]).map((x) => String(x)).map((s) => s.trim()).filter(Boolean).slice(0, 3) : [];
+    const details = String(obj.details ?? "").trim().slice(0, 6000);
+
     const action: Action = isAction(obj.action) ? (obj.action as Action) : "none";
     const suggested_next: SuggestedNext = isSuggestedNext(obj.suggested_next) ? (obj.suggested_next as SuggestedNext) : "none";
 
@@ -1086,7 +1303,30 @@ if (isGoalsIntent(question) || isBufferIntent(question)) {
           }
         : null;
 
-    return NextResponse.json({ answer, action, suggested_next, capture_seed });
+    // Prefer model "answer", but enforce canonical memo build if empty
+    const answerRaw = String(obj.answer ?? "").trim().slice(0, 12000);
+    const answer = answerRaw
+      ? answerRaw
+      : buildMemoAnswer({
+          verdict_sentence,
+          key_points,
+          details,
+          what_would_change,
+          assumptions,
+        });
+
+    return NextResponse.json({
+      verdict,
+      verdict_sentence,
+      key_points,
+      details,
+      what_would_change,
+      assumptions,
+      answer,
+      action,
+      suggested_next,
+      capture_seed,
+    });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : "Unknown error";
     return NextResponse.json({ error: msg }, { status: 500 });
