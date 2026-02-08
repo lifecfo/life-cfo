@@ -4,6 +4,8 @@ import OpenAI from "openai";
 import { createClient } from "@supabase/supabase-js";
 import { maybeCrisisIntercept } from "@/lib/safety/guard";
 import { decideHomeTone, type HomeTone } from "@/lib/lifecfo/homeTone";
+import { decideVerdict } from "@/lib/lifecfo/verdictDecision";
+import type { Verdict } from "@/lib/lifecfo/verdict";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -770,9 +772,13 @@ export async function POST(req: Request) {
         assumptions: [],
       });
 
+      const tone: HomeTone = "attention";
+      const verdict: Verdict = "NEEDS_ATTENTION";
+
       return NextResponse.json({
         answer,
-        tone: "attention",
+        tone,
+        verdict,
         headline,
         key_points: [],
         details: "",
@@ -820,7 +826,14 @@ export async function POST(req: Request) {
 
       const answer = buildMemoAnswer({ headline, key_points, details, what_changes_this, assumptions });
 
-      const tone: Verdict = decideVerdict({
+      const tone: HomeTone = decideHomeTone({
+        question,
+        suggested_next: "create_capture",
+        action: "open_money",
+        facts: facts as any,
+      });
+
+      const verdict: Verdict = decideVerdict({
         question,
         suggested_next: "create_capture",
         action: "open_money",
@@ -830,6 +843,7 @@ export async function POST(req: Request) {
       return NextResponse.json({
         answer,
         tone,
+        verdict,
         headline,
         key_points,
         details,
@@ -863,9 +877,12 @@ export async function POST(req: Request) {
 
         const tone: HomeTone = decideHomeTone({ question, suggested_next: "none", action: "open_review", facts: facts as any });
 
+        const verdict: Verdict = decideVerdict({ question, suggested_next: "none", action: "open_review", facts: facts as any });
+
         return NextResponse.json({
           answer,
           tone,
+          verdict,
           headline,
           key_points: [],
           details: "",
@@ -888,11 +905,14 @@ export async function POST(req: Request) {
       const assumptions = ["Review items come from decisions with review_at set and reviewed_at still empty"];
       const answer = buildMemoAnswer({ headline, key_points: items, details: "", what_changes_this: [], assumptions });
 
-      const tone: Verdict = decideVerdict({ question, suggested_next: "none", action: "open_review", facts: facts as any });
+      const tone: HomeTone = decideHomeTone({ question, suggested_next: "none", action: "open_review", facts: facts as any });
+
+      const verdict: Verdict = decideVerdict({ question, suggested_next: "none", action: "open_review", facts: facts as any });
 
       return NextResponse.json({
         answer,
         tone,
+        verdict,
         headline,
         key_points: items,
         details: "",
@@ -915,11 +935,14 @@ export async function POST(req: Request) {
         const assumptions = ["Chapters are decisions marked as chapter or with chaptered_at set"];
         const answer = buildMemoAnswer({ headline, key_points: [], details: "", what_changes_this: [], assumptions });
 
-        const tone: Verdict = decideVerdict({ question, suggested_next: "none", action: "open_chapters", facts: facts as any });
+        const tone: HomeTone = decideHomeTone({ question, suggested_next: "none", action: "open_chapters", facts: facts as any });
+
+        const verdict: Verdict = decideVerdict({ question, suggested_next: "none", action: "open_chapters", facts: facts as any });
 
         return NextResponse.json({
           answer,
           tone,
+          verdict,
           headline,
           key_points: [],
           details: "",
@@ -942,11 +965,14 @@ export async function POST(req: Request) {
       const assumptions = ["Chapters are decisions marked as chapter or with chaptered_at set"];
       const answer = buildMemoAnswer({ headline, key_points: items, details: "", what_changes_this: [], assumptions });
 
-      const tone: Verdict = decideVerdict({ question, suggested_next: "none", action: "open_chapters", facts: facts as any });
+      const tone: HomeTone = decideHomeTone({ question, suggested_next: "none", action: "open_chapters", facts: facts as any });
+
+      const verdict: Verdict = decideVerdict({ question, suggested_next: "none", action: "open_chapters", facts: facts as any });
 
       return NextResponse.json({
         answer,
         tone,
+        verdict,
         headline,
         key_points: items,
         details: "",
@@ -971,11 +997,14 @@ export async function POST(req: Request) {
         const assumptions = ["Goals come from money_goals"];
         const answer = buildMemoAnswer({ headline, key_points: [], details: "", what_changes_this: [], assumptions });
 
-        const tone: Verdict = decideVerdict({ question, suggested_next: "none", action: "open_money", facts: facts as any });
+        const tone: HomeTone = decideHomeTone({ question, suggested_next: "none", action: "open_money", facts: facts as any });
+
+        const verdict: Verdict = decideVerdict({ question, suggested_next: "none", action: "open_money", facts: facts as any });
 
         return NextResponse.json({
           answer,
           tone,
+          verdict,
           headline,
           key_points: [],
           details: "",
@@ -1002,11 +1031,14 @@ export async function POST(req: Request) {
           const assumptions = ["Goals come from money_goals"];
           const answer = buildMemoAnswer({ headline, key_points, details: "", what_changes_this: [], assumptions });
 
-          const tone: Verdict = decideVerdict({ question, suggested_next: "none", action: "open_money", facts: facts as any });
+          const tone: HomeTone = decideHomeTone({ question, suggested_next: "none", action: "open_money", facts: facts as any });
+
+          const verdict: Verdict = decideVerdict({ question, suggested_next: "none", action: "open_money", facts: facts as any });
 
           return NextResponse.json({
             answer,
             tone,
+            verdict,
             headline,
             key_points,
             details: "",
@@ -1030,11 +1062,14 @@ export async function POST(req: Request) {
           const assumptions = ["Goal target must be set to calculate remaining and percent"];
           const answer = buildMemoAnswer({ headline, key_points, details: "", what_changes_this: [], assumptions });
 
-          const tone: Verdict = decideVerdict({ question, suggested_next: "none", action: "open_money", facts: facts as any });
+          const tone: HomeTone = decideHomeTone({ question, suggested_next: "none", action: "open_money", facts: facts as any });
+
+          const verdict: Verdict = decideVerdict({ question, suggested_next: "none", action: "open_money", facts: facts as any });
 
           return NextResponse.json({
             answer,
             tone,
+            verdict,
             headline,
             key_points,
             details: "",
@@ -1064,11 +1099,14 @@ export async function POST(req: Request) {
         const assumptions = ["Progress is based on the goal’s current and target values in money_goals"];
         const answer = buildMemoAnswer({ headline, key_points, details: "", what_changes_this: [], assumptions });
 
-        const tone: Verdict = decideVerdict({ question, suggested_next: "none", action: "open_money", facts: facts as any });
+        const tone: HomeTone = decideHomeTone({ question, suggested_next: "none", action: "open_money", facts: facts as any });
+
+        const verdict: Verdict = decideVerdict({ question, suggested_next: "none", action: "open_money", facts: facts as any });
 
         return NextResponse.json({
           answer,
           tone,
+          verdict,
           headline,
           key_points,
           details: "",
@@ -1109,11 +1147,14 @@ export async function POST(req: Request) {
       const assumptions = ["Goals come from money_goals"];
       const answer = buildMemoAnswer({ headline, key_points, details: "", what_changes_this: [], assumptions });
 
-      const tone: Verdict = decideVerdict({ question, suggested_next: "none", action: "open_money", facts: facts as any });
+      const tone: HomeTone = decideHomeTone({ question, suggested_next: "none", action: "open_money", facts: facts as any });
+
+      const verdict: Verdict = decideVerdict({ question, suggested_next: "none", action: "open_money", facts: facts as any });
 
       return NextResponse.json({
         answer,
         tone,
+        verdict,
         headline,
         key_points,
         details: "",
@@ -1180,10 +1221,14 @@ export async function POST(req: Request) {
       const headline = "I couldn’t format that safely.";
       const answer = buildMemoAnswer({ headline, key_points: [], details: "", what_changes_this: [], assumptions: [] });
 
+      const tone: HomeTone = "tight";
+      const verdict: Verdict = "INSUFFICIENT_DATA";
+
       return NextResponse.json(
         {
           answer,
-          tone: "tight",
+          tone,
+          verdict,
           headline,
           key_points: [],
           details: "",
@@ -1228,8 +1273,16 @@ export async function POST(req: Request) {
       assumptions,
     });
 
-    // ✅ Canonical verdict selection (server owns verdict)
-    const tone: Verdict = decideVerdict({
+    // ✅ Tone (Home check-in tone)
+    const tone: HomeTone = decideHomeTone({
+      question,
+      suggested_next,
+      action,
+      facts: facts as any,
+    });
+
+    // ✅ Verdict (fine-grained, deterministic)
+    const verdict: Verdict = decideVerdict({
       question,
       suggested_next,
       action,
@@ -1239,6 +1292,7 @@ export async function POST(req: Request) {
     return NextResponse.json({
       answer,
       tone,
+      verdict,
       headline,
       key_points,
       details,
