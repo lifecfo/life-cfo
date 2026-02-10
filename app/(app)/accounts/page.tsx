@@ -1,559 +1,682 @@
-// app/(app)/accounts/page.tsx
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
-import { Button, Card, CardContent, Badge, Chip, useToast } from "@/components/ui";
 import { Page } from "@/components/Page";
-import { AssistedSearch } from "@/components/AssistedSearch";
+import { Card, CardContent, Chip, Button, useToast } from "@/components/ui";
+import { maybeCrisisIntercept } from "@/lib/safety/guard";
 
-type LiveState = "connecting" | "live" | "offline";
+/* ---------------- types (MATCH YOUR accounts TABLE) ---------------- */
 
-type Account = {
+type AccountRow = {
   id: string;
-  user_id: string;
   name: string;
-  current_balance_cents: number;
+  provider: string | null;
+  type: string | null; // transaction | savings | credit | loan | investment | etc
+  status: string | null;
+  archived: boolean;
+  current_balance_cents: string | number; // bigint comes back as string sometimes
   currency: string;
-  archived?: boolean;
-  created_at: string;
-  updated_at: string;
+  created_at: string | null;
+  updated_at: string | null;
 };
 
-// ✅ Parse money input that may include $ and commas (and optional minus)
-function toCents(input: string) {
-  const raw = (input ?? "").trim();
-  if (!raw) return 0;
+type AskState =
+  | { status: "idle" }
+  | { status: "loading"; question: string }
+  | { status: "done"; question: string; answer: string }
+  | { status: "error"; question: string; message: string };
 
-  // keep digits, dot, minus (commas/$/spaces stripped)
-  const cleaned = raw.replace(/[^\d.-]/g, "");
-  if (!cleaned) return 0;
+type Tab = "overview" | "import" | "manual";
 
-  const n = Number.parseFloat(cleaned);
-  if (Number.isNaN(n)) return null;
+/* ---------------- helpers ---------------- */
 
-  return Math.round(n * 100);
+function safeStr(v: unknown) {
+  return typeof v === "string" ? v : "";
 }
 
-function formatMoney(cents: number, currency = "AUD") {
-  const value = (cents ?? 0) / 100;
+function safeBool(v: unknown) {
+  return typeof v === "boolean" ? v : false;
+}
+
+function centsToNumber(cents: unknown): number | null {
+  if (typeof cents === "number" && Number.isFinite(cents)) return cents / 100;
+  if (typeof cents === "string") {
+    const trimmed = cents.trim();
+    if (!trimmed) return null;
+    const n = Number(trimmed);
+    if (!Number.isFinite(n)) return null;
+    return n / 100;
+  }
+  return null;
+}
+
+function prettyWhen(iso?: string | null) {
+  const s = safeStr(iso);
+  const ms = Date.parse(s);
+  if (!s || Number.isNaN(ms)) return "";
+  return new Date(ms).toLocaleString(undefined, {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function fmtMoney(amount: number | null, ccy: string | null) {
+  if (amount === null || amount === undefined) return "—";
+  const currency = (ccy || "AUD").toUpperCase();
   try {
-    return new Intl.NumberFormat("en-AU", {
-      style: "currency",
-      currency,
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    }).format(value);
+    return new Intl.NumberFormat(undefined, { style: "currency", currency }).format(amount);
   } catch {
-    return `${currency} ${value.toFixed(2)}`;
+    return `${amount.toFixed(2)} ${currency}`;
   }
 }
 
-// ✅ Format raw input to "$#,###.##" (on blur)
-function formatMoneyInput(input: string, currency = "AUD") {
-  const raw = (input ?? "").trim();
-  if (!raw) return "";
-  const cents = toCents(raw);
-  if (cents == null) return raw;
-  return formatMoney(cents, currency);
+function acctTypeLabel(t: string | null) {
+  const s = (t || "").toLowerCase();
+  if (!s) return "Account";
+  if (/(trans|everyday|checking|transaction)/i.test(s)) return "Everyday";
+  if (/(save|savings)/i.test(s)) return "Savings";
+  if (/(credit|cc)/i.test(s)) return "Credit";
+  if (/(loan|mortgage)/i.test(s)) return "Loan";
+  if (/(invest|broker)/i.test(s)) return "Investment";
+  return t || "Account";
 }
 
-const LOAD_THROTTLE_MS = 1500;
+function typePillClass(_t: string | null) {
+  return "bg-zinc-50 text-zinc-700 border border-zinc-200";
+}
+
+function parseMoneyToCents(input: string): bigint | null {
+  const raw = (input || "").trim();
+  if (!raw) return null;
+  const cleaned = raw.replace(/[$,]/g, "").trim();
+  const n = Number(cleaned);
+  if (!Number.isFinite(n)) return null;
+  return BigInt(Math.round(n * 100));
+}
+
+/* ---------------- page ---------------- */
 
 export default function AccountsPage() {
-  const toastApi: any = useToast();
-  const showToast =
-    toastApi?.showToast ??
-    ((args: any) => {
-      if (toastApi?.toast) {
-        toastApi.toast({
-          title: args?.title ?? "Done",
-          description: args?.description ?? args?.message ?? "",
-          variant: args?.variant,
-          action: args?.action,
-        });
-      }
-    });
+  const router = useRouter();
+  const { toast } = useToast();
 
-  const [statusLine, setStatusLine] = useState("Loading...");
-  const [email, setEmail] = useState("");
   const [userId, setUserId] = useState<string | null>(null);
 
-  const [live, setLive] = useState<LiveState>("connecting");
-  const [rows, setRows] = useState<Account[]>([]);
+  const [tab, setTab] = useState<Tab>("overview");
 
-  // create
-  const [newName, setNewName] = useState("");
-  const [newBalance, setNewBalance] = useState("");
-  const [creating, setCreating] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [rows, setRows] = useState<AccountRow[]>([]);
+  const [loadErr, setLoadErr] = useState<string | null>(null);
 
-  // per-row edit drafts
-  const [editName, setEditName] = useState<Record<string, string>>({});
-  const [editBalance, setEditBalance] = useState<Record<string, string>>({});
-  const [savingRow, setSavingRow] = useState<Record<string, boolean>>({});
-  const [deletingRow, setDeletingRow] = useState<Record<string, boolean>>({});
+  const [ask, setAsk] = useState<AskState>({ status: "idle" });
+  const [askText, setAskText] = useState("");
+  const askInputRef = useRef<HTMLTextAreaElement | null>(null);
+  const answerRef = useRef<HTMLDivElement | null>(null);
 
-  // Calm visibility limit (V1)
-  const [showAll, setShowAll] = useState(false);
-  const VISIBLE_LIMIT = 5;
+  // Manual add
+  const [mName, setMName] = useState("");
+  const [mProvider, setMProvider] = useState("");
+  const [mType, setMType] = useState("transaction");
+  const [mBalance, setMBalance] = useState<string>("");
+  const [mCurrency, setMCurrency] = useState("AUD");
+  const [manualSaving, setManualSaving] = useState(false);
 
-  // Silent reload throttle
-  const lastLoadAtRef = useRef<number>(0);
-  const pendingSilentReloadRef = useRef<number | null>(null);
+  // CSV import
+  const [csvFile, setCsvFile] = useState<File | null>(null);
+  const [csvUploading, setCsvUploading] = useState(false);
 
-  const load = async (opts?: { silent?: boolean }) => {
-    const silent = !!opts?.silent;
+  /* ---------------- auth ---------------- */
 
-    const now = Date.now();
-    if (silent) {
-      if (now - lastLoadAtRef.current < LOAD_THROTTLE_MS) {
-        if (pendingSilentReloadRef.current) window.clearTimeout(pendingSilentReloadRef.current);
-        pendingSilentReloadRef.current = window.setTimeout(() => {
-          pendingSilentReloadRef.current = null;
-          load({ silent: true });
-        }, LOAD_THROTTLE_MS);
-        return;
-      }
-    }
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      const { data } = await supabase.auth.getUser();
+      if (!alive) return;
+      setUserId(data?.user?.id ?? null);
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
 
-    if (!silent) setStatusLine("Loading...");
-    lastLoadAtRef.current = now;
+  /* ---------------- load accounts ---------------- */
 
-    const { data: auth, error: authError } = await supabase.auth.getUser();
-    if (authError) {
-      if (!silent) setStatusLine(`Auth error: ${authError.message}`);
-      setUserId(null);
-      return;
-    }
-
-    const user = auth.user;
-    if (!user) {
-      if (!silent) setStatusLine("Not signed in. Go to /auth/login");
-      setUserId(null);
-      return;
-    }
-
-    setUserId(user.id);
-    setEmail(user.email ?? "");
+  async function loadAccounts(u: string) {
+    setLoading(true);
+    setLoadErr(null);
 
     const { data, error } = await supabase
       .from("accounts")
-      .select("id,user_id,name,current_balance_cents,currency,archived,created_at,updated_at")
-      .eq("user_id", user.id)
-      .order("created_at", { ascending: false });
+      .select("id,name,provider,type,status,archived,current_balance_cents,currency,created_at,updated_at")
+      .eq("user_id", u)
+      .order("updated_at", { ascending: false })
+      .limit(50);
 
     if (error) {
-      if (!silent) setStatusLine(`Error: ${error.message}`);
+      setLoadErr("I couldn’t load your accounts.");
+      setRows([]);
+      setLoading(false);
       return;
     }
 
-    const list = (data ?? []) as Account[];
-    setRows(list);
-    if (!silent) setStatusLine(`Loaded ${list.length} account(s).`);
+    setRows(((data as any) || []) as AccountRow[]);
+    setLoading(false);
+  }
 
-    // seed edit drafts (only if not already set)
-    setEditName((prev) => {
-      const next = { ...prev };
-      for (const a of list) if (next[a.id] == null) next[a.id] = a.name ?? "";
-      return next;
-    });
-
-    setEditBalance((prev) => {
-      const next = { ...prev };
-      for (const a of list) {
-        if (next[a.id] == null) next[a.id] = formatMoney(a.current_balance_cents ?? 0, a.currency ?? "AUD");
-      }
-      return next;
-    });
-  };
-
-  useEffect(() => {
-    load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Focus refresh (silent)
-  useEffect(() => {
-    const onFocus = () => load({ silent: true });
-    window.addEventListener("focus", onFocus);
-    return () => window.removeEventListener("focus", onFocus);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Realtime patching (user-scoped)
   useEffect(() => {
     if (!userId) return;
-
-    setLive("connecting");
-
-    const channel = supabase
-      .channel(`accounts:${userId}`)
-      .on("postgres_changes", { event: "*", schema: "public", table: "accounts", filter: `user_id=eq.${userId}` }, (payload) => {
-        try {
-          const evt = payload.eventType;
-
-          if (evt === "INSERT") {
-            const row = payload.new as Account;
-            setRows((prev) => {
-              if (prev.some((x) => x.id === row.id)) return prev;
-              return [row, ...prev];
-            });
-            setEditName((prev) => (prev[row.id] == null ? { ...prev, [row.id]: row.name ?? "" } : prev));
-            setEditBalance((prev) =>
-              prev[row.id] == null ? { ...prev, [row.id]: formatMoney(row.current_balance_cents ?? 0, row.currency ?? "AUD") } : prev
-            );
-            return;
-          }
-
-          if (evt === "UPDATE") {
-            const row = payload.new as Account;
-            setRows((prev) => prev.map((x) => (x.id === row.id ? { ...x, ...row } : x)));
-            return;
-          }
-
-          if (evt === "DELETE") {
-            const oldRow = payload.old as { id: string };
-            setRows((prev) => prev.filter((x) => x.id !== oldRow.id));
-            return;
-          }
-
-          load({ silent: true });
-        } catch {
-          load({ silent: true });
-        }
-      })
-      .subscribe((status) => {
-        if (status === "SUBSCRIBED") setLive("live");
-        else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") setLive("offline");
-        else setLive("connecting");
-      });
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    void loadAccounts(userId);
   }, [userId]);
 
-  const totalBalanceCents = useMemo(() => rows.reduce((sum, a) => sum + (a.current_balance_cents ?? 0), 0), [rows]);
+  const activeAccounts = useMemo(() => rows.filter((r) => !safeBool(r.archived)), [rows]);
 
-  const visibleRows = useMemo(() => {
-    if (showAll) return rows;
-    return rows.slice(0, VISIBLE_LIMIT);
-  }, [rows, showAll]);
+  const totals = useMemo(() => {
+    const ccy = (activeAccounts[0]?.currency || "AUD").toUpperCase();
+    const allSame = activeAccounts.every((a) => (a.currency || "AUD").toUpperCase() === ccy);
+    if (!allSame) return { ok: false as const, currency: null as string | null, sum: null as number | null };
 
-  const hiddenCount = useMemo(() => {
-    if (showAll) return 0;
-    return Math.max(0, rows.length - visibleRows.length);
-  }, [rows.length, visibleRows.length, showAll]);
+    let sum = 0;
+    let any = false;
+    for (const a of activeAccounts) {
+      const v = centsToNumber(a.current_balance_cents);
+      if (v !== null) {
+        sum += v;
+        any = true;
+      }
+    }
+    return { ok: true as const, currency: ccy, sum: any ? sum : null };
+  }, [activeAccounts]);
 
-  const createAccount = async () => {
+  /* ---------------- scoped ask ---------------- */
+
+  async function submitAsk() {
+    const q = askText.trim();
+    if (!q || !userId) return;
+
+    setAskText("");
+    setAsk({ status: "loading", question: q });
+
+    const intercept = maybeCrisisIntercept(q);
+    if (intercept) {
+      setAsk({ status: "done", question: q, answer: intercept.content });
+      return;
+    }
+
+    try {
+      const res = await fetch("/api/home/ask", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userId,
+          question: q,
+          scope: "accounts",
+        }),
+      });
+
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setAsk({ status: "error", question: q, message: "I couldn’t answer that right now." });
+        return;
+      }
+
+      setAsk({
+        status: "done",
+        question: q,
+        answer: typeof (json as any)?.answer === "string" ? (json as any).answer : "",
+      });
+
+      window.setTimeout(() => {
+        answerRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }, 40);
+    } catch {
+      setAsk({ status: "error", question: q, message: "I couldn’t answer that right now." });
+    }
+  }
+
+  /* ---------------- manual add ---------------- */
+
+  async function saveManual() {
     if (!userId) return;
 
-    const name = newName.trim();
+    const name = mName.trim();
     if (!name) {
-      setStatusLine("Account name required.");
+      toast({ title: "Name needed", description: "Give this account a name (e.g., Everyday)." });
       return;
     }
 
-    const cents = toCents(newBalance.trim() || "0");
-    if (cents == null) {
-      setStatusLine("Balance must be a number (e.g. 123.45).");
+    const cents = mBalance.trim() ? parseMoneyToCents(mBalance) : null;
+    if (mBalance.trim() && cents === null) {
+      toast({ title: "Balance looks off", description: "Use a number like 1200 or -350." });
       return;
     }
 
-    setCreating(true);
-    setStatusLine("Creating account...");
+    setManualSaving(true);
 
-    const { data, error } = await supabase
-      .from("accounts")
-      .insert({
+    try {
+      const { error } = await supabase.from("accounts").insert({
         user_id: userId,
         name,
-        current_balance_cents: cents,
-        currency: "AUD",
-      })
-      .select("id,user_id,name,current_balance_cents,currency,archived,created_at,updated_at")
-      .single();
+        provider: mProvider.trim() || null,
+        type: mType || null,
+        status: "active",
+        archived: false,
+        currency: (mCurrency || "AUD").toUpperCase(),
+        current_balance_cents: (cents ?? 0n).toString(), // bigint
+      });
 
-    setCreating(false);
+      if (error) {
+        toast({ title: "Couldn’t save", description: error.message });
+        return;
+      }
 
-    if (error) {
-      setStatusLine(`Create failed: ${error.message}`);
-      return;
+      toast({ title: "Saved", description: "Account added." });
+      setMName("");
+      setMProvider("");
+      setMType("transaction");
+      setMBalance("");
+      setMCurrency("AUD");
+      await loadAccounts(userId);
+      setTab("overview");
+    } finally {
+      setManualSaving(false);
     }
+  }
 
-    const inserted = data as Account;
-    setRows((prev) => [inserted, ...prev]);
-    setNewName("");
-    setNewBalance("");
+  /* ---------------- CSV upload ---------------- */
 
-    setEditName((prev) => ({ ...prev, [inserted.id]: inserted.name }));
-    setEditBalance((prev) => ({ ...prev, [inserted.id]: formatMoney(inserted.current_balance_cents ?? 0, inserted.currency ?? "AUD") }));
-
-    setStatusLine("Created ✅");
-  };
-
-  const saveAccount = async (a: Account) => {
+  async function uploadCsv() {
     if (!userId) return;
-
-    const name = (editName[a.id] ?? "").trim();
-    if (!name) {
-      setStatusLine("Account name required.");
+    if (!csvFile) {
+      toast({ title: "Choose a file", description: "Select a CSV first." });
       return;
     }
 
-    const cents = toCents((editBalance[a.id] ?? "").trim());
-    if (cents == null) {
-      setStatusLine("Balance must be a number (e.g. 123.45).");
-      return;
+    setCsvUploading(true);
+    try {
+      const form = new FormData();
+      form.append("file", csvFile);
+      form.append("userId", userId);
+
+      const res = await fetch("/api/accounts/import-csv", { method: "POST", body: form });
+      const json = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        toast({ title: "Import failed", description: (json as any)?.error || (json as any)?.message || "Couldn’t import that file." });
+        return;
+      }
+
+      const inserted = Number((json as any)?.inserted ?? 0);
+      const skipped = Number((json as any)?.skipped ?? 0);
+
+      toast({
+        title: "Imported",
+        description: inserted > 0 ? `Added ${inserted} account${inserted === 1 ? "" : "s"}${skipped ? ` • Skipped ${skipped}` : ""}` : "No rows imported.",
+      });
+
+      setCsvFile(null);
+      await loadAccounts(userId);
+      setTab("overview");
+    } catch {
+      toast({ title: "Import failed", description: "Couldn’t import that file." });
+    } finally {
+      setCsvUploading(false);
     }
-
-    setSavingRow((prev) => ({ ...prev, [a.id]: true }));
-    setStatusLine("Saving...");
-
-    const { error } = await supabase
-      .from("accounts")
-      .update({
-        name,
-        current_balance_cents: cents,
-      })
-      .eq("id", a.id)
-      .eq("user_id", userId);
-
-    setSavingRow((prev) => ({ ...prev, [a.id]: false }));
-
-    if (error) {
-      setStatusLine(`Save failed: ${error.message}`);
-      return;
-    }
-
-    setRows((prev) => prev.map((x) => (x.id === a.id ? { ...x, name, current_balance_cents: cents } : x)));
-    setEditBalance((prev) => ({ ...prev, [a.id]: formatMoney(cents, a.currency ?? "AUD") }));
-    setStatusLine("Saved ✅");
-  };
-
-  const deleteAccount = async (a: Account) => {
-    if (!userId) return;
-
-    const snapshot = rows;
-    setDeletingRow((prev) => ({ ...prev, [a.id]: true }));
-    setStatusLine("Deleting...");
-
-    // Optimistic UI remove
-    setRows((prev) => prev.filter((x) => x.id !== a.id));
-
-    showToast({
-      message: `"${a.name}" deleted.`,
-      undoLabel: "Undo",
-      onUndo: async () => {
-        // Restore UI immediately
-        setRows(snapshot);
-
-        // Restore DB (try same id)
-        try {
-          const { error: insErr } = await supabase.from("accounts").insert({
-            id: a.id,
-            user_id: a.user_id,
-            name: a.name,
-            current_balance_cents: a.current_balance_cents ?? 0,
-            currency: a.currency ?? "AUD",
-            archived: (a as any).archived ?? false,
-          } as any);
-
-          if (insErr) throw insErr;
-
-          await load({ silent: true });
-          showToast({ message: "Restored." });
-        } catch (e: any) {
-          showToast({ message: e?.message ?? "Failed to restore." });
-        }
-      },
-    });
-
-    const { error } = await supabase.from("accounts").delete().eq("id", a.id).eq("user_id", userId);
-
-    setDeletingRow((prev) => ({ ...prev, [a.id]: false }));
-
-    if (error) {
-      // revert UI
-      setRows(snapshot);
-      setStatusLine(`Delete failed: ${error.message}`);
-      showToast({ message: error.message });
-      return;
-    }
-
-    setStatusLine("Deleted ✅");
-  };
-
-  const liveChipClass =
-    live === "live"
-      ? "border border-emerald-200 bg-emerald-50 text-emerald-700"
-      : live === "offline"
-      ? "border border-rose-200 bg-rose-50 text-rose-700"
-      : "border border-zinc-200 bg-zinc-50 text-zinc-700";
-
-  const liveChip = (
-    <Chip className={`ml-2 ${liveChipClass}`}>{live === "live" ? "Live" : live === "offline" ? "Offline" : "Connecting"}</Chip>
-  );
+  }
 
   return (
-    <Page
-      title="Accounts"
-      subtitle={[email ? `Signed in as: ${email}` : null, `Total balance: ${formatMoney(totalBalanceCents, "AUD")}`, statusLine]
-        .filter(Boolean)
-        .join(" • ")}
-      right={
-        <div className="flex items-center gap-2">
-          {liveChip}
-          <Button onClick={() => load()} variant="secondary">
-            Refresh
-          </Button>
-        </div>
-      }
-    >
-      <div className="space-y-6">
-        {/* Assisted search (top) */}
-        <Card>
+    <Page title="Accounts" subtitle="Keep the structure simple. Life CFO can do the thinking.">
+      <div className="mx-auto max-w-[760px] space-y-6">
+        {/* Top actions + tabs */}
+        <Card className="border-zinc-200 bg-white">
           <CardContent>
-            <AssistedSearch scope="accounts" placeholder="Search accounts…" />
-          </CardContent>
-        </Card>
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="space-y-1">
+                <div className="text-sm font-medium text-zinc-900">Your accounts</div>
+                <div className="text-xs text-zinc-500">Link, import, or add manually. No pressure.</div>
+              </div>
 
-        {/* Create */}
-        <Card>
-          <CardContent>
-            <div className="space-y-3">
-              <div className="text-sm text-zinc-600">Add an account</div>
-
-              <div className="flex flex-wrap gap-2">
-                <input
-                  value={newName}
-                  onChange={(e) => setNewName(e.target.value)}
-                  placeholder="e.g. Everyday Spending"
-                  autoComplete="off"
-                  spellCheck={false}
-                  className="min-w-[240px] flex-1 rounded-xl border border-zinc-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200"
-                />
-
-                <input
-                  value={newBalance}
-                  onChange={(e) => setNewBalance(e.target.value)}
-                  onBlur={() => setNewBalance((v) => formatMoneyInput(v, "AUD"))}
-                  placeholder="Balance (e.g. 1250.00)"
-                  inputMode="decimal"
-                  autoComplete="off"
-                  spellCheck={false}
-                  className="w-[220px] rounded-xl border border-zinc-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200"
-                />
-
-                <Button onClick={createAccount} disabled={creating}>
-                  {creating ? "Creating..." : "Add"}
+              <div className="flex flex-wrap items-center gap-2">
+                <Chip className="text-xs" onClick={() => router.push("/money")}>
+                  Back to Money
+                </Chip>
+                <Button onClick={() => setTab("manual")} className="rounded-2xl">
+                  Add account
                 </Button>
               </div>
-
-              <div className="text-xs text-zinc-500">Tip: keep balances roughly current — the Engine will use these.</div>
             </div>
-          </CardContent>
-        </Card>
 
-        {/* List header (calm limit) */}
-        <Card>
-          <CardContent>
-            <div className="flex items-center justify-between gap-3 flex-wrap">
-              <div className="font-semibold">Your accounts</div>
-              <div className="flex items-center gap-2">
-                <Chip onClick={() => setShowAll((v) => !v)} title="Show more or less">
-                  {showAll ? "Show less" : "Show all"}
-                </Chip>
-                <Badge variant="muted">{showAll ? `${rows.length} shown` : `${visibleRows.length}/${rows.length} shown`}</Badge>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <Chip className="text-xs" onClick={() => setTab("overview")}>
+                Overview
+              </Chip>
+              <Chip className="text-xs" onClick={() => setTab("import")}>
+                Import CSV
+              </Chip>
+              <Chip className="text-xs" onClick={() => setTab("manual")}>
+                Manual entry
+              </Chip>
+            </div>
+
+            {tab === "overview" ? (
+              <div className="mt-4 space-y-3">
+                <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3">
+                  <div className="text-xs font-medium text-zinc-700">Quick view</div>
+                  <div className="mt-1 text-sm text-zinc-800">
+                    {activeAccounts.length === 0
+                      ? "No accounts yet."
+                      : totals.ok
+                      ? `Accounts: ${activeAccounts.length}${totals.sum !== null ? ` • Total: ${fmtMoney(totals.sum, totals.currency)}` : ""}`
+                      : `Accounts: ${activeAccounts.length} • Total: — (multiple currencies)`}
+                  </div>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <Chip className="text-xs" onClick={() => userId && loadAccounts(userId)} disabled={loading}>
+                      Refresh
+                    </Chip>
+                    <Chip className="text-xs" onClick={() => setTab("import")}>
+                      Import CSV
+                    </Chip>
+                  </div>
+                </div>
+
+                {loading ? (
+                  <div className="text-sm text-zinc-600">Loading…</div>
+                ) : loadErr ? (
+                  <div className="space-y-2">
+                    <div className="text-sm text-zinc-700">{loadErr}</div>
+                    <div className="flex flex-wrap gap-2">
+                      <Chip className="text-xs" onClick={() => userId && loadAccounts(userId)}>
+                        Try again
+                      </Chip>
+                    </div>
+                  </div>
+                ) : activeAccounts.length === 0 ? (
+                  <div className="space-y-2">
+                    <div className="text-sm text-zinc-700">No accounts yet.</div>
+                    <div className="text-xs text-zinc-500">You can add “Everyday” + “Savings” now, and link/import later.</div>
+                    <div className="pt-2 flex flex-wrap gap-2">
+                      <Chip
+                        className="text-xs"
+                        onClick={() => {
+                          setTab("manual");
+                          setMName("Everyday");
+                          setMType("transaction");
+                        }}
+                      >
+                        Add “Everyday”
+                      </Chip>
+                      <Chip
+                        className="text-xs"
+                        onClick={() => {
+                          setTab("manual");
+                          setMName("Savings");
+                          setMType("savings");
+                        }}
+                      >
+                        Add “Savings”
+                      </Chip>
+                      <Chip className="text-xs" onClick={() => setTab("import")}>
+                        Import CSV
+                      </Chip>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {activeAccounts.slice(0, 10).map((a) => {
+                      const bal = centsToNumber(a.current_balance_cents);
+                      return (
+                        <div key={a.id} className="rounded-2xl border border-zinc-200 bg-white px-4 py-3">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <div className="truncate text-[15px] font-medium text-zinc-900">{(a.name || "").trim() || "Untitled account"}</div>
+                              <div className="mt-1 text-xs text-zinc-500">
+                                {(a.provider || "").trim() ? a.provider : "—"}
+                                {a.updated_at ? <span className="text-zinc-400"> • Updated {prettyWhen(a.updated_at)}</span> : null}
+                              </div>
+                            </div>
+
+                            <div className="flex shrink-0 flex-col items-end gap-2">
+                              <div className={"rounded-full px-3 py-1 text-xs font-medium " + typePillClass(a.type)}>{acctTypeLabel(a.type)}</div>
+                              <div className="text-sm font-medium text-zinc-900">{fmtMoney(bal, a.currency)}</div>
+                            </div>
+                          </div>
+
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            <Chip className="text-xs" onClick={() => router.push(`/accounts/${a.id}`)} title="Open">
+                              Open
+                            </Chip>
+                            <Chip
+                              className="text-xs"
+                              onClick={() => toast({ title: "Next", description: "Account linking rules are the next step." })}
+                              title="Link"
+                            >
+                              Link
+                            </Chip>
+                          </div>
+                        </div>
+                      );
+                    })}
+
+                    {activeAccounts.length > 10 ? (
+                      <div className="pt-2">
+                        <Chip className="text-xs" onClick={() => toast({ title: "Next", description: "We’ll add search + paging next." })}>
+                          See all (soon)
+                        </Chip>
+                      </div>
+                    ) : null}
+                  </div>
+                )}
               </div>
-            </div>
+            ) : null}
 
-            {!showAll && hiddenCount > 0 ? (
-              <div className="mt-2 text-sm text-zinc-600">{hiddenCount} more hidden — use search to find anything.</div>
+            {tab === "import" ? (
+              <div className="mt-4 space-y-3">
+                <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3">
+                  <div className="text-xs font-medium text-zinc-700">Import CSV</div>
+                  <div className="mt-1 text-xs text-zinc-500">Use bank exports or aggregator exports. We’ll map formats server-side.</div>
+                </div>
+
+                <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-3">
+                  <div className="text-xs text-zinc-600">Choose a CSV file</div>
+                  <input
+                    type="file"
+                    accept=".csv,text/csv"
+                    className="mt-2 block w-full text-sm text-zinc-700"
+                    onChange={(e) => setCsvFile(e.target.files?.[0] || null)}
+                  />
+
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <Button onClick={() => void uploadCsv()} disabled={!csvFile || csvUploading} className="rounded-2xl">
+                      {csvUploading ? "Importing…" : "Import"}
+                    </Button>
+                    <Chip className="text-xs" onClick={() => setCsvFile(null)} disabled={!csvFile || csvUploading}>
+                      Clear
+                    </Chip>
+                    <Chip className="text-xs" onClick={() => setTab("overview")} disabled={csvUploading}>
+                      Back
+                    </Chip>
+                  </div>
+
+                  <div className="mt-3 text-xs text-zinc-500">Tip: include columns like name, provider, type, balance/current_balance.</div>
+                </div>
+              </div>
+            ) : null}
+
+            {tab === "manual" ? (
+              <div className="mt-4 space-y-3">
+                <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3">
+                  <div className="text-xs font-medium text-zinc-700">Manual entry</div>
+                  <div className="mt-1 text-xs text-zinc-500">Start simple. You can refine later.</div>
+                </div>
+
+                <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-3">
+                  <div className="grid grid-cols-1 gap-3">
+                    <label className="space-y-1">
+                      <div className="text-xs text-zinc-600">Account name</div>
+                      <input
+                        value={mName}
+                        onChange={(e) => setMName(e.target.value)}
+                        placeholder="Everyday"
+                        className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-800 outline-none focus:ring-2 focus:ring-zinc-200"
+                      />
+                    </label>
+
+                    <label className="space-y-1">
+                      <div className="text-xs text-zinc-600">Provider (optional)</div>
+                      <input
+                        value={mProvider}
+                        onChange={(e) => setMProvider(e.target.value)}
+                        placeholder="ING / CBA / NAB…"
+                        className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-800 outline-none focus:ring-2 focus:ring-zinc-200"
+                      />
+                    </label>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <label className="space-y-1">
+                        <div className="text-xs text-zinc-600">Type</div>
+                        <select
+                          value={mType}
+                          onChange={(e) => setMType(e.target.value)}
+                          className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-800 outline-none focus:ring-2 focus:ring-zinc-200"
+                        >
+                          <option value="transaction">Everyday</option>
+                          <option value="savings">Savings</option>
+                          <option value="credit">Credit</option>
+                          <option value="loan">Loan</option>
+                          <option value="investment">Investment</option>
+                        </select>
+                      </label>
+
+                      <label className="space-y-1">
+                        <div className="text-xs text-zinc-600">Currency</div>
+                        <input
+                          value={mCurrency}
+                          onChange={(e) => setMCurrency(e.target.value)}
+                          placeholder="AUD"
+                          className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-800 outline-none focus:ring-2 focus:ring-zinc-200"
+                        />
+                      </label>
+                    </div>
+
+                    <label className="space-y-1">
+                      <div className="text-xs text-zinc-600">Current balance (optional)</div>
+                      <input
+                        value={mBalance}
+                        onChange={(e) => setMBalance(e.target.value)}
+                        placeholder="1200 or -350"
+                        inputMode="decimal"
+                        className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-800 outline-none focus:ring-2 focus:ring-zinc-200"
+                      />
+                    </label>
+                  </div>
+
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    <Button onClick={() => void saveManual()} disabled={manualSaving} className="rounded-2xl">
+                      {manualSaving ? "Saving…" : "Save"}
+                    </Button>
+                    <Chip className="text-xs" onClick={() => setTab("overview")} disabled={manualSaving}>
+                      Cancel
+                    </Chip>
+                  </div>
+                </div>
+              </div>
             ) : null}
           </CardContent>
         </Card>
 
-        {/* List */}
-        <div className="grid gap-2">
-          {visibleRows.map((a, idx) => {
-            const saving = !!savingRow[a.id];
-            const deleting = !!deletingRow[a.id];
+        {/* Ask on accounts page */}
+        <Card className="border-zinc-200 bg-white">
+          <CardContent>
+            <textarea
+              ref={askInputRef}
+              value={askText}
+              onChange={(e) => setAskText(e.target.value)}
+              placeholder="Ask about your accounts…"
+              className="w-full min-h-[110px] resize-y rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-[15px] text-zinc-800 placeholder:text-zinc-500 outline-none focus:ring-2 focus:ring-zinc-200"
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  void submitAsk();
+                }
+              }}
+            />
 
-            const changed =
-              (editName[a.id] ?? "").trim() !== a.name || toCents((editBalance[a.id] ?? "").trim()) !== (a.current_balance_cents ?? 0);
+            <div className="mt-2 flex justify-between text-xs text-zinc-500">
+              <span>Questions stay scoped to accounts.</span>
+              {ask.status === "loading" ? <span>Thinking…</span> : null}
+            </div>
 
-            // ✅ Zebra + tighter spacing (subtle, calm)
-            const zebraBg = idx % 2 === 0 ? "bg-white" : "bg-zinc-50";
+            <div className="mt-3 flex gap-2">
+              <Button onClick={() => void submitAsk()} disabled={!askText.trim() || ask.status === "loading"}>
+                Get answer
+              </Button>
+              <Chip className="text-xs" onClick={() => setAskText("")} disabled={!askText.trim()}>
+                Clear
+              </Chip>
+            </div>
 
-            return (
-              <Card key={a.id} className={zebraBg}>
-                <CardContent className="py-4">
-                  <div className="space-y-3">
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div className="space-y-1">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <strong className="text-base">{a.name}</strong>
-                          <Badge variant="muted">{formatMoney(a.current_balance_cents ?? 0, a.currency ?? "AUD")}</Badge>
-                          {changed && <Badge variant="warning">Unsaved</Badge>}
-                        </div>
-                      </div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {[
+                "Which accounts should we simplify or close?",
+                "What’s our everyday buffer right now?",
+                "What’s the best structure for a family money system?",
+                "What looks risky or messy in our accounts?",
+              ].map((ex) => (
+                <Chip key={ex} className="text-xs" onClick={() => setAskText(ex)} disabled={ask.status === "loading"}>
+                  {ex}
+                </Chip>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
 
-                      <div className="flex flex-wrap gap-2">
-                        <Button onClick={() => saveAccount(a)} disabled={saving || deleting || !changed}>
-                          {saving ? "Saving..." : "Save"}
-                        </Button>
-                        <Button variant="secondary" onClick={() => deleteAccount(a)} disabled={saving || deleting}>
-                          {deleting ? "Deleting..." : "Delete"}
-                        </Button>
-                      </div>
-                    </div>
-
-                    <div className="grid gap-2 sm:grid-cols-2">
-                      <div className="space-y-1">
-                        <div className="text-xs text-zinc-500">Name</div>
-                        <input
-                          value={editName[a.id] ?? ""}
-                          onChange={(e) => setEditName((prev) => ({ ...prev, [a.id]: e.target.value }))}
-                          autoComplete="off"
-                          spellCheck={false}
-                          className="w-full rounded-xl border border-zinc-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200"
-                        />
-                      </div>
-
-                      <div className="space-y-1">
-                        <div className="text-xs text-zinc-500">Balance</div>
-                        <input
-                          value={editBalance[a.id] ?? ""}
-                          onChange={(e) => setEditBalance((prev) => ({ ...prev, [a.id]: e.target.value }))}
-                          onBlur={() =>
-                            setEditBalance((prev) => ({ ...prev, [a.id]: formatMoneyInput(prev[a.id] ?? "", a.currency ?? "AUD") }))
-                          }
-                          inputMode="decimal"
-                          autoComplete="off"
-                          spellCheck={false}
-                          className="w-full rounded-xl border border-zinc-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200"
-                        />
-                      </div>
+        {/* Ask answer */}
+        {ask.status !== "idle" ? (
+          <div ref={answerRef}>
+            <Card className="border-zinc-200 bg-white">
+              <CardContent>
+                {ask.status === "loading" ? (
+                  <div className="text-sm text-zinc-700">Thinking…</div>
+                ) : ask.status === "error" ? (
+                  <div className="space-y-2">
+                    <div className="text-sm text-zinc-700">{ask.message}</div>
+                    <div className="flex flex-wrap gap-2">
+                      <Chip className="text-xs" onClick={() => void submitAsk()}>
+                        Try again
+                      </Chip>
+                      <Chip className="text-xs" onClick={() => setAsk({ status: "idle" })}>
+                        Done
+                      </Chip>
                     </div>
                   </div>
-                </CardContent>
-              </Card>
-            );
-          })}
+                ) : (
+                  <div className="space-y-2">
+                    <div className="text-xs text-zinc-500">Question</div>
+                    <div className="text-sm text-zinc-900">{ask.question}</div>
 
-          {rows.length === 0 && (
-            <Card className="bg-zinc-50">
-              <CardContent>
-                <div className="space-y-2">
-                  <strong>No accounts yet.</strong>
-                  <div className="text-sm text-zinc-600">Add at least one account to start calculating safe-to-spend.</div>
-                </div>
+                    <div className="pt-2 text-[15px] leading-relaxed text-zinc-800 whitespace-pre-wrap">{ask.answer}</div>
+
+                    <div className="pt-3 flex flex-wrap gap-2">
+                      <Chip className="text-xs" onClick={() => setAsk({ status: "idle" })}>
+                        Done
+                      </Chip>
+                      <Chip className="text-xs" onClick={() => askInputRef.current?.focus()}>
+                        Ask another
+                      </Chip>
+                      <Chip className="text-xs" onClick={() => router.push("/lifecfo-home")}>
+                        Back to Home
+                      </Chip>
+                    </div>
+                  </div>
+                )}
               </CardContent>
             </Card>
-          )}
-        </div>
+          </div>
+        ) : null}
       </div>
     </Page>
   );

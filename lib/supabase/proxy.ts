@@ -56,6 +56,15 @@ export async function updateSession(request: NextRequest) {
 
   // Keep your existing protected list logic (so we don't accidentally change auth behavior)
   const isProtected =
+    // ✅ Life CFO Home
+    pathname === "/lifecfo-home" ||
+    pathname.startsWith("/lifecfo-home/") ||
+
+    // ✅ Money hub + subroutes
+    pathname === "/money" ||
+    pathname.startsWith("/money/") ||
+
+    // Existing Keystone routes
     pathname === "/home" ||
     pathname.startsWith("/home/") ||
     pathname === "/inbox" ||

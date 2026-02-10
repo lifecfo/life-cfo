@@ -15,7 +15,8 @@ type Scope =
   | "bills"
   | "accounts"
   | "investments"
-  | "transactions";
+  | "transactions"
+  | "family";
 
 type Suggestion = {
   kind: "decision" | "inbox" | "bill" | "account" | "investment" | "capture";
@@ -447,10 +448,59 @@ async function fetchDecisionMatches(scope: Scope, q: string): Promise<Suggestion
   });
 }
 
+// ---------------------- FAMILY ----------------------
+async function fetchTopFamilySuggestions(_scope: Scope): Promise<Suggestion[]> {
+  const uid = await getUserId();
+  if (!uid) return [];
+
+  const { data, error } = await supabase
+    .from("family_members")
+    .select("id,name,relationship")
+    .eq("user_id", uid)
+    .order("created_at", { ascending: true })
+    .limit(7);
+
+  if (error) return [];
+
+  return (data ?? []).map((m: any) => ({
+    kind: "decision", // neutral label, keeps UI calm
+    id: String(m.id),
+    title: safeStr(m.name) || "Family member",
+    subtitle: safeStr(m.relationship) || "Family",
+    href: "/family",
+  }));
+}
+
+async function fetchFamilyMatches(_scope: Scope, q: string): Promise<Suggestion[]> {
+  const uid = await getUserId();
+  if (!uid) return [];
+
+  const query = q.trim();
+  if (!query) return fetchTopFamilySuggestions(_scope);
+
+  const { data, error } = await supabase
+    .from("family_members")
+    .select("id,name,relationship")
+    .eq("user_id", uid)
+    .or(`name.ilike.%${query}%,relationship.ilike.%${query}%`)
+    .limit(10);
+
+  if (error) return [];
+
+  return (data ?? []).map((m: any) => ({
+    kind: "decision",
+    id: String(m.id),
+    title: safeStr(m.name) || "Family member",
+    subtitle: safeStr(m.relationship) || "Family",
+    href: "/family",
+  }));
+}
+
 // ---------------------- ROUTER -----------------------
 async function fetchTopSuggestions(scope: Scope): Promise<Suggestion[]> {
+    if (scope === "family") return fetchTopFamilySuggestions(scope);
+  
   if (scope === "capture") return fetchTopCaptureSuggestions(scope);
-
   if (scope === "bills") return fetchTopBillSuggestions(scope);
   if (scope === "accounts") return fetchTopAccountSuggestions(scope);
   if (scope === "investments") return fetchTopInvestmentSuggestions(scope);
@@ -459,8 +509,9 @@ async function fetchTopSuggestions(scope: Scope): Promise<Suggestion[]> {
 }
 
 async function fetchMatches(scope: Scope, q: string): Promise<Suggestion[]> {
+  if (scope === "family") return fetchFamilyMatches(scope, q);
+ 
   if (scope === "capture") return fetchCaptureMatches(scope, q);
-
   if (scope === "bills") return fetchBillMatches(scope, q);
   if (scope === "accounts") return fetchAccountMatches(scope, q);
   if (scope === "investments") return fetchInvestmentMatches(scope, q);

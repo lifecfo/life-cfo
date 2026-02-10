@@ -5,11 +5,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { Page } from "@/components/Page";
-import { Card, CardContent, Chip } from "@/components/ui";
+import { Card, CardContent, Chip, Button } from "@/components/ui";
 import { normalizeAttachments, type AttachmentMeta } from "@/lib/attachments";
 import { AttachmentsBlock } from "@/components/AttachmentsBlock";
-
-// ✅ Assisted retrieval + tiles
 import { AssistedSearch } from "@/components/AssistedSearch";
 import { TilesRow } from "@/components/TilesRow";
 
@@ -62,7 +60,6 @@ function softDate(iso: string | null) {
 }
 
 function isoFromDateInput(dateStr: string) {
-  // dateStr is YYYY-MM-DD. Use midday local time to avoid DST edge weirdness.
   if (!dateStr) return null;
   const ms = Date.parse(`${dateStr}T12:00:00`);
   if (Number.isNaN(ms)) return null;
@@ -87,11 +84,11 @@ export default function DecisionsClient() {
   const [items, setItems] = useState<Decision[]>([]);
   const [openId, setOpenId] = useState<string | null>(null);
 
-  // ✅ Top-5 default (V1 pattern)
+  // Top-5 default (V1 pattern)
   const DEFAULT_LIMIT = 5;
   const [showAll, setShowAll] = useState(false);
 
-  // ✅ Labels (tiles + assignment) — internal tables remain domains/constellations
+  // Tiles: domains + constellations
   const [domains, setDomains] = useState<Domain[]>([]);
   const [constellations, setConstellations] = useState<Constellation[]>([]);
   const [activeDomainId, setActiveDomainId] = useState<string | null>(null);
@@ -100,14 +97,10 @@ export default function DecisionsClient() {
   const [domainByDecision, setDomainByDecision] = useState<Record<string, string | null>>({});
   const [constellationsByDecision, setConstellationsByDecision] = useState<Record<string, string[]>>({});
 
-  // ✅ Collapsed label editor + revisit control state
+  // label editor + revisit control state
   const [labelsEditForId, setLabelsEditForId] = useState<string | null>(null);
   const [revisitModeById, setRevisitModeById] = useState<Record<string, "7" | "30" | "90" | "custom" | "">>({});
   const [customDateById, setCustomDateById] = useState<Record<string, string>>({});
-
-  // signed url cache (path -> signedUrl)
-  const [signed, setSigned] = useState<Record<string, string>>({});
-  const signingRef = useRef<Record<string, boolean>>({});
 
   // throttle / reload protection
   const isMountedRef = useRef(true);
@@ -117,31 +110,7 @@ export default function DecisionsClient() {
 
   const openItem = useMemo(() => items.find((x) => x.id === openId) ?? null, [items, openId]);
 
-  const ensureSignedUrl = async (path: string) => {
-    if (!path) return null;
-    if (signed[path]) return signed[path];
-    if (signingRef.current[path]) return null;
-
-    signingRef.current[path] = true;
-    try {
-      const { data, error } = await supabase.storage.from("captures").createSignedUrl(path, 60 * 10);
-      if (error || !data?.signedUrl) return null;
-
-      setSigned((prev) => ({ ...prev, [path]: data.signedUrl }));
-      return data.signedUrl;
-    } finally {
-      signingRef.current[path] = false;
-    }
-  };
-
-  const openAttachment = async (att: AttachmentMeta) => {
-    const url = await ensureSignedUrl(att.path);
-    if (!url) {
-      setStatusLine("Couldn’t open attachment.");
-      return;
-    }
-    window.open(url, "_blank", "noopener,noreferrer");
-  };
+  const hasAnyLabelOptions = domains.length > 0 || constellations.length > 0;
 
   const loadMeaningMaps = async (uid: string, decisionIds: string[]) => {
     if (decisionIds.length === 0) {
@@ -161,9 +130,7 @@ export default function DecisionsClient() {
 
     if (!ddRes.error) {
       const next: Record<string, string | null> = {};
-      for (const row of ddRes.data ?? []) {
-        next[String((row as any).decision_id)] = String((row as any).domain_id);
-      }
+      for (const row of ddRes.data ?? []) next[String((row as any).decision_id)] = String((row as any).domain_id);
       setDomainByDecision(next);
     } else {
       setDomainByDecision({});
@@ -185,11 +152,7 @@ export default function DecisionsClient() {
   const loadTiles = async (uid: string) => {
     const [domRes, conRes] = await Promise.all([
       supabase.from("domains").select("id,name,emoji,sort_order").eq("user_id", uid).order("sort_order", { ascending: true }),
-      supabase
-        .from("constellations")
-        .select("id,name,emoji,sort_order")
-        .eq("user_id", uid)
-        .order("sort_order", { ascending: true }),
+      supabase.from("constellations").select("id,name,emoji,sort_order").eq("user_id", uid).order("sort_order", { ascending: true }),
     ]);
 
     if (!domRes.error) {
@@ -247,7 +210,7 @@ export default function DecisionsClient() {
       .select("id,user_id,title,context,status,created_at,decided_at,review_at,reviewed_at,review_notes,review_history,attachments,chaptered_at")
       .eq("user_id", uid)
       .neq("status", "draft")
-      .neq("status", "chapter") // ✅ hide chaptered decisions from this list
+      .neq("status", "chapter")
       .order("decided_at", { ascending: false, nullsFirst: false })
       .order("created_at", { ascending: false });
 
@@ -280,12 +243,10 @@ export default function DecisionsClient() {
 
     setItems(normalized);
     setStatusLine(normalized.length === 0 ? "Nothing committed yet." : `Loaded ${normalized.length}.`);
-
-    // ✅ refresh meaning maps for this set
     void loadMeaningMaps(uid, normalized.map((x) => x.id));
   };
 
-  // ----- boot -----
+  // boot
   useEffect(() => {
     isMountedRef.current = true;
 
@@ -309,10 +270,9 @@ export default function DecisionsClient() {
     return () => {
       isMountedRef.current = false;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ----- realtime -----
+  // realtime
   useEffect(() => {
     if (!userId) return;
 
@@ -338,10 +298,9 @@ export default function DecisionsClient() {
       void supabase.removeChannel(channel2);
       void supabase.removeChannel(channel3);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId]);
 
-  // ----- actions -----
+  // actions
   const setReviewAtIso = async (d: Decision, iso: string | null) => {
     if (!userId) return;
 
@@ -391,7 +350,6 @@ export default function DecisionsClient() {
     setStatusLine("Moved to Chapters.");
   };
 
-  // ✅ Reopen: move a decided decision back to Thinking as a draft (safe valve)
   const reopenToThinking = async (d: Decision) => {
     if (!userId) return;
 
@@ -420,7 +378,6 @@ export default function DecisionsClient() {
     router.push(`/thinking?open=${d.id}`);
   };
 
-  // ✅ Area assignment (single)
   const setDecisionDomain = async (decisionId: string, domainId: string | null) => {
     if (!userId) return;
 
@@ -446,7 +403,6 @@ export default function DecisionsClient() {
     }
   };
 
-  // ✅ Group toggle (multi)
   const toggleConstellation = async (decisionId: string, constellationId: string) => {
     if (!userId) return;
 
@@ -484,29 +440,18 @@ export default function DecisionsClient() {
     }
   };
 
-  // ✅ Apply calm filters from tiles
+  // filters
   const filteredItems = useMemo(() => {
     let list = items;
 
-    if (activeDomainId) {
-      list = list.filter((d) => (domainByDecision[d.id] ?? null) === activeDomainId);
-    }
-
-    if (activeConstellationId) {
-      list = list.filter((d) => (constellationsByDecision[d.id] ?? []).includes(activeConstellationId));
-    }
+    if (activeDomainId) list = list.filter((d) => (domainByDecision[d.id] ?? null) === activeDomainId);
+    if (activeConstellationId) list = list.filter((d) => (constellationsByDecision[d.id] ?? []).includes(activeConstellationId));
 
     return list;
   }, [items, activeDomainId, activeConstellationId, domainByDecision, constellationsByDecision]);
 
-  const visibleItems = useMemo(() => {
-    if (showAll) return filteredItems;
-    return filteredItems.slice(0, DEFAULT_LIMIT);
-  }, [filteredItems, showAll]);
-
+  const visibleItems = useMemo(() => (showAll ? filteredItems : filteredItems.slice(0, DEFAULT_LIMIT)), [filteredItems, showAll]);
   const hasMore = filteredItems.length > DEFAULT_LIMIT;
-
-  const hasAnyLabelOptions = domains.length > 0 || constellations.length > 0;
 
   return (
     <Page
@@ -514,7 +459,11 @@ export default function DecisionsClient() {
       subtitle="What you’ve confirmed. Drafts live in Thinking until you decide."
       right={
         <div className="flex items-center gap-2">
-          <Chip onClick={() => router.push("/home")}>Back to Home</Chip>
+          <Chip onClick={() => router.push("/revisit")}>Review</Chip>
+          <Chip onClick={() => router.push("/chapters")}>Chapters</Chip>
+          <Button onClick={() => router.push("/framing")} className="rounded-2xl">
+            New decision
+          </Button>
         </div>
       }
     >
@@ -522,7 +471,6 @@ export default function DecisionsClient() {
         <AssistedSearch scope="decisions" placeholder="Search decisions…" />
 
         <div className="space-y-4">
-          {/* User-facing: no “Domains/Constellations” wording */}
           <TilesRow
             title="Filter by area"
             items={domains}
@@ -570,9 +518,7 @@ export default function DecisionsClient() {
               const domainObj = domainId ? domains.find((x) => x.id === domainId) ?? null : null;
 
               const memberIds = constellationsByDecision[d.id] ?? [];
-              const memberObjs = memberIds
-                .map((cid) => constellations.find((c) => c.id === cid) ?? null)
-                .filter(Boolean) as Constellation[];
+              const memberObjs = memberIds.map((cid) => constellations.find((c) => c.id === cid) ?? null).filter(Boolean) as Constellation[];
 
               const filedUnder = [
                 domainObj ? `${domainObj.emoji ? `${domainObj.emoji} ` : ""}${domainObj.name}` : null,
@@ -580,25 +526,23 @@ export default function DecisionsClient() {
               ].filter(Boolean) as string[];
 
               const isEditingLabels = labelsEditForId === d.id;
-
-              // ✅ Hide the whole “Filed under” block unless:
-              // - user is currently editing, OR
-              // - there are labels already set
-              // - and only if label options exist at all
-              const showFiledUnderCard =
-                (hasAnyLabelOptions && isEditingLabels) || (hasAnyLabelOptions && filedUnder.length > 0);
+              const showFiledUnderCard = (hasAnyLabelOptions && isEditingLabels) || (hasAnyLabelOptions && filedUnder.length > 0);
 
               const revisitMode = revisitModeById[d.id] ?? "";
               const customDate = customDateById[d.id] ?? "";
 
-              // ✅ Attachments count/title
               const attCount = Array.isArray(d.attachments) ? d.attachments.length : 0;
               const attachmentsTitle = attCount > 0 ? `Attachments (${attCount})` : "Attachments";
 
               return (
                 <Card key={d.id} className="border-zinc-200 bg-white">
                   <CardContent>
-                    <button type="button" onClick={() => setOpenId(isOpen ? null : d.id)} className="w-full text-left" aria-expanded={isOpen}>
+                    <button
+                      type="button"
+                      onClick={() => setOpenId(isOpen ? null : d.id)}
+                      className="w-full text-left"
+                      aria-expanded={isOpen}
+                    >
                       <div className="flex flex-wrap items-start justify-between gap-3">
                         <div className="min-w-[240px] flex-1">
                           <div className="text-base font-semibold text-zinc-900">{d.title}</div>
@@ -625,6 +569,7 @@ export default function DecisionsClient() {
                             {memberObjs.length > 2 ? <Chip title="More">+{memberObjs.length - 2}</Chip> : null}
                           </div>
                         </div>
+
                         <div className="flex items-center gap-2">
                           <Chip>{isOpen ? "Hide" : "Open"}</Chip>
                         </div>
@@ -639,7 +584,7 @@ export default function DecisionsClient() {
                           <div className="text-sm text-zinc-600">No extra context saved.</div>
                         )}
 
-                        {/* ✅ Filed under: hidden until useful (or user explicitly opens it) */}
+                        {/* Filed under */}
                         {showFiledUnderCard ? (
                           <div className="rounded-xl border border-zinc-200 bg-white p-3 space-y-2">
                             <div className="flex flex-wrap items-center justify-between gap-2">
@@ -709,7 +654,7 @@ export default function DecisionsClient() {
                           </div>
                         ) : null}
 
-                        {/* ✅ Attachments (use saved list from decisions.attachments) */}
+                        {/* Attachments */}
                         <AttachmentsBlock
                           userId={userId}
                           decisionId={d.id}
@@ -718,7 +663,7 @@ export default function DecisionsClient() {
                           initial={d.attachments}
                         />
 
-                        {/* Revisit (presets + custom date) */}
+                        {/* Revisit */}
                         <div className="space-y-2">
                           <div className="text-xs text-zinc-500">Revisit (optional)</div>
 
@@ -774,12 +719,17 @@ export default function DecisionsClient() {
                               Clear revisit
                             </Chip>
 
+                            <Chip onClick={() => router.push(`/decisions/${d.id}/review`)} title="Capture what you learned">
+                              Review now
+                            </Chip>
+
                             <Chip onClick={() => setOpenId(null)} title="Close this card">
                               Done
                             </Chip>
                           </div>
                         </div>
 
+                        {/* Chapters */}
                         <div className="space-y-2 pt-2">
                           <div className="text-xs text-zinc-500">Close this chapter (optional)</div>
                           <div className="text-xs text-zinc-600">Chapters are finished decisions you don’t want resurfacing.</div>
@@ -790,6 +740,7 @@ export default function DecisionsClient() {
                           </div>
                         </div>
 
+                        {/* Reopen */}
                         <div className="space-y-2 pt-2">
                           <div className="text-xs text-zinc-500">Change your mind (optional)</div>
                           <div className="text-xs text-zinc-600">Reopen sends this back to Thinking as a draft.</div>

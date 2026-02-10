@@ -1,3 +1,4 @@
+// app/(app)/decisions/[id]/review/page.tsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -23,6 +24,8 @@ const OUTCOMES = [
   { value: "mixed", label: "Mixed / unclear" },
 ];
 
+export const dynamic = "force-dynamic";
+
 export default function DecisionReviewPage() {
   const router = useRouter();
   const params = useParams<{ id: string }>();
@@ -35,14 +38,13 @@ export default function DecisionReviewPage() {
 
   const [outcome, setOutcome] = useState<string>("as_expected");
   const [notes, setNotes] = useState<string>("");
-  const [confidence, setConfidence] = useState<string>(""); // store as string for easy input
+  const [confidence, setConfidence] = useState<string>("");
 
   const confidenceInt = useMemo(() => {
     if (!confidence.trim()) return null;
     const n = Number(confidence);
     if (!Number.isFinite(n)) return null;
-    const clamped = Math.max(0, Math.min(100, Math.round(n)));
-    return clamped;
+    return Math.max(0, Math.min(100, Math.round(n)));
   }, [confidence]);
 
   useEffect(() => {
@@ -72,7 +74,7 @@ export default function DecisionReviewPage() {
       setLoading(false);
     }
 
-    load();
+    void load();
     return () => {
       cancelled = true;
     };
@@ -110,9 +112,7 @@ export default function DecisionReviewPage() {
             Reviewing: <span className="font-medium text-zinc-900">{decision.title}</span>
           </span>
         ) : (
-          <span className="text-zinc-600">
-            Capture what you learned so Keystone gets smarter over time.
-          </span>
+          <span className="text-zinc-600">Capture what you learned so Life CFO can serve you better over time.</span>
         )
       }
     >
@@ -171,9 +171,7 @@ export default function DecisionReviewPage() {
                   placeholder="e.g. 80"
                   className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-zinc-900 outline-none focus:ring-2 focus:ring-zinc-200"
                 />
-                <div className="text-xs text-zinc-500">
-                  Tip: This helps Keystone learn what “good instincts” look like for you.
-                </div>
+                <div className="text-xs text-zinc-500">Tip: This helps patterns emerge over time.</div>
               </div>
 
               <div className="space-y-2">
@@ -181,11 +179,7 @@ export default function DecisionReviewPage() {
                 <textarea
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
-                  placeholder={
-                    decision.review_notes
-                      ? `Last notes: ${decision.review_notes}`
-                      : "Be honest. A few sentences is enough."
-                  }
+                  placeholder={decision.review_notes ? `Last notes: ${decision.review_notes}` : "Be honest. A few sentences is enough."}
                   className="min-h-[140px] w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-zinc-900 outline-none focus:ring-2 focus:ring-zinc-200"
                 />
               </div>
@@ -200,9 +194,7 @@ export default function DecisionReviewPage() {
                 </Button>
               </div>
 
-              <div className="text-xs text-zinc-500">
-                Reviews are append-only. Keystone keeps your history so patterns can emerge over time.
-              </div>
+              <div className="text-xs text-zinc-500">Reviews are append-only. Your history stays intact.</div>
             </CardContent>
           </Card>
         )}
