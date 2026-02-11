@@ -1,3 +1,4 @@
+// components/AssistedSearch.tsx
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -6,20 +7,20 @@ import { supabase } from "@/lib/supabaseClient";
 import { cn } from "@/lib/cn";
 import { Chip } from "@/components/ui";
 
-type Scope =
+export type Scope =
   | "thinking"
   | "decisions"
   | "revisit"
   | "chapters"
   | "capture"
+  | "family"
   | "bills"
   | "accounts"
   | "investments"
-  | "transactions"
-  | "family";
+  | "transactions";
 
 type Suggestion = {
-  kind: "decision" | "inbox" | "bill" | "account" | "investment" | "capture";
+  kind: "decision" | "inbox" | "bill" | "account" | "investment" | "capture" | "family";
   id: string;
   title: string;
   subtitle?: string;
@@ -43,33 +44,24 @@ function softDate(iso: unknown) {
 }
 
 function routeForDecision(_scope: Scope, decisionId: string) {
-  // V1: Always deep-open in Thinking (safe intelligence workspace)
   return `/thinking?open=${encodeURIComponent(decisionId)}`;
 }
 
-function routeForInbox(_scope: Scope, _inboxId: string) {
-  // V1: keep calm. No deep-link yet.
-  return `/thinking`;
-}
-
 function routeForCapture(_scope: Scope, inboxId: string) {
-  // Capture items live in decision_inbox. Best next step is Thinking (focused).
-  return `/thinking?from=capture&open=${encodeURIComponent(inboxId)}`;
+  return `/capture?open=${encodeURIComponent(inboxId)}`;
 }
 
-function routeForBill(_scope: Scope, _billId: string) {
-  // V1: keep calm. We land on Bills page (no deep-open yet).
+function routeForBill() {
   return `/bills`;
 }
-
-function routeForAccount(_scope: Scope, _accountId: string) {
-  // V1: keep calm. We land on Accounts page.
+function routeForAccount() {
   return `/accounts`;
 }
-
-function routeForInvestment(_scope: Scope, _investmentId: string) {
-  // V1: keep calm. We land on Investments page.
+function routeForInvestment() {
   return `/investments`;
+}
+function routeForFamily() {
+  return `/family`;
 }
 
 type DecisionRow = {
@@ -89,8 +81,6 @@ type BillRow = {
   active: boolean | null;
   autopay: boolean | null;
   next_due_at: string | null;
-  amount_cents: number | null;
-  currency: string | null;
 };
 
 type AccountRow = {
@@ -111,20 +101,24 @@ type CaptureRow = {
   type: string | null;
 };
 
+type FamilyMemberRow = {
+  id: string;
+  name: string | null;
+  relationship: string | null;
+  birth_year: number | null;
+};
+
+type PetRow = {
+  id: string;
+  name: string | null;
+  type: string | null;
+};
+
 function scopeDecisionFilter(scope: Scope) {
-  // thinking: only drafts
-  // decisions: anything not draft and not chapter
-  // revisit: anything not draft with review_at present
-  // chapters: only chapter
-  // capture/thinking: broad
   if (scope === "thinking") return { statusEq: "draft" as const };
-
   if (scope === "chapters") return { statusEq: "chapter" as const };
-
   if (scope === "revisit") return { notDraft: true, requireReviewAt: true };
-
   if (scope === "decisions") return { notDraft: true, notChapter: true };
-
   return { any: true };
 }
 
@@ -134,14 +128,14 @@ async function getUserId(): Promise<string | null> {
   return auth.user.id;
 }
 
-// ----------------------- BILLS -----------------------
-async function fetchTopBillSuggestions(scope: Scope): Promise<Suggestion[]> {
+/* ----------------------- BILLS ----------------------- */
+async function fetchTopBillSuggestions(): Promise<Suggestion[]> {
   const uid = await getUserId();
   if (!uid) return [];
 
   const { data, error } = await supabase
     .from("recurring_bills")
-    .select("id,name,active,autopay,next_due_at,amount_cents,currency")
+    .select("id,name,active,autopay,next_due_at")
     .eq("user_id", uid)
     .order("active", { ascending: false })
     .order("next_due_at", { ascending: true })
@@ -154,28 +148,23 @@ async function fetchTopBillSuggestions(scope: Scope): Promise<Suggestion[]> {
     const active = !!b?.active;
     const autopay = !!b?.autopay;
     const due = b?.next_due_at ? softDate(b.next_due_at) : "";
-    const subtitleParts = [active ? "Active" : "Paused", autopay ? "Autopay" : "Manual", due ? `Due: ${due}` : null].filter(Boolean);
+    const subtitle = [active ? "Active" : "Paused", autopay ? "Autopay" : "Manual", due ? `Due: ${due}` : null]
+      .filter(Boolean)
+      .join(" • ");
 
-    return {
-      kind: "bill",
-      id: String(b?.id),
-      title,
-      subtitle: subtitleParts.join(" • "),
-      href: routeForBill(scope, String(b?.id)),
-    };
+    return { kind: "bill", id: String(b?.id), title, subtitle, href: routeForBill() };
   });
 }
 
-async function fetchBillMatches(scope: Scope, q: string): Promise<Suggestion[]> {
+async function fetchBillMatches(q: string): Promise<Suggestion[]> {
   const uid = await getUserId();
   if (!uid) return [];
-
   const query = q.trim();
-  if (!query) return fetchTopBillSuggestions(scope);
+  if (!query) return fetchTopBillSuggestions();
 
   const { data, error } = await supabase
     .from("recurring_bills")
-    .select("id,name,active,autopay,next_due_at,amount_cents,currency")
+    .select("id,name,active,autopay,next_due_at")
     .eq("user_id", uid)
     .ilike("name", `%${query}%`)
     .order("active", { ascending: false })
@@ -189,26 +178,22 @@ async function fetchBillMatches(scope: Scope, q: string): Promise<Suggestion[]> 
     const active = !!b?.active;
     const autopay = !!b?.autopay;
     const due = b?.next_due_at ? softDate(b.next_due_at) : "";
-    const subtitleParts = [active ? "Active" : "Paused", autopay ? "Autopay" : "Manual", due ? `Due: ${due}` : null].filter(Boolean);
+    const subtitle = [active ? "Active" : "Paused", autopay ? "Autopay" : "Manual", due ? `Due: ${due}` : null]
+      .filter(Boolean)
+      .join(" • ");
 
-    return {
-      kind: "bill",
-      id: String(b.id),
-      title,
-      subtitle: subtitleParts.join(" • "),
-      href: routeForBill(scope, String(b.id)),
-    };
+    return { kind: "bill", id: String(b.id), title, subtitle, href: routeForBill() };
   });
 }
 
-// ---------------------- ACCOUNTS ----------------------
-async function fetchTopAccountSuggestions(scope: Scope): Promise<Suggestion[]> {
+/* ---------------------- ACCOUNTS ---------------------- */
+async function fetchTopAccountSuggestions(): Promise<Suggestion[]> {
   const uid = await getUserId();
   if (!uid) return [];
 
   const { data, error } = await supabase
     .from("accounts")
-    .select("id,name,current_balance_cents,currency,archived")
+    .select("id,name,current_balance_cents,currency,archived,created_at")
     .eq("user_id", uid)
     .order("created_at", { ascending: false })
     .limit(7);
@@ -220,28 +205,21 @@ async function fetchTopAccountSuggestions(scope: Scope): Promise<Suggestion[]> {
     const archived = !!a?.archived;
     const cents = typeof a?.current_balance_cents === "number" ? a.current_balance_cents : 0;
     const currency = safeStr(a?.currency) || "AUD";
-    const subtitleParts = [archived ? "Archived" : "Active", `${currency} ${(cents / 100).toFixed(2)}`].filter(Boolean);
+    const subtitle = [archived ? "Archived" : "Active", `${currency} ${(cents / 100).toFixed(2)}`].filter(Boolean).join(" • ");
 
-    return {
-      kind: "account",
-      id: String(a?.id),
-      title,
-      subtitle: subtitleParts.join(" • "),
-      href: routeForAccount(scope, String(a?.id)),
-    };
+    return { kind: "account", id: String(a?.id), title, subtitle, href: routeForAccount() };
   });
 }
 
-async function fetchAccountMatches(scope: Scope, q: string): Promise<Suggestion[]> {
+async function fetchAccountMatches(q: string): Promise<Suggestion[]> {
   const uid = await getUserId();
   if (!uid) return [];
-
   const query = q.trim();
-  if (!query) return fetchTopAccountSuggestions(scope);
+  if (!query) return fetchTopAccountSuggestions();
 
   const { data, error } = await supabase
     .from("accounts")
-    .select("id,name,current_balance_cents,currency,archived")
+    .select("id,name,current_balance_cents,currency,archived,created_at")
     .eq("user_id", uid)
     .ilike("name", `%${query}%`)
     .order("created_at", { ascending: false })
@@ -254,28 +232,13 @@ async function fetchAccountMatches(scope: Scope, q: string): Promise<Suggestion[
     const archived = !!a?.archived;
     const cents = typeof a?.current_balance_cents === "number" ? a.current_balance_cents : 0;
     const currency = safeStr(a?.currency) || "AUD";
-    const subtitleParts = [archived ? "Archived" : "Active", `${currency} ${(cents / 100).toFixed(2)}`].filter(Boolean);
+    const subtitle = [archived ? "Archived" : "Active", `${currency} ${(cents / 100).toFixed(2)}`].filter(Boolean).join(" • ");
 
-    return {
-      kind: "account",
-      id: String(a.id),
-      title,
-      subtitle: subtitleParts.join(" • "),
-      href: routeForAccount(scope, String(a.id)),
-    };
+    return { kind: "account", id: String(a.id), title, subtitle, href: routeForAccount() };
   });
 }
 
-// -------------------- INVESTMENTS (SAFE STUB) --------------------
-async function fetchTopInvestmentSuggestions(_scope: Scope): Promise<Suggestion[]> {
-  return [];
-}
-
-async function fetchInvestmentMatches(_scope: Scope, _q: string): Promise<Suggestion[]> {
-  return [];
-}
-
-// --------------------- CAPTURE ---------------------
+/* --------------------- CAPTURE --------------------- */
 async function fetchTopCaptureSuggestions(scope: Scope): Promise<Suggestion[]> {
   const uid = await getUserId();
   if (!uid) return [];
@@ -296,19 +259,11 @@ async function fetchTopCaptureSuggestions(scope: Scope): Promise<Suggestion[]> {
     const title = safeStr(r?.title) || "Captured";
     const created = r?.created_at ? softDate(r.created_at) : "";
     const body = safeStr(r?.body);
+    const hasAttachmentsHint = body.includes('"attachments"');
 
-    // lightweight hint (works for JSON body too)
-    const hasAttachmentsHint = body.includes('"attachments"') || body.includes('"attachments":');
+    const subtitle = [created || null, hasAttachmentsHint ? "Attachments" : null].filter(Boolean).join(" • ");
 
-    const subtitleParts = [created || null, hasAttachmentsHint ? "Attachments" : null].filter(Boolean);
-
-    return {
-      kind: "capture",
-      id: String(r?.id),
-      title,
-      subtitle: subtitleParts.join(" • "),
-      href: routeForCapture(scope, String(r?.id)),
-    };
+    return { kind: "capture", id: String(r?.id), title, subtitle, href: routeForCapture(scope, String(r?.id)) };
   });
 }
 
@@ -319,7 +274,6 @@ async function fetchCaptureMatches(scope: Scope, q: string): Promise<Suggestion[
   const query = q.trim();
   if (!query) return fetchTopCaptureSuggestions(scope);
 
-  // NOTE: body may be plain text or JSON string. ilike still works as substring.
   const { data, error } = await supabase
     .from("decision_inbox")
     .select("id,title,body,created_at,status,framed_decision_id,type")
@@ -337,26 +291,102 @@ async function fetchCaptureMatches(scope: Scope, q: string): Promise<Suggestion[
     const title = safeStr(r.title) || "Captured";
     const created = r.created_at ? softDate(r.created_at) : "";
     const body = safeStr(r.body);
-    const hasAttachmentsHint = body.includes('"attachments"') || body.includes('"attachments":');
-
-    const subtitleParts = [created || null, hasAttachmentsHint ? "Attachments" : null].filter(Boolean);
-
-    return {
-      kind: "capture",
-      id: String(r.id),
-      title,
-      subtitle: subtitleParts.join(" • "),
-      href: routeForCapture(scope, String(r.id)),
-    };
+    const hasAttachmentsHint = body.includes('"attachments"');
+    const subtitle = [created || null, hasAttachmentsHint ? "Attachments" : null].filter(Boolean).join(" • ");
+    return { kind: "capture", id: String(r.id), title, subtitle, href: routeForCapture(scope, String(r.id)) };
   });
 }
 
-// --------------------- DECISIONS ---------------------
+/* --------------------- FAMILY --------------------- */
+async function fetchTopFamilySuggestions(): Promise<Suggestion[]> {
+  const uid = await getUserId();
+  if (!uid) return [];
+
+  const [fRes, pRes] = await Promise.all([
+    supabase.from("family_members").select("id,name,relationship,birth_year").eq("user_id", uid).order("created_at", { ascending: true }).limit(10),
+    supabase.from("pets").select("id,name,type").eq("user_id", uid).order("created_at", { ascending: true }).limit(10),
+  ]);
+
+  const out: Suggestion[] = [];
+
+  if (!fRes.error) {
+    for (const m of fRes.data ?? []) {
+      const name = safeStr((m as any)?.name) || "Person";
+      const rel = safeStr((m as any)?.relationship);
+      out.push({
+        kind: "family",
+        id: String((m as any)?.id),
+        title: name,
+        subtitle: rel ? rel : "Family",
+        href: routeForFamily(),
+      });
+    }
+  }
+
+  if (!pRes.error) {
+    for (const p of pRes.data ?? []) {
+      const name = safeStr((p as any)?.name) || "Pet";
+      const t = safeStr((p as any)?.type);
+      out.push({
+        kind: "family",
+        id: `pet:${String((p as any)?.id)}`,
+        title: name,
+        subtitle: t ? `Pet • ${t}` : "Pet",
+        href: routeForFamily(),
+      });
+    }
+  }
+
+  return out.slice(0, 10);
+}
+
+async function fetchFamilyMatches(q: string): Promise<Suggestion[]> {
+  const uid = await getUserId();
+  if (!uid) return [];
+  const query = q.trim();
+  if (!query) return fetchTopFamilySuggestions();
+
+  const [fRes, pRes] = await Promise.all([
+    supabase
+      .from("family_members")
+      .select("id,name,relationship,birth_year")
+      .eq("user_id", uid)
+      .or(`name.ilike.%${query}%,relationship.ilike.%${query}%`)
+      .limit(12),
+    supabase
+      .from("pets")
+      .select("id,name,type")
+      .eq("user_id", uid)
+      .or(`name.ilike.%${query}%,type.ilike.%${query}%`)
+      .limit(12),
+  ]);
+
+  const out: Suggestion[] = [];
+
+  if (!fRes.error) {
+    for (const m of (fRes.data ?? []) as FamilyMemberRow[]) {
+      const name = safeStr(m.name) || "Person";
+      const rel = safeStr(m.relationship);
+      out.push({ kind: "family", id: String(m.id), title: name, subtitle: rel ? rel : "Family", href: routeForFamily() });
+    }
+  }
+
+  if (!pRes.error) {
+    for (const p of (pRes.data ?? []) as PetRow[]) {
+      const name = safeStr(p.name) || "Pet";
+      const t = safeStr(p.type);
+      out.push({ kind: "family", id: `pet:${String(p.id)}`, title: name, subtitle: t ? `Pet • ${t}` : "Pet", href: routeForFamily() });
+    }
+  }
+
+  return out.slice(0, 12);
+}
+
+/* --------------------- DECISIONS --------------------- */
 async function fetchTopDecisionSuggestions(scope: Scope): Promise<Suggestion[]> {
   const uid = await getUserId();
   if (!uid) return [];
 
-  const out: Suggestion[] = [];
   const filter = scopeDecisionFilter(scope);
 
   let q = supabase.from("decisions").select("id,title,status,created_at,decided_at,review_at,chaptered_at").eq("user_id", uid);
@@ -382,20 +412,11 @@ async function fetchTopDecisionSuggestions(scope: Scope): Promise<Suggestion[]> 
   const res = await q;
   if (res.error) return [];
 
-  for (const d of res.data ?? []) {
-    const status = safeStr((d as any).status);
+  return (res.data ?? []).slice(0, 7).map((d: any) => {
+    const status = safeStr(d.status);
     const subtitle = status === "draft" ? "Draft" : status === "chapter" ? "Chapter" : "Decision";
-
-    out.push({
-      kind: "decision",
-      id: String((d as any).id),
-      title: safeStr((d as any).title) || "Untitled",
-      subtitle,
-      href: routeForDecision(scope, String((d as any).id)),
-    });
-  }
-
-  return out.slice(0, 7);
+    return { kind: "decision", id: String(d.id), title: safeStr(d.title) || "Untitled", subtitle, href: routeForDecision(scope, String(d.id)) };
+  });
 }
 
 async function fetchDecisionMatches(scope: Scope, q: string): Promise<Suggestion[]> {
@@ -437,85 +458,34 @@ async function fetchDecisionMatches(scope: Scope, q: string): Promise<Suggestion
   return (data ?? []).map((d: DecisionRow) => {
     const status = safeStr(d.status);
     const subtitle = status === "draft" ? "Draft" : status === "chapter" ? "Chapter" : "Decision";
-
-    return {
-      kind: "decision",
-      id: String(d.id),
-      title: safeStr(d.title) || "Untitled",
-      subtitle,
-      href: routeForDecision(scope, String(d.id)),
-    };
+    return { kind: "decision", id: String(d.id), title: safeStr(d.title) || "Untitled", subtitle, href: routeForDecision(scope, String(d.id)) };
   });
 }
 
-// ---------------------- FAMILY ----------------------
-async function fetchTopFamilySuggestions(_scope: Scope): Promise<Suggestion[]> {
-  const uid = await getUserId();
-  if (!uid) return [];
-
-  const { data, error } = await supabase
-    .from("family_members")
-    .select("id,name,relationship")
-    .eq("user_id", uid)
-    .order("created_at", { ascending: true })
-    .limit(7);
-
-  if (error) return [];
-
-  return (data ?? []).map((m: any) => ({
-    kind: "decision", // neutral label, keeps UI calm
-    id: String(m.id),
-    title: safeStr(m.name) || "Family member",
-    subtitle: safeStr(m.relationship) || "Family",
-    href: "/family",
-  }));
+/* ---------------------- INVESTMENTS (SAFE STUB) ---------------------- */
+async function fetchTopInvestmentSuggestions(): Promise<Suggestion[]> {
+  return [];
+}
+async function fetchInvestmentMatches(): Promise<Suggestion[]> {
+  return [];
 }
 
-async function fetchFamilyMatches(_scope: Scope, q: string): Promise<Suggestion[]> {
-  const uid = await getUserId();
-  if (!uid) return [];
-
-  const query = q.trim();
-  if (!query) return fetchTopFamilySuggestions(_scope);
-
-  const { data, error } = await supabase
-    .from("family_members")
-    .select("id,name,relationship")
-    .eq("user_id", uid)
-    .or(`name.ilike.%${query}%,relationship.ilike.%${query}%`)
-    .limit(10);
-
-  if (error) return [];
-
-  return (data ?? []).map((m: any) => ({
-    kind: "decision",
-    id: String(m.id),
-    title: safeStr(m.name) || "Family member",
-    subtitle: safeStr(m.relationship) || "Family",
-    href: "/family",
-  }));
-}
-
-// ---------------------- ROUTER -----------------------
+/* ---------------------- ROUTER ---------------------- */
 async function fetchTopSuggestions(scope: Scope): Promise<Suggestion[]> {
-    if (scope === "family") return fetchTopFamilySuggestions(scope);
-  
+  if (scope === "family") return fetchTopFamilySuggestions();
   if (scope === "capture") return fetchTopCaptureSuggestions(scope);
-  if (scope === "bills") return fetchTopBillSuggestions(scope);
-  if (scope === "accounts") return fetchTopAccountSuggestions(scope);
-  if (scope === "investments") return fetchTopInvestmentSuggestions(scope);
-
+  if (scope === "bills") return fetchTopBillSuggestions();
+  if (scope === "accounts") return fetchTopAccountSuggestions();
+  if (scope === "investments") return fetchTopInvestmentSuggestions();
   return fetchTopDecisionSuggestions(scope);
 }
 
 async function fetchMatches(scope: Scope, q: string): Promise<Suggestion[]> {
-  if (scope === "family") return fetchFamilyMatches(scope, q);
- 
+  if (scope === "family") return fetchFamilyMatches(q);
   if (scope === "capture") return fetchCaptureMatches(scope, q);
-  if (scope === "bills") return fetchBillMatches(scope, q);
-  if (scope === "accounts") return fetchAccountMatches(scope, q);
-  if (scope === "investments") return fetchInvestmentMatches(scope, q);
-
+  if (scope === "bills") return fetchBillMatches(q);
+  if (scope === "accounts") return fetchAccountMatches(q);
+  if (scope === "investments") return fetchInvestmentMatches();
   return fetchDecisionMatches(scope, q);
 }
 
@@ -543,7 +513,6 @@ export function AssistedSearch({
 
     const t = window.setTimeout(async () => {
       const next = debouncedQ.trim() ? await fetchMatches(scope, debouncedQ) : await fetchTopSuggestions(scope);
-
       if (!alive) return;
       setItems(next);
       setLoading(false);
@@ -609,6 +578,8 @@ export function AssistedSearch({
                       ? "Investment"
                       : it.kind === "capture"
                       ? "Capture"
+                      : it.kind === "family"
+                      ? "Family"
                       : "Inbox"}
                   </Chip>
                 </button>

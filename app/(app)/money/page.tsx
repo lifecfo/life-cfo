@@ -191,17 +191,17 @@ export default function MoneyPage() {
                   </div>
                 </div>
 
-                <div className="flex flex-wrap gap-2 pt-2">
-                  <Chip className="text-xs" onClick={() => router.push("/money/accounts")}>
+                      <div className="flex flex-wrap gap-2 pt-2">
+                  <Chip className="text-xs" onClick={() => router.push("/accounts")}>
                     Accounts
                   </Chip>
-                  <Chip className="text-xs" onClick={() => router.push("/money/bills")}>
+                  <Chip className="text-xs" onClick={() => router.push("/bills")}>
                     Bills
                   </Chip>
                   <Chip className="text-xs" onClick={() => router.push("/money/goals")}>
                     Goals
                   </Chip>
-                  <Chip className="text-xs" onClick={() => router.push("/money/buffer")}>
+                  <Chip className="text-xs" onClick={() => router.push("/buffer")}>
                     Buffer
                   </Chip>
                 </div>

@@ -14,24 +14,31 @@ type PageProps = {
   disableFeedback?: boolean;
 };
 
-export function Page({ title, subtitle, right, children, className, disableFeedback = false }: PageProps) {
+export function Page({
+  title,
+  subtitle,
+  right,
+  children,
+  className,
+  disableFeedback = false,
+}: PageProps) {
   return (
-    <main className={cn("mx-auto w-full max-w-[900px] px-6 py-6 font-sans", className)}>
-      {(title || subtitle || right) && (
-        <header className="mb-6 flex flex-wrap items-start justify-between gap-3">
+    <main className={cn("space-y-6", className)}>
+      {(title || subtitle || right) ? (
+        <header className="flex flex-wrap items-start justify-between gap-3">
           <div className="space-y-1">
-            {title && <h1 className="m-0 text-2xl font-semibold">{title}</h1>}
-            {subtitle && <div className="text-sm text-zinc-600">{subtitle}</div>}
+            {title ? <h1 className="text-3xl font-semibold text-zinc-900">{title}</h1> : null}
+            {subtitle ? <div className="text-sm text-zinc-600">{subtitle}</div> : null}
           </div>
-          {right && <div className="shrink-0">{right}</div>}
+          {right ? <div className="shrink-0">{right}</div> : null}
         </header>
-      )}
+      ) : null}
 
       <div className="space-y-6">
         {children}
 
         {!disableFeedback ? (
-          <div className="pt-6 border-t border-zinc-100">
+          <div className="border-t border-zinc-100 pt-6">
             <FeedbackPrompt pageTitle={typeof title === "string" ? title : undefined} />
           </div>
         ) : null}
