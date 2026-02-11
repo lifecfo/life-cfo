@@ -2,50 +2,51 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { Page } from "@/components/Page";
-import { Card, CardContent, Chip, Button } from "@/components/ui";
-import { normalizeAttachments, type AttachmentMeta } from "@/lib/attachments";
-import { AttachmentsBlock } from "@/components/AttachmentsBlock";
+import { Chip, Card, CardContent, useToast } from "@/components/ui";
 import { AssistedSearch } from "@/components/AssistedSearch";
 import { TilesRow } from "@/components/TilesRow";
+import { DecisionNotes } from "@/components/decision/DecisionNotes";
+import { AttachmentsBlock } from "@/components/AttachmentsBlock";
+import { ConversationPanel } from "../thinking/ConversationPanel";
 
 export const dynamic = "force-dynamic";
+
+type AttachmentMeta = {
+  name: string;
+  path: string;
+  type: string;
+  size: number;
+};
 
 type Decision = {
   id: string;
   user_id: string;
   title: string;
   context: string | null;
-
   status: string;
   created_at: string;
   decided_at: string | null;
-
   review_at: string | null;
-  reviewed_at: string | null;
-
-  review_notes: string | null;
-  review_history: unknown[] | null;
-
-  attachments: AttachmentMeta[] | null; // decisions.attachments (jsonb)
+  reviewed_at?: string | null;
   chaptered_at?: string | null;
+  origin: string | null;
+  framed_at: string | null;
+  attachments: AttachmentMeta[] | null; // decisions.attachments (jsonb)
 };
 
-type Domain = {
+type DecisionSummary = {
   id: string;
-  name: string;
-  emoji?: string | null;
-  sort_order?: number | null;
+  user_id: string;
+  decision_id: string;
+  summary_text: string;
+  created_at: string;
 };
 
-type Constellation = {
-  id: string;
-  name: string;
-  emoji?: string | null;
-  sort_order?: number | null;
-};
+type Domain = { id: string; name: string; sort_order?: number | null };
+type Constellation = { id: string; name: string; sort_order?: number | null };
 
 function safeMs(iso: string | null | undefined) {
   if (!iso) return null;
@@ -53,10 +54,15 @@ function safeMs(iso: string | null | undefined) {
   return Number.isNaN(ms) ? null : ms;
 }
 
-function softDate(iso: string | null) {
+function softWhen(iso: string | null | undefined) {
   const ms = safeMs(iso);
   if (!ms) return "";
   return new Date(ms).toLocaleDateString();
+}
+
+function isoNowPlusDays(days: number) {
+  const d = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
+  return d.toISOString();
 }
 
 function isoFromDateInput(dateStr: string) {
@@ -64,6 +70,19 @@ function isoFromDateInput(dateStr: string) {
   const ms = Date.parse(`${dateStr}T12:00:00`);
   if (Number.isNaN(ms)) return null;
   return new Date(ms).toISOString();
+}
+
+function normalizeAttachments(raw: unknown): AttachmentMeta[] {
+  if (!raw) return [];
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((a: any) => a && typeof a.path === "string")
+    .map((a: any) => ({
+      name: typeof a.name === "string" ? a.name : "Attachment",
+      path: String(a.path),
+      type: typeof a.type === "string" ? a.type : "application/octet-stream",
+      size: typeof a.size === "number" ? a.size : 0,
+    }));
 }
 
 function sortByName<T extends { name: string; sort_order?: number | null }>(items: T[]): T[] {
@@ -75,20 +94,76 @@ function sortByName<T extends { name: string; sort_order?: number | null }>(item
   });
 }
 
+// Same context format as Thinking (safe to reuse)
+function splitThinkingContext(context: string | null) {
+  const raw = (context ?? "").trim();
+  if (!raw) return { captured: "", draft: "" };
+
+  const sep = "\n\n---\nDraft:\n";
+  const altSep = "\n---\nDraft:\n";
+
+  const idx = raw.indexOf(sep);
+  const idxAlt = raw.indexOf(altSep);
+
+  const cut = idx >= 0 ? idx : idxAlt;
+  const sepLen = idx >= 0 ? sep.length : idxAlt >= 0 ? altSep.length : 0;
+
+  if (cut >= 0) {
+    const capturedPart = raw.slice(0, cut).trim();
+    const draftPart = raw.slice(cut + sepLen).trim();
+    const captured = capturedPart.replace(/^Captured:\s*/i, "").trim();
+    return { captured, draft: draftPart };
+  }
+
+  const captured = raw.replace(/^Captured:\s*/i, "").trim();
+  return { captured, draft: "" };
+}
+
+function PrimaryActionButton(props: {
+  children: React.ReactNode;
+  onClick?: () => void;
+  title?: string;
+  disabled?: boolean;
+}) {
+  const { children, onClick, title, disabled } = props;
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={title}
+      disabled={disabled}
+      className={[
+        "inline-flex select-none items-center justify-center rounded-full border px-4 py-2 text-sm transition",
+        "border-[#1F5E5C] bg-[#1F5E5C] text-white",
+        "hover:bg-[#174947] hover:text-white",
+        "disabled:border-[#9FB8B6] disabled:bg-[#9FB8B6] disabled:text-white/90",
+      ].join(" ")}
+    >
+      {children}
+    </button>
+  );
+}
+
 export default function DecisionsClient() {
   const router = useRouter();
+  const { showToast } = useToast();
+  const searchParams = useSearchParams();
+  const openFromQuery = searchParams.get("open");
+
+  const [highlightId, setHighlightId] = useState<string | null>(null);
 
   const [userId, setUserId] = useState<string | null>(null);
   const [statusLine, setStatusLine] = useState<string>("Loading…");
 
   const [items, setItems] = useState<Decision[]>([]);
   const [openId, setOpenId] = useState<string | null>(null);
+  const [chatForId, setChatForId] = useState<string | null>(null);
 
-  // Top-5 default (V1 pattern)
   const DEFAULT_LIMIT = 5;
   const [showAll, setShowAll] = useState(false);
 
-  // Tiles: domains + constellations
+  const [summaries, setSummaries] = useState<DecisionSummary[]>([]);
+
   const [domains, setDomains] = useState<Domain[]>([]);
   const [constellations, setConstellations] = useState<Constellation[]>([]);
   const [activeDomainId, setActiveDomainId] = useState<string | null>(null);
@@ -97,62 +172,97 @@ export default function DecisionsClient() {
   const [domainByDecision, setDomainByDecision] = useState<Record<string, string | null>>({});
   const [constellationsByDecision, setConstellationsByDecision] = useState<Record<string, string[]>>({});
 
-  // label editor + revisit control state
+  const loadRef = useRef<(opts?: { silent?: boolean }) => void>(() => {});
+  const reloadTimerRef = useRef<number | null>(null);
+  const cardRefs = useRef<Record<string, HTMLDivElement | null>>({});
+
   const [labelsEditForId, setLabelsEditForId] = useState<string | null>(null);
+
   const [revisitModeById, setRevisitModeById] = useState<Record<string, "7" | "30" | "90" | "custom" | "">>({});
   const [customDateById, setCustomDateById] = useState<Record<string, string>>({});
 
-  // throttle / reload protection
-  const isMountedRef = useRef(true);
-  const inFlightRef = useRef(false);
-  const lastFetchAtRef = useRef(0);
-  const queuedRefetchRef = useRef(false);
+  const [confirmDeleteForId, setConfirmDeleteForId] = useState<string | null>(null);
 
-  const openItem = useMemo(() => items.find((x) => x.id === openId) ?? null, [items, openId]);
+  const scheduleReload = () => {
+    if (reloadTimerRef.current) window.clearTimeout(reloadTimerRef.current);
+    reloadTimerRef.current = window.setTimeout(() => {
+      loadRef.current({ silent: true });
+    }, 250);
+  };
 
-  const hasAnyLabelOptions = domains.length > 0 || constellations.length > 0;
+  const openDecision = useMemo(() => items.find((d) => d.id === openId) ?? null, [items, openId]);
 
-  const loadMeaningMaps = async (uid: string, decisionIds: string[]) => {
-    if (decisionIds.length === 0) {
-      setDomainByDecision({});
-      setConstellationsByDecision({});
+  const reloadSummaries = async (decisionId: string) => {
+    if (!userId) return;
+
+    const { data, error } = await supabase
+      .from("decision_summaries")
+      .select("id,decision_id,summary_text,created_at")
+      .eq("user_id", userId)
+      .eq("decision_id", decisionId)
+      .order("created_at", { ascending: false })
+      .limit(3);
+
+    if (error) {
+      setSummaries([]);
       return;
     }
 
-    const [ddRes, ciRes] = await Promise.all([
-      supabase.from("decision_domains").select("decision_id,domain_id").eq("user_id", uid).in("decision_id", decisionIds),
-      supabase
-        .from("constellation_items")
-        .select("decision_id,constellation_id")
-        .eq("user_id", uid)
-        .in("decision_id", decisionIds),
-    ]);
-
-    if (!ddRes.error) {
-      const next: Record<string, string | null> = {};
-      for (const row of ddRes.data ?? []) next[String((row as any).decision_id)] = String((row as any).domain_id);
-      setDomainByDecision(next);
-    } else {
-      setDomainByDecision({});
-    }
-
-    if (!ciRes.error) {
-      const next: Record<string, string[]> = {};
-      for (const row of ciRes.data ?? []) {
-        const did = String((row as any).decision_id);
-        const cid = String((row as any).constellation_id);
-        next[did] = next[did] ? [...next[did], cid] : [cid];
-      }
-      setConstellationsByDecision(next);
-    } else {
-      setConstellationsByDecision({});
-    }
+    setSummaries((data ?? []) as DecisionSummary[]);
   };
 
-  const loadTiles = async (uid: string) => {
+  const load = async (opts?: { silent?: boolean }) => {
+    const silent = !!opts?.silent;
+    if (!silent) setStatusLine("Loading…");
+
+    const { data: auth, error: authError } = await supabase.auth.getUser();
+    if (authError || !auth?.user) {
+      setUserId(null);
+      setItems([]);
+      setStatusLine("Not signed in.");
+      return;
+    }
+
+    const uid = auth.user.id;
+    setUserId(uid);
+
+    // Decisions page: show decided only (not draft, not chapter)
+    const { data, error } = await supabase
+      .from("decisions")
+      .select("id,user_id,title,context,status,created_at,decided_at,review_at,reviewed_at,chaptered_at,origin,framed_at,attachments")
+      .eq("user_id", uid)
+      .eq("status", "decided")
+      .order("decided_at", { ascending: false, nullsFirst: false })
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      setItems([]);
+      setStatusLine(`Error: ${error.message}`);
+      return;
+    }
+
+    const listRaw = (data ?? []) as any[];
+    const list: Decision[] = listRaw.map((r) => ({
+      id: r.id,
+      user_id: r.user_id,
+      title: r.title ?? "",
+      context: r.context ?? null,
+      status: r.status ?? "decided",
+      created_at: r.created_at ?? new Date().toISOString(),
+      decided_at: r.decided_at ?? null,
+      review_at: r.review_at ?? null,
+      reviewed_at: r.reviewed_at ?? null,
+      chaptered_at: r.chaptered_at ?? null,
+      origin: r.origin ?? null,
+      framed_at: r.framed_at ?? null,
+      attachments: normalizeAttachments(r.attachments),
+    }));
+
+    setItems(list);
+
     const [domRes, conRes] = await Promise.all([
-      supabase.from("domains").select("id,name,emoji,sort_order").eq("user_id", uid).order("sort_order", { ascending: true }),
-      supabase.from("constellations").select("id,name,emoji,sort_order").eq("user_id", uid).order("sort_order", { ascending: true }),
+      supabase.from("domains").select("id,name,sort_order").eq("user_id", uid).order("sort_order", { ascending: true }),
+      supabase.from("constellations").select("id,name,sort_order").eq("user_id", uid).order("sort_order", { ascending: true }),
     ]);
 
     if (!domRes.error) {
@@ -162,7 +272,6 @@ export default function DecisionsClient() {
         .map((r) => ({
           id: String(r.id),
           name: String(r.name),
-          emoji: typeof r.emoji === "string" ? r.emoji : null,
           sort_order: typeof r.sort_order === "number" ? r.sort_order : null,
         }));
       setDomains(sortByName(next));
@@ -175,208 +284,184 @@ export default function DecisionsClient() {
         .map((r) => ({
           id: String(r.id),
           name: String(r.name),
-          emoji: typeof r.emoji === "string" ? r.emoji : null,
           sort_order: typeof r.sort_order === "number" ? r.sort_order : null,
         }));
       setConstellations(sortByName(next));
     }
-  };
 
-  const load = async (uid: string) => {
-    const now = Date.now();
-    const elapsed = now - lastFetchAtRef.current;
+    const decisionIds = list.map((d) => d.id);
+    if (decisionIds.length > 0) {
+      const [ddRes, ciRes] = await Promise.all([
+        supabase.from("decision_domains").select("decision_id,domain_id").eq("user_id", uid).in("decision_id", decisionIds),
+        supabase.from("constellation_items").select("decision_id,constellation_id").eq("user_id", uid).in("decision_id", decisionIds),
+      ]);
 
-    if (inFlightRef.current) {
-      queuedRefetchRef.current = true;
-      return;
-    }
-
-    if (elapsed < 700) {
-      queuedRefetchRef.current = true;
-      window.setTimeout(() => {
-        if (!isMountedRef.current) return;
-        if (!queuedRefetchRef.current) return;
-        queuedRefetchRef.current = false;
-        void load(uid);
-      }, 750 - elapsed);
-      return;
-    }
-
-    inFlightRef.current = true;
-    lastFetchAtRef.current = now;
-
-    const { data, error } = await supabase
-      .from("decisions")
-      .select("id,user_id,title,context,status,created_at,decided_at,review_at,reviewed_at,review_notes,review_history,attachments,chaptered_at")
-      .eq("user_id", uid)
-      .neq("status", "draft")
-      .neq("status", "chapter")
-      .order("decided_at", { ascending: false, nullsFirst: false })
-      .order("created_at", { ascending: false });
-
-    inFlightRef.current = false;
-
-    if (!isMountedRef.current) return;
-
-    if (error) {
-      setStatusLine(`Error: ${error.message}`);
-      setItems([]);
-      return;
-    }
-
-    const rows = (data ?? []) as any[];
-    const normalized: Decision[] = rows.map((r) => ({
-      id: r.id,
-      user_id: r.user_id,
-      title: r.title ?? "",
-      context: r.context ?? null,
-      status: r.status ?? "",
-      created_at: r.created_at ?? new Date().toISOString(),
-      decided_at: r.decided_at ?? null,
-      review_at: r.review_at ?? null,
-      reviewed_at: r.reviewed_at ?? null,
-      review_notes: r.review_notes ?? null,
-      review_history: r.review_history ?? null,
-      attachments: normalizeAttachments(r.attachments),
-      chaptered_at: r.chaptered_at ?? null,
-    }));
-
-    setItems(normalized);
-    setStatusLine(normalized.length === 0 ? "Nothing committed yet." : `Loaded ${normalized.length}.`);
-    void loadMeaningMaps(uid, normalized.map((x) => x.id));
-  };
-
-  // boot
-  useEffect(() => {
-    isMountedRef.current = true;
-
-    (async () => {
-      const { data: auth, error: authError } = await supabase.auth.getUser();
-      if (!isMountedRef.current) return;
-
-      if (authError || !auth?.user) {
-        setUserId(null);
-        setStatusLine("Not signed in.");
-        return;
+      if (!ddRes.error) {
+        const next: Record<string, string | null> = {};
+        for (const row of ddRes.data ?? []) {
+          next[String((row as any).decision_id)] = String((row as any).domain_id);
+        }
+        setDomainByDecision(next);
+      } else {
+        setDomainByDecision({});
       }
 
-      const uid = auth.user.id;
-      setUserId(uid);
+      if (!ciRes.error) {
+        const next: Record<string, string[]> = {};
+        for (const row of ciRes.data ?? []) {
+          const did = String((row as any).decision_id);
+          const cid = String((row as any).constellation_id);
+          next[did] = next[did] ? [...next[did], cid] : [cid];
+        }
+        setConstellationsByDecision(next);
+      } else {
+        setConstellationsByDecision({});
+      }
+    } else {
+      setDomainByDecision({});
+      setConstellationsByDecision({});
+    }
 
-      await loadTiles(uid);
-      await load(uid);
-    })();
+    setStatusLine(list.length === 0 ? "No decisions yet." : "Loaded.");
+  };
 
-    return () => {
-      isMountedRef.current = false;
-    };
+  useEffect(() => {
+    loadRef.current = (opts?: { silent?: boolean }) => void load(opts);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // realtime
+  useEffect(() => {
+    void load();
+
+    return () => {
+      if (reloadTimerRef.current) window.clearTimeout(reloadTimerRef.current);
+      reloadTimerRef.current = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Auto-open from query (?open=...)
+  useEffect(() => {
+    if (!openFromQuery) return;
+    if (items.length === 0) return;
+
+    const match = items.find((d) => d.id === openFromQuery);
+    if (!match) return;
+
+    setOpenId(match.id);
+    setHighlightId(match.id);
+
+    window.setTimeout(() => {
+      const el = cardRefs.current[match.id];
+      if (el?.scrollIntoView) el.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 60);
+
+    router.replace("/decisions");
+
+    const t = window.setTimeout(() => setHighlightId(null), 1600);
+    return () => window.clearTimeout(t);
+  }, [openFromQuery, items, router]);
+
+  // Keep chat only for open card
+  useEffect(() => {
+    setChatForId((cur) => {
+      if (!cur) return null;
+      if (!openId) return null;
+      return cur === openId ? cur : null;
+    });
+  }, [openId]);
+
+  // Close editors when changing open card
+  useEffect(() => {
+    setLabelsEditForId((cur) => (cur && openId && cur === openId ? cur : null));
+    setConfirmDeleteForId((cur) => (cur && openId && cur === openId ? cur : null));
+  }, [openId]);
+
+  // Load summaries for open decision
+  useEffect(() => {
+    if (!userId || !openDecision) {
+      setSummaries([]);
+      return;
+    }
+    void reloadSummaries(openDecision.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId, openDecision?.id]);
+
+  // Realtime (only keep decided items in this list)
   useEffect(() => {
     if (!userId) return;
 
     const channel = supabase
-      .channel(`decisions_ledger_${userId}`)
-      .on("postgres_changes", { event: "*", schema: "public", table: "decisions", filter: `user_id=eq.${userId}` }, () => void load(userId))
-      .subscribe();
+      .channel(`decisions-list-${userId}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "decisions", filter: `user_id=eq.${userId}` }, (payload: any) => {
+        const eventType: string | undefined = payload?.eventType;
+        const next = payload?.new as any | undefined;
+        const prev = payload?.old as any | undefined;
 
-    const channel2 = supabase
-      .channel(`decisions_meaning_${userId}`)
-      .on("postgres_changes", { event: "*", schema: "public", table: "decision_domains", filter: `user_id=eq.${userId}` }, () => void load(userId))
-      .on("postgres_changes", { event: "*", schema: "public", table: "constellation_items", filter: `user_id=eq.${userId}` }, () => void load(userId))
-      .subscribe();
+        const id = (next?.id ?? prev?.id) as string | undefined;
+        if (!eventType || !id) {
+          scheduleReload();
+          return;
+        }
 
-    const channel3 = supabase
-      .channel(`decisions_tiles_${userId}`)
-      .on("postgres_changes", { event: "*", schema: "public", table: "domains", filter: `user_id=eq.${userId}` }, () => void loadTiles(userId))
-      .on("postgres_changes", { event: "*", schema: "public", table: "constellations", filter: `user_id=eq.${userId}` }, () => void loadTiles(userId))
+        const rowStatus = String(next?.status ?? prev?.status ?? "");
+
+        setItems((current) => {
+          // delete
+          if (eventType === "DELETE") {
+            if (openId === id) setOpenId(null);
+            if (chatForId === id) setChatForId(null);
+            if (labelsEditForId === id) setLabelsEditForId(null);
+            if (confirmDeleteForId === id) setConfirmDeleteForId(null);
+            return current.filter((d) => d.id !== id);
+          }
+
+          // only keep decided items here
+          if (rowStatus !== "decided") {
+            if (openId === id) setOpenId(null);
+            if (chatForId === id) setChatForId(null);
+            if (labelsEditForId === id) setLabelsEditForId(null);
+            if (confirmDeleteForId === id) setConfirmDeleteForId(null);
+            return current.filter((d) => d.id !== id);
+          }
+
+          const patch: Decision = {
+            id: String((next ?? prev).id),
+            user_id: String((next ?? prev).user_id),
+            title: String((next ?? prev).title ?? ""),
+            context: (next ?? prev).context ?? null,
+            status: "decided",
+            created_at: (next ?? prev).created_at ?? new Date().toISOString(),
+            decided_at: (next ?? prev).decided_at ?? null,
+            review_at: (next ?? prev).review_at ?? null,
+            reviewed_at: (next ?? prev).reviewed_at ?? null,
+            chaptered_at: (next ?? prev).chaptered_at ?? null,
+            origin: (next ?? prev).origin ?? null,
+            framed_at: (next ?? prev).framed_at ?? null,
+            attachments: normalizeAttachments((next ?? prev).attachments),
+          };
+
+          const exists = current.some((d) => d.id === patch.id);
+          const merged = exists ? current.map((d) => (d.id === patch.id ? { ...d, ...patch } : d)) : [patch, ...current];
+
+          merged.sort((a, b) => {
+            const ta = safeMs(a.decided_at) ?? safeMs(a.created_at) ?? 0;
+            const tb = safeMs(b.decided_at) ?? safeMs(b.created_at) ?? 0;
+            return tb - ta;
+          });
+
+          return merged;
+        });
+
+        scheduleReload();
+      })
       .subscribe();
 
     return () => {
-      void supabase.removeChannel(channel);
-      void supabase.removeChannel(channel2);
-      void supabase.removeChannel(channel3);
+      supabase.removeChannel(channel);
     };
-  }, [userId]);
-
-  // actions
-  const setReviewAtIso = async (d: Decision, iso: string | null) => {
-    if (!userId) return;
-
-    setItems((prev) => prev.map((x) => (x.id === d.id ? { ...x, review_at: iso } : x)));
-
-    const { error } = await supabase.from("decisions").update({ review_at: iso }).eq("id", d.id).eq("user_id", userId);
-
-    if (error) {
-      setStatusLine(`Update failed: ${error.message}`);
-      void load(userId);
-      return;
-    }
-
-    setStatusLine(iso ? "Revisit scheduled." : "Revisit cleared.");
-  };
-
-  const schedulePreset = async (d: Decision, days: number) => {
-    const iso = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
-    await setReviewAtIso(d, iso);
-  };
-
-  const moveToChapters = async (d: Decision) => {
-    if (!userId) return;
-
-    const nowIso = new Date().toISOString();
-
-    setItems((prev) => prev.filter((x) => x.id !== d.id));
-    setOpenId((cur) => (cur === d.id ? null : cur));
-
-    const { error } = await supabase
-      .from("decisions")
-      .update({
-        status: "chapter",
-        chaptered_at: nowIso,
-        review_at: null,
-        reviewed_at: null,
-      })
-      .eq("id", d.id)
-      .eq("user_id", userId);
-
-    if (error) {
-      setStatusLine(`Update failed: ${error.message}`);
-      void load(userId);
-      return;
-    }
-
-    setStatusLine("Moved to Chapters.");
-  };
-
-  const reopenToThinking = async (d: Decision) => {
-    if (!userId) return;
-
-    setItems((prev) => prev.filter((x) => x.id !== d.id));
-    setOpenId((cur) => (cur === d.id ? null : cur));
-    setStatusLine("Reopened in Thinking.");
-
-    const { error } = await supabase
-      .from("decisions")
-      .update({
-        status: "draft",
-        decided_at: null,
-        review_at: null,
-        reviewed_at: null,
-      })
-      .eq("id", d.id)
-      .eq("user_id", userId)
-      .eq("status", "decided");
-
-    if (error) {
-      setStatusLine(`Couldn’t reopen: ${error.message}`);
-      void load(userId);
-      return;
-    }
-
-    router.push(`/thinking?open=${d.id}`);
-  };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId, openId, chatForId, labelsEditForId, confirmDeleteForId]);
 
   const setDecisionDomain = async (decisionId: string, domainId: string | null) => {
     if (!userId) return;
@@ -387,7 +472,7 @@ export default function DecisionsClient() {
       if (!domainId) {
         const { error } = await supabase.from("decision_domains").delete().eq("user_id", userId).eq("decision_id", decisionId);
         if (error) throw error;
-        setStatusLine("Cleared.");
+        showToast({ message: "Cleared." }, 1800);
         return;
       }
 
@@ -396,10 +481,10 @@ export default function DecisionsClient() {
         .upsert({ user_id: userId, decision_id: decisionId, domain_id: domainId }, { onConflict: "user_id,decision_id" });
 
       if (error) throw error;
-      setStatusLine("Saved.");
+      showToast({ message: "Saved." }, 1800);
     } catch {
-      setStatusLine("Couldn’t update.");
-      void load(userId);
+      showToast({ message: "Couldn’t update." }, 2200);
+      loadRef.current({ silent: true });
     }
   };
 
@@ -422,7 +507,7 @@ export default function DecisionsClient() {
           .eq("constellation_id", constellationId);
 
         if (error) throw error;
-        setStatusLine("Removed.");
+        showToast({ message: "Removed." }, 1800);
         return;
       }
 
@@ -433,15 +518,175 @@ export default function DecisionsClient() {
       });
 
       if (error) throw error;
-      setStatusLine("Saved.");
+      showToast({ message: "Saved." }, 1800);
     } catch {
-      setStatusLine("Couldn’t update.");
-      void load(userId);
+      showToast({ message: "Couldn’t update." }, 2200);
+      loadRef.current({ silent: true });
     }
   };
 
-  // filters
-  const filteredItems = useMemo(() => {
+  const scheduleReviewAt = async (d: Decision, review_at: string) => {
+    if (!userId) return;
+
+    setItems((prev) => prev.map((x) => (x.id === d.id ? { ...x, review_at, reviewed_at: null } : x)));
+
+    const { error } = await supabase
+      .from("decisions")
+      .update({ review_at, reviewed_at: null })
+      .eq("id", d.id)
+      .eq("user_id", userId)
+      .eq("status", "decided");
+
+    if (error) {
+      showToast({ message: `Couldn’t schedule: ${error.message}` }, 3500);
+      loadRef.current({ silent: true });
+      return;
+    }
+
+    showToast({ message: "Review scheduled." }, 2200);
+  };
+
+  const scheduleReview = async (d: Decision, days: number) => {
+    const review_at = isoNowPlusDays(days);
+    await scheduleReviewAt(d, review_at);
+  };
+
+  const clearReview = async (d: Decision) => {
+    if (!userId) return;
+
+    setItems((prev) => prev.map((x) => (x.id === d.id ? { ...x, review_at: null } : x)));
+
+    const { error } = await supabase
+      .from("decisions")
+      .update({ review_at: null })
+      .eq("id", d.id)
+      .eq("user_id", userId)
+      .eq("status", "decided");
+
+    if (error) {
+      showToast({ message: `Couldn’t clear: ${error.message}` }, 3500);
+      loadRef.current({ silent: true });
+      return;
+    }
+
+    showToast({ message: "Cleared." }, 1800);
+  };
+
+  const reopenToThinking = async (d: Decision) => {
+    if (!userId) return;
+
+    // optimistic remove from this list
+    setItems((prev) => prev.filter((x) => x.id !== d.id));
+    if (openId === d.id) setOpenId(null);
+    if (chatForId === d.id) setChatForId(null);
+
+    const { error } = await supabase
+      .from("decisions")
+      .update({ status: "draft", decided_at: null })
+      .eq("id", d.id)
+      .eq("user_id", userId)
+      .eq("status", "decided");
+
+    if (error) {
+      showToast({ message: `Couldn’t reopen: ${error.message}` }, 3500);
+      loadRef.current({ silent: true });
+      return;
+    }
+
+    showToast({ message: "Moved back to Thinking." }, 2500);
+    router.push(`/thinking?open=${encodeURIComponent(d.id)}`);
+  };
+
+  const chapterDecision = async (d: Decision) => {
+    if (!userId) return;
+
+    // optimistic remove (chapters page owns it)
+    setItems((prev) => prev.filter((x) => x.id !== d.id));
+    if (openId === d.id) setOpenId(null);
+    if (chatForId === d.id) setChatForId(null);
+
+    const { error } = await supabase
+      .from("decisions")
+      .update({ status: "chapter", chaptered_at: new Date().toISOString() })
+      .eq("id", d.id)
+      .eq("user_id", userId)
+      .eq("status", "decided");
+
+    if (error) {
+      showToast({ message: `Couldn’t chapter: ${error.message}` }, 3500);
+      loadRef.current({ silent: true });
+      return;
+    }
+
+    showToast({ message: "Moved to Chapters." }, 2500);
+  };
+
+  const performDelete = async (d: Decision) => {
+    if (!userId) return;
+
+    // optimistic remove
+    const prev = items;
+    setItems((p) => p.filter((x) => x.id !== d.id));
+    if (openId === d.id) setOpenId(null);
+    if (chatForId === d.id) setChatForId(null);
+    if (labelsEditForId === d.id) setLabelsEditForId(null);
+    if (confirmDeleteForId === d.id) setConfirmDeleteForId(null);
+
+    // best-effort cleanup
+    try {
+      await supabase.from("decision_domains").delete().eq("user_id", userId).eq("decision_id", d.id);
+    } catch {}
+    try {
+      await supabase.from("constellation_items").delete().eq("user_id", userId).eq("decision_id", d.id);
+    } catch {}
+    try {
+      await supabase.from("decision_summaries").delete().eq("user_id", userId).eq("decision_id", d.id);
+    } catch {}
+    try {
+      await supabase.from("decision_notes").delete().eq("user_id", userId).eq("decision_id", d.id);
+    } catch {}
+    try {
+      await supabase.from("decision_conversations").delete().eq("user_id", userId).eq("decision_id", d.id);
+    } catch {}
+
+    const { data, error } = await supabase.from("decisions").delete().eq("id", d.id).eq("user_id", userId).select("id");
+    const deletedCount = Array.isArray(data) ? data.length : 0;
+
+    if (error || deletedCount === 0) {
+      const msg = error?.message ? `Couldn’t delete: ${error.message}` : "Couldn’t delete right now.";
+      showToast({ message: msg }, 3500);
+      setItems(prev);
+      loadRef.current({ silent: true });
+      return;
+    }
+
+    showToast({ message: "Deleted." }, 2500);
+  };
+
+  const useSummaryAsContext = async (d: Decision, summary: DecisionSummary) => {
+    if (!userId) return;
+
+    const existing = (d.context ?? "").trim();
+    const chunk = summary.summary_text.trim();
+
+    const nextContext = existing
+      ? `${existing}\n\n---\nSummary added (${softWhen(summary.created_at)}):\n${chunk}`
+      : `Summary added (${softWhen(summary.created_at)}):\n${chunk}`;
+
+    setItems((prev) => prev.map((x) => (x.id === d.id ? { ...x, context: nextContext } : x)));
+
+    const { error } = await supabase.from("decisions").update({ context: nextContext }).eq("id", d.id).eq("user_id", userId);
+
+    if (error) {
+      showToast({ message: `Couldn’t update: ${error.message}` }, 3500);
+      loadRef.current({ silent: true });
+      return;
+    }
+
+    showToast({ message: "Added to context." }, 2200);
+  };
+
+  const filtered = useMemo(() => {
     let list = items;
 
     if (activeDomainId) list = list.filter((d) => (domainByDecision[d.id] ?? null) === activeDomainId);
@@ -450,316 +695,389 @@ export default function DecisionsClient() {
     return list;
   }, [items, activeDomainId, activeConstellationId, domainByDecision, constellationsByDecision]);
 
-  const visibleItems = useMemo(() => (showAll ? filteredItems : filteredItems.slice(0, DEFAULT_LIMIT)), [filteredItems, showAll]);
-  const hasMore = filteredItems.length > DEFAULT_LIMIT;
+  const visible = useMemo(() => {
+    if (showAll) return filtered;
+    return filtered.slice(0, DEFAULT_LIMIT);
+  }, [filtered, showAll]);
+
+  const hasMore = filtered.length > DEFAULT_LIMIT;
+  const hasAnyLabelOptions = domains.length > 0 || constellations.length > 0;
 
   return (
     <Page
       title="Decisions"
-      subtitle="What you’ve confirmed. Drafts live in Thinking until you decide."
-      right={
-        <div className="flex items-center gap-2">
-          <Chip onClick={() => router.push("/revisit")}>Review</Chip>
-          <Chip onClick={() => router.push("/chapters")}>Chapters</Chip>
-          <Button onClick={() => router.push("/framing")} className="rounded-2xl">
-            New decision
-          </Button>
-        </div>
-      }
+      subtitle="Your committed decisions live here — calm record, easy recall."
+      right={null}
     >
       <div className="mx-auto w-full max-w-[760px] space-y-6">
+        <div className="flex items-center justify-end gap-3">
+          <div className="flex items-center gap-2">
+            <Chip onClick={() => router.push("/thinking")} title="Back: Thinking">
+              <span className="mr-1 opacity-70">‹</span> Back: Thinking
+            </Chip>
+            <Chip onClick={() => router.push("/revisit")} title="Next: Review">
+              Next: Review <span className="ml-1 opacity-70">›</span>
+            </Chip>
+          </div>
+        </div>
+
         <AssistedSearch scope="decisions" placeholder="Search decisions…" />
 
         <div className="space-y-4">
-          <TilesRow
-            title="Filter by area"
-            items={domains}
-            activeId={activeDomainId}
-            onSelect={(id) => {
-              setActiveDomainId((cur) => (cur === id ? null : id));
-              setShowAll(false);
-            }}
-          />
-          <TilesRow
-            title="Filter by group"
-            items={constellations}
-            activeId={activeConstellationId}
-            onSelect={(id) => {
-              setActiveConstellationId((cur) => (cur === id ? null : id));
-              setShowAll(false);
-            }}
-          />
+          <TilesRow title="Filter by area" items={domains} activeId={activeDomainId} onSelect={(id) => setActiveDomainId(id)} />
+          <TilesRow title="Filter by group" items={constellations} activeId={activeConstellationId} onSelect={(id) => setActiveConstellationId(id)} />
         </div>
 
         <div className="text-xs text-zinc-500">{statusLine}</div>
 
-        {filteredItems.length > 0 && hasMore ? (
+        {filtered.length > 0 && hasMore ? (
           <div className="flex items-center gap-2">
             <Chip onClick={() => setShowAll((v) => !v)}>{showAll ? "Show less" : "Show all"}</Chip>
-            {!showAll ? <div className="text-xs text-zinc-500">Showing {DEFAULT_LIMIT} of {filteredItems.length}</div> : null}
+            {!showAll ? (
+              <div className="text-xs text-zinc-500">
+                Showing {DEFAULT_LIMIT} of {filtered.length}
+              </div>
+            ) : null}
           </div>
         ) : null}
 
-        {filteredItems.length === 0 ? (
+        {filtered.length === 0 ? (
           <Card className="border-zinc-200 bg-white">
             <CardContent>
               <div className="space-y-2">
-                <div className="text-sm font-semibold text-zinc-900">Nothing committed yet.</div>
-                <div className="text-sm text-zinc-600">Capture → Thinking → Decisions. When you decide, it lands here.</div>
+                <div className="text-sm font-semibold text-zinc-900">Nothing saved yet.</div>
+                <div className="text-sm text-zinc-600">When you press Decide in Thinking, it lands here.</div>
+                <div className="pt-2">
+                  <Chip onClick={() => router.push("/thinking")}>Go to Thinking</Chip>
+                </div>
               </div>
             </CardContent>
           </Card>
         ) : (
           <div className="grid gap-3">
-            {visibleItems.map((d) => {
+            {visible.map((d) => {
               const isOpen = openId === d.id;
+              const isChatOpen = chatForId === d.id;
 
               const domainId = domainByDecision[d.id] ?? null;
-              const domainObj = domainId ? domains.find((x) => x.id === domainId) ?? null : null;
+              const domainName = domainId ? domains.find((x) => x.id === domainId)?.name ?? null : null;
 
               const memberIds = constellationsByDecision[d.id] ?? [];
-              const memberObjs = memberIds.map((cid) => constellations.find((c) => c.id === cid) ?? null).filter(Boolean) as Constellation[];
+              const memberNames = memberIds
+                .map((cid) => constellations.find((c) => c.id === cid)?.name)
+                .filter(Boolean) as string[];
 
-              const filedUnder = [
-                domainObj ? `${domainObj.emoji ? `${domainObj.emoji} ` : ""}${domainObj.name}` : null,
-                ...memberObjs.map((c) => `${c.emoji ? `${c.emoji} ` : ""}${c.name}`),
-              ].filter(Boolean) as string[];
-
+              const filedUnder = [domainName, ...memberNames].filter(Boolean) as string[];
               const isEditingLabels = labelsEditForId === d.id;
-              const showFiledUnderCard = (hasAnyLabelOptions && isEditingLabels) || (hasAnyLabelOptions && filedUnder.length > 0);
 
               const revisitMode = revisitModeById[d.id] ?? "";
               const customDate = customDateById[d.id] ?? "";
 
-              const attCount = Array.isArray(d.attachments) ? d.attachments.length : 0;
-              const attachmentsTitle = attCount > 0 ? `Attachments (${attCount})` : "Attachments";
+              const parts = splitThinkingContext(d.context);
+              const allAtt = normalizeAttachments(d.attachments);
+              const attachmentsTitle = allAtt.length > 0 ? `Attachments (${allAtt.length})` : "Attachments";
+
+              const isConfirmingDelete = confirmDeleteForId === d.id;
+
+              const originLabel = d.origin === "capture" ? "Started in Capture." : "";
 
               return (
-                <Card key={d.id} className="border-zinc-200 bg-white">
-                  <CardContent>
-                    <button
-                      type="button"
-                      onClick={() => setOpenId(isOpen ? null : d.id)}
-                      className="w-full text-left"
-                      aria-expanded={isOpen}
-                    >
-                      <div className="flex flex-wrap items-start justify-between gap-3">
-                        <div className="min-w-[240px] flex-1">
-                          <div className="text-base font-semibold text-zinc-900">{d.title}</div>
-                          <div className="mt-1 text-xs text-zinc-500">
-                            {d.decided_at ? `Decided: ${softDate(d.decided_at)}` : `Created: ${softDate(d.created_at)}`}
-                            {d.review_at ? ` • Revisit: ${softDate(d.review_at)}` : ""}
-                          </div>
+                <div
+                  key={d.id}
+                  ref={(el) => {
+                    cardRefs.current[d.id] = el;
+                  }}
+                >
+                  <Card className={`border-zinc-200 bg-white transition ${highlightId === d.id ? "ring-2 ring-zinc-300" : ""}`}>
+                    <CardContent>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const nextOpen = isOpen ? null : d.id;
+                          setOpenId(nextOpen);
 
-                          <div className="mt-2 flex flex-wrap gap-2">
-                            {domainObj ? (
-                              <Chip title="Filed under">
-                                {domainObj.emoji ? `${domainObj.emoji} ` : ""}
-                                {domainObj.name}
-                              </Chip>
-                            ) : null}
+                          if (nextOpen !== d.id) {
+                            setChatForId(null);
+                            setLabelsEditForId(null);
+                            setConfirmDeleteForId(null);
+                          }
+                        }}
+                        className="w-full text-left"
+                        aria-expanded={isOpen}
+                        title={isOpen ? "Collapse" : "Open"}
+                      >
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div className="min-w-[240px] flex-1">
+                            <div className="text-base font-semibold text-zinc-900">{d.title}</div>
 
-                            {memberObjs.slice(0, 2).map((c) => (
-                              <Chip key={c.id} title="Filed under">
-                                {c.emoji ? `${c.emoji} ` : ""}
-                                {c.name}
-                              </Chip>
-                            ))}
-
-                            {memberObjs.length > 2 ? <Chip title="More">+{memberObjs.length - 2}</Chip> : null}
-                          </div>
-                        </div>
-
-                        <div className="flex items-center gap-2">
-                          <Chip>{isOpen ? "Hide" : "Open"}</Chip>
-                        </div>
-                      </div>
-                    </button>
-
-                    {isOpen ? (
-                      <div className="mt-4 space-y-4">
-                        {d.context ? (
-                          <div className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-700">{d.context}</div>
-                        ) : (
-                          <div className="text-sm text-zinc-600">No extra context saved.</div>
-                        )}
-
-                        {/* Filed under */}
-                        {showFiledUnderCard ? (
-                          <div className="rounded-xl border border-zinc-200 bg-white p-3 space-y-2">
-                            <div className="flex flex-wrap items-center justify-between gap-2">
-                              <div className="text-xs font-semibold text-zinc-700">Filed under</div>
-                              <Chip
-                                onClick={() => {
-                                  if (!hasAnyLabelOptions) {
-                                    setStatusLine("No areas or groups yet.");
-                                    return;
-                                  }
-                                  setLabelsEditForId((cur) => (cur === d.id ? null : d.id));
-                                }}
-                              >
-                                {isEditingLabels ? "Done" : "Edit"}
-                              </Chip>
+                            <div className="mt-1 text-xs text-zinc-500">
+                              Saved {softWhen(d.decided_at || d.created_at)}
+                              {d.review_at ? ` • Review ${softWhen(d.review_at)}` : ""}
                             </div>
 
-                            {!isEditingLabels ? (
-                              <div className="text-sm text-zinc-700">
-                                {filedUnder.length > 0 ? <span>{filedUnder.join(", ")}</span> : <span className="text-zinc-600">Not set.</span>}
-                              </div>
-                            ) : (
-                              <div className="space-y-3">
-                                <div className="text-xs text-zinc-500">Optional. Helps you group and filter later.</div>
+                            <div className="mt-2 flex flex-wrap gap-2">
+                              {domainName ? <Chip title="Filed under">{domainName}</Chip> : null}
+                              {memberNames.slice(0, 2).map((n) => (
+                                <Chip key={n} title="Filed under">
+                                  {n}
+                                </Chip>
+                              ))}
+                              {memberNames.length > 2 ? <Chip title="More">+{memberNames.length - 2}</Chip> : null}
+                            </div>
+                          </div>
 
-                                <div className="space-y-2">
-                                  <div className="text-xs text-zinc-500">Area</div>
-                                  <div className="flex flex-wrap items-center gap-2">
-                                    <Chip active={!domainId} onClick={() => void setDecisionDomain(d.id, null)}>
-                                      None
-                                    </Chip>
-                                    {domains.map((dom) => (
-                                      <Chip key={dom.id} active={domainId === dom.id} onClick={() => void setDecisionDomain(d.id, dom.id)}>
-                                        {dom.emoji ? `${dom.emoji} ` : ""}
-                                        {dom.name}
+                          <div className="flex items-center gap-2">
+                            <Chip>{isOpen ? "Hide" : "Open"}</Chip>
+                          </div>
+                        </div>
+                      </button>
+
+                      {isOpen ? (
+                        <div className="mt-4 space-y-4">
+                          {originLabel ? <div className="mt-1 text-xs text-zinc-500">{originLabel}</div> : null}
+
+                          {(parts.captured || "").trim() ? (
+                            <div className="rounded-xl border border-zinc-200 bg-white p-4 space-y-2">
+                              <div className="text-sm font-semibold text-zinc-900">Original capture</div>
+                              <div className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-700">
+                                {parts.captured.trim()}
+                              </div>
+                            </div>
+                          ) : null}
+
+                          {(parts.draft || "").trim() ? (
+                            <div className="rounded-xl border border-zinc-200 bg-white p-4 space-y-2">
+                              <div className="text-sm font-semibold text-zinc-900">Final draft</div>
+                              <div className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-700">
+                                {parts.draft.trim()}
+                              </div>
+                            </div>
+                          ) : null}
+
+                          <DecisionNotes decisionId={d.id} kind="decisions" />
+
+                          {hasAnyLabelOptions ? (
+                            <div className="rounded-xl border border-zinc-200 bg-white p-3 space-y-2">
+                              <div className="flex flex-wrap items-center justify-between gap-2">
+                                <div className="text-xs font-semibold text-zinc-700">Filed under</div>
+                                <Chip onClick={() => setLabelsEditForId((cur) => (cur === d.id ? null : d.id))}>
+                                  {isEditingLabels ? "Done" : "Edit"}
+                                </Chip>
+                              </div>
+
+                              {!isEditingLabels ? (
+                                <div className="text-sm text-zinc-700">
+                                  {filedUnder.length > 0 ? filedUnder.join(", ") : <span className="text-zinc-600">Not set.</span>}
+                                </div>
+                              ) : (
+                                <div className="space-y-3">
+                                  <div className="text-xs text-zinc-500">Optional. Helps filtering later.</div>
+
+                                  <div className="space-y-2">
+                                    <div className="text-xs text-zinc-500">Area</div>
+                                    <div className="flex flex-wrap items-center gap-2">
+                                      <Chip active={!domainId} onClick={() => void setDecisionDomain(d.id, null)}>
+                                        None
                                       </Chip>
-                                    ))}
+                                      {domains.map((dom) => (
+                                        <Chip key={dom.id} active={domainId === dom.id} onClick={() => void setDecisionDomain(d.id, dom.id)}>
+                                          {dom.name}
+                                        </Chip>
+                                      ))}
+                                    </div>
+                                  </div>
+
+                                  <div className="space-y-2">
+                                    <div className="text-xs text-zinc-500">Groups</div>
+                                    {constellations.length === 0 ? (
+                                      <div className="text-sm text-zinc-600">No groups yet.</div>
+                                    ) : (
+                                      <div className="flex flex-wrap items-center gap-2">
+                                        {constellations.map((c) => {
+                                          const active = memberIds.includes(c.id);
+                                          return (
+                                            <Chip key={c.id} active={active} onClick={() => void toggleConstellation(d.id, c.id)}>
+                                              {c.name}
+                                            </Chip>
+                                          );
+                                        })}
+                                      </div>
+                                    )}
                                   </div>
                                 </div>
+                              )}
+                            </div>
+                          ) : null}
 
-                                <div className="space-y-2">
-                                  <div className="text-xs text-zinc-500">Groups</div>
-                                  {constellations.length === 0 ? (
-                                    <div className="text-sm text-zinc-600">No groups yet.</div>
-                                  ) : (
-                                    <div className="flex flex-wrap items-center gap-2">
-                                      {constellations.map((c) => {
-                                        const active = memberIds.includes(c.id);
-                                        return (
-                                          <Chip key={c.id} active={active} onClick={() => void toggleConstellation(d.id, c.id)}>
-                                            {c.emoji ? `${c.emoji} ` : ""}
-                                            {c.name}
-                                          </Chip>
-                                        );
-                                      })}
-                                    </div>
-                                  )}
+                          <div className="rounded-xl border border-zinc-200 bg-white p-3 space-y-2">
+                            {userId ? (
+                              <AttachmentsBlock
+                                userId={userId}
+                                decisionId={d.id}
+                                title={attachmentsTitle}
+                                bucket="captures"
+                                initial={allAtt}
+                              />
+                            ) : (
+                              <div className="text-sm text-zinc-600">Attachments unavailable.</div>
+                            )}
+                          </div>
+
+                          {summaries.length > 0 ? (
+                            <div className="rounded-xl border border-zinc-200 bg-white p-3 space-y-2">
+                              <div className="space-y-1">
+                                <div className="text-xs font-semibold text-zinc-700">Saved summaries</div>
+                                <div className="text-xs text-zinc-500">Only appears after you choose to save a chat summary.</div>
+                              </div>
+
+                              {summaries.map((s) => (
+                                <div key={s.id} className="space-y-2">
+                                  <div className="text-xs text-zinc-500">Saved {softWhen(s.created_at)}</div>
+                                  <div className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-800">{s.summary_text}</div>
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <Chip onClick={() => useSummaryAsContext(d, s)} title="Append into decision context">
+                                      Use as context
+                                    </Chip>
+                                  </div>
                                 </div>
+                              ))}
+                            </div>
+                          ) : null}
+
+                          <div className="space-y-2">
+                            <div className="text-xs text-zinc-500">
+                              You can revisit, chapter, or reopen it to Thinking.
+                            </div>
+
+                            {isConfirmingDelete ? (
+                              <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[#C94A4A] bg-[#FCECEC] px-4 py-3">
+                                <div className="text-sm text-[#7A1E1E]">
+                                  Delete this decision? <span className="opacity-80">This can’t be undone.</span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <Chip onClick={() => setConfirmDeleteForId(null)}>Cancel</Chip>
+                                  <button
+                                    type="button"
+                                    onClick={() => void performDelete(d)}
+                                    className="inline-flex select-none items-center justify-center rounded-full border border-[#C94A4A] bg-[#C94A4A] px-4 py-2 text-sm text-white transition hover:bg-[#b94141]"
+                                    title="Delete"
+                                  >
+                                    Delete
+                                  </button>
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="flex flex-wrap items-center gap-2">
+                                <PrimaryActionButton
+                                  onClick={() => setChatForId((cur) => (cur === d.id ? null : d.id))}
+                                  title="Optional: talk it through again"
+                                >
+                                  {isChatOpen ? "Hide chat" : "Talk this through"}
+                                </PrimaryActionButton>
+
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <div className="text-xs text-zinc-500">Review</div>
+
+                                  <select
+                                    className="h-9 rounded-full border border-zinc-200 bg-white px-3 text-sm text-zinc-700"
+                                    value={revisitMode}
+                                    onChange={(e) => {
+                                      const v = e.target.value as "7" | "30" | "90" | "custom" | "";
+                                      setRevisitModeById((prev) => ({ ...prev, [d.id]: v }));
+
+                                      if (v === "7") void scheduleReview(d, 7);
+                                      if (v === "30") void scheduleReview(d, 30);
+                                      if (v === "90") void scheduleReview(d, 90);
+                                    }}
+                                    aria-label="Review schedule"
+                                    title="Choose when to bring this back"
+                                  >
+                                    <option value="">Choose…</option>
+                                    <option value="7">In 7 days</option>
+                                    <option value="30">In 30 days</option>
+                                    <option value="90">In 90 days</option>
+                                    <option value="custom">Pick a date…</option>
+                                  </select>
+
+                                  {revisitMode === "custom" ? (
+                                    <div className="flex flex-wrap items-center gap-2">
+                                      <input
+                                        type="date"
+                                        className="h-9 rounded-full border border-zinc-200 bg-white px-3 text-sm text-zinc-700"
+                                        value={customDate}
+                                        onChange={(e) => setCustomDateById((prev) => ({ ...prev, [d.id]: e.target.value }))}
+                                        aria-label="Custom review date"
+                                      />
+                                      <Chip
+                                        onClick={() => {
+                                          const iso = isoFromDateInput(customDate);
+                                          if (!iso) {
+                                            showToast({ message: "Pick a valid date." }, 2000);
+                                            return;
+                                          }
+                                          void scheduleReviewAt(d, iso);
+                                        }}
+                                        title="Set review date"
+                                      >
+                                        Set date
+                                      </Chip>
+                                    </div>
+                                  ) : null}
+
+                                  {d.review_at ? (
+                                    <Chip onClick={() => void clearReview(d)} title="Clear review date">
+                                      Clear
+                                    </Chip>
+                                  ) : null}
+                                </div>
+
+                                <Chip onClick={() => router.push("/revisit")} title="Open Review">
+                                  Go to Review
+                                </Chip>
+
+                                <Chip onClick={() => router.push("/chapters")} title="Open Chapters">
+                                  Chapters
+                                </Chip>
+
+                                <Chip onClick={() => void chapterDecision(d)} title="Move this to Chapters">
+                                  Chapter
+                                </Chip>
+
+                                <Chip onClick={() => void reopenToThinking(d)} title="Move back to Thinking">
+                                  Re-open
+                                </Chip>
+
+                                <Chip onClick={() => setConfirmDeleteForId(d.id)} title="Delete this decision">
+                                  Delete
+                                </Chip>
                               </div>
                             )}
                           </div>
-                        ) : hasAnyLabelOptions ? (
-                          <div className="flex items-center gap-2">
-                            <Chip onClick={() => setLabelsEditForId(d.id)} title="Optional: file under an area or group">
-                              File under
-                            </Chip>
-                          </div>
-                        ) : null}
 
-                        {/* Attachments */}
-                        <AttachmentsBlock
-                          userId={userId}
-                          decisionId={d.id}
-                          title={attachmentsTitle}
-                          bucket="captures"
-                          initial={d.attachments}
-                        />
-
-                        {/* Revisit */}
-                        <div className="space-y-2">
-                          <div className="text-xs text-zinc-500">Revisit (optional)</div>
-
-                          <div className="flex flex-wrap items-center gap-2">
-                            <select
-                              className="h-9 rounded-full border border-zinc-200 bg-white px-3 text-sm text-zinc-700"
-                              value={revisitMode}
-                              onChange={(e) => {
-                                const v = e.target.value as "7" | "30" | "90" | "custom" | "";
-                                setRevisitModeById((prev) => ({ ...prev, [d.id]: v }));
-
-                                if (v === "7") void schedulePreset(d, 7);
-                                if (v === "30") void schedulePreset(d, 30);
-                                if (v === "90") void schedulePreset(d, 90);
-                              }}
-                              aria-label="Revisit schedule"
-                              title="Choose when to bring this back"
-                            >
-                              <option value="">Choose…</option>
-                              <option value="7">In 7 days</option>
-                              <option value="30">In 30 days</option>
-                              <option value="90">In 90 days</option>
-                              <option value="custom">Pick a date…</option>
-                            </select>
-
-                            {revisitMode === "custom" ? (
-                              <div className="flex flex-wrap items-center gap-2">
-                                <input
-                                  type="date"
-                                  className="h-9 rounded-full border border-zinc-200 bg-white px-3 text-sm text-zinc-700"
-                                  value={customDate}
-                                  onChange={(e) => setCustomDateById((prev) => ({ ...prev, [d.id]: e.target.value }))}
-                                  aria-label="Custom revisit date"
-                                  title="Pick a date"
-                                />
-                                <Chip
-                                  onClick={() => {
-                                    const iso = isoFromDateInput(customDate);
-                                    if (!iso) {
-                                      setStatusLine("Pick a valid date.");
-                                      return;
-                                    }
-                                    void setReviewAtIso(d, iso);
-                                  }}
-                                  title="Set revisit date"
-                                >
-                                  Set date
-                                </Chip>
-                              </div>
-                            ) : null}
-
-                            <Chip onClick={() => void setReviewAtIso(d, null)} title="Stop resurfacing this decision">
-                              Clear revisit
-                            </Chip>
-
-                            <Chip onClick={() => router.push(`/decisions/${d.id}/review`)} title="Capture what you learned">
-                              Review now
-                            </Chip>
-
-                            <Chip onClick={() => setOpenId(null)} title="Close this card">
-                              Done
-                            </Chip>
-                          </div>
+                          {isChatOpen ? (
+                            <div className="pt-2">
+                              <ConversationPanel
+                                decisionId={d.id}
+                                decisionTitle={d.title}
+                                frame={{ decision_statement: d.title }}
+                                onClose={() => setChatForId(null)}
+                                onSummarySaved={() => void reloadSummaries(d.id)}
+                              />
+                            </div>
+                          ) : null}
                         </div>
-
-                        {/* Chapters */}
-                        <div className="space-y-2 pt-2">
-                          <div className="text-xs text-zinc-500">Close this chapter (optional)</div>
-                          <div className="text-xs text-zinc-600">Chapters are finished decisions you don’t want resurfacing.</div>
-                          <div className="flex flex-wrap items-center gap-2">
-                            <Chip onClick={() => void moveToChapters(d)} title="Move this decision into Chapters (finished)">
-                              Move to Chapters
-                            </Chip>
-                          </div>
-                        </div>
-
-                        {/* Reopen */}
-                        <div className="space-y-2 pt-2">
-                          <div className="text-xs text-zinc-500">Change your mind (optional)</div>
-                          <div className="text-xs text-zinc-600">Reopen sends this back to Thinking as a draft.</div>
-                          <div className="flex flex-wrap items-center gap-2">
-                            <Chip onClick={() => void reopenToThinking(d)} title="Move back to Thinking (draft)">
-                              Reopen
-                            </Chip>
-                          </div>
-                        </div>
-                      </div>
-                    ) : null}
-                  </CardContent>
-                </Card>
+                      ) : null}
+                    </CardContent>
+                  </Card>
+                </div>
               );
             })}
           </div>
         )}
 
-        {process.env.NODE_ENV === "development" && openItem ? <div className="text-xs text-zinc-400">openId: {openItem.id}</div> : null}
+        {process.env.NODE_ENV === "development" && openDecision ? (
+          <div className="text-xs text-zinc-400">openId: {openDecision.id}</div>
+        ) : null}
       </div>
     </Page>
   );
