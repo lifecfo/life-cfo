@@ -13,14 +13,13 @@ export type Scope =
   | "revisit"
   | "chapters"
   | "capture"
-  | "family"
   | "bills"
   | "accounts"
   | "investments"
   | "transactions";
 
 type Suggestion = {
-  kind: "decision" | "inbox" | "bill" | "account" | "investment" | "capture" | "family";
+  kind: "decision" | "inbox" | "bill" | "account" | "investment" | "capture";
   id: string;
   title: string;
   subtitle?: string;
@@ -297,91 +296,6 @@ async function fetchCaptureMatches(scope: Scope, q: string): Promise<Suggestion[
   });
 }
 
-/* --------------------- FAMILY --------------------- */
-async function fetchTopFamilySuggestions(): Promise<Suggestion[]> {
-  const uid = await getUserId();
-  if (!uid) return [];
-
-  const [fRes, pRes] = await Promise.all([
-    supabase.from("family_members").select("id,name,relationship,birth_year").eq("user_id", uid).order("created_at", { ascending: true }).limit(10),
-    supabase.from("pets").select("id,name,type").eq("user_id", uid).order("created_at", { ascending: true }).limit(10),
-  ]);
-
-  const out: Suggestion[] = [];
-
-  if (!fRes.error) {
-    for (const m of fRes.data ?? []) {
-      const name = safeStr((m as any)?.name) || "Person";
-      const rel = safeStr((m as any)?.relationship);
-      out.push({
-        kind: "family",
-        id: String((m as any)?.id),
-        title: name,
-        subtitle: rel ? rel : "Family",
-        href: routeForFamily(),
-      });
-    }
-  }
-
-  if (!pRes.error) {
-    for (const p of pRes.data ?? []) {
-      const name = safeStr((p as any)?.name) || "Pet";
-      const t = safeStr((p as any)?.type);
-      out.push({
-        kind: "family",
-        id: `pet:${String((p as any)?.id)}`,
-        title: name,
-        subtitle: t ? `Pet • ${t}` : "Pet",
-        href: routeForFamily(),
-      });
-    }
-  }
-
-  return out.slice(0, 10);
-}
-
-async function fetchFamilyMatches(q: string): Promise<Suggestion[]> {
-  const uid = await getUserId();
-  if (!uid) return [];
-  const query = q.trim();
-  if (!query) return fetchTopFamilySuggestions();
-
-  const [fRes, pRes] = await Promise.all([
-    supabase
-      .from("family_members")
-      .select("id,name,relationship,birth_year")
-      .eq("user_id", uid)
-      .or(`name.ilike.%${query}%,relationship.ilike.%${query}%`)
-      .limit(12),
-    supabase
-      .from("pets")
-      .select("id,name,type")
-      .eq("user_id", uid)
-      .or(`name.ilike.%${query}%,type.ilike.%${query}%`)
-      .limit(12),
-  ]);
-
-  const out: Suggestion[] = [];
-
-  if (!fRes.error) {
-    for (const m of (fRes.data ?? []) as FamilyMemberRow[]) {
-      const name = safeStr(m.name) || "Person";
-      const rel = safeStr(m.relationship);
-      out.push({ kind: "family", id: String(m.id), title: name, subtitle: rel ? rel : "Family", href: routeForFamily() });
-    }
-  }
-
-  if (!pRes.error) {
-    for (const p of (pRes.data ?? []) as PetRow[]) {
-      const name = safeStr(p.name) || "Pet";
-      const t = safeStr(p.type);
-      out.push({ kind: "family", id: `pet:${String(p.id)}`, title: name, subtitle: t ? `Pet • ${t}` : "Pet", href: routeForFamily() });
-    }
-  }
-
-  return out.slice(0, 12);
-}
-
 /* --------------------- DECISIONS --------------------- */
 async function fetchTopDecisionSuggestions(scope: Scope): Promise<Suggestion[]> {
   const uid = await getUserId();
@@ -472,7 +386,6 @@ async function fetchInvestmentMatches(): Promise<Suggestion[]> {
 
 /* ---------------------- ROUTER ---------------------- */
 async function fetchTopSuggestions(scope: Scope): Promise<Suggestion[]> {
-  if (scope === "family") return fetchTopFamilySuggestions();
   if (scope === "capture") return fetchTopCaptureSuggestions(scope);
   if (scope === "bills") return fetchTopBillSuggestions();
   if (scope === "accounts") return fetchTopAccountSuggestions();
@@ -481,7 +394,6 @@ async function fetchTopSuggestions(scope: Scope): Promise<Suggestion[]> {
 }
 
 async function fetchMatches(scope: Scope, q: string): Promise<Suggestion[]> {
-  if (scope === "family") return fetchFamilyMatches(q);
   if (scope === "capture") return fetchCaptureMatches(scope, q);
   if (scope === "bills") return fetchBillMatches(q);
   if (scope === "accounts") return fetchAccountMatches(q);
@@ -578,8 +490,6 @@ export function AssistedSearch({
                       ? "Investment"
                       : it.kind === "capture"
                       ? "Capture"
-                      : it.kind === "family"
-                      ? "Family"
                       : "Inbox"}
                   </Chip>
                 </button>

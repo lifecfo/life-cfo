@@ -1,10 +1,11 @@
 // app/(app)/family/FamilyClient.tsx
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { Page } from "@/components/Page";
 import { Card, CardContent, Chip, useToast } from "@/components/ui";
+import { AssistedSearch } from "@/components/AssistedSearch";
 
 export const dynamic = "force-dynamic";
 
@@ -24,10 +25,40 @@ type Pet = {
   user_id: string;
   name: string;
   type: string | null;
-  notes: string | null; // shown as "About"
+  notes: string | null;
   created_at: string;
   updated_at: string;
 };
+
+type MeDraft = {
+  name: string;
+  birth_year: number | null;
+  about: string;
+};
+
+type FamilyDraft = {
+  name: string;
+  relationship: string;
+  birth_year: number | null;
+  about: string;
+};
+
+type PetDraft = {
+  name: string;
+  type: string;
+  notes: string;
+};
+
+type Drafts = Record<string, MeDraft | FamilyDraft | PetDraft>;
+
+type DeleteConfirm =
+  | {
+      open: true;
+      kind: "family" | "pet";
+      id: string;
+      label: string;
+    }
+  | { open: false };
 
 function clampYear(y: string) {
   const n = Number(y);
@@ -38,10 +69,19 @@ function clampYear(y: string) {
   return Math.floor(n);
 }
 
+function safeStr(v: unknown) {
+  return typeof v === "string" ? v : "";
+}
+
+function isMe(m: FamilyMember) {
+  return (m.relationship ?? "").toLowerCase().trim() === "me";
+}
+
 export default function FamilyClient() {
   const { toast } = useToast();
 
   const [loading, setLoading] = useState(true);
+  const [statusLine, setStatusLine] = useState<string>("Loading…");
   const [userId, setUserId] = useState<string | null>(null);
 
   const [family, setFamily] = useState<FamilyMember[]>([]);
@@ -50,16 +90,22 @@ export default function FamilyClient() {
   const [addOpen, setAddOpen] = useState(false);
 
   const [editingKey, setEditingKey] = useState<string | null>(null); // "me" | "fm:<id>" | "pet:<id>"
-  const [drafts, setDrafts] = useState<Record<string, any>>({});
+  const [drafts, setDrafts] = useState<Drafts>({});
 
-  const me = useMemo(() => {
-    const found = family.find((m) => (m.relationship ?? "").toLowerCase().trim() === "me");
-    return found ?? null;
-  }, [family]);
+  const [deleteConfirm, setDeleteConfirm] = useState<DeleteConfirm>({ open: false });
+
+  // Top-5 default (V1 pattern)
+  const DEFAULT_LIMIT = 5;
+  const [showAllFamily, setShowAllFamily] = useState(false);
+  const [showAllPets, setShowAllPets] = useState(false);
+
+  const isMountedRef = useRef(true);
+
+  const me = useMemo(() => family.find((m) => isMe(m)) ?? null, [family]);
 
   const others = useMemo(() => {
     return family
-      .filter((m) => (m.relationship ?? "").toLowerCase().trim() !== "me")
+      .filter((m) => !isMe(m))
       .sort((a, b) => (a.name ?? "").localeCompare(b.name ?? ""));
   }, [family]);
 
@@ -67,16 +113,27 @@ export default function FamilyClient() {
     return [...pets].sort((a, b) => (a.name ?? "").localeCompare(b.name ?? ""));
   }, [pets]);
 
+  const visibleFamily = useMemo(() => {
+    if (showAllFamily) return others;
+    return others.slice(0, DEFAULT_LIMIT);
+  }, [others, showAllFamily]);
+
+  const visiblePets = useMemo(() => {
+    if (showAllPets) return sortedPets;
+    return sortedPets.slice(0, DEFAULT_LIMIT);
+  }, [sortedPets, showAllPets]);
+
   const ensureMeRow = async (uid: string) => {
     const { data, error } = await supabase
       .from("family_members")
-      .select("id")
+      .select("id,relationship")
       .eq("user_id", uid)
-      .ilike("relationship", "me")
-      .limit(1);
+      .limit(50);
 
     if (error) return;
-    if ((data ?? []).length > 0) return;
+
+    const hasMe = (data ?? []).some((r: any) => String(r?.relationship ?? "").toLowerCase().trim() === "me");
+    if (hasMe) return;
 
     await supabase.from("family_members").insert({
       user_id: uid,
@@ -89,6 +146,8 @@ export default function FamilyClient() {
 
   const load = async () => {
     setLoading(true);
+    setStatusLine("Loading…");
+
     try {
       const { data: auth } = await supabase.auth.getUser();
       const user = auth?.user;
@@ -96,6 +155,7 @@ export default function FamilyClient() {
         setUserId(null);
         setFamily([]);
         setPets([]);
+        setStatusLine("Not signed in.");
         return;
       }
 
@@ -109,23 +169,41 @@ export default function FamilyClient() {
           .select("id,user_id,name,birth_year,relationship,about,created_at,updated_at")
           .eq("user_id", user.id)
           .order("created_at", { ascending: true }),
-        supabase.from("pets").select("id,user_id,name,type,notes,created_at,updated_at").eq("user_id", user.id).order("created_at", { ascending: true }),
+        supabase
+          .from("pets")
+          .select("id,user_id,name,type,notes,created_at,updated_at")
+          .eq("user_id", user.id)
+          .order("created_at", { ascending: true }),
       ]);
 
       if (fRes.error) throw fRes.error;
       if (pRes.error) throw pRes.error;
 
-      setFamily((fRes.data as FamilyMember[]) ?? []);
-      setPets((pRes.data as Pet[]) ?? []);
+      const fam = (fRes.data as FamilyMember[]) ?? [];
+      const pts = (pRes.data as Pet[]) ?? [];
+
+      setFamily(fam);
+      setPets(pts);
+
+      const famCount = fam.filter((m) => !isMe(m)).length;
+      const petCount = pts.length;
+
+      if (famCount === 0 && petCount === 0) setStatusLine("Add a couple of names whenever you’re ready.");
+      else setStatusLine("Updated.");
     } catch (e: any) {
       toast({ title: "Couldn’t load Family", description: e?.message ?? "Please try again." });
+      setStatusLine("Couldn’t load right now.");
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
+    isMountedRef.current = true;
     void load();
+    return () => {
+      isMountedRef.current = false;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -135,47 +213,46 @@ export default function FamilyClient() {
     if (!me) return;
     const key = "me";
     setEditingKey(key);
-    setDrafts((prev) => ({
-      ...prev,
-      [key]: { name: me.name ?? "", birth_year: me.birth_year ?? null, about: me.about ?? "" },
-    }));
+    const next: MeDraft = { name: me.name ?? "", birth_year: me.birth_year ?? null, about: me.about ?? "" };
+    setDrafts((prev) => ({ ...prev, [key]: next }));
   };
 
   const startEditFamily = (m: FamilyMember) => {
     const key = `fm:${m.id}`;
     setEditingKey(key);
-    setDrafts((prev) => ({
-      ...prev,
-      [key]: { name: m.name ?? "", relationship: m.relationship ?? "", birth_year: m.birth_year ?? null, about: m.about ?? "" },
-    }));
+    const next: FamilyDraft = {
+      name: m.name ?? "",
+      relationship: m.relationship ?? "",
+      birth_year: m.birth_year ?? null,
+      about: m.about ?? "",
+    };
+    setDrafts((prev) => ({ ...prev, [key]: next }));
   };
 
   const startEditPet = (p: Pet) => {
     const key = `pet:${p.id}`;
     setEditingKey(key);
-    setDrafts((prev) => ({
-      ...prev,
-      [key]: { name: p.name ?? "", type: p.type ?? "", notes: p.notes ?? "" },
-    }));
+    const next: PetDraft = { name: p.name ?? "", type: p.type ?? "", notes: p.notes ?? "" };
+    setDrafts((prev) => ({ ...prev, [key]: next }));
   };
 
   const saveMe = async () => {
     if (!userId || !me) return;
 
     const key = "me";
-    const d = drafts[key] ?? {};
-    const name = String(d.name ?? "").trim();
+    const d = drafts[key] as MeDraft | undefined;
+    const name = safeStr(d?.name).trim();
     if (!name) {
       toast({ title: "Name is required", description: "Just a simple name is enough." });
       return;
     }
 
-    const birth = d.birth_year === "" || d.birth_year === undefined ? null : Number(d.birth_year);
-    const about = String(d.about ?? "").trim();
+    const birth = d?.birth_year ?? null;
+    const about = safeStr(d?.about).trim();
 
     const patch = {
       name,
-      birth_year: Number.isFinite(birth) ? birth : null,
+      birth_year: typeof birth === "number" && Number.isFinite(birth) ? birth : null,
       about: about.length ? about : null,
       updated_at: new Date().toISOString(),
     };
@@ -183,33 +260,35 @@ export default function FamilyClient() {
     const { error } = await supabase.from("family_members").update(patch).eq("id", me.id).eq("user_id", userId);
     if (error) {
       toast({ title: "Couldn’t save", description: error.message });
+      setStatusLine("Couldn’t save.");
       return;
     }
 
     setFamily((prev) => prev.map((x) => (x.id === me.id ? { ...x, ...patch } : x)));
     setEditingKey(null);
-    toast({ title: "Saved", description: "Updated." });
+    setStatusLine("Saved.");
   };
 
   const saveFamily = async (m: FamilyMember) => {
     if (!userId) return;
 
     const key = `fm:${m.id}`;
-    const d = drafts[key] ?? {};
-    const name = String(d.name ?? "").trim();
+    const d = drafts[key] as FamilyDraft | undefined;
+
+    const name = safeStr(d?.name).trim();
     if (!name) {
       toast({ title: "Name is required", description: "Just a simple name is enough." });
       return;
     }
 
-    const relationship = String(d.relationship ?? "").trim();
-    const birth = d.birth_year === "" || d.birth_year === undefined ? null : Number(d.birth_year);
-    const about = String(d.about ?? "").trim();
+    const relationship = safeStr(d?.relationship).trim();
+    const birth = d?.birth_year ?? null;
+    const about = safeStr(d?.about).trim();
 
     const patch = {
       name,
       relationship: relationship.length ? relationship : null,
-      birth_year: Number.isFinite(birth) ? birth : null,
+      birth_year: typeof birth === "number" && Number.isFinite(birth) ? birth : null,
       about: about.length ? about : null,
       updated_at: new Date().toISOString(),
     };
@@ -217,41 +296,29 @@ export default function FamilyClient() {
     const { error } = await supabase.from("family_members").update(patch).eq("id", m.id).eq("user_id", userId);
     if (error) {
       toast({ title: "Couldn’t save", description: error.message });
+      setStatusLine("Couldn’t save.");
       return;
     }
 
     setFamily((prev) => prev.map((x) => (x.id === m.id ? { ...x, ...patch } : x)));
     setEditingKey(null);
-    toast({ title: "Saved", description: "Updated." });
-  };
-
-  const removeFamily = async (m: FamilyMember) => {
-    if (!userId) return;
-    if ((m.relationship ?? "").toLowerCase().trim() === "me") return;
-
-    const { error } = await supabase.from("family_members").delete().eq("id", m.id).eq("user_id", userId);
-    if (error) {
-      toast({ title: "Couldn’t remove", description: error.message });
-      return;
-    }
-
-    setFamily((prev) => prev.filter((x) => x.id !== m.id));
-    toast({ title: "Removed", description: "You can add them again any time." });
+    setStatusLine("Saved.");
   };
 
   const savePet = async (p: Pet) => {
     if (!userId) return;
 
     const key = `pet:${p.id}`;
-    const d = drafts[key] ?? {};
-    const name = String(d.name ?? "").trim();
+    const d = drafts[key] as PetDraft | undefined;
+
+    const name = safeStr(d?.name).trim();
     if (!name) {
       toast({ title: "Name is required", description: "Just a simple name is enough." });
       return;
     }
 
-    const type = String(d.type ?? "").trim();
-    const notes = String(d.notes ?? "").trim();
+    const type = safeStr(d?.type).trim();
+    const notes = safeStr(d?.notes).trim();
 
     const patch = {
       name,
@@ -263,67 +330,129 @@ export default function FamilyClient() {
     const { error } = await supabase.from("pets").update(patch).eq("id", p.id).eq("user_id", userId);
     if (error) {
       toast({ title: "Couldn’t save", description: error.message });
+      setStatusLine("Couldn’t save.");
       return;
     }
 
     setPets((prev) => prev.map((x) => (x.id === p.id ? { ...x, ...patch } : x)));
     setEditingKey(null);
-    toast({ title: "Saved", description: "Updated." });
+    setStatusLine("Saved.");
   };
 
-  const removePet = async (p: Pet) => {
+  const requestRemoveFamily = (m: FamilyMember) => {
+    if (isMe(m)) return;
+    setDeleteConfirm({
+      open: true,
+      kind: "family",
+      id: m.id,
+      label: `Remove ${m.name}?`,
+    });
+  };
+
+  const requestRemovePet = (p: Pet) => {
+    setDeleteConfirm({
+      open: true,
+      kind: "pet",
+      id: p.id,
+      label: `Remove ${p.name}?`,
+    });
+  };
+
+  const performDelete = async () => {
     if (!userId) return;
+    if (!deleteConfirm.open) return;
 
-    const { error } = await supabase.from("pets").delete().eq("id", p.id).eq("user_id", userId);
-    if (error) {
-      toast({ title: "Couldn’t remove", description: error.message });
-      return;
+    const { kind, id } = deleteConfirm;
+    setDeleteConfirm({ open: false });
+
+    try {
+      if (kind === "family") {
+        const row = family.find((x) => x.id === id);
+        if (!row) return;
+        if (isMe(row)) return;
+
+        // optimistic
+        setFamily((prev) => prev.filter((x) => x.id !== id));
+
+        const { error } = await supabase.from("family_members").delete().eq("id", id).eq("user_id", userId);
+        if (error) throw error;
+
+        setStatusLine("Removed.");
+        return;
+      }
+
+      if (kind === "pet") {
+        const row = pets.find((x) => x.id === id);
+        if (!row) return;
+
+        // optimistic
+        setPets((prev) => prev.filter((x) => x.id !== id));
+
+        const { error } = await supabase.from("pets").delete().eq("id", id).eq("user_id", userId);
+        if (error) throw error;
+
+        setStatusLine("Removed.");
+        return;
+      }
+    } catch (e: any) {
+      toast({ title: "Couldn’t remove", description: e?.message ?? "Please try again." });
+      setStatusLine("Couldn’t remove right now.");
+      // reload to resync
+      await load();
     }
-
-    setPets((prev) => prev.filter((x) => x.id !== p.id));
-    toast({ title: "Removed", description: "You can add them again any time." });
   };
 
   const addFamilyMember = async () => {
     if (!userId) return;
 
-    const { data, error } = await supabase
-      .from("family_members")
-      .insert({ user_id: userId, name: "New person", birth_year: null, relationship: null, about: null })
-      .select("id,user_id,name,birth_year,relationship,about,created_at,updated_at")
-      .single();
+    try {
+      const { data, error } = await supabase
+        .from("family_members")
+        .insert({ user_id: userId, name: "New person", birth_year: null, relationship: null, about: null })
+        .select("id,user_id,name,birth_year,relationship,about,created_at,updated_at")
+        .single();
 
-    if (error) {
-      toast({ title: "Couldn’t add", description: error.message });
-      return;
+      if (error) throw error;
+
+      const row = data as FamilyMember;
+      setFamily((prev) => [...prev, row]);
+      setAddOpen(false);
+      setStatusLine("Added.");
+      startEditFamily(row);
+    } catch (e: any) {
+      toast({ title: "Couldn’t add", description: e?.message ?? "Please try again." });
+      setStatusLine("Couldn’t add right now.");
     }
-
-    const row = data as FamilyMember;
-    setFamily((prev) => [...prev, row]);
-    setAddOpen(false);
-    startEditFamily(row);
   };
 
   const addPet = async () => {
     if (!userId) return;
 
-    const { data, error } = await supabase.from("pets").insert({ user_id: userId, name: "New pet", type: null, notes: null }).select("id,user_id,name,type,notes,created_at,updated_at").single();
+    try {
+      const { data, error } = await supabase
+        .from("pets")
+        .insert({ user_id: userId, name: "New pet", type: null, notes: null })
+        .select("id,user_id,name,type,notes,created_at,updated_at")
+        .single();
 
-    if (error) {
-      toast({ title: "Couldn’t add", description: error.message });
-      return;
+      if (error) throw error;
+
+      const row = data as Pet;
+      setPets((prev) => [...prev, row]);
+      setAddOpen(false);
+      setStatusLine("Added.");
+      startEditPet(row);
+    } catch (e: any) {
+      toast({ title: "Couldn’t add", description: e?.message ?? "Please try again." });
+      setStatusLine("Couldn’t add right now.");
     }
-
-    const row = data as Pet;
-    setPets((prev) => [...prev, row]);
-    setAddOpen(false);
-    startEditPet(row);
   };
 
   return (
-    <Page title="Family" subtitle="People (and pets) Keystone can keep in mind when helping with decisions.">
-      <div className="space-y-4">
-        {loading ? <div className="text-sm text-zinc-500">Loading…</div> : null}
+    <Page title="Family" subtitle="People (and pets) Life CFO can keep in mind when helping with decisions.">
+      <div className="mx-auto w-full max-w-[760px] space-y-6">
+
+        <div className="text-xs text-zinc-500">{loading ? "Loading…" : statusLine}</div>
 
         {/* Me */}
         <Card className="border-zinc-200 bg-white">
@@ -331,7 +460,7 @@ export default function FamilyClient() {
             <div className="flex flex-wrap items-start justify-between gap-2">
               <div>
                 <div className="text-sm font-semibold text-zinc-900">Me</div>
-                <div className="text-xs text-zinc-500">Optional context Keystone can keep in mind.</div>
+                <div className="text-xs text-zinc-500">Optional. Only what you want Life CFO to consider.</div>
               </div>
 
               {editingKey === "me" ? (
@@ -351,8 +480,18 @@ export default function FamilyClient() {
                     <div className="text-xs text-zinc-500">Name</div>
                     <input
                       className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800"
-                      value={String((drafts["me"]?.name ?? "") as string)}
-                      onChange={(e) => setDrafts((prev) => ({ ...prev, me: { ...prev.me, name: e.target.value } }))}
+                      value={safeStr((drafts["me"] as MeDraft | undefined)?.name)}
+                      onChange={(e) =>
+                        setDrafts((prev) => ({
+                          ...prev,
+                          me: {
+                            ...(prev.me as MeDraft),
+                            name: e.target.value,
+                            birth_year: (prev.me as MeDraft)?.birth_year ?? null,
+                            about: (prev.me as MeDraft)?.about ?? "",
+                          },
+                        }))
+                      }
                       placeholder="e.g. Em"
                     />
                   </div>
@@ -363,8 +502,18 @@ export default function FamilyClient() {
                       type="number"
                       inputMode="numeric"
                       className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800"
-                      value={drafts["me"]?.birth_year == null ? "" : String(drafts["me"]?.birth_year)}
-                      onChange={(e) => setDrafts((prev) => ({ ...prev, me: { ...prev.me, birth_year: e.target.value ? clampYear(e.target.value) : null } }))}
+                      value={(drafts["me"] as MeDraft | undefined)?.birth_year == null ? "" : String((drafts["me"] as MeDraft).birth_year)}
+                      onChange={(e) =>
+                        setDrafts((prev) => ({
+                          ...prev,
+                          me: {
+                            ...(prev.me as MeDraft),
+                            name: (prev.me as MeDraft)?.name ?? "",
+                            birth_year: e.target.value ? clampYear(e.target.value) : null,
+                            about: (prev.me as MeDraft)?.about ?? "",
+                          },
+                        }))
+                      }
                       placeholder="e.g. 1992"
                     />
                   </div>
@@ -373,9 +522,19 @@ export default function FamilyClient() {
                     <div className="text-xs text-zinc-500">About (optional)</div>
                     <textarea
                       className="min-h-[96px] w-full resize-y rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800"
-                      value={String((drafts["me"]?.about ?? "") as string)}
-                      onChange={(e) => setDrafts((prev) => ({ ...prev, me: { ...prev.me, about: e.target.value } }))}
-                      placeholder="Values, goals, preferences, constraints… (only what you want Keystone to consider)"
+                      value={safeStr((drafts["me"] as MeDraft | undefined)?.about)}
+                      onChange={(e) =>
+                        setDrafts((prev) => ({
+                          ...prev,
+                          me: {
+                            ...(prev.me as MeDraft),
+                            name: (prev.me as MeDraft)?.name ?? "",
+                            birth_year: (prev.me as MeDraft)?.birth_year ?? null,
+                            about: e.target.value,
+                          },
+                        }))
+                      }
+                      placeholder="Values, goals, constraints…"
                     />
                   </div>
                 </div>
@@ -383,7 +542,11 @@ export default function FamilyClient() {
                 <div className="space-y-2">
                   <div className="text-sm text-zinc-800">{me.name}</div>
                   {me.birth_year ? <div className="text-sm text-zinc-700">Born {me.birth_year}</div> : null}
-                  {me.about ? <div className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-700">{me.about}</div> : <div className="text-sm text-zinc-500">No notes yet.</div>}
+                  {me.about ? (
+                    <div className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-700">{me.about}</div>
+                  ) : (
+                    <div className="text-sm text-zinc-500">No notes yet.</div>
+                  )}
                 </div>
               )
             ) : (
@@ -396,7 +559,7 @@ export default function FamilyClient() {
         <Card className="border-zinc-200 bg-white">
           <CardContent className="space-y-2">
             <div className="text-sm font-semibold text-zinc-900">Add someone</div>
-            <div className="text-sm text-zinc-700">Add people you do life with — or anyone whose needs should be considered in decisions.</div>
+            <div className="text-sm text-zinc-700">Names only is fine.</div>
 
             {!addOpen ? (
               <div className="pt-1">
@@ -410,190 +573,299 @@ export default function FamilyClient() {
                   <Chip onClick={() => void addPet()}>A pet</Chip>
                   <Chip onClick={() => setAddOpen(false)}>Cancel</Chip>
                 </div>
-                <div className="text-xs text-zinc-500">Names only is fine.</div>
               </div>
             )}
           </CardContent>
         </Card>
 
         {/* Family members */}
-        {others.length > 0 ? (
-          <div className="grid gap-3">
-            {others.map((m) => {
-              const key = `fm:${m.id}`;
-              const isEditing = editingKey === key;
-              const d = drafts[key] ?? {};
+        <Card className="border-zinc-200 bg-white">
+          <CardContent className="space-y-3">
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <div className="text-sm font-semibold text-zinc-900">Family</div>
+                <div className="text-xs text-zinc-500">A small surface. The rest stays searchable.</div>
+              </div>
 
-              return (
-                <Card key={m.id} className="border-zinc-200 bg-white">
-                  <CardContent className="space-y-3">
-                    <div className="flex flex-wrap items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <div className="text-sm font-semibold text-zinc-900">{m.name}</div>
-                        <div className="text-xs text-zinc-500">{m.relationship ? m.relationship : "Family member"}</div>
-                      </div>
+              {others.length > DEFAULT_LIMIT ? (
+                <Chip onClick={() => setShowAllFamily((v) => !v)}>{showAllFamily ? "Show less" : "Show all"}</Chip>
+              ) : null}
+            </div>
 
-                      {isEditing ? (
-                        <div className="flex items-center gap-2">
-                          <Chip onClick={() => void saveFamily(m)}>Save</Chip>
-                          <Chip onClick={cancelEdit}>Cancel</Chip>
-                        </div>
-                      ) : (
-                        <div className="flex items-center gap-2">
-                          <Chip onClick={() => startEditFamily(m)}>Edit</Chip>
-                          <Chip onClick={() => void removeFamily(m)}>Remove</Chip>
-                        </div>
-                      )}
-                    </div>
+            {others.length === 0 ? (
+              <div className="text-sm text-zinc-600">No one added yet.</div>
+            ) : (
+              <div className="grid gap-3">
+                {visibleFamily.map((m) => {
+                  const key = `fm:${m.id}`;
+                  const isEditing = editingKey === key;
+                  const d = drafts[key] as FamilyDraft | undefined;
 
-                    {isEditing ? (
-                      <div className="space-y-3">
-                        <div className="space-y-1">
-                          <div className="text-xs text-zinc-500">Name</div>
-                          <input
-                            className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800"
-                            value={String(d.name ?? "")}
-                            onChange={(e) => setDrafts((prev) => ({ ...prev, [key]: { ...prev[key], name: e.target.value } }))}
-                          />
-                        </div>
+                  return (
+                    <Card key={m.id} className="border-zinc-200 bg-white">
+                      <CardContent className="space-y-3">
+                        <div className="flex flex-wrap items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <div className="text-sm font-semibold text-zinc-900">{m.name}</div>
+                            <div className="text-xs text-zinc-500">{m.relationship ? m.relationship : "Family member"}</div>
+                          </div>
 
-                        <div className="space-y-1">
-                          <div className="text-xs text-zinc-500">Relationship (optional)</div>
-                          <input
-                            className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800"
-                            value={String(d.relationship ?? "")}
-                            onChange={(e) => setDrafts((prev) => ({ ...prev, [key]: { ...prev[key], relationship: e.target.value } }))}
-                            placeholder="e.g. Partner, Child, Mum"
-                          />
-                        </div>
-
-                        <div className="space-y-1">
-                          <div className="text-xs text-zinc-500">Year of birth (optional)</div>
-                          <input
-                            type="number"
-                            inputMode="numeric"
-                            className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800"
-                            value={d.birth_year == null ? "" : String(d.birth_year)}
-                            onChange={(e) =>
-                              setDrafts((prev) => ({
-                                ...prev,
-                                [key]: { ...prev[key], birth_year: e.target.value ? clampYear(e.target.value) : null },
-                              }))
-                            }
-                            placeholder="e.g. 2019"
-                          />
-                        </div>
-
-                        <div className="space-y-1">
-                          <div className="text-xs text-zinc-500">About (optional)</div>
-                          <textarea
-                            className="min-h-[96px] w-full resize-y rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800"
-                            value={String(d.about ?? "")}
-                            onChange={(e) => setDrafts((prev) => ({ ...prev, [key]: { ...prev[key], about: e.target.value } }))}
-                            placeholder="Anything helpful for Keystone to keep in mind…"
-                          />
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="space-y-2">
-                        {m.birth_year ? <div className="text-sm text-zinc-700">Born {m.birth_year}</div> : null}
-                        {m.about ? <div className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-700">{m.about}</div> : <div className="text-sm text-zinc-500">No notes yet.</div>}
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-              );
-            })}
-          </div>
-        ) : (
-          <Card className="border-zinc-200 bg-white">
-            <CardContent>
-              <div className="text-sm text-zinc-600">No other family members added yet.</div>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Pets */}
-        {sortedPets.length > 0 ? (
-          <div className="space-y-2">
-            <div className="text-sm font-semibold text-zinc-900">Pets</div>
-            <div className="grid gap-3">
-              {sortedPets.map((p) => {
-                const key = `pet:${p.id}`;
-                const isEditing = editingKey === key;
-                const d = drafts[key] ?? {};
-
-                return (
-                  <Card key={p.id} className="border-zinc-200 bg-white">
-                    <CardContent className="space-y-3">
-                      <div className="flex flex-wrap items-start justify-between gap-2">
-                        <div className="min-w-0">
-                          <div className="text-sm font-semibold text-zinc-900">{p.name}</div>
-                          <div className="text-xs text-zinc-500">{p.type ? p.type : "Pet"}</div>
+                          {isEditing ? (
+                            <div className="flex items-center gap-2">
+                              <Chip onClick={() => void saveFamily(m)}>Save</Chip>
+                              <Chip onClick={cancelEdit}>Cancel</Chip>
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-2">
+                              <Chip onClick={() => startEditFamily(m)}>Edit</Chip>
+                              <Chip onClick={() => requestRemoveFamily(m)}>Remove</Chip>
+                            </div>
+                          )}
                         </div>
 
                         {isEditing ? (
-                          <div className="flex items-center gap-2">
-                            <Chip onClick={() => void savePet(p)}>Save</Chip>
-                            <Chip onClick={cancelEdit}>Cancel</Chip>
+                          <div className="space-y-3">
+                            <div className="space-y-1">
+                              <div className="text-xs text-zinc-500">Name</div>
+                              <input
+                                className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800"
+                                value={safeStr(d?.name)}
+                                onChange={(e) =>
+                                  setDrafts((prev) => ({
+                                    ...prev,
+                                    [key]: {
+                                      name: e.target.value,
+                                      relationship: safeStr(d?.relationship),
+                                      birth_year: d?.birth_year ?? null,
+                                      about: safeStr(d?.about),
+                                    },
+                                  }))
+                                }
+                              />
+                            </div>
+
+                            <div className="space-y-1">
+                              <div className="text-xs text-zinc-500">Relationship (optional)</div>
+                              <input
+                                className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800"
+                                value={safeStr(d?.relationship)}
+                                onChange={(e) =>
+                                  setDrafts((prev) => ({
+                                    ...prev,
+                                    [key]: {
+                                      name: safeStr(d?.name),
+                                      relationship: e.target.value,
+                                      birth_year: d?.birth_year ?? null,
+                                      about: safeStr(d?.about),
+                                    },
+                                  }))
+                                }
+                                placeholder="e.g. Partner, Child, Mum"
+                              />
+                            </div>
+
+                            <div className="space-y-1">
+                              <div className="text-xs text-zinc-500">Year of birth (optional)</div>
+                              <input
+                                type="number"
+                                inputMode="numeric"
+                                className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800"
+                                value={d?.birth_year == null ? "" : String(d.birth_year)}
+                                onChange={(e) =>
+                                  setDrafts((prev) => ({
+                                    ...prev,
+                                    [key]: {
+                                      name: safeStr(d?.name),
+                                      relationship: safeStr(d?.relationship),
+                                      birth_year: e.target.value ? clampYear(e.target.value) : null,
+                                      about: safeStr(d?.about),
+                                    },
+                                  }))
+                                }
+                                placeholder="e.g. 2019"
+                              />
+                            </div>
+
+                            <div className="space-y-1">
+                              <div className="text-xs text-zinc-500">About (optional)</div>
+                              <textarea
+                                className="min-h-[96px] w-full resize-y rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800"
+                                value={safeStr(d?.about)}
+                                onChange={(e) =>
+                                  setDrafts((prev) => ({
+                                    ...prev,
+                                    [key]: {
+                                      name: safeStr(d?.name),
+                                      relationship: safeStr(d?.relationship),
+                                      birth_year: d?.birth_year ?? null,
+                                      about: e.target.value,
+                                    },
+                                  }))
+                                }
+                                placeholder="Anything helpful to keep in mind…"
+                              />
+                            </div>
                           </div>
                         ) : (
-                          <div className="flex items-center gap-2">
-                            <Chip onClick={() => startEditPet(p)}>Edit</Chip>
-                            <Chip onClick={() => void removePet(p)}>Remove</Chip>
+                          <div className="space-y-2">
+                            {m.birth_year ? <div className="text-sm text-zinc-700">Born {m.birth_year}</div> : null}
+                            {m.about ? (
+                              <div className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-700">{m.about}</div>
+                            ) : (
+                              <div className="text-sm text-zinc-500">No notes yet.</div>
+                            )}
                           </div>
                         )}
-                      </div>
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+              </div>
+            )}
 
-                      {isEditing ? (
-                        <div className="space-y-3">
-                          <div className="space-y-1">
-                            <div className="text-xs text-zinc-500">Name</div>
-                            <input
-                              className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800"
-                              value={String(d.name ?? "")}
-                              onChange={(e) => setDrafts((prev) => ({ ...prev, [key]: { ...prev[key], name: e.target.value } }))}
-                            />
+            {others.length > DEFAULT_LIMIT && !showAllFamily ? (
+              <div className="text-xs text-zinc-500">Showing {Math.min(DEFAULT_LIMIT, others.length)} of {others.length}</div>
+            ) : null}
+          </CardContent>
+        </Card>
+
+        {/* Pets */}
+        <Card className="border-zinc-200 bg-white">
+          <CardContent className="space-y-3">
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <div className="text-sm font-semibold text-zinc-900">Pets</div>
+                <div className="text-xs text-zinc-500">Optional context (care, routines, costs).</div>
+              </div>
+
+              {sortedPets.length > DEFAULT_LIMIT ? (
+                <Chip onClick={() => setShowAllPets((v) => !v)}>{showAllPets ? "Show less" : "Show all"}</Chip>
+              ) : null}
+            </div>
+
+            {sortedPets.length === 0 ? (
+              <div className="text-sm text-zinc-600">No pets added yet.</div>
+            ) : (
+              <div className="grid gap-3">
+                {visiblePets.map((p) => {
+                  const key = `pet:${p.id}`;
+                  const isEditing = editingKey === key;
+                  const d = drafts[key] as PetDraft | undefined;
+
+                  return (
+                    <Card key={p.id} className="border-zinc-200 bg-white">
+                      <CardContent className="space-y-3">
+                        <div className="flex flex-wrap items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <div className="text-sm font-semibold text-zinc-900">{p.name}</div>
+                            <div className="text-xs text-zinc-500">{p.type ? p.type : "Pet"}</div>
                           </div>
 
-                          <div className="space-y-1">
-                            <div className="text-xs text-zinc-500">Type (optional)</div>
-                            <input
-                              className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800"
-                              value={String(d.type ?? "")}
-                              onChange={(e) => setDrafts((prev) => ({ ...prev, [key]: { ...prev[key], type: e.target.value } }))}
-                              placeholder="e.g. Dog, Cat"
-                            />
-                          </div>
-
-                          <div className="space-y-1">
-                            <div className="text-xs text-zinc-500">About (optional)</div>
-                            <textarea
-                              className="min-h-[96px] w-full resize-y rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800"
-                              value={String(d.notes ?? "")}
-                              onChange={(e) => setDrafts((prev) => ({ ...prev, [key]: { ...prev[key], notes: e.target.value } }))}
-                              placeholder="Health needs, meds, routines, costs…"
-                            />
-                          </div>
+                          {isEditing ? (
+                            <div className="flex items-center gap-2">
+                              <Chip onClick={() => void savePet(p)}>Save</Chip>
+                              <Chip onClick={cancelEdit}>Cancel</Chip>
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-2">
+                              <Chip onClick={() => startEditPet(p)}>Edit</Chip>
+                              <Chip onClick={() => requestRemovePet(p)}>Remove</Chip>
+                            </div>
+                          )}
                         </div>
-                      ) : (
-                        <div className="space-y-2">
-                          {p.notes ? <div className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-700">{p.notes}</div> : <div className="text-sm text-zinc-500">No notes yet.</div>}
-                        </div>
-                      )}
-                    </CardContent>
-                  </Card>
-                );
-              })}
+
+                        {isEditing ? (
+                          <div className="space-y-3">
+                            <div className="space-y-1">
+                              <div className="text-xs text-zinc-500">Name</div>
+                              <input
+                                className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800"
+                                value={safeStr(d?.name)}
+                                onChange={(e) =>
+                                  setDrafts((prev) => ({
+                                    ...prev,
+                                    [key]: { name: e.target.value, type: safeStr(d?.type), notes: safeStr(d?.notes) },
+                                  }))
+                                }
+                              />
+                            </div>
+
+                            <div className="space-y-1">
+                              <div className="text-xs text-zinc-500">Type (optional)</div>
+                              <input
+                                className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800"
+                                value={safeStr(d?.type)}
+                                onChange={(e) =>
+                                  setDrafts((prev) => ({
+                                    ...prev,
+                                    [key]: { name: safeStr(d?.name), type: e.target.value, notes: safeStr(d?.notes) },
+                                  }))
+                                }
+                                placeholder="e.g. Dog, Cat"
+                              />
+                            </div>
+
+                            <div className="space-y-1">
+                              <div className="text-xs text-zinc-500">About (optional)</div>
+                              <textarea
+                                className="min-h-[96px] w-full resize-y rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800"
+                                value={safeStr(d?.notes)}
+                                onChange={(e) =>
+                                  setDrafts((prev) => ({
+                                    ...prev,
+                                    [key]: { name: safeStr(d?.name), type: safeStr(d?.type), notes: e.target.value },
+                                  }))
+                                }
+                                placeholder="Health needs, meds, routines, costs…"
+                              />
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="space-y-2">
+                            {p.notes ? (
+                              <div className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-700">{p.notes}</div>
+                            ) : (
+                              <div className="text-sm text-zinc-500">No notes yet.</div>
+                            )}
+                          </div>
+                        )}
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+              </div>
+            )}
+
+            {sortedPets.length > DEFAULT_LIMIT && !showAllPets ? (
+              <div className="text-xs text-zinc-500">Showing {Math.min(DEFAULT_LIMIT, sortedPets.length)} of {sortedPets.length}</div>
+            ) : null}
+          </CardContent>
+        </Card>
+
+        {/* Confirm delete modal */}
+        {deleteConfirm.open ? (
+          <div className="fixed inset-0 z-40 flex items-end sm:items-center justify-center bg-black/20 p-4">
+            <div className="w-full max-w-[520px] rounded-2xl border border-zinc-200 bg-white shadow-lg">
+              <div className="p-4 sm:p-5 space-y-2">
+                <div className="text-sm font-semibold text-zinc-900">{deleteConfirm.label}</div>
+                <div className="text-sm text-zinc-600">This can’t be undone.</div>
+
+                <div className="mt-4 flex items-center justify-end gap-2">
+                  <Chip onClick={() => setDeleteConfirm({ open: false })} title="Cancel">
+                    Cancel
+                  </Chip>
+                  <Chip
+                    onClick={() => void performDelete()}
+                    title="Confirm remove"
+                    className="border-zinc-900 bg-zinc-900 text-white hover:bg-zinc-800"
+                  >
+                    Remove
+                  </Chip>
+                </div>
+              </div>
             </div>
           </div>
-        ) : (
-          <Card className="border-zinc-200 bg-white">
-            <CardContent>
-              <div className="text-sm text-zinc-600">No pets added yet.</div>
-            </CardContent>
-          </Card>
-        )}
+        ) : null}
       </div>
     </Page>
   );
