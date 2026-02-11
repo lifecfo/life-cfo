@@ -47,7 +47,7 @@ export function AppShell({ children }: AppShellProps) {
 
   const topNav: NavItem[] = useMemo(
     () => [
-      { href: "/home", label: "Home" },
+      { href: "/lifecfo-home", label: "Home" },
       { href: "/money", label: "Money" },
       { href: "/decisions", label: "Decisions" },
     ],
