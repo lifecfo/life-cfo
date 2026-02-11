@@ -19,7 +19,7 @@ export type Scope =
   | "transactions";
 
 type Suggestion = {
-  kind: "decision" | "inbox" | "bill" | "account" | "investment" | "capture";
+  kind: "decision" | "bill" | "account" | "investment" | "capture";
   id: string;
   title: string;
   subtitle?: string;
@@ -42,11 +42,11 @@ function softDate(iso: unknown) {
   return new Date(ms).toLocaleDateString();
 }
 
-function routeForDecision(_scope: Scope, decisionId: string) {
+function routeForDecision(decisionId: string) {
   return `/thinking?open=${encodeURIComponent(decisionId)}`;
 }
 
-function routeForCapture(_scope: Scope, inboxId: string) {
+function routeForCapture(inboxId: string) {
   return `/capture?open=${encodeURIComponent(inboxId)}`;
 }
 
@@ -58,9 +58,6 @@ function routeForAccount() {
 }
 function routeForInvestment() {
   return `/investments`;
-}
-function routeForFamily() {
-  return `/family`;
 }
 
 type DecisionRow = {
@@ -98,19 +95,9 @@ type CaptureRow = {
   status: string | null;
   framed_decision_id: string | null;
   type: string | null;
-};
-
-type FamilyMemberRow = {
-  id: string;
-  name: string | null;
-  relationship: string | null;
-  birth_year: number | null;
-};
-
-type PetRow = {
-  id: string;
-  name: string | null;
-  type: string | null;
+  // future-proof: if you later add attachments as a column/rel
+  attachments?: unknown;
+  attachment_count?: number | null;
 };
 
 function scopeDecisionFilter(scope: Scope) {
@@ -125,6 +112,48 @@ async function getUserId(): Promise<string | null> {
   const { data: auth, error } = await supabase.auth.getUser();
   if (error || !auth?.user?.id) return null;
   return auth.user.id;
+}
+
+/* --------------------- ATTACHMENTS HINT --------------------- */
+/**
+ * Robust "has attachments" detector:
+ * 1) if row has attachments/attachment_count fields (future), use them
+ * 2) else try JSON.parse(body) and look for attachments array
+ * 3) else fallback to regex for "attachments":
+ */
+function hasAttachmentsHint(row: CaptureRow): boolean {
+  // (1) Future: attachment_count
+  if (typeof row.attachment_count === "number") return row.attachment_count > 0;
+
+  // (1b) Future: attachments field on the row
+  const a: any = (row as any).attachments;
+  if (Array.isArray(a)) return a.length > 0;
+  if (a && typeof a === "object") {
+    // sometimes stored as { files: [...] } or similar; best-effort
+    const maybeArr = (a as any).files ?? (a as any).items ?? null;
+    if (Array.isArray(maybeArr)) return maybeArr.length > 0;
+  }
+
+  // (2) Current: body might be JSON with attachments
+  const body = safeStr(row.body);
+  if (!body) return false;
+
+  const trimmed = body.trim();
+  if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+    try {
+      const parsed: any = JSON.parse(trimmed);
+      const att = parsed?.attachments;
+      if (Array.isArray(att)) return att.length > 0;
+      // also allow { attachments: { files: [] } } patterns
+      const attFiles = att?.files ?? att?.items ?? null;
+      if (Array.isArray(attFiles)) return attFiles.length > 0;
+    } catch {
+      // ignore parse errors, fall back to regex below
+    }
+  }
+
+  // (3) Fallback: cheap detection (avoid hardcoding exact JSON format)
+  return /"attachments"\s*:/.test(body);
 }
 
 /* ----------------------- BILLS ----------------------- */
@@ -238,13 +267,14 @@ async function fetchAccountMatches(q: string): Promise<Suggestion[]> {
 }
 
 /* --------------------- CAPTURE --------------------- */
-async function fetchTopCaptureSuggestions(scope: Scope): Promise<Suggestion[]> {
+async function fetchTopCaptureSuggestions(): Promise<Suggestion[]> {
   const uid = await getUserId();
   if (!uid) return [];
 
+  // NOTE: we intentionally do NOT depend on a special attachments schema here.
   const { data, error } = await supabase
     .from("decision_inbox")
-    .select("id,title,body,created_at,status,framed_decision_id,type")
+    .select("id,title,body,created_at,status,framed_decision_id,type,attachments,attachment_count")
     .eq("user_id", uid)
     .eq("type", "capture")
     .eq("status", "open")
@@ -255,27 +285,24 @@ async function fetchTopCaptureSuggestions(scope: Scope): Promise<Suggestion[]> {
   if (error) return [];
 
   return (data ?? []).map((r: any) => {
-    const title = safeStr(r?.title) || "Captured";
-    const created = r?.created_at ? softDate(r.created_at) : "";
-    const body = safeStr(r?.body);
-    const hasAttachmentsHint = body.includes('"attachments"');
-
-    const subtitle = [created || null, hasAttachmentsHint ? "Attachments" : null].filter(Boolean).join(" • ");
-
-    return { kind: "capture", id: String(r?.id), title, subtitle, href: routeForCapture(scope, String(r?.id)) };
+    const row: CaptureRow = r as CaptureRow;
+    const title = safeStr(row?.title) || "Captured";
+    const created = row?.created_at ? softDate(row.created_at) : "";
+    const subtitle = [created || null, hasAttachmentsHint(row) ? "Attachments" : null].filter(Boolean).join(" • ");
+    return { kind: "capture", id: String(row?.id), title, subtitle, href: routeForCapture(String(row?.id)) };
   });
 }
 
-async function fetchCaptureMatches(scope: Scope, q: string): Promise<Suggestion[]> {
+async function fetchCaptureMatches(q: string): Promise<Suggestion[]> {
   const uid = await getUserId();
   if (!uid) return [];
 
   const query = q.trim();
-  if (!query) return fetchTopCaptureSuggestions(scope);
+  if (!query) return fetchTopCaptureSuggestions();
 
   const { data, error } = await supabase
     .from("decision_inbox")
-    .select("id,title,body,created_at,status,framed_decision_id,type")
+    .select("id,title,body,created_at,status,framed_decision_id,type,attachments,attachment_count")
     .eq("user_id", uid)
     .eq("type", "capture")
     .eq("status", "open")
@@ -286,13 +313,12 @@ async function fetchCaptureMatches(scope: Scope, q: string): Promise<Suggestion[
 
   if (error) return [];
 
-  return (data ?? []).map((r: CaptureRow) => {
-    const title = safeStr(r.title) || "Captured";
-    const created = r.created_at ? softDate(r.created_at) : "";
-    const body = safeStr(r.body);
-    const hasAttachmentsHint = body.includes('"attachments"');
-    const subtitle = [created || null, hasAttachmentsHint ? "Attachments" : null].filter(Boolean).join(" • ");
-    return { kind: "capture", id: String(r.id), title, subtitle, href: routeForCapture(scope, String(r.id)) };
+  return (data ?? []).map((r: any) => {
+    const row: CaptureRow = r as CaptureRow;
+    const title = safeStr(row.title) || "Captured";
+    const created = row.created_at ? softDate(row.created_at) : "";
+    const subtitle = [created || null, hasAttachmentsHint(row) ? "Attachments" : null].filter(Boolean).join(" • ");
+    return { kind: "capture", id: String(row.id), title, subtitle, href: routeForCapture(String(row.id)) };
   });
 }
 
@@ -329,7 +355,7 @@ async function fetchTopDecisionSuggestions(scope: Scope): Promise<Suggestion[]> 
   return (res.data ?? []).slice(0, 7).map((d: any) => {
     const status = safeStr(d.status);
     const subtitle = status === "draft" ? "Draft" : status === "chapter" ? "Chapter" : "Decision";
-    return { kind: "decision", id: String(d.id), title: safeStr(d.title) || "Untitled", subtitle, href: routeForDecision(scope, String(d.id)) };
+    return { kind: "decision", id: String(d.id), title: safeStr(d.title) || "Untitled", subtitle, href: routeForDecision(String(d.id)) };
   });
 }
 
@@ -372,7 +398,7 @@ async function fetchDecisionMatches(scope: Scope, q: string): Promise<Suggestion
   return (data ?? []).map((d: DecisionRow) => {
     const status = safeStr(d.status);
     const subtitle = status === "draft" ? "Draft" : status === "chapter" ? "Chapter" : "Decision";
-    return { kind: "decision", id: String(d.id), title: safeStr(d.title) || "Untitled", subtitle, href: routeForDecision(scope, String(d.id)) };
+    return { kind: "decision", id: String(d.id), title: safeStr(d.title) || "Untitled", subtitle, href: routeForDecision(String(d.id)) };
   });
 }
 
@@ -386,7 +412,7 @@ async function fetchInvestmentMatches(): Promise<Suggestion[]> {
 
 /* ---------------------- ROUTER ---------------------- */
 async function fetchTopSuggestions(scope: Scope): Promise<Suggestion[]> {
-  if (scope === "capture") return fetchTopCaptureSuggestions(scope);
+  if (scope === "capture") return fetchTopCaptureSuggestions();
   if (scope === "bills") return fetchTopBillSuggestions();
   if (scope === "accounts") return fetchTopAccountSuggestions();
   if (scope === "investments") return fetchTopInvestmentSuggestions();
@@ -394,7 +420,7 @@ async function fetchTopSuggestions(scope: Scope): Promise<Suggestion[]> {
 }
 
 async function fetchMatches(scope: Scope, q: string): Promise<Suggestion[]> {
-  if (scope === "capture") return fetchCaptureMatches(scope, q);
+  if (scope === "capture") return fetchCaptureMatches(q);
   if (scope === "bills") return fetchBillMatches(q);
   if (scope === "accounts") return fetchAccountMatches(q);
   if (scope === "investments") return fetchInvestmentMatches();
@@ -490,7 +516,7 @@ export function AssistedSearch({
                       ? "Investment"
                       : it.kind === "capture"
                       ? "Capture"
-                      : "Inbox"}
+                      : "Item"}
                   </Chip>
                 </button>
               ))
