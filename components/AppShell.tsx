@@ -87,13 +87,11 @@ export function AppShell({ children }: AppShellProps) {
             </Chip>
 
             {menuOpen ? (
-  <div className="absolute right-0 top-full z-50 mt-2 w-[240px] overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-lg">
-                <div className="px-3 py-2 text-xs font-semibold text-zinc-700">Menu</div>
-
+              <div className="absolute right-0 top-full z-50 mt-2 w-[240px] overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-lg">
                 <div className="grid">
                   <Link
                     href="/settings"
-                    className="px-3 py-3 text-sm text-zinc-800 hover:bg-zinc-50"
+                    className="px-4 py-3 text-sm text-zinc-800 hover:bg-zinc-50"
                     onClick={() => setMenuOpen(false)}
                   >
                     Settings
@@ -101,7 +99,7 @@ export function AppShell({ children }: AppShellProps) {
 
                   <Link
                     href="/family"
-                    className="px-3 py-3 text-sm text-zinc-800 hover:bg-zinc-50"
+                    className="px-4 py-3 text-sm text-zinc-800 hover:bg-zinc-50"
                     onClick={() => setMenuOpen(false)}
                   >
                     Family
@@ -109,17 +107,15 @@ export function AppShell({ children }: AppShellProps) {
 
                   <Link
                     href="/fine-print"
-                    className="px-3 py-3 text-sm text-zinc-800 hover:bg-zinc-50"
+                    className="px-4 py-3 text-sm text-zinc-800 hover:bg-zinc-50"
                     onClick={() => setMenuOpen(false)}
                   >
                     Fine print
                   </Link>
 
-                  <div className="h-px bg-zinc-100" />
-
                   <Link
                     href="/how-life-cfo-works"
-                    className="px-3 py-3 text-sm text-zinc-800 hover:bg-zinc-50"
+                    className="px-4 py-3 text-sm text-zinc-800 hover:bg-zinc-50"
                     onClick={() => setMenuOpen(false)}
                   >
                     How it works
@@ -127,7 +123,7 @@ export function AppShell({ children }: AppShellProps) {
 
                   <Link
                     href="/planned-upgrades"
-                    className="px-3 py-3 text-sm text-zinc-800 hover:bg-zinc-50"
+                    className="px-4 py-3 text-sm text-zinc-800 hover:bg-zinc-50"
                     onClick={() => setMenuOpen(false)}
                   >
                     Planned upgrades
