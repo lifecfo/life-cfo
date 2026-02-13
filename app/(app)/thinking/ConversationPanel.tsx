@@ -5,6 +5,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { Card, CardContent, Chip } from "@/components/ui";
 
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+
 type Msg = { role: "user" | "assistant"; content: string; at: string };
 
 type Frame = {
@@ -16,6 +19,32 @@ function isQuotaError(status: number, errorMsg: string) {
   return status === 429 || msg.includes("exceeded your current quota") || msg.includes("insufficient_quota");
 }
 
+function MarkdownBubble({ content }: { content: string }) {
+  return (
+    <div className="prose prose-sm max-w-none text-zinc-800 prose-headings:text-zinc-900 prose-headings:font-semibold prose-p:leading-relaxed prose-li:leading-relaxed prose-strong:text-zinc-900 prose-code:text-zinc-900 prose-pre:bg-zinc-50 prose-pre:border prose-pre:border-zinc-200 prose-pre:rounded-xl prose-pre:p-3">
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={{
+          code({ children, className }) {
+            const isBlock = (className || "").includes("language-");
+            if (isBlock) return <code className={className}>{children}</code>;
+            return <code className="rounded bg-zinc-100 px-1 py-0.5">{children}</code>;
+          },
+          a({ children, href }) {
+            return (
+              <a href={href} className="underline underline-offset-2" target="_blank" rel="noreferrer">
+                {children}
+              </a>
+            );
+          },
+        }}
+      >
+        {content}
+      </ReactMarkdown>
+    </div>
+  );
+}
+
 export function ConversationPanel(props: {
   decisionId: string;
   decisionTitle: string;
@@ -23,16 +52,10 @@ export function ConversationPanel(props: {
   onClose: () => void;
   onSummarySaved?: () => void;
 
-  // ✅ focus without scrolling (existing)
   autoFocusToken?: number;
-
-  // ✅ show "You asked:" line (use the user's question/title)
   askedText?: string;
-
-  // ✅ triggers a boot assistant message when panel opens
   autoStartToken?: number;
 
-  // ✅ NEW: allow parent to inject a first user message (chat-first composer)
   initialUserMessage?: string;
   initialUserMessageToken?: number;
   onInitialUserMessageConsumed?: () => void;
@@ -60,14 +83,11 @@ export function ConversationPanel(props: {
   const [messages, setMessages] = useState<Msg[]>([]);
   const [draft, setDraft] = useState<string>("");
 
-  // Boot assistant message shown immediately when chat opens (before user sends)
   const [bootMessage, setBootMessage] = useState<string>("");
 
-  // Summary preview (non-committal)
   const [summaryText, setSummaryText] = useState<string>("");
   const [summaryStatus, setSummaryStatus] = useState<string>("");
 
-  // Consent step: add summary to decision
   const [addingSummary, setAddingSummary] = useState<boolean>(false);
   const [addedSummary, setAddedSummary] = useState<boolean>(false);
   const [addSummaryStatus, setAddSummaryStatus] = useState<string>("");
@@ -76,10 +96,8 @@ export function ConversationPanel(props: {
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
 
   const decisionStatement = useMemo(() => frame?.decision_statement ?? "", [frame]);
-
   const canSend = draft.trim().length > 0 && !sending;
 
-  // Load auth + conversation
   useEffect(() => {
     let mounted = true;
 
@@ -140,7 +158,6 @@ export function ConversationPanel(props: {
     };
   }, [decisionId]);
 
-  // ✅ Boot message on open (re-runs when autoStartToken increments)
   useEffect(() => {
     if (!autoStartToken) return;
 
@@ -151,7 +168,6 @@ export function ConversationPanel(props: {
     setBootMessage(`${line1}\n\n${line2}`);
   }, [autoStartToken, askedText, decisionStatement, decisionTitle]);
 
-  // Focus input without scrolling the page (prevents the "jump to bottom" issue)
   useEffect(() => {
     const t = window.setTimeout(() => {
       try {
@@ -164,10 +180,9 @@ export function ConversationPanel(props: {
     return () => window.clearTimeout(t);
   }, [decisionId, props.autoFocusToken]);
 
-  // Autoscroll the message list container to bottom (NOT the whole page)
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "auto", block: "end" });
-  }, [messages.length, bootMessage]);
+  }, [messages.length, bootMessage, summaryText]);
 
   const persist = async (next: Msg[]) => {
     if (!userId) return;
@@ -194,13 +209,11 @@ export function ConversationPanel(props: {
     const now = new Date().toISOString();
     const next: Msg[] = [...messages, { role: "user" as const, content: text, at: now }];
 
-    // Optimistic UI
     setDraft("");
     setMessages(next);
     setStatus("");
     void persist(next);
 
-    // New message invalidates any prior summary preview
     setSummaryText("");
     setSummaryStatus("");
     setAddedSummary(false);
@@ -254,13 +267,11 @@ export function ConversationPanel(props: {
     await sendText(text);
   };
 
-  // ✅ Consume injected first message when token increments
   useEffect(() => {
     const injected = (initialUserMessage ?? "").trim();
     if (!injected) return;
     if (!initialUserMessageToken) return;
 
-    // Only inject once per token change
     void (async () => {
       await sendText(injected);
       onInitialUserMessageConsumed?.();
@@ -374,28 +385,78 @@ export function ConversationPanel(props: {
           </div>
         </div>
 
-        <div className="mt-3 rounded-xl border border-zinc-200 bg-white">
-          <div className="max-h-[320px] overflow-auto p-3 space-y-3">
+        {/* Slight grey background behind the chat viewport */}
+        <div className="mt-3 rounded-xl border border-zinc-200 bg-zinc-50">
+          <div className="max-h-[420px] overflow-auto p-3">
             {loading ? <div className="text-sm text-zinc-600">Loading…</div> : null}
 
             {!loading && messages.length === 0 ? (
-              <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm leading-relaxed text-zinc-800 whitespace-pre-wrap">
-                {bootMessage || "Okay — let’s think this through."}
+              <div className="py-2">
+                <div className="flex justify-start">
+                  <div className="max-w-[78%] rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm leading-relaxed text-zinc-800 whitespace-pre-wrap">
+                    {bootMessage || "Okay — let’s think this through."}
+                  </div>
+                </div>
               </div>
             ) : null}
 
-            {messages.map((m, idx) => (
-              <div key={idx} className="space-y-1">
-                <div className="text-xs text-zinc-500">{m.role === "user" ? "You" : "Keystone"}</div>
-                <div className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-800">{m.content}</div>
+            <div className="space-y-3">
+              {messages.map((m, idx) => {
+                const isUser = m.role === "user";
+                return (
+                  <div key={idx} className={isUser ? "flex justify-end" : "flex justify-start"}>
+                    <div
+                      className={[
+                        "max-w-[78%] rounded-2xl px-4 py-3 text-sm leading-relaxed",
+                        isUser
+                          ? "bg-zinc-200/70 text-zinc-900 border border-zinc-200"
+                          : "bg-white text-zinc-800 border border-zinc-200",
+                      ].join(" ")}
+                    >
+                      {isUser ? <div className="whitespace-pre-wrap">{m.content}</div> : <MarkdownBubble content={m.content} />}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {summaryText ? (
+              <div className="mt-4 space-y-2">
+                <div className="flex justify-start">
+                  <div className="max-w-[78%] rounded-2xl border border-zinc-200 bg-white px-4 py-3">
+                    <div className="text-xs text-zinc-500 mb-2">Capture preview</div>
+                    <MarkdownBubble content={summaryText} />
+
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                      <Chip onClick={addSummaryToDecision} title="Save this summary to the decision (explicit consent)">
+                        {addingSummary ? "Saving…" : addedSummary ? "Saved" : "Save to decision"}
+                      </Chip>
+                      <Chip
+                        onClick={() => {
+                          setSummaryText("");
+                          setSummaryStatus("");
+                          setAddedSummary(false);
+                          setAddSummaryStatus("");
+                        }}
+                        title="Dismiss preview"
+                      >
+                        Dismiss
+                      </Chip>
+                      {addSummaryStatus ? <div className="text-xs text-zinc-500">{addSummaryStatus}</div> : null}
+                    </div>
+
+                    <div className="mt-2 text-xs text-zinc-500">Nothing commits until you choose to save.</div>
+                  </div>
+                </div>
               </div>
-            ))}
+            ) : null}
 
             <div ref={endRef} />
           </div>
 
-          <div className="border-t border-zinc-200 p-3 space-y-2">
+          <div className="border-t border-zinc-200 bg-white p-3 space-y-2 rounded-b-xl">
             {status ? <div className="text-xs text-zinc-500">{status}</div> : null}
+            {summaryStatus ? <div className="text-xs text-zinc-500">{summaryStatus}</div> : null}
 
             <div className="relative">
               <textarea
@@ -409,14 +470,12 @@ export function ConversationPanel(props: {
                   const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad|iPod/.test(navigator.platform);
                   const cmdOrCtrl = isMac ? e.metaKey : e.ctrlKey;
 
-                  // Cmd/Ctrl + Enter sends
                   if (cmdOrCtrl && e.key === "Enter") {
                     e.preventDefault();
                     void send();
                     return;
                   }
 
-                  // Enter sends (Shift+Enter makes newline)
                   if (e.key === "Enter" && !e.shiftKey) {
                     e.preventDefault();
                     void send();
@@ -446,45 +505,8 @@ export function ConversationPanel(props: {
                 {summarising ? "Capturing…" : "Capture preview"}
               </Chip>
 
-              <div className="text-xs text-zinc-500">Ask for options, trade-offs, or a plan — only if you want.</div>
+              <div className="text-xs text-zinc-500">Enter to send • Shift+Enter for newline</div>
             </div>
-
-            {summaryStatus ? <div className="text-xs text-zinc-500">{summaryStatus}</div> : null}
-
-            {summaryText ? (
-              <div className="mt-3 rounded-xl border border-zinc-200 bg-zinc-50 p-3 space-y-3">
-                <div className="flex items-start justify-between gap-2">
-                  <div>
-                    <div className="text-sm font-semibold text-zinc-900">Capture preview</div>
-                    <div className="text-xs text-zinc-600">Nothing has been added to the decision yet.</div>
-                  </div>
-
-                  <Chip
-                    onClick={() => {
-                      setSummaryText("");
-                      setSummaryStatus("");
-                      setAddedSummary(false);
-                      setAddSummaryStatus("");
-                    }}
-                    title="Dismiss preview"
-                  >
-                    Dismiss
-                  </Chip>
-                </div>
-
-                <div className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-800">{summaryText}</div>
-
-                <div className="flex flex-wrap items-center gap-2 pt-1">
-                  <Chip onClick={addSummaryToDecision} title="Save this summary to the decision (explicit consent)">
-                    {addingSummary ? "Saving…" : addedSummary ? "Saved" : "Save to decision"}
-                  </Chip>
-
-                  {addSummaryStatus ? <div className="text-xs text-zinc-500">{addSummaryStatus}</div> : null}
-                </div>
-
-                <div className="pt-1 text-xs text-zinc-500">This creates a durable summary entry for this decision.</div>
-              </div>
-            ) : null}
           </div>
         </div>
       </CardContent>
