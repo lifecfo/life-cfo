@@ -184,11 +184,7 @@ function titleFromStatement(statement: string) {
   return s.length > 90 ? `${s.slice(0, 87)}…` : s;
 }
 
-export default function ThinkingClient({
-  surface = "thinking",
-}: {
-  surface?: "thinking" | "decisions";
-}) {
+export default function ThinkingClient({ surface = "thinking" }: { surface?: "thinking" | "decisions" }) {
   const router = useRouter();
   const { showToast } = useToast();
   const searchParams = useSearchParams();
@@ -197,7 +193,7 @@ export default function ThinkingClient({
   const pageTitle = surface === "decisions" ? "Decisions" : "Thinking";
   const pageSubtitle =
     surface === "decisions"
-      ? "Start a decision, talk it through, then decide or schedule a review."
+      ? "Talk it through here. Capture what matters, then decide or schedule a review."
       : "Work on drafts here. When you’re ready to commit, save it into Decisions.";
 
   const [highlightId, setHighlightId] = useState<string | null>(null);
@@ -207,7 +203,6 @@ export default function ThinkingClient({
   const [statusLine, setStatusLine] = useState<string>("Loading…");
   const [drafts, setDrafts] = useState<Decision[]>([]);
   const [openId, setOpenId] = useState<string | null>(null);
-  const [chatForId, setChatForId] = useState<string | null>(null);
 
   // ✅ Top-5 default (V1 pattern)
   const DEFAULT_LIMIT = 5;
@@ -251,22 +246,31 @@ export default function ThinkingClient({
   // ✅ Capture-style delete confirm
   const [confirmDeleteForId, setConfirmDeleteForId] = useState<string | null>(null);
 
-  // ✅ NEW DECISION composer state
+  // ✅ NEW: Details collapse (keeps all existing functionality)
+  const [showDetailsById, setShowDetailsById] = useState<Record<string, boolean>>({});
+
+  // ✅ Composer state
   const composerRef = useRef<HTMLDivElement | null>(null);
   const composerInputRef = useRef<HTMLTextAreaElement | null>(null);
-
   const [newText, setNewText] = useState<string>("");
   const [newDraftId, setNewDraftId] = useState<string | null>(null);
   const [creatingNew, setCreatingNew] = useState<boolean>(false);
 
-  // chat tokens (decisionId -> number) — used for focus AND auto-start boot message
+  // chat focus/boot tokens (decisionId -> number)
   const [chatFocusTokenById, setChatFocusTokenById] = useState<Record<string, number>>({});
 
-  // ✅ Composer-hosted conversation (stays here until Save draft)
+  // Which decision has an open conversation panel within a card
+  const [chatForId, setChatForId] = useState<string | null>(null);
+
+  // Composer-hosted conversation
   const [composerChatForId, setComposerChatForId] = useState<string | null>(null);
 
-  // ✅ Composer: show Files only when requested OR there are files
+  // Composer: show Files only when requested OR there are files
   const [composerShowFiles, setComposerShowFiles] = useState<boolean>(false);
+
+  // ✅ NEW: pass first message into ConversationPanel (chat-first)
+  const [pendingFirstMsgById, setPendingFirstMsgById] = useState<Record<string, string>>({});
+  const [pendingFirstMsgTokenById, setPendingFirstMsgTokenById] = useState<Record<string, number>>({});
 
   const composerDraft = useMemo(() => {
     if (!newDraftId) return null;
@@ -350,7 +354,11 @@ export default function ThinkingClient({
 
     const [domRes, conRes] = await Promise.all([
       supabase.from("domains").select("id,name,sort_order").eq("user_id", uid).order("sort_order", { ascending: true }),
-      supabase.from("constellations").select("id,name,sort_order").eq("user_id", uid).order("sort_order", { ascending: true }),
+      supabase
+        .from("constellations")
+        .select("id,name,sort_order")
+        .eq("user_id", uid)
+        .order("sort_order", { ascending: true }),
     ]);
 
     if (!domRes.error) {
@@ -381,7 +389,11 @@ export default function ThinkingClient({
     if (decisionIds.length > 0) {
       const [ddRes, ciRes] = await Promise.all([
         supabase.from("decision_domains").select("decision_id,domain_id").eq("user_id", uid).in("decision_id", decisionIds),
-        supabase.from("constellation_items").select("decision_id,constellation_id").eq("user_id", uid).in("decision_id", decisionIds),
+        supabase
+          .from("constellation_items")
+          .select("decision_id,constellation_id")
+          .eq("user_id", uid)
+          .in("decision_id", decisionIds),
       ]);
 
       if (!ddRes.error) {
@@ -439,6 +451,10 @@ export default function ThinkingClient({
     setOpenId(match.id);
     setHighlightId(match.id);
 
+    // open conversation by default on open
+    setChatForId(match.id);
+    setChatFocusTokenById((p) => ({ ...p, [match.id]: (p[match.id] ?? 0) + 1 }));
+
     window.setTimeout(() => {
       const el = cardRefs.current[match.id];
       if (el?.scrollIntoView) el.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -481,75 +497,71 @@ export default function ThinkingClient({
 
     const channel = supabase
       .channel(`thinking-drafts-${userId}`)
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "decisions", filter: `user_id=eq.${userId}` },
-        (payload: any) => {
-          const eventType: string | undefined = payload?.eventType;
-          const next = payload?.new as any | undefined;
-          const prev = payload?.old as any | undefined;
+      .on("postgres_changes", { event: "*", schema: "public", table: "decisions", filter: `user_id=eq.${userId}` }, (payload: any) => {
+        const eventType: string | undefined = payload?.eventType;
+        const next = payload?.new as any | undefined;
+        const prev = payload?.old as any | undefined;
 
-          const id = (next?.id ?? prev?.id) as string | undefined;
-          if (!eventType || !id) {
-            scheduleReload();
-            return;
+        const id = (next?.id ?? prev?.id) as string | undefined;
+        if (!eventType || !id) {
+          scheduleReload();
+          return;
+        }
+
+        const rowStatus = String(next?.status ?? prev?.status ?? "");
+        const isDraft = rowStatus === "draft";
+
+        setDrafts((current) => {
+          if (eventType === "DELETE") {
+            if (openId === id) setOpenId(null);
+            if (chatForId === id) setChatForId(null);
+            if (labelsEditForId === id) setLabelsEditForId(null);
+            if (confirmDeleteForId === id) setConfirmDeleteForId(null);
+            if (composerChatForId === id) setComposerChatForId(null);
+            if (newDraftId === id) setNewDraftId(null);
+            return current.filter((d) => d.id !== id);
           }
 
-          const rowStatus = String(next?.status ?? prev?.status ?? "");
-          const isDraft = rowStatus === "draft";
+          if (!isDraft) {
+            if (openId === id) setOpenId(null);
+            if (chatForId === id) setChatForId(null);
+            if (labelsEditForId === id) setLabelsEditForId(null);
+            if (confirmDeleteForId === id) setConfirmDeleteForId(null);
+            if (composerChatForId === id) setComposerChatForId(null);
+            if (newDraftId === id) setNewDraftId(null);
+            return current.filter((d) => d.id !== id);
+          }
 
-          setDrafts((current) => {
-            if (eventType === "DELETE") {
-              if (openId === id) setOpenId(null);
-              if (chatForId === id) setChatForId(null);
-              if (labelsEditForId === id) setLabelsEditForId(null);
-              if (confirmDeleteForId === id) setConfirmDeleteForId(null);
-              if (composerChatForId === id) setComposerChatForId(null);
-              if (newDraftId === id) setNewDraftId(null);
-              return current.filter((d) => d.id !== id);
-            }
-
-            if (!isDraft) {
-              if (openId === id) setOpenId(null);
-              if (chatForId === id) setChatForId(null);
-              if (labelsEditForId === id) setLabelsEditForId(null);
-              if (confirmDeleteForId === id) setConfirmDeleteForId(null);
-              if (composerChatForId === id) setComposerChatForId(null);
-              if (newDraftId === id) setNewDraftId(null);
-              return current.filter((d) => d.id !== id);
-            }
-
-            const toDecision = (r: any): Decision => ({
-              id: r.id,
-              user_id: r.user_id,
-              title: r.title ?? "",
-              context: r.context ?? null,
-              status: r.status ?? "draft",
-              created_at: r.created_at ?? new Date().toISOString(),
-              decided_at: r.decided_at ?? null,
-              review_at: r.review_at ?? null,
-              origin: r.origin ?? null,
-              framed_at: r.framed_at ?? null,
-              attachments: normalizeAttachments(r.attachments),
-            });
-
-            const patch = toDecision(next ?? prev);
-
-            const exists = current.some((d) => d.id === patch.id);
-            const merged = exists ? current.map((d) => (d.id === patch.id ? { ...d, ...patch } : d)) : [patch, ...current];
-
-            merged.sort((a, b) => {
-              const ta = safeMs(a.created_at) ?? 0;
-              const tb = safeMs(b.created_at) ?? 0;
-              return tb - ta;
-            });
-
-            return merged;
+          const toDecision = (r: any): Decision => ({
+            id: r.id,
+            user_id: r.user_id,
+            title: r.title ?? "",
+            context: r.context ?? null,
+            status: r.status ?? "draft",
+            created_at: r.created_at ?? new Date().toISOString(),
+            decided_at: r.decided_at ?? null,
+            review_at: r.review_at ?? null,
+            origin: r.origin ?? null,
+            framed_at: r.framed_at ?? null,
+            attachments: normalizeAttachments(r.attachments),
           });
 
-          scheduleReload();
-        }
-      )
+          const patch = toDecision(next ?? prev);
+
+          const exists = current.some((d) => d.id === patch.id);
+          const merged = exists ? current.map((d) => (d.id === patch.id ? { ...d, ...patch } : d)) : [patch, ...current];
+
+          merged.sort((a, b) => {
+            const ta = safeMs(a.created_at) ?? 0;
+            const tb = safeMs(b.created_at) ?? 0;
+            return tb - ta;
+          });
+
+          return merged;
+        });
+
+        scheduleReload();
+      })
       .subscribe();
 
     return () => {
@@ -789,8 +801,7 @@ export default function ThinkingClient({
   const saveDraftOverwrite = async (d: Decision) => {
     if (!userId) return;
 
-    const snapshot =
-      originalCaptureById[d.id] ?? { title: d.title ?? "", captured: splitThinkingContext(d.context).captured ?? "" };
+    const snapshot = originalCaptureById[d.id] ?? { title: d.title ?? "", captured: splitThinkingContext(d.context).captured ?? "" };
 
     const nextTitle = (draftTitleById[d.id] ?? "").trim() || d.title || "Untitled";
     const nextDraftBody = (draftBodyById[d.id] ?? "").trim();
@@ -816,8 +827,8 @@ export default function ThinkingClient({
     showToast({ message: "Saved." }, 1800);
   };
 
-  // ✅ Create a new draft for the composer (no auto-open)
-  const createNewDraftIfNeeded = async () => {
+  // ✅ Create a new draft for the composer (chat-first)
+  const createNewDraftIfNeeded = async (statementOverride?: string) => {
     if (!userId) {
       showToast({ message: "Not signed in." }, 2500);
       return null;
@@ -825,9 +836,9 @@ export default function ThinkingClient({
 
     if (newDraftId) return newDraftId;
 
-    const statement = (newText || "").trim();
+    const statement = (statementOverride ?? newText ?? "").trim();
     if (!statement) {
-      showToast({ message: "Type the decision first." }, 2200);
+      showToast({ message: "Type what’s on your mind first." }, 2200);
       try {
         composerInputRef.current?.focus?.();
       } catch {}
@@ -882,7 +893,6 @@ export default function ThinkingClient({
       }));
 
       setNewDraftId(created.id);
-      setNewText("");
 
       // default: hide Files until user asks (or there are files)
       setComposerShowFiles(false);
@@ -890,7 +900,6 @@ export default function ThinkingClient({
       setAnimateCardId(created.id);
       window.setTimeout(() => setAnimateCardId(null), 700);
 
-      showToast({ message: "Draft created." }, 1400);
       return created.id;
     } catch (e: any) {
       showToast({ message: e?.message ?? "Couldn’t create draft." }, 3500);
@@ -903,6 +912,10 @@ export default function ThinkingClient({
   const openCardAtTop = (id: string) => {
     setOpenId(id);
     setHighlightId(id);
+
+    // open conversation by default
+    setChatForId(id);
+    setChatFocusTokenById((p) => ({ ...p, [id]: (p[id] ?? 0) + 1 }));
 
     window.setTimeout(() => {
       const el = cardRefs.current[id];
@@ -928,6 +941,35 @@ export default function ThinkingClient({
   };
 
   const assistedScope = surface === "decisions" ? "decisions" : "thinking";
+
+  const sendFromComposer = async () => {
+    const text = (newText ?? "").trim();
+    if (!text) {
+      showToast({ message: "Type what’s on your mind first." }, 2000);
+      return;
+    }
+
+    const id = await createNewDraftIfNeeded(text);
+    if (!id) return;
+
+    // show composer conversation
+    setComposerChatForId(id);
+
+    // hand first message into ConversationPanel
+    setPendingFirstMsgById((p) => ({ ...p, [id]: text }));
+    setPendingFirstMsgTokenById((p) => ({ ...p, [id]: (p[id] ?? 0) + 1 }));
+
+    // focus + boot
+    setChatFocusTokenById((p) => ({ ...p, [id]: (p[id] ?? 0) + 1 }));
+
+    // clear input
+    setNewText("");
+
+    window.setTimeout(() => {
+      const el = document.getElementById("composer-chat");
+      el?.scrollIntoView?.({ behavior: "smooth", block: "start" });
+    }, 60);
+  };
 
   return (
     <Page title={pageTitle} subtitle={pageSubtitle} right={null}>
@@ -960,103 +1002,19 @@ export default function ThinkingClient({
           </div>
         )}
 
-        {/* ✅ Life CFO top composer (Decisions only) */}
+        {/* ✅ Chat-first composer (Decisions only) */}
         {surface === "decisions" ? (
-          <div ref={composerRef} className={["transition", newDraftId ? "opacity-60" : "opacity-100"].join(" ")}>
+          <div ref={composerRef}>
             <Card className="border-zinc-200 bg-white">
               <CardContent>
                 <div className="space-y-3">
                   <div className="space-y-1">
-                    <div className="text-sm font-semibold text-zinc-900">New decision</div>
-                    <div className="text-sm text-zinc-600">One sentence is enough. You can refine it after.</div>
+                    <div className="text-sm font-semibold text-zinc-900">Talk it through</div>
+                    <div className="text-sm text-zinc-600">Start messy. We’ll make it clear as we go.</div>
                   </div>
-
-                  <textarea
-                    ref={composerInputRef}
-                    value={newText}
-                    onChange={(e) => setNewText(e.target.value)}
-                    rows={3}
-                    placeholder="What are you deciding?"
-                    className="w-full resize-y rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-[15px] leading-relaxed text-zinc-900 outline-none focus:ring-2 focus:ring-zinc-200"
-                  />
-
-                  <div className="flex flex-wrap items-center gap-2">
-                    <PrimaryActionButton
-                      disabled={creatingNew}
-                      onClick={async () => {
-                        const id = await createNewDraftIfNeeded();
-                        if (!id) return;
-
-                        // show composer conversation + autofocus + boot message
-                        setComposerChatForId(id);
-                        setChatForId(null);
-                        setChatFocusTokenById((p) => ({ ...p, [id]: (p[id] ?? 0) + 1 }));
-
-                        window.setTimeout(() => {
-                          const el = document.getElementById("composer-chat");
-                          el?.scrollIntoView?.({ behavior: "smooth", block: "start" });
-                        }, 60);
-                      }}
-                      title="Talk it through here first"
-                    >
-                      Talk this through
-                    </PrimaryActionButton>
-
-                    <Chip
-                      onClick={async () => {
-                        const id = await createNewDraftIfNeeded();
-                        if (!id) return;
-
-                        // Move chat from composer → card only when Save draft is clicked
-                        if (composerChatForId === id) {
-                          setChatForId(id);
-                          setComposerChatForId(null);
-                          setChatFocusTokenById((p) => ({ ...p, [id]: (p[id] ?? 0) + 1 }));
-                        }
-
-                        openCardAtTop(id);
-                      }}
-                      title="Move this into the list"
-                    >
-                      Save draft
-                    </Chip>
-
-                    <Chip
-                      onClick={async () => {
-                        const id = await createNewDraftIfNeeded();
-                        if (!id) return;
-                        setComposerShowFiles(true);
-                        window.setTimeout(() => {
-                          const el = document.getElementById(`new-draft-attachments-${id}`);
-                          el?.scrollIntoView?.({ behavior: "smooth", block: "center" });
-                        }, 120);
-                      }}
-                      title="Add files (creates the draft first if needed)"
-                    >
-                      Add files
-                    </Chip>
-
-                    {newDraftId ? (
-                      <Chip onClick={resetComposer} title="Start a fresh new decision">
-                        Start another
-                      </Chip>
-                    ) : null}
-
-                    {creatingNew ? <div className="text-xs text-zinc-500">Creating…</div> : null}
-                  </div>
-
-                  {/* ✅ Remove redundant Files section unless (a) user asked OR (b) there are files */}
-                  {userId && newDraftId && (composerShowFiles || composerHasFiles) ? (
-                    <div id={`new-draft-attachments-${newDraftId}`} className="rounded-xl border border-zinc-200 bg-white p-3">
-                      <AttachmentsBlock userId={userId} decisionId={newDraftId} title="Files" bucket="captures" initial={[]} />
-                      <div className="mt-2 text-xs text-zinc-500">
-                        These files are attached to the new draft you just created.
-                      </div>
-                    </div>
-                  ) : null}
 
                   {composerChatForId ? (
-                    <div id="composer-chat" className="pt-2">
+                    <div id="composer-chat" className="pt-1">
                       <ConversationPanel
                         decisionId={composerChatForId}
                         decisionTitle={drafts.find((x) => x.id === composerChatForId)?.title ?? "New decision"}
@@ -1066,7 +1024,76 @@ export default function ThinkingClient({
                         onSummarySaved={() => void reloadSummaries(composerChatForId)}
                         autoFocusToken={chatFocusTokenById[composerChatForId] ?? 0}
                         autoStartToken={chatFocusTokenById[composerChatForId] ?? 0}
+                        initialUserMessage={pendingFirstMsgById[composerChatForId] ?? ""}
+                        initialUserMessageToken={pendingFirstMsgTokenById[composerChatForId] ?? 0}
+                        onInitialUserMessageConsumed={() => {
+                          const id = composerChatForId;
+                          if (!id) return;
+                          setPendingFirstMsgById((p) => ({ ...p, [id]: "" }));
+                        }}
                       />
+                    </div>
+                  ) : null}
+
+                  <textarea
+                    ref={composerInputRef}
+                    value={newText}
+                    onChange={(e) => setNewText(e.target.value)}
+                    rows={3}
+                    placeholder="What’s on your mind?"
+                    className="w-full resize-y rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-[15px] leading-relaxed text-zinc-900 outline-none focus:ring-2 focus:ring-zinc-200"
+                    onKeyDown={(e) => {
+                      // Enter sends (Shift+Enter newline)
+                      if (e.key === "Enter" && !e.shiftKey) {
+                        e.preventDefault();
+                        void sendFromComposer();
+                      }
+                    }}
+                  />
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    <PrimaryActionButton disabled={creatingNew} onClick={() => void sendFromComposer()} title="Send">
+                      {creatingNew ? "Creating…" : "Send"}
+                    </PrimaryActionButton>
+
+                    <Chip
+                      onClick={async () => {
+                        const id = await createNewDraftIfNeeded();
+                        if (!id) return;
+                        setComposerShowFiles(true);
+                        setComposerChatForId(id);
+                      }}
+                      title="Attach files"
+                    >
+                      Add files
+                    </Chip>
+
+                    {newDraftId ? (
+                      <Chip
+                        onClick={() => {
+                          // move the created draft into list view (open it)
+                          const id = newDraftId;
+                          if (!id) return;
+                          openCardAtTop(id);
+                          setComposerChatForId(null);
+                        }}
+                        title="Open the draft below"
+                      >
+                        Open draft
+                      </Chip>
+                    ) : null}
+
+                    {newDraftId ? (
+                      <Chip onClick={resetComposer} title="Start a fresh new decision">
+                        Start another
+                      </Chip>
+                    ) : null}
+                  </div>
+
+                  {userId && newDraftId && (composerShowFiles || composerHasFiles) ? (
+                    <div className="rounded-xl border border-zinc-200 bg-white p-3">
+                      <AttachmentsBlock userId={userId} decisionId={newDraftId} title="Files" bucket="captures" initial={[]} />
+                      <div className="mt-2 text-xs text-zinc-500">These files are attached to this draft.</div>
                     </div>
                   ) : null}
                 </div>
@@ -1079,12 +1106,7 @@ export default function ThinkingClient({
 
         <div className="space-y-4">
           <TilesRow title="Filter by area" items={domains} activeId={activeDomainId} onSelect={(id) => setActiveDomainId(id)} />
-          <TilesRow
-            title="Filter by group"
-            items={constellations}
-            activeId={activeConstellationId}
-            onSelect={(id) => setActiveConstellationId(id)}
-          />
+          <TilesRow title="Filter by group" items={constellations} activeId={activeConstellationId} onSelect={(id) => setActiveConstellationId(id)} />
         </div>
 
         <div className="text-xs text-zinc-500">{statusLine}</div>
@@ -1114,6 +1136,7 @@ export default function ThinkingClient({
             {visibleDrafts.map((d) => {
               const isOpen = openId === d.id;
               const isChatOpen = chatForId === d.id;
+              const showDetails = !!showDetailsById[d.id];
 
               const domainId = domainByDecision[d.id] ?? null;
               const domainName = domainId ? domains.find((x) => x.id === domainId)?.name ?? null : null;
@@ -1160,18 +1183,21 @@ export default function ThinkingClient({
                           const nextOpen = isOpen ? null : d.id;
                           setOpenId(nextOpen);
 
-                          if (nextOpen !== d.id) {
+                          if (!nextOpen) {
                             setChatForId(null);
                             setLabelsEditForId(null);
                             setConfirmDeleteForId(null);
+                            return;
                           }
 
-                          if (nextOpen === d.id) {
-                            setOriginalCaptureById((prev) => {
-                              if (prev[d.id]) return prev;
-                              return { ...prev, [d.id]: { title: d.title ?? "", captured: parts.captured ?? "" } };
-                            });
-                          }
+                          // when opening: ensure snapshot + open conversation by default
+                          setOriginalCaptureById((prev) => {
+                            if (prev[d.id]) return prev;
+                            return { ...prev, [d.id]: { title: d.title ?? "", captured: parts.captured ?? "" } };
+                          });
+
+                          setChatForId(d.id);
+                          setChatFocusTokenById((p) => ({ ...p, [d.id]: (p[d.id] ?? 0) + 1 }));
                         }}
                         className="w-full text-left"
                         aria-expanded={isOpen}
@@ -1205,174 +1231,43 @@ export default function ThinkingClient({
 
                       {isOpen ? (
                         <div className="mt-4 space-y-4">
-                          <div className="rounded-xl border border-zinc-200 bg-white p-4 space-y-2">
-                            <div className="text-sm font-semibold text-zinc-900">Original decision</div>
-                            <div className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-700">
-                              {(originalSnapshot.captured || originalSnapshot.title || "").trim() || "—"}
-                            </div>
-                          </div>
-
-                          <div className="rounded-xl border border-zinc-200 bg-white p-4 space-y-3">
-                            <div className="flex items-center justify-between gap-2">
-                              <div className="text-sm font-semibold text-zinc-900">Draft</div>
-
-                              {!isEditingDraft ? (
-                                <Chip onClick={() => beginEditDraft(d)} title="Edit">
-                                  Edit
-                                </Chip>
-                              ) : (
-                                <div className="flex items-center gap-2">
-                                  <Chip onClick={() => cancelEditDraft(d)} title="Cancel">
-                                    Cancel
+                          {/* Conversation first (primary experience) */}
+                          {isChatOpen ? (
+                            <ConversationPanel
+                              decisionId={d.id}
+                              decisionTitle={d.title}
+                              askedText={d.title}
+                              frame={{ decision_statement: d.title }}
+                              autoFocusToken={chatFocusTokenById[d.id] ?? 0}
+                              autoStartToken={chatFocusTokenById[d.id] ?? 0}
+                              onClose={() => setChatForId(null)}
+                              onSummarySaved={() => void reloadSummaries(d.id)}
+                            />
+                          ) : (
+                            <Card className="border-zinc-200 bg-white">
+                              <CardContent>
+                                <div className="flex items-center justify-between gap-3">
+                                  <div className="min-w-0">
+                                    <div className="text-sm font-semibold text-zinc-900">Conversation</div>
+                                    <div className="mt-0.5 text-xs text-zinc-500 truncate">Anchored to: {d.title}</div>
+                                  </div>
+                                  <Chip
+                                    onClick={() => {
+                                      setChatForId(d.id);
+                                      setChatFocusTokenById((p) => ({ ...p, [d.id]: (p[d.id] ?? 0) + 1 }));
+                                    }}
+                                  >
+                                    Open chat
                                   </Chip>
-                                  <Chip onClick={() => void saveDraftOverwrite(d)} title="Save">
-                                    Save
-                                  </Chip>
                                 </div>
-                              )}
-                            </div>
+                              </CardContent>
+                            </Card>
+                          )}
 
-                            <div className="space-y-2">
-                              <div className="text-xs text-zinc-500">Title</div>
-                              <input
-                                value={isEditingDraft ? (draftTitleById[d.id] ?? d.title) : d.title}
-                                disabled={!isEditingDraft}
-                                onChange={(e) => setDraftTitleById((prev) => ({ ...prev, [d.id]: e.target.value }))}
-                                className={`h-11 w-full rounded-2xl border px-4 text-[15px] text-zinc-900 outline-none ${
-                                  isEditingDraft
-                                    ? "border-zinc-200 bg-white focus:ring-2 focus:ring-zinc-200"
-                                    : "border-zinc-100 bg-zinc-50 text-zinc-900"
-                                }`}
-                                aria-label="Draft title"
-                              />
-                            </div>
-
-                            <div className="space-y-2">
-                              <div className="text-xs text-zinc-500">Body</div>
-
-                              {!isEditingDraft ? (
-                                <div className="whitespace-pre-wrap rounded-2xl border border-zinc-100 bg-zinc-50 px-4 py-3 text-[15px] leading-relaxed text-zinc-800">
-                                  {parts.draft?.trim() ? (
-                                    parts.draft
-                                  ) : (
-                                    <span className="text-zinc-500">This is what I’m deciding… (optional)</span>
-                                  )}
-                                </div>
-                              ) : (
-                                <textarea
-                                  value={draftBodyById[d.id] ?? parts.draft ?? ""}
-                                  onChange={(e) => setDraftBodyById((prev) => ({ ...prev, [d.id]: e.target.value }))}
-                                  placeholder="This is what I’m deciding… (optional)"
-                                  className="w-full min-h-[160px] resize-y rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-[15px] leading-relaxed text-zinc-900 outline-none focus:ring-2 focus:ring-zinc-200"
-                                  aria-label="Draft body"
-                                />
-                              )}
-                            </div>
-                          </div>
-
-                          <DecisionNotes decisionId={d.id} kind="thinking" />
-
-                          {showFiledUnderCard ? (
-                            <div className="rounded-xl border border-zinc-200 bg-white p-3 space-y-2">
-                              <div className="flex flex-wrap items-center justify-between gap-2">
-                                <div className="text-xs font-semibold text-zinc-700">Filed under</div>
-                                <Chip
-                                  onClick={() => {
-                                    if (!hasAnyLabelOptions) {
-                                      showToast({ message: "No areas or groups yet." }, 2000);
-                                      return;
-                                    }
-                                    setLabelsEditForId((cur) => (cur === d.id ? null : d.id));
-                                  }}
-                                >
-                                  {isEditingLabels ? "Done" : "Edit"}
-                                </Chip>
-                              </div>
-
-                              {!isEditingLabels ? (
-                                <div className="text-sm text-zinc-700">
-                                  {filedUnder.length > 0 ? (
-                                    <span>{filedUnder.join(", ")}</span>
-                                  ) : (
-                                    <span className="text-zinc-600">Not set.</span>
-                                  )}
-                                </div>
-                              ) : (
-                                <div className="space-y-3">
-                                  <div className="text-xs text-zinc-500">Optional. Helps you group and filter later.</div>
-
-                                  <div className="space-y-2">
-                                    <div className="text-xs text-zinc-500">Area</div>
-                                    <div className="flex flex-wrap items-center gap-2">
-                                      <Chip active={!domainId} onClick={() => void setDecisionDomain(d.id, null)}>
-                                        None
-                                      </Chip>
-                                      {domains.map((dom) => (
-                                        <Chip
-                                          key={dom.id}
-                                          active={domainId === dom.id}
-                                          onClick={() => void setDecisionDomain(d.id, dom.id)}
-                                        >
-                                          {dom.name}
-                                        </Chip>
-                                      ))}
-                                    </div>
-                                  </div>
-
-                                  <div className="space-y-2">
-                                    <div className="text-xs text-zinc-500">Groups</div>
-                                    {constellations.length === 0 ? (
-                                      <div className="text-sm text-zinc-600">No groups yet.</div>
-                                    ) : (
-                                      <div className="flex flex-wrap items-center gap-2">
-                                        {constellations.map((c) => {
-                                          const active = memberIds.includes(c.id);
-                                          return (
-                                            <Chip key={c.id} active={active} onClick={() => void toggleConstellation(d.id, c.id)}>
-                                              {c.name}
-                                            </Chip>
-                                          );
-                                        })}
-                                      </div>
-                                    )}
-                                  </div>
-                                </div>
-                              )}
-                            </div>
-                          ) : null}
-
-                          <div className="rounded-xl border border-zinc-200 bg-white p-3 space-y-2">
-                            {userId ? (
-                              <AttachmentsBlock userId={userId} decisionId={d.id} title={attachmentsTitle} bucket="captures" initial={allAtt} />
-                            ) : (
-                              <div className="text-sm text-zinc-600">Attachments unavailable.</div>
-                            )}
-                          </div>
-
-                          {summaries.length > 0 ? (
-                            <div className="rounded-xl border border-zinc-200 bg-white p-3 space-y-2">
-                              <div className="space-y-1">
-                                <div className="text-xs font-semibold text-zinc-700">Saved summaries</div>
-                                <div className="text-xs text-zinc-500">These appear after you choose to save a chat summary.</div>
-                              </div>
-
-                              {summaries.map((s) => (
-                                <div key={s.id} className="space-y-2">
-                                  <div className="text-xs text-zinc-500">Saved {softWhen(s.created_at)}</div>
-                                  <div className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-800">{s.summary_text}</div>
-                                  <div className="flex flex-wrap items-center gap-2">
-                                    <Chip onClick={() => useSummaryAsContext(d, s)} title="Append this into the draft context">
-                                      Use as context
-                                    </Chip>
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          ) : null}
-
+                          {/* Primary actions */}
                           <div className="space-y-2">
                             <div className="text-xs text-zinc-500">
-                              Talk it through if you’re unsure. Decide saves it into <span className="font-medium">Decisions</span>.
+                              Decide saves it into <span className="font-medium">Decisions</span>. Review schedules it for later.
                             </div>
 
                             {confirmDeleteForId === d.id ? (
@@ -1396,19 +1291,6 @@ export default function ThinkingClient({
                               </div>
                             ) : (
                               <div className="flex flex-wrap items-center gap-2">
-                                <PrimaryActionButton
-                                  onClick={() => {
-                                    setChatForId((cur) => {
-                                      const next = cur === d.id ? null : d.id;
-                                      if (next) setChatFocusTokenById((p) => ({ ...p, [d.id]: (p[d.id] ?? 0) + 1 }));
-                                      return next;
-                                    });
-                                  }}
-                                  title="Talk it through with me"
-                                >
-                                  {isChatOpen ? "Hide chat" : "Talk this through"}
-                                </PrimaryActionButton>
-
                                 <PrimaryActionButton onClick={() => decideNow(d)} title="Confirm and save into Decisions">
                                   Decide
                                 </PrimaryActionButton>
@@ -1468,6 +1350,13 @@ export default function ThinkingClient({
                                   Go to Review
                                 </Chip>
 
+                                <Chip
+                                  onClick={() => setShowDetailsById((p) => ({ ...p, [d.id]: !p[d.id] }))}
+                                  title="Show/hide draft details"
+                                >
+                                  {showDetails ? "Hide details" : "Draft details"}
+                                </Chip>
+
                                 <Chip onClick={() => setConfirmDeleteForId(d.id)} title="Delete this draft">
                                   Delete
                                 </Chip>
@@ -1475,18 +1364,161 @@ export default function ThinkingClient({
                             )}
                           </div>
 
-                          {isChatOpen ? (
-                            <div className="pt-2">
-                              <ConversationPanel
-                                decisionId={d.id}
-                                decisionTitle={d.title}
-                                askedText={d.title}
-                                frame={{ decision_statement: d.title }}
-                                autoFocusToken={chatFocusTokenById[d.id] ?? 0}
-                                autoStartToken={chatFocusTokenById[d.id] ?? 0}
-                                onClose={() => setChatForId(null)}
-                                onSummarySaved={() => void reloadSummaries(d.id)}
-                              />
+                          {/* Details (collapsed by default; preserves all V1 functionality) */}
+                          {showDetails ? (
+                            <div className="space-y-4">
+                              <div className="rounded-xl border border-zinc-200 bg-white p-4 space-y-2">
+                                <div className="text-sm font-semibold text-zinc-900">Original</div>
+                                <div className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-700">
+                                  {(originalSnapshot.captured || originalSnapshot.title || "").trim() || "—"}
+                                </div>
+                              </div>
+
+                              <div className="rounded-xl border border-zinc-200 bg-white p-4 space-y-3">
+                                <div className="flex items-center justify-between gap-2">
+                                  <div className="text-sm font-semibold text-zinc-900">Draft</div>
+
+                                  {!isEditingDraft ? (
+                                    <Chip onClick={() => beginEditDraft(d)} title="Edit">
+                                      Edit
+                                    </Chip>
+                                  ) : (
+                                    <div className="flex items-center gap-2">
+                                      <Chip onClick={() => cancelEditDraft(d)} title="Cancel">
+                                        Cancel
+                                      </Chip>
+                                      <Chip onClick={() => void saveDraftOverwrite(d)} title="Save">
+                                        Save
+                                      </Chip>
+                                    </div>
+                                  )}
+                                </div>
+
+                                <div className="space-y-2">
+                                  <div className="text-xs text-zinc-500">Title</div>
+                                  <input
+                                    value={isEditingDraft ? (draftTitleById[d.id] ?? d.title) : d.title}
+                                    disabled={!isEditingDraft}
+                                    onChange={(e) => setDraftTitleById((prev) => ({ ...prev, [d.id]: e.target.value }))}
+                                    className={`h-11 w-full rounded-2xl border px-4 text-[15px] text-zinc-900 outline-none ${
+                                      isEditingDraft
+                                        ? "border-zinc-200 bg-white focus:ring-2 focus:ring-zinc-200"
+                                        : "border-zinc-100 bg-zinc-50 text-zinc-900"
+                                    }`}
+                                    aria-label="Draft title"
+                                  />
+                                </div>
+
+                                <div className="space-y-2">
+                                  <div className="text-xs text-zinc-500">Body</div>
+
+                                  {!isEditingDraft ? (
+                                    <div className="whitespace-pre-wrap rounded-2xl border border-zinc-100 bg-zinc-50 px-4 py-3 text-[15px] leading-relaxed text-zinc-800">
+                                      {parts.draft?.trim() ? parts.draft : <span className="text-zinc-500">This is what I’m deciding… (optional)</span>}
+                                    </div>
+                                  ) : (
+                                    <textarea
+                                      value={draftBodyById[d.id] ?? parts.draft ?? ""}
+                                      onChange={(e) => setDraftBodyById((prev) => ({ ...prev, [d.id]: e.target.value }))}
+                                      placeholder="This is what I’m deciding… (optional)"
+                                      className="w-full min-h-[160px] resize-y rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-[15px] leading-relaxed text-zinc-900 outline-none focus:ring-2 focus:ring-zinc-200"
+                                      aria-label="Draft body"
+                                    />
+                                  )}
+                                </div>
+                              </div>
+
+                              <DecisionNotes decisionId={d.id} kind="thinking" />
+
+                              {showFiledUnderCard ? (
+                                <div className="rounded-xl border border-zinc-200 bg-white p-3 space-y-2">
+                                  <div className="flex flex-wrap items-center justify-between gap-2">
+                                    <div className="text-xs font-semibold text-zinc-700">Filed under</div>
+                                    <Chip
+                                      onClick={() => {
+                                        if (!hasAnyLabelOptions) {
+                                          showToast({ message: "No areas or groups yet." }, 2000);
+                                          return;
+                                        }
+                                        setLabelsEditForId((cur) => (cur === d.id ? null : d.id));
+                                      }}
+                                    >
+                                      {isEditingLabels ? "Done" : "Edit"}
+                                    </Chip>
+                                  </div>
+
+                                  {!isEditingLabels ? (
+                                    <div className="text-sm text-zinc-700">
+                                      {filedUnder.length > 0 ? <span>{filedUnder.join(", ")}</span> : <span className="text-zinc-600">Not set.</span>}
+                                    </div>
+                                  ) : (
+                                    <div className="space-y-3">
+                                      <div className="text-xs text-zinc-500">Optional. Helps you group and filter later.</div>
+
+                                      <div className="space-y-2">
+                                        <div className="text-xs text-zinc-500">Area</div>
+                                        <div className="flex flex-wrap items-center gap-2">
+                                          <Chip active={!domainId} onClick={() => void setDecisionDomain(d.id, null)}>
+                                            None
+                                          </Chip>
+                                          {domains.map((dom) => (
+                                            <Chip key={dom.id} active={domainId === dom.id} onClick={() => void setDecisionDomain(d.id, dom.id)}>
+                                              {dom.name}
+                                            </Chip>
+                                          ))}
+                                        </div>
+                                      </div>
+
+                                      <div className="space-y-2">
+                                        <div className="text-xs text-zinc-500">Groups</div>
+                                        {constellations.length === 0 ? (
+                                          <div className="text-sm text-zinc-600">No groups yet.</div>
+                                        ) : (
+                                          <div className="flex flex-wrap items-center gap-2">
+                                            {constellations.map((c) => {
+                                              const active = memberIds.includes(c.id);
+                                              return (
+                                                <Chip key={c.id} active={active} onClick={() => void toggleConstellation(d.id, c.id)}>
+                                                  {c.name}
+                                                </Chip>
+                                              );
+                                            })}
+                                          </div>
+                                        )}
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              ) : null}
+
+                              <div className="rounded-xl border border-zinc-200 bg-white p-3 space-y-2">
+                                {userId ? (
+                                  <AttachmentsBlock userId={userId} decisionId={d.id} title={attachmentsTitle} bucket="captures" initial={allAtt} />
+                                ) : (
+                                  <div className="text-sm text-zinc-600">Attachments unavailable.</div>
+                                )}
+                              </div>
+
+                              {summaries.length > 0 ? (
+                                <div className="rounded-xl border border-zinc-200 bg-white p-3 space-y-2">
+                                  <div className="space-y-1">
+                                    <div className="text-xs font-semibold text-zinc-700">Saved summaries</div>
+                                    <div className="text-xs text-zinc-500">These appear after you choose to save a chat summary.</div>
+                                  </div>
+
+                                  {summaries.map((s) => (
+                                    <div key={s.id} className="space-y-2">
+                                      <div className="text-xs text-zinc-500">Saved {softWhen(s.created_at)}</div>
+                                      <div className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-800">{s.summary_text}</div>
+                                      <div className="flex flex-wrap items-center gap-2">
+                                        <Chip onClick={() => useSummaryAsContext(d, s)} title="Append this into the draft context">
+                                          Use as context
+                                        </Chip>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : null}
                             </div>
                           ) : null}
                         </div>

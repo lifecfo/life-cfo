@@ -26,13 +26,29 @@ export function ConversationPanel(props: {
   // ✅ focus without scrolling (existing)
   autoFocusToken?: number;
 
-  // ✅ NEW: show "You asked:" line (use the user's question/title)
+  // ✅ show "You asked:" line (use the user's question/title)
   askedText?: string;
 
-  // ✅ NEW: triggers a boot assistant message when panel opens
+  // ✅ triggers a boot assistant message when panel opens
   autoStartToken?: number;
+
+  // ✅ NEW: allow parent to inject a first user message (chat-first composer)
+  initialUserMessage?: string;
+  initialUserMessageToken?: number;
+  onInitialUserMessageConsumed?: () => void;
 }) {
-  const { decisionId, decisionTitle, frame, onClose, onSummarySaved, askedText, autoStartToken } = props;
+  const {
+    decisionId,
+    decisionTitle,
+    frame,
+    onClose,
+    onSummarySaved,
+    askedText,
+    autoStartToken,
+    initialUserMessage,
+    initialUserMessageToken,
+    onInitialUserMessageConsumed,
+  } = props;
 
   const [userId, setUserId] = useState<string | null>(null);
   const [status, setStatus] = useState<string>("");
@@ -168,8 +184,8 @@ export function ConversationPanel(props: {
     if (error) setStatus(`Save failed: ${error.message}`);
   };
 
-  const send = async () => {
-    const text = draft.trim();
+  const sendText = async (textRaw: string) => {
+    const text = (textRaw ?? "").trim();
     if (!text) return;
     if (sending) return;
 
@@ -232,18 +248,38 @@ export function ConversationPanel(props: {
     }
   };
 
+  const send = async () => {
+    const text = draft.trim();
+    if (!text) return;
+    await sendText(text);
+  };
+
+  // ✅ Consume injected first message when token increments
+  useEffect(() => {
+    const injected = (initialUserMessage ?? "").trim();
+    if (!injected) return;
+    if (!initialUserMessageToken) return;
+
+    // Only inject once per token change
+    void (async () => {
+      await sendText(injected);
+      onInitialUserMessageConsumed?.();
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialUserMessageToken]);
+
   const summariseChat = async () => {
     if (summarising) return;
 
     if (messages.length === 0) {
       setSummaryText("");
-      setSummaryStatus("Nothing to summarise yet.");
+      setSummaryStatus("Nothing to capture yet.");
       return;
     }
 
     setSummarising(true);
     setSummaryText("");
-    setSummaryStatus("Summarising…");
+    setSummaryStatus("Capturing…");
     setAddedSummary(false);
     setAddSummaryStatus("");
 
@@ -272,7 +308,7 @@ export function ConversationPanel(props: {
 
       const text = String(json?.summaryText ?? "").trim();
       if (!text) {
-        setSummaryStatus("No summary returned.");
+        setSummaryStatus("No capture returned.");
         return;
       }
 
@@ -308,7 +344,7 @@ export function ConversationPanel(props: {
       }
 
       setAddedSummary(true);
-      setAddSummaryStatus("Added to decision.");
+      setAddSummaryStatus("Saved.");
       onSummarySaved?.();
     } catch (e: any) {
       setAddSummaryStatus(e?.message ?? "Couldn’t add summary.");
@@ -406,13 +442,11 @@ export function ConversationPanel(props: {
                 {sending ? "Thinking…" : "Send"}
               </Chip>
 
-              <Chip onClick={summariseChat} title="Generate a summary and save it to this draft">
-                {summarising ? "Summarising…" : "Summarise chat & save draft"}
+              <Chip onClick={summariseChat} title="Generate a capture preview (nothing commits yet)">
+                {summarising ? "Capturing…" : "Capture preview"}
               </Chip>
 
-              <div className="text-xs text-zinc-500">
-                You can ask me to recommend, compare, simulate, optimise, or show reasoning — only if you want.
-              </div>
+              <div className="text-xs text-zinc-500">Ask for options, trade-offs, or a plan — only if you want.</div>
             </div>
 
             {summaryStatus ? <div className="text-xs text-zinc-500">{summaryStatus}</div> : null}
@@ -421,7 +455,7 @@ export function ConversationPanel(props: {
               <div className="mt-3 rounded-xl border border-zinc-200 bg-zinc-50 p-3 space-y-3">
                 <div className="flex items-start justify-between gap-2">
                   <div>
-                    <div className="text-sm font-semibold text-zinc-900">Summary preview</div>
+                    <div className="text-sm font-semibold text-zinc-900">Capture preview</div>
                     <div className="text-xs text-zinc-600">Nothing has been added to the decision yet.</div>
                   </div>
 
@@ -441,16 +475,14 @@ export function ConversationPanel(props: {
                 <div className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-800">{summaryText}</div>
 
                 <div className="flex flex-wrap items-center gap-2 pt-1">
-                  <Chip onClick={addSummaryToDecision} title="Add this summary to the decision (explicit consent)">
-                    {addingSummary ? "Adding…" : addedSummary ? "Added" : "Add summary to decision"}
+                  <Chip onClick={addSummaryToDecision} title="Save this summary to the decision (explicit consent)">
+                    {addingSummary ? "Saving…" : addedSummary ? "Saved" : "Save to decision"}
                   </Chip>
 
                   {addSummaryStatus ? <div className="text-xs text-zinc-500">{addSummaryStatus}</div> : null}
                 </div>
 
-                <div className="pt-1 text-xs text-zinc-500">
-                  This creates a durable summary entry for this decision. It can be used later for search and recall.
-                </div>
+                <div className="pt-1 text-xs text-zinc-500">This creates a durable summary entry for this decision.</div>
               </div>
             ) : null}
           </div>
