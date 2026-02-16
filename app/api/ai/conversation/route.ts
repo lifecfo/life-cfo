@@ -13,66 +13,68 @@ type InMsg = { role: "user" | "assistant"; content: string };
 type Mode = "chat" | "summarise";
 
 /**
- * We want ChatGPT-like readability:
- * - markdown headings + bullets
- * - whitespace
- * - bold key phrases
- * We must REQUIRE markdown output (not just suggest it),
- * otherwise the model will often respond in plain prose.
+ * We want ChatGPT-like readability WITHOUT markdown headings.
+ * So we:
+ * - Forbid #/##/### headings
+ * - Use plain-text section titles (single line)
+ * - Use hyphen bullets
+ * - Use blank lines for spacing
+ * - Use **bold** sparingly for key phrases
  */
-const OUTPUT_CONTRACT = [
-  "OUTPUT CONTRACT (must follow):",
-  "1) Output MUST be valid Markdown.",
-  "2) Use headings with '### ' exactly (NOT plain text headings).",
-  "3) Use bullet points with '- ' for lists (NOT plain sentences).",
-  "4) Add blank lines between sections.",
-  "5) Bold key phrases and numbers using **bold**.",
-  "6) Ask at most 1–2 questions at the end under '### Next question'.",
-  "7) Do NOT include any meta commentary about these rules.",
-  "8) Do NOT wrap the entire answer in a code block.",
+const OUTPUT_RULES = [
+  "Output style (mandatory):",
+  "- Do NOT use markdown headings. No lines starting with '#', '##', or '###'.",
+  "- Use simple section titles as plain text lines, e.g. 'What I’m hearing' (no punctuation required).",
+  "- After a section title, add a blank line, then bullets or short paragraphs.",
+  "- Prefer '-' for bullets and keep bullets short.",
+  "- Add blank lines between sections.",
+  "- Bold key phrases and numbers using **bold**.",
+  "- Avoid long paragraphs. Use lists and whitespace.",
+  "- Ask at most 1–2 questions at the end if needed.",
+  "- Never output fenced code blocks unless the user asks for code.",
 ].join("\n");
 
-const CHAT_TEMPLATE = [
-  "TEMPLATE (use exactly these headings):",
+const CHAT_STRUCTURE = [
+  "Preferred structure (use what fits):",
   "",
-  "### What I’m hearing",
+  "What I’m hearing",
   "- ...",
   "",
-  "### Key factors",
+  "Key factors",
+  "- **Timing:** ...",
+  "- **Constraints:** ...",
+  "",
+  "Options",
+  "- **Option A:** ... (trade-offs)",
+  "- **Option B:** ... (trade-offs)",
+  "",
+  "Suggested next step",
   "- ...",
   "",
-  "### Options",
-  "- **Option A:** ...",
-  "- **Option B:** ...",
-  "",
-  "### Suggested next step",
+  "Next question",
   "- ...",
-  "",
-  "### Next question",
-  "- ... (ask 1–2 max)",
 ].join("\n");
 
-const SUMMARY_TEMPLATE = [
-  "TEMPLATE (use exactly these headings):",
+const SUMMARY_STRUCTURE = [
+  "Preferred capture preview structure:",
   "",
-  "### Snapshot",
-  "- **Current leaning:** ... (or **Not stated**)",
+  "Snapshot",
+  "- **Current leaning:** ... (or 'Not stated')",
   "- **Why it matters:** ...",
   "",
-  "### Key constraints",
+  "Key constraints",
   "- ...",
   "",
-  "### Key considerations",
+  "Key considerations",
   "- ...",
   "",
-  "### Open questions",
+  "Open questions",
   "- ...",
   "",
-  "### Suggested next step",
+  "Suggested next step",
   "- ...",
   "",
-  "### Next question",
-  "- ... (ask 1–2 max, only if needed)",
+  "If you need clarification, ask 1–2 questions (as bullets).",
 ].join("\n");
 
 function buildSystemPrompt(args: { decisionTitle: string; decisionStatement?: string; mode: Mode }) {
@@ -81,15 +83,17 @@ function buildSystemPrompt(args: { decisionTitle: string; decisionStatement?: st
   if (mode === "summarise") {
     return [
       "You are Keystone.",
-      "Task: produce a calm, scannable capture preview of the conversation.",
+      "Task: Summarise the user's conversation about a decision into a calm, useful capture preview.",
       "Rules:",
       "- Do NOT recommend a choice unless explicitly asked.",
-      "- Keep it short and useful.",
-      "- Include: current leaning (if any), constraints, open questions, next steps.",
+      "- Keep it short and scannable.",
+      "- Include: current leaning (if any), key constraints, open questions, next steps.",
+      "- If unclear, ask 1–2 clarifying questions at the end.",
       "",
-      OUTPUT_CONTRACT,
+      OUTPUT_RULES,
       "",
-      SUMMARY_TEMPLATE,
+      "Structure:",
+      SUMMARY_STRUCTURE,
       "",
       `Decision title: ${decisionTitle}`,
       decisionStatement ? `Decision statement: ${decisionStatement}` : "",
@@ -103,13 +107,16 @@ function buildSystemPrompt(args: { decisionTitle: string; decisionStatement?: st
     "You are helping the user think, not forcing a decision.",
     "Rules:",
     "- Do NOT recommend a choice unless the user asks you to recommend.",
-    "- Do NOT pick a winner unless asked.",
+    "- Do NOT pick a winner unless asked to compare with a winner.",
+    "- Do NOT simulate irreversible outcomes unless asked.",
+    "- Do NOT aggressively optimise unless asked.",
+    "- Keep tone grounded, gentle, and practical.",
     "- Ask clarifying questions when needed instead of guessing.",
-    "- Keep tone grounded, gentle, practical.",
     "",
-    OUTPUT_CONTRACT,
+    OUTPUT_RULES,
     "",
-    CHAT_TEMPLATE,
+    "Structure:",
+    CHAT_STRUCTURE,
     "",
     `Decision title: ${decisionTitle}`,
     decisionStatement ? `Decision statement: ${decisionStatement}` : "",
@@ -119,7 +126,6 @@ function buildSystemPrompt(args: { decisionTitle: string; decisionStatement?: st
 }
 
 function buildTranscript(messages: InMsg[]) {
-  // Keep transcript simple + robust.
   return messages
     .map((m) => `${m.role === "user" ? "You" : "Keystone"}: ${m.content}`)
     .join("\n\n");
@@ -134,31 +140,6 @@ function lastUserText(messages: InMsg[]) {
     }
   }
   return "";
-}
-
-// If the model still tries to output plain headings, this nudges it hard.
-function buildUserInstruction(mode: Mode, transcript: string) {
-  if (mode === "summarise") {
-    return [
-      "Create a capture preview from the conversation below.",
-      "IMPORTANT: Follow the OUTPUT CONTRACT and TEMPLATE exactly.",
-      "Headings must begin with '### '. Lists must use '- '.",
-      "",
-      "CONVERSATION:",
-      transcript,
-    ].join("\n");
-  }
-
-  return [
-    "Continue the conversation below.",
-    "IMPORTANT: Follow the OUTPUT CONTRACT and TEMPLATE exactly.",
-    "Headings must begin with '### '. Lists must use '- '.",
-    "Keep it calm and scannable.",
-    "Ask 1–2 questions max under '### Next question'.",
-    "",
-    "CONVERSATION:",
-    transcript,
-  ].join("\n");
 }
 
 export async function POST(req: Request) {
@@ -204,7 +185,27 @@ export async function POST(req: Request) {
     });
 
     const transcript = buildTranscript(safeMessages);
-    const userContent = buildUserInstruction(mode, transcript);
+
+    const userContent =
+      mode === "summarise"
+        ? [
+            "Create a capture preview for the decision based on the conversation.",
+            "Follow the output style rules exactly.",
+            "Do not use markdown headings (#/##/###).",
+            "",
+            "CONVERSATION:",
+            transcript,
+          ].join("\n")
+        : [
+            "Continue the conversation.",
+            "Follow the output style rules exactly.",
+            "Do not use markdown headings (#/##/###).",
+            "Keep it calm and scannable.",
+            "Ask at most 1–2 questions at the end if needed.",
+            "",
+            "CONVERSATION:",
+            transcript,
+          ].join("\n");
 
     const model = process.env.OPENAI_MODEL || "gpt-4.1";
 
@@ -214,8 +215,7 @@ export async function POST(req: Request) {
         { role: "system", content: system },
         { role: "user", content: userContent },
       ],
-      // Lower temp makes formatting + template adherence more reliable
-      temperature: mode === "summarise" ? 0.15 : 0.35,
+      temperature: mode === "summarise" ? 0.2 : 0.45,
       max_output_tokens: mode === "summarise" ? 520 : 900,
     });
 
