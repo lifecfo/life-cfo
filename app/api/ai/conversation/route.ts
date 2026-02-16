@@ -5,6 +5,8 @@ import { maybeCrisisIntercept } from "@/lib/safety/guard";
 
 export const dynamic = "force-dynamic";
 
+const VERSION = "conversation-route:v2026-02-16-001";
+
 const client = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
@@ -51,12 +53,6 @@ function buildSystemPrompt(args: { decisionTitle: string; decisionStatement?: st
       STYLE_GUIDE,
       "",
       OPTIONAL_SECTIONS,
-      "",
-      "For summary mode, prefer these headings (only if useful):",
-      "### Snapshot",
-      "### Key constraints",
-      "### Open questions",
-      "### Suggested next step",
       "",
       `Decision title: ${decisionTitle}`,
       decisionStatement ? `Decision statement: ${decisionStatement}` : "",
@@ -120,10 +116,10 @@ const TITLE_SET = new Set(
 function isTitleLine(s: string) {
   const t = (s || "").trim();
   if (!t) return false;
+
   const low = t.toLowerCase();
   if (TITLE_SET.has(low)) return true;
 
-  // heuristic: short, no punctuation, 1–5 words
   const hasPunct = /[.:;!?]/.test(t);
   const words = t.split(/\s+/).filter(Boolean);
   if (!hasPunct && words.length >= 1 && words.length <= 5 && t.length <= 32) return true;
@@ -132,7 +128,6 @@ function isTitleLine(s: string) {
 }
 
 function bulletifyLabelLine(s: string) {
-  // "Label: text" => "- **Label:** text"
   const m = s.match(/^([A-Za-z][A-Za-z0-9 &'’\/-]{1,36}):\s+(.+)$/);
   if (!m) return null;
   const label = m[1].trim();
@@ -142,18 +137,13 @@ function bulletifyLabelLine(s: string) {
   return `- **${label}:** ${rest}`;
 }
 
-/**
- * HARD GUARANTEE: even if the model ignores formatting, we normalize to a readable “ChatGPT-like” markdown.
- */
 function normalizeMarkdown(raw: string) {
   let text = String(raw ?? "").replace(/\r\n/g, "\n").trim();
   if (!text) return text;
 
-  // Remove accidental mega-heading noise like "####" etc? Keep headings, but normalize too-many #'s
   text = text.replace(/^\s{0,3}#{4,}\s+/gm, "### ");
 
   const lines = text.split("\n");
-
   const out: string[] = [];
   let prevBlank = true;
   let prevWasList = false;
@@ -174,7 +164,6 @@ function normalizeMarkdown(raw: string) {
       continue;
     }
 
-    // Convert plain title line to heading
     if (isTitleLine(t) && !/^#{1,6}\s+/.test(t) && !/^(-|\*|\d+\.)\s+/.test(t)) {
       ensureBlank();
       out.push(`### ${t}`);
@@ -184,17 +173,15 @@ function normalizeMarkdown(raw: string) {
       continue;
     }
 
-    // Preserve existing headings
     if (/^#{1,6}\s+/.test(t)) {
       ensureBlank();
-      out.push(t.replace(/^#{1,3}\s+/, "### ")); // keep consistent size
+      out.push(t.replace(/^#{1,3}\s+/, "### "));
       out.push("");
       prevBlank = true;
       prevWasList = false;
       continue;
     }
 
-    // Preserve existing list markers
     if (/^(-|\*|\d+\.)\s+/.test(t)) {
       if (!prevWasList) ensureBlank();
       out.push(t);
@@ -203,7 +190,6 @@ function normalizeMarkdown(raw: string) {
       continue;
     }
 
-    // Convert label lines into bullets
     const b = bulletifyLabelLine(t);
     if (b) {
       if (!prevWasList) ensureBlank();
@@ -213,18 +199,15 @@ function normalizeMarkdown(raw: string) {
       continue;
     }
 
-    // Regular paragraph
     if (prevWasList) out.push("");
     out.push(t);
     prevBlank = false;
     prevWasList = false;
   }
 
-  // Trim excess blanks
   while (out.length && out[0].trim() === "") out.shift();
   while (out.length && out[out.length - 1].trim() === "") out.pop();
 
-  // Ensure blank lines between paragraphs (a final pass: collapse 3+ blanks)
   return out.join("\n").replace(/\n{3,}/g, "\n\n").trim();
 }
 
@@ -253,15 +236,17 @@ export async function POST(req: Request) {
       .map((m) => ({ role: m.role, content: m.content.trim() }));
 
     if (!decisionTitle) {
-      return NextResponse.json({ error: "Missing decisionTitle." }, { status: 400 });
+      return NextResponse.json({ error: "Missing decisionTitle.", version: VERSION }, { status: 400 });
     }
 
-    // 🔒 SAFETY INTERCEPT (V1 REQUIRED)
     const userText = lastUserText(safeMessages);
     const intercept = maybeCrisisIntercept(userText);
     if (intercept) {
-      if (mode === "summarise") return NextResponse.json({ summaryText: intercept.content, kind: intercept.kind });
-      return NextResponse.json({ assistantText: intercept.content, kind: intercept.kind });
+      const payload = mode === "summarise"
+        ? { summaryText: intercept.content, kind: intercept.kind, version: VERSION }
+        : { assistantText: intercept.content, kind: intercept.kind, version: VERSION };
+
+      return NextResponse.json(payload, { headers: { "x-keystone-ai-version": VERSION } });
     }
 
     const system = buildSystemPrompt({
@@ -274,13 +259,7 @@ export async function POST(req: Request) {
 
     const userContent =
       mode === "summarise"
-        ? [
-            "Write a capture preview summary.",
-            "You MUST follow the formatting rules.",
-            "",
-            "CONVERSATION:",
-            transcript,
-          ].join("\n")
+        ? ["Write a capture preview summary.", "You MUST follow the formatting rules.", "", "CONVERSATION:", transcript].join("\n")
         : [
             "Reply to the user's latest message.",
             "Answer the new message first, then add structure only if helpful.",
@@ -304,15 +283,15 @@ export async function POST(req: Request) {
 
     const rawText = String(resp.output_text ?? "").trim();
     if (!rawText) {
-      return NextResponse.json({ error: "Empty AI response." }, { status: 502 });
+      return NextResponse.json({ error: "Empty AI response.", version: VERSION }, { status: 502 });
     }
 
     const text = normalizeMarkdown(rawText);
 
-    if (mode === "summarise") return NextResponse.json({ summaryText: text });
-    return NextResponse.json({ assistantText: text });
+    const payload = mode === "summarise" ? { summaryText: text, version: VERSION } : { assistantText: text, version: VERSION };
+    return NextResponse.json(payload, { headers: { "x-keystone-ai-version": VERSION } });
   } catch (err: any) {
     const message = err?.message ? String(err.message) : "AI request failed.";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: message, version: VERSION }, { status: 500 });
   }
 }
