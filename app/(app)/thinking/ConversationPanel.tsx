@@ -24,21 +24,15 @@ function MarkdownBubble({ content }: { content: string }) {
   return (
     <div
       className={[
-        // Typography (keep same base size as user via wrapper text-sm)
         "prose prose-sm max-w-none",
         "text-zinc-800",
-        // Headings
         "prose-headings:text-zinc-900 prose-headings:font-semibold",
         "prose-h1:text-base prose-h2:text-base prose-h3:text-sm",
-        // Spacing (ChatGPT-ish, but not too airy)
         "prose-p:my-2.5 prose-ul:my-2.5 prose-ol:my-2.5",
         "prose-li:my-1 prose-hr:my-4",
-        // Emphasis + inline code
         "prose-strong:text-zinc-900",
         "prose-code:text-zinc-900 prose-code:bg-zinc-100 prose-code:px-1 prose-code:py-0.5 prose-code:rounded",
-        // Code blocks
-        "prose-pre:bg-zinc-50 prose-pre:border prose-pre:border-zinc-200 prose-pre:rounded-xl prose-pre:p-3",
-        // Links
+        "prose-pre:bg-zinc-50 prose-pre:rounded-xl prose-pre:p-3",
         "prose-a:underline prose-a:underline-offset-2",
       ].join(" ")}
     >
@@ -53,7 +47,6 @@ function MarkdownBubble({ content }: { content: string }) {
             );
           },
           code({ children, className }) {
-            // Keep block code as-is (<pre><code>...</code></pre> from react-markdown)
             const isBlock = (className || "").includes("language-");
             if (isBlock) return <code className={className}>{children}</code>;
             return <code className="rounded bg-zinc-100 px-1 py-0.5">{children}</code>;
@@ -385,15 +378,20 @@ export function ConversationPanel(props: {
     }
   };
 
+  // ChatGPT-ish proportions
+  const widthUser = "max-w-[68%]";
+  const widthAsst = "max-w-[80%]";
+
   return (
     <Card className="border-zinc-200 bg-white">
       <CardContent>
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
             <div className="text-sm font-semibold text-zinc-900">Conversation</div>
-            <div className="mt-0.5 text-xs text-zinc-500 truncate">Anchored to: {decisionTitle}</div>
+
+            {/* Remove redundant anchored line; only show “You asked” when provided */}
             {askedText ? (
-              <div className="mt-1 text-xs text-zinc-600">
+              <div className="mt-1 text-xs text-zinc-600 truncate">
                 <span className="font-medium text-zinc-700">You asked:</span> {askedText}
               </div>
             ) : null}
@@ -406,49 +404,35 @@ export function ConversationPanel(props: {
           </div>
         </div>
 
-        {/* --- Chat container: remove the disjointed grey boxes/lines --- */}
-        <div className="mt-3 rounded-2xl border border-zinc-200 bg-white">
-          {/* Messages area */}
-          <div className="max-h-[420px] overflow-auto px-4 py-4">
-            {loading ? <div className="text-sm text-zinc-600">Loading…</div> : null}
+        {/* Single surface. No nested borders. */}
+        <div className="mt-3 rounded-2xl bg-white">
+          {/* Messages */}
+          <div className="max-h-[520px] overflow-auto px-2 py-3 sm:px-4">
+            {loading ? <div className="text-sm text-zinc-600 px-2">Loading…</div> : null}
 
             {!loading && messages.length === 0 ? (
               <div className="py-2">
                 <div className="flex justify-start">
-                  <div className="max-w-[80%] rounded-3xl border border-zinc-200 bg-white px-5 py-3.5 text-sm leading-relaxed text-zinc-800 whitespace-pre-wrap">
-                    {bootMessage || "Okay — let’s think this through."}
+                  <div className={[widthAsst, "rounded-3xl bg-zinc-50 px-5 py-3.5 text-sm leading-relaxed text-zinc-800"].join(" ")}>
+                    <div className="whitespace-pre-wrap">{bootMessage || "Okay — let’s think this through."}</div>
                   </div>
                 </div>
               </div>
             ) : null}
 
-            {/* More vertical rhythm between bubbles */}
             <div className="space-y-5">
               {messages.map((m, idx) => {
                 const isUser = m.role === "user";
 
-                // ChatGPT-ish proportions
-                const bubbleWidth = isUser ? "max-w-[68%]" : "max-w-[80%]";
-
-                const bubbleBase =
-                  "rounded-3xl px-5 py-3.5 border border-zinc-200 text-sm leading-relaxed";
+                // No borders on bubbles, only subtle fills
+                const bubbleClass = isUser
+                  ? [widthUser, "rounded-3xl bg-zinc-100 px-5 py-3.5 text-sm leading-relaxed text-zinc-900"].join(" ")
+                  : [widthAsst, "rounded-3xl bg-white px-5 py-3.5 text-sm leading-relaxed text-zinc-800"].join(" ");
 
                 return (
                   <div key={idx} className={isUser ? "flex justify-end" : "flex justify-start"}>
-                    <div
-                      className={[
-                        bubbleWidth,
-                        bubbleBase,
-                        isUser
-                          ? "bg-zinc-100 text-zinc-900"
-                          : "bg-white text-zinc-800",
-                      ].join(" ")}
-                    >
-                      {isUser ? (
-                        <div className="whitespace-pre-wrap">{m.content}</div>
-                      ) : (
-                        <MarkdownBubble content={m.content} />
-                      )}
+                    <div className={bubbleClass}>
+                      {isUser ? <div className="whitespace-pre-wrap">{m.content}</div> : <MarkdownBubble content={m.content} />}
                     </div>
                   </div>
                 );
@@ -456,9 +440,9 @@ export function ConversationPanel(props: {
             </div>
 
             {summaryText ? (
-              <div className="mt-6 space-y-2">
+              <div className="mt-6">
                 <div className="flex justify-start">
-                  <div className="max-w-[80%] rounded-3xl border border-zinc-200 bg-white px-5 py-4">
+                  <div className={[widthAsst, "rounded-3xl bg-zinc-50 px-5 py-4"].join(" ")}>
                     <div className="text-xs text-zinc-500 mb-2">Capture preview</div>
                     <MarkdownBubble content={summaryText} />
 
@@ -489,60 +473,62 @@ export function ConversationPanel(props: {
             <div ref={endRef} />
           </div>
 
-          {/* Composer: keep a single subtle divider (not multiple grey boxes) */}
-          <div className="border-t border-zinc-200 px-4 py-4 space-y-2">
-            {status ? <div className="text-xs text-zinc-500">{status}</div> : null}
-            {summaryStatus ? <div className="text-xs text-zinc-500">{summaryStatus}</div> : null}
+          {/* Composer: no divider border; just spacing */}
+          <div className="px-2 pb-3 sm:px-4">
+            {status ? <div className="text-xs text-zinc-500 px-2 mb-2">{status}</div> : null}
+            {summaryStatus ? <div className="text-xs text-zinc-500 px-2 mb-2">{summaryStatus}</div> : null}
 
-            <div className="relative">
-              <textarea
-                ref={inputRef}
-                value={draft}
-                onChange={(e) => setDraft(e.target.value)}
-                rows={3}
-                placeholder="Talk it through…"
-                className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 pr-12 text-sm text-zinc-800 outline-none focus:ring-2 focus:ring-zinc-200"
-                onKeyDown={(e) => {
-                  const isMac =
-                    typeof navigator !== "undefined" && /Mac|iPhone|iPad|iPod/.test(navigator.platform);
-                  const cmdOrCtrl = isMac ? e.metaKey : e.ctrlKey;
+            <div className="rounded-2xl bg-zinc-50 p-3">
+              <div className="relative">
+                <textarea
+                  ref={inputRef}
+                  value={draft}
+                  onChange={(e) => setDraft(e.target.value)}
+                  rows={3}
+                  placeholder="Talk it through…"
+                  className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 pr-12 text-sm text-zinc-800 outline-none focus:ring-2 focus:ring-zinc-200"
+                  onKeyDown={(e) => {
+                    const isMac =
+                      typeof navigator !== "undefined" && /Mac|iPhone|iPad|iPod/.test(navigator.platform);
+                    const cmdOrCtrl = isMac ? e.metaKey : e.ctrlKey;
 
-                  if (cmdOrCtrl && e.key === "Enter") {
-                    e.preventDefault();
-                    void send();
-                    return;
-                  }
+                    if (cmdOrCtrl && e.key === "Enter") {
+                      e.preventDefault();
+                      void send();
+                      return;
+                    }
 
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault();
-                    void send();
-                  }
-                }}
-              />
+                    if (e.key === "Enter" && !e.shiftKey) {
+                      e.preventDefault();
+                      void send();
+                    }
+                  }}
+                />
 
-              {canSend ? (
-                <button
-                  type="button"
-                  onClick={() => void send()}
-                  className="absolute bottom-3 right-3 inline-flex h-9 w-9 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50 focus:outline-none focus:ring-2 focus:ring-zinc-200"
-                  aria-label="Send"
-                  title="Send (Enter)"
-                >
-                  →
-                </button>
-              ) : null}
-            </div>
+                {canSend ? (
+                  <button
+                    type="button"
+                    onClick={() => void send()}
+                    className="absolute bottom-3 right-3 inline-flex h-9 w-9 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50 focus:outline-none focus:ring-2 focus:ring-zinc-200"
+                    aria-label="Send"
+                    title="Send (Enter)"
+                  >
+                    →
+                  </button>
+                ) : null}
+              </div>
 
-            <div className="flex flex-wrap items-center gap-2">
-              <Chip onClick={send} title={sending ? "Working…" : "Send"}>
-                {sending ? "Thinking…" : "Send"}
-              </Chip>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <Chip onClick={send} title={sending ? "Working…" : "Send"}>
+                  {sending ? "Thinking…" : "Send"}
+                </Chip>
 
-              <Chip onClick={summariseChat} title="Generate a capture preview (nothing commits yet)">
-                {summarising ? "Capturing…" : "Capture preview"}
-              </Chip>
+                <Chip onClick={summariseChat} title="Generate a capture preview (nothing commits yet)">
+                  {summarising ? "Capturing…" : "Capture preview"}
+                </Chip>
 
-              <div className="text-xs text-zinc-500">Enter to send • Shift+Enter for newline</div>
+                <div className="text-xs text-zinc-500">Enter to send • Shift+Enter for newline</div>
+              </div>
             </div>
           </div>
         </div>
