@@ -13,43 +13,49 @@ type InMsg = { role: "user" | "assistant"; content: string };
 type Mode = "chat" | "summarise";
 
 /**
- * We want ChatGPT-like readability WITHOUT forcing "### headings".
- * So: markdown, but section titles are plain lines (no #), with whitespace.
+ * Core: we want ChatGPT-like readability WITHOUT markdown headings.
+ * - Titles are plain lines (e.g. "Key factors") on their own line.
+ * - Use blank lines between paragraphs.
+ * - Use bullets when helpful, but always with a lead-in sentence.
+ * - Do NOT repeat the full structure every turn.
+ * - Answer the latest user message first.
  */
-const STYLE_GUIDE = [
-  "Formatting rules (very important):",
-  "- Write in Markdown.",
-  "- DO NOT use markdown headings that start with # (no '#', '##', '###').",
-  "- If you need section titles, write them as plain text lines like:",
-  "  What I’m hearing",
-  "  Key factors",
-  "  Options",
-  "  Suggested next step",
-  "  Next question",
-  "- Always add a blank line between sections and between paragraphs.",
-  "- Default to 2–5 short paragraphs. Avoid walls of text.",
-  "- Use bullet points only when they genuinely help scanning (usually 3–6 bullets max).",
-  "- Use **bold** sparingly for key numbers/constraints/decisions (don’t bold whole paragraphs).",
-  "- Answer the user’s latest message FIRST (directly), then add structure if helpful.",
-  "- Don’t repeat the same full template every turn. Follow-ups should feel new.",
-  "- Ask at most 1 question at the end (2 max only if essential).",
+const FORMAT_RULES = [
+  "Formatting rules (follow strictly):",
+  "- Output MUST be Markdown.",
+  "- Do NOT use Markdown headings (NO '#', '##', '###', etc).",
+  "- If you use section titles, write them as plain text on their own line (no symbols): e.g. 'Key factors' then a blank line.",
+  "- Add blank lines between paragraphs and between sections.",
+  "- Prefer 2–6 short paragraphs over one long paragraph.",
+  "- Use bullet lists when listing items, BUT always introduce them with a short lead-in sentence first.",
+  "- Avoid bullet-only replies unless the user explicitly asks for a list.",
+  "- Bold key phrases, numbers, and decisions with **bold**.",
+  "- If you ask questions, ask at most 1–2 at the end.",
+  "- Keep most replies ~120–220 words unless the user asks for depth.",
 ].join("\n");
 
-const CHAT_BEHAVIOUR = [
-  "Conversation behaviour (very important):",
-  "- This is a back-and-forth. Use prior messages; do not reintroduce the whole framing each time.",
-  "- If the user asks a direct question (e.g. 'can you see my accounts?'), answer it plainly in 1–2 sentences first.",
-  "- If the user provides new numbers/details, reflect them briefly and move forward (don’t restart).",
-  "- Only use 'Options' when there are genuinely multiple paths.",
-  "- Only use 'Key factors' when the answer depends on unknowns or trade-offs.",
-  "- Keep tone calm, practical, and non-salesy.",
+const SECTION_HINTS_CHAT = [
+  "Optional section titles (use only when they add NEW value; do not repeat every turn):",
+  "- What I’m hearing",
+  "- Key factors",
+  "- Options",
+  "- Suggested next step",
+  "- Next question",
+  "",
+  "Use only 1–3 of these per message, max.",
 ].join("\n");
 
-const SUMMARY_BEHAVIOUR = [
-  "Summaries (capture preview) behaviour:",
-  "- Output a scannable preview that could be saved to the decision.",
-  "- Keep it structured, but again: NO headings with #.",
-  "- Include: current leaning (if any), key constraints, key considerations, open questions, suggested next step, revisit trigger (if obvious).",
+const SECTION_HINTS_SUMMARY = [
+  "Summary structure (capture preview):",
+  "Snapshot",
+  "",
+  "Key constraints",
+  "",
+  "Key considerations",
+  "",
+  "Open questions",
+  "",
+  "Suggested next step",
 ].join("\n");
 
 function buildSystemPrompt(args: { decisionTitle: string; decisionStatement?: string; mode: Mode }) {
@@ -58,27 +64,15 @@ function buildSystemPrompt(args: { decisionTitle: string; decisionStatement?: st
   if (mode === "summarise") {
     return [
       "You are Keystone.",
-      "Task: Create a calm, useful *capture preview* of the conversation.",
+      "Task: produce a calm, useful capture preview of the conversation.",
       "Rules:",
       "- Do NOT recommend a choice unless explicitly asked.",
-      "- Be brief, clear, and scannable.",
+      "- Keep it scannable and practical.",
+      "- Include: current leaning (if any), constraints, considerations, open questions, and a next step.",
       "",
-      STYLE_GUIDE,
+      FORMAT_RULES,
       "",
-      SUMMARY_BEHAVIOUR,
-      "",
-      "Suggested layout (only if helpful; do not force):",
-      "Snapshot",
-      "",
-      "Key constraints",
-      "",
-      "Key considerations",
-      "",
-      "Open questions",
-      "",
-      "Suggested next step",
-      "",
-      "Revisit trigger",
+      SECTION_HINTS_SUMMARY,
       "",
       `Decision title: ${decisionTitle}`,
       decisionStatement ? `Decision statement: ${decisionStatement}` : "",
@@ -89,16 +83,16 @@ function buildSystemPrompt(args: { decisionTitle: string; decisionStatement?: st
 
   return [
     "You are Keystone — a calm, values-anchored decision partner.",
-    "You are helping the user think, not forcing a decision.",
+    "You help the user think clearly, without forcing a decision.",
     "Rules:",
+    "- Answer the user's LATEST message first (do not restate the entire situation unless needed).",
     "- Do NOT recommend a choice unless the user asks you to recommend.",
-    "- Do NOT pick a winner unless asked to compare with a winner.",
-    "- Do NOT aggressively optimise unless asked.",
-    "- Ask clarifying questions when needed instead of guessing.",
+    "- Do NOT repeat the same full structure every turn.",
+    "- Ask clarifying questions only when needed instead of guessing.",
     "",
-    STYLE_GUIDE,
+    FORMAT_RULES,
     "",
-    CHAT_BEHAVIOUR,
+    SECTION_HINTS_CHAT,
     "",
     `Decision title: ${decisionTitle}`,
     decisionStatement ? `Decision statement: ${decisionStatement}` : "",
@@ -108,8 +102,9 @@ function buildSystemPrompt(args: { decisionTitle: string; decisionStatement?: st
 }
 
 function buildTranscript(messages: InMsg[]) {
-  // Simple, robust transcript
-  return messages.map((m) => `${m.role === "user" ? "You" : "Keystone"}: ${m.content}`).join("\n\n");
+  return messages
+    .map((m) => `${m.role === "user" ? "You" : "Keystone"}: ${m.content}`)
+    .join("\n\n");
 }
 
 function lastUserText(messages: InMsg[]) {
@@ -169,23 +164,25 @@ export async function POST(req: Request) {
 
     const transcript = buildTranscript(safeMessages);
 
+    const latest = lastUserText(safeMessages);
+
     const userContent =
       mode === "summarise"
         ? [
             "Create a capture preview of this conversation.",
-            "Follow the formatting rules.",
-            "Do not use # headings.",
+            "Follow the formatting rules (no markdown headings).",
             "",
             "CONVERSATION:",
             transcript,
           ].join("\n")
         : [
-            "Respond to the user's latest message in context.",
-            "Answer first, then add light structure only if helpful.",
-            "Follow the formatting rules.",
-            "Do not use # headings.",
+            "Continue the conversation.",
+            "Answer the LATEST user message first.",
+            "Follow formatting rules (no markdown headings; use blank lines; bullets only when helpful and with lead-in text).",
             "",
-            "CONVERSATION:",
+            `LATEST USER MESSAGE:\n${latest || "(none)"}`,
+            "",
+            "CONVERSATION SO FAR:",
             transcript,
           ].join("\n");
 
@@ -197,8 +194,9 @@ export async function POST(req: Request) {
         { role: "system", content: system },
         { role: "user", content: userContent },
       ],
-      temperature: mode === "summarise" ? 0.2 : 0.45,
-      max_output_tokens: mode === "summarise" ? 520 : 900,
+      // slightly lower = more consistent formatting
+      temperature: mode === "summarise" ? 0.15 : 0.35,
+      max_output_tokens: mode === "summarise" ? 520 : 850,
     });
 
     const text = String(resp.output_text ?? "").trim();

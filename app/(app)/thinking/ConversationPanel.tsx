@@ -19,20 +19,47 @@ function isQuotaError(status: number, errorMsg: string) {
   return status === 429 || msg.includes("exceeded your current quota") || msg.includes("insufficient_quota");
 }
 
+function isTitleLine(s: string) {
+  const t = (s || "").trim();
+
+  // Common section titles we want to look like ChatGPT headings (without ###).
+  const known = new Set([
+    "What I’m hearing",
+    "What I'm hearing",
+    "Key factors",
+    "Options",
+    "Suggested next step",
+    "Next question",
+    "Snapshot",
+    "Key constraints",
+    "Key considerations",
+    "Open questions",
+  ]);
+
+  if (known.has(t)) return true;
+
+  // Also treat "Title:" lines as headings if they're short.
+  if (t.endsWith(":") && t.length <= 40) return true;
+
+  // If it’s a short line with no punctuation, treat it as a heading-ish line.
+  if (t.length > 0 && t.length <= 28 && !/[.!?]/.test(t) && /^[A-Za-z0-9’'()\- ]+$/.test(t)) return true;
+
+  return false;
+}
+
 function MarkdownBubble({ content }: { content: string }) {
   return (
     <div
       className={[
-        // slightly larger + airier like ChatGPT
-        "prose prose-zinc max-w-none text-[15px] leading-relaxed",
+        // prose gives us ChatGPT-like spacing for markdown
+        "prose max-w-none text-zinc-800",
         "prose-headings:text-zinc-900 prose-headings:font-semibold",
-        // we are NOT using markdown # headings, but keep styles for any bold "title-like" lines in paragraphs
-        "prose-p:my-3",
-        "prose-ul:my-3 prose-ol:my-3",
-        "prose-li:my-1",
-        "prose-hr:my-4",
+        // We are NOT using markdown headings; still style any that appear.
+        "prose-h1:text-lg prose-h2:text-base prose-h3:text-base",
+        // more whitespace like ChatGPT
+        "prose-p:my-4 prose-ul:my-4 prose-ol:my-4",
+        "prose-li:my-1.5 prose-hr:my-5",
         "prose-strong:text-zinc-900",
-        "prose-blockquote:border-l-zinc-300 prose-blockquote:text-zinc-700",
         "prose-code:text-zinc-900 prose-code:bg-zinc-100 prose-code:px-1 prose-code:py-0.5 prose-code:rounded",
         "prose-pre:bg-zinc-50 prose-pre:border prose-pre:border-zinc-200 prose-pre:rounded-xl prose-pre:p-3",
       ].join(" ")}
@@ -40,6 +67,22 @@ function MarkdownBubble({ content }: { content: string }) {
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{
+          // Turn certain plain paragraph lines into heading-like titles
+          p({ children }) {
+            // children can be complex; only treat as title if it's a single string
+            const only =
+              Array.isArray(children) && children.length === 1 && typeof children[0] === "string" ? children[0] : null;
+
+            if (only && isTitleLine(only)) {
+              return (
+                <div className="mt-5 mb-2 text-sm font-semibold text-zinc-900">
+                  {only.replace(/:$/, "")}
+                </div>
+              );
+            }
+
+            return <p>{children}</p>;
+          },
           code({ children, className }) {
             const isBlock = (className || "").includes("language-");
             if (isBlock) return <code className={className}>{children}</code>;
@@ -51,23 +94,6 @@ function MarkdownBubble({ content }: { content: string }) {
                 {children}
               </a>
             );
-          },
-          // Make "plain title lines" feel like headings:
-          // If the model outputs a standalone line like "Key factors" as a paragraph,
-          // users will still read it as a heading. This styles short paragraphs that look like titles.
-          p({ children }) {
-            const text = typeof children === "string" ? children : "";
-            const looksLikeTitle =
-              typeof children === "string" &&
-              text.length <= 32 &&
-              /^[A-Z][A-Za-z’' ]+$/.test(text.trim()) &&
-              !text.trim().endsWith(".") &&
-              !text.trim().includes(":");
-
-            if (looksLikeTitle) {
-              return <div className="mt-4 mb-2 font-semibold text-zinc-900">{children}</div>;
-            }
-            return <p>{children}</p>;
           },
         }}
       >
@@ -130,7 +156,6 @@ export function ConversationPanel(props: {
   const decisionStatement = useMemo(() => frame?.decision_statement ?? "", [frame]);
   const canSend = draft.trim().length > 0 && !sending;
 
-  // Load auth + conversation
   useEffect(() => {
     let mounted = true;
 
@@ -191,18 +216,16 @@ export function ConversationPanel(props: {
     };
   }, [decisionId]);
 
-  // Boot message on open
   useEffect(() => {
     if (!autoStartToken) return;
 
     const asked = (askedText || decisionStatement || decisionTitle || "").trim();
     const line1 = asked ? `Okay — let’s work through this: “${asked}”.` : "Okay — let’s work through this.";
-    const line2 = "I’ll clarify what matters, check constraints, then lay out options + trade-offs.";
+    const line2 = "I’ll help you make it clear, one step at a time.";
 
     setBootMessage(`${line1}\n\n${line2}`);
   }, [autoStartToken, askedText, decisionStatement, decisionTitle]);
 
-  // Focus input without scrolling the page
   useEffect(() => {
     const t = window.setTimeout(() => {
       try {
@@ -215,7 +238,6 @@ export function ConversationPanel(props: {
     return () => window.clearTimeout(t);
   }, [decisionId, props.autoFocusToken]);
 
-  // Autoscroll within chat container
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "auto", block: "end" });
   }, [messages.length, bootMessage, summaryText]);
@@ -250,7 +272,7 @@ export function ConversationPanel(props: {
     setStatus("");
     void persist(next);
 
-    // New message invalidates summary preview
+    // New message invalidates any prior summary preview
     setSummaryText("");
     setSummaryStatus("");
     setAddedSummary(false);
@@ -304,7 +326,6 @@ export function ConversationPanel(props: {
     await sendText(text);
   };
 
-  // Consume injected first message when token increments
   useEffect(() => {
     const injected = (initialUserMessage ?? "").trim();
     if (!injected) return;
@@ -423,9 +444,8 @@ export function ConversationPanel(props: {
           </div>
         </div>
 
-        {/* chat viewport */}
         <div className="mt-3 rounded-xl border border-zinc-200 bg-zinc-50">
-          <div className="max-h-[460px] overflow-auto p-3">
+          <div className="max-h-[440px] overflow-auto p-3">
             {loading ? <div className="text-sm text-zinc-600">Loading…</div> : null}
 
             {!loading && messages.length === 0 ? (
@@ -445,10 +465,11 @@ export function ConversationPanel(props: {
                   <div key={idx} className={isUser ? "flex justify-end" : "flex justify-start"}>
                     <div
                       className={[
-                        // wider assistant bubble, slightly narrower user bubble
-                        isUser ? "max-w-[72%]" : "max-w-[90%]",
-                        "rounded-2xl px-4 py-3 text-sm leading-relaxed border",
-                        isUser ? "bg-zinc-200/70 text-zinc-900 border-zinc-200" : "bg-white text-zinc-800 border-zinc-200",
+                        isUser ? "max-w-[72%]" : "max-w-[88%]",
+                        "rounded-2xl px-4 py-3 text-sm leading-relaxed",
+                        isUser
+                          ? "bg-zinc-200/70 text-zinc-900 border border-zinc-200"
+                          : "bg-white text-zinc-800 border border-zinc-200",
                       ].join(" ")}
                     >
                       {isUser ? <div className="whitespace-pre-wrap">{m.content}</div> : <MarkdownBubble content={m.content} />}
@@ -458,11 +479,10 @@ export function ConversationPanel(props: {
               })}
             </div>
 
-            {/* summary preview bubble */}
             {summaryText ? (
               <div className="mt-4 space-y-2">
                 <div className="flex justify-start">
-                  <div className="max-w-[90%] rounded-2xl border border-zinc-200 bg-white px-4 py-3">
+                  <div className="max-w-[88%] rounded-2xl border border-zinc-200 bg-white px-4 py-3">
                     <div className="text-xs text-zinc-500 mb-2">Capture preview</div>
                     <MarkdownBubble content={summaryText} />
 
@@ -493,7 +513,6 @@ export function ConversationPanel(props: {
             <div ref={endRef} />
           </div>
 
-          {/* composer */}
           <div className="border-t border-zinc-200 bg-white p-3 space-y-2 rounded-b-xl">
             {status ? <div className="text-xs text-zinc-500">{status}</div> : null}
             {summaryStatus ? <div className="text-xs text-zinc-500">{summaryStatus}</div> : null}
@@ -510,14 +529,12 @@ export function ConversationPanel(props: {
                   const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad|iPod/.test(navigator.platform);
                   const cmdOrCtrl = isMac ? e.metaKey : e.ctrlKey;
 
-                  // Cmd/Ctrl + Enter sends
                   if (cmdOrCtrl && e.key === "Enter") {
                     e.preventDefault();
                     void send();
                     return;
                   }
 
-                  // Enter sends (Shift+Enter newline)
                   if (e.key === "Enter" && !e.shiftKey) {
                     e.preventDefault();
                     void send();
