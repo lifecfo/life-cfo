@@ -22,4 +22,21 @@ body {
   button {
     font: inherit;
   }
+
+  /* Make Markdown (Tailwind Typography) look consistent app-wide */
+  .prose {
+    @apply prose-zinc;
+  }
+
+  .prose a {
+    @apply underline underline-offset-2;
+  }
+
+  .prose :where(code):not(:where(pre code)) {
+    @apply rounded bg-zinc-100 px-1 py-0.5;
+  }
+
+  .prose pre {
+    @apply bg-zinc-50 border border-zinc-200 rounded-xl p-3;
+  }
 }

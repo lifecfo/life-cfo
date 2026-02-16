@@ -7,6 +7,7 @@ import { Card, CardContent, Chip } from "@/components/ui";
 
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import remarkBreaks from "remark-breaks";
 
 type Msg = { role: "user" | "assistant"; content: string; at: string };
 
@@ -23,30 +24,40 @@ function MarkdownBubble({ content }: { content: string }) {
   return (
     <div
       className={[
-        "prose max-w-none text-zinc-800",
+        // Typography + sizing similar to ChatGPT
+        "prose max-w-none",
+        "prose-sm sm:prose-base",
+        "text-zinc-800",
+        // Headings
         "prose-headings:text-zinc-900 prose-headings:font-semibold",
         "prose-h1:text-lg prose-h2:text-base prose-h3:text-base",
+        // Spacing (key for “ChatGPT feel”)
         "prose-p:my-3 prose-ul:my-3 prose-ol:my-3",
         "prose-li:my-1 prose-hr:my-4",
+        // Emphasis + inline code
         "prose-strong:text-zinc-900",
         "prose-code:text-zinc-900 prose-code:bg-zinc-100 prose-code:px-1 prose-code:py-0.5 prose-code:rounded",
+        // Code blocks
         "prose-pre:bg-zinc-50 prose-pre:border prose-pre:border-zinc-200 prose-pre:rounded-xl prose-pre:p-3",
+        // Links
+        "prose-a:underline prose-a:underline-offset-2",
       ].join(" ")}
     >
       <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
+        remarkPlugins={[remarkGfm, remarkBreaks]}
         components={{
-          code({ children, className }) {
-            const isBlock = (className || "").includes("language-");
-            if (isBlock) return <code className={className}>{children}</code>;
-            return <code className="rounded bg-zinc-100 px-1 py-0.5">{children}</code>;
-          },
           a({ children, href }) {
             return (
-              <a href={href} className="underline underline-offset-2" target="_blank" rel="noreferrer">
+              <a href={href} target="_blank" rel="noreferrer">
                 {children}
               </a>
             );
+          },
+          code({ children, className }) {
+            // Keep block code as-is (react-markdown wraps it in <pre><code>)
+            const isBlock = (className || "").includes("language-");
+            if (isBlock) return <code className={className}>{children}</code>;
+            return <code className="rounded bg-zinc-100 px-1 py-0.5">{children}</code>;
           },
         }}
       >
@@ -414,7 +425,7 @@ export function ConversationPanel(props: {
               {messages.map((m, idx) => {
                 const isUser = m.role === "user";
 
-                // ✅ Make assistant bubble wider than user bubble
+                // Make assistant bubble wider than user bubble
                 const bubbleWidth = isUser ? "max-w-[72%]" : "max-w-[88%]";
 
                 return (
@@ -422,9 +433,9 @@ export function ConversationPanel(props: {
                     <div
                       className={[
                         bubbleWidth,
-                        "rounded-2xl px-4 py-3 text-sm leading-relaxed",
+                        "rounded-2xl px-4 py-3",
                         isUser
-                          ? "bg-zinc-200/70 text-zinc-900 border border-zinc-200"
+                          ? "bg-zinc-200/70 text-zinc-900 border border-zinc-200 text-sm leading-relaxed"
                           : "bg-white text-zinc-800 border border-zinc-200",
                       ].join(" ")}
                     >
