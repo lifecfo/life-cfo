@@ -1,49 +1,47 @@
 // components/FeedbackPrompt.tsx
 "use client";
 
-import { useMemo, useState } from "react";
 import { usePathname } from "next/navigation";
+import { useMemo } from "react";
+import { cn } from "@/lib/cn";
 import { Chip } from "@/components/ui";
 
-const COPY: Record<string, string> = {
-  "/capture": "Was it easy to put this down here?",
-  "/decisions": "Did this help you think without overwhelm?",
-  "/revisit": "Did Review show the right amount—no more, no less?",
-  "/chapters": "Did it feel good to close something with clarity?",
-  "/lifecfo-home": "Did this feel calm and grounding?",
+type Props = {
+  className?: string;
+  pageTitle?: string; // ✅ allow Page.tsx to pass this
 };
 
-function normalizePath(pathname: string) {
-  // keep it simple: treat /decisions/* as /decisions, etc.
-  const p = pathname || "/";
-  if (p === "/") return p;
+const COPY_BY_PATH: Record<string, string> = {
+  "/capture": "Was it easy to put this down here?",
+  "/decisions": "Did this help you make progress without overwhelm?",
+  "/revisit": "Did Review show the right amount—no more, no less?",
+  "/chapters": "Did this feel like a safe place to close things?",
+  "/thinking": "Did this help you think without overwhelm?",
+};
 
-  const roots = ["/capture", "/decisions", "/revisit", "/chapters", "/lifecfo-home"];
-  for (const r of roots) {
-    if (p === r || p.startsWith(r + "/")) return r;
-  }
-  return p;
-}
+export default function FeedbackPrompt({ className, pageTitle }: Props) {
+  const pathname = usePathname();
 
-export function FeedbackPrompt({ className }: { className?: string }) {
-  const pathname = usePathname() || "/";
-  const [dismissed, setDismissed] = useState(false);
+  const prompt = useMemo(() => {
+    // Prefer specific per-route copy
+    if (pathname && COPY_BY_PATH[pathname]) return COPY_BY_PATH[pathname];
 
-  const key = useMemo(() => normalizePath(pathname), [pathname]);
-  const text = COPY[key];
+    // Fallback: if we have a page title, use it gently
+    if (pageTitle) return `Was this page helpful?`;
 
-  if (dismissed) return null;
-  if (!text) return null;
+    // Default fallback
+    return "Was this helpful?";
+  }, [pathname, pageTitle]);
+
+  // If you have any feature-flag logic in your older file, keep it.
+  // This is intentionally minimal so it won't break builds.
 
   return (
-    <div className={className}>
-      <div className="rounded-2xl border border-zinc-200 bg-white p-3">
-        <div className="text-sm text-zinc-700">{text}</div>
-        <div className="mt-2 flex flex-wrap items-center gap-2">
-          <Chip onClick={() => setDismissed(true)} title="Dismiss">
-            Thanks
-          </Chip>
-        </div>
+    <div className={cn("flex items-center justify-between gap-3", className)}>
+      <div className="text-sm text-zinc-700">{prompt}</div>
+      <div className="flex items-center gap-2">
+        <Chip title="Send quick feedback">Yes</Chip>
+        <Chip title="Send quick feedback">Not quite</Chip>
       </div>
     </div>
   );
