@@ -1,4 +1,3 @@
-// app/(app)/thinking/ConversationPanel.tsx
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -92,19 +91,15 @@ export function ConversationPanel(props: {
   const [loading, setLoading] = useState<boolean>(true);
 
   const [sending, setSending] = useState<boolean>(false);
-  const [summarising, setSummarising] = useState<boolean>(false);
+  const [savingSummary, setSavingSummary] = useState<boolean>(false);
 
   const [messages, setMessages] = useState<Msg[]>([]);
   const [draft, setDraft] = useState<string>("");
 
   const [bootMessage, setBootMessage] = useState<string>("");
 
-  const [summaryText, setSummaryText] = useState<string>("");
+  const [savedSummaryText, setSavedSummaryText] = useState<string>("");
   const [summaryStatus, setSummaryStatus] = useState<string>("");
-
-  const [addingSummary, setAddingSummary] = useState<boolean>(false);
-  const [addedSummary, setAddedSummary] = useState<boolean>(false);
-  const [addSummaryStatus, setAddSummaryStatus] = useState<string>("");
 
   const endRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
@@ -133,7 +128,7 @@ export function ConversationPanel(props: {
       const { data, error } = await supabase
         .from("decision_conversations")
         .select("messages")
-        .eq("user_id", auth.user.id) // ✅ correct column
+        .eq("user_id", auth.user.id)
         .eq("decision_id", decisionId)
         .maybeSingle();
 
@@ -196,7 +191,7 @@ export function ConversationPanel(props: {
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "auto", block: "end" });
-  }, [messages.length, bootMessage, summaryText]);
+  }, [messages.length, bootMessage, savedSummaryText]);
 
   const persist = async (next: Msg[]) => {
     if (!userId) return;
@@ -228,10 +223,8 @@ export function ConversationPanel(props: {
     setStatus("");
     void persist(next);
 
-    setSummaryText("");
+    setSavedSummaryText("");
     setSummaryStatus("");
-    setAddedSummary(false);
-    setAddSummaryStatus("");
 
     try {
       setStatus("Thinking…");
@@ -293,20 +286,24 @@ export function ConversationPanel(props: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialUserMessageToken]);
 
-  const summariseChat = async () => {
-    if (summarising) return;
+  // ✅ Single action: summarise + save to decision
+  const saveChatSummary = async () => {
+    if (savingSummary) return;
 
     if (messages.length === 0) {
-      setSummaryText("");
-      setSummaryStatus("Nothing to capture yet.");
+      setSavedSummaryText("");
+      setSummaryStatus("Nothing to summarise yet.");
+      return;
+    }
+    if (!userId) {
+      setSavedSummaryText("");
+      setSummaryStatus("Not signed in.");
       return;
     }
 
-    setSummarising(true);
-    setSummaryText("");
-    setSummaryStatus("Capturing…");
-    setAddedSummary(false);
-    setAddSummaryStatus("");
+    setSavingSummary(true);
+    setSavedSummaryText("");
+    setSummaryStatus("Saving summary…");
 
     try {
       const res = await fetch("/api/ai/conversation", {
@@ -333,48 +330,28 @@ export function ConversationPanel(props: {
 
       const text = String(json?.summaryText ?? "").trim();
       if (!text) {
-        setSummaryStatus("No capture returned.");
+        setSummaryStatus("No summary returned.");
         return;
       }
 
-      setSummaryText(text);
-      setSummaryStatus("");
-    } catch (e: any) {
-      setSummaryStatus(e?.message ?? "Summary failed.");
-    } finally {
-      setSummarising(false);
-    }
-  };
-
-  const addSummaryToDecision = async () => {
-    if (!userId) {
-      setAddSummaryStatus("Not signed in.");
-      return;
-    }
-    if (!summaryText.trim()) return;
-    if (addingSummary) return;
-
-    setAddingSummary(true);
-    setAddSummaryStatus("");
-    try {
       const { error } = await supabase.from("decision_summaries").insert({
         user_id: userId,
         decision_id: decisionId,
-        summary_text: summaryText.trim(),
+        summary_text: text,
       });
 
       if (error) {
-        setAddSummaryStatus(`Couldn’t add summary: ${error.message}`);
+        setSummaryStatus(`Couldn’t save summary: ${error.message}`);
         return;
       }
 
-      setAddedSummary(true);
-      setAddSummaryStatus("Saved.");
+      setSavedSummaryText(text);
+      setSummaryStatus("Saved to this decision.");
       onSummarySaved?.();
     } catch (e: any) {
-      setAddSummaryStatus(e?.message ?? "Couldn’t add summary.");
+      setSummaryStatus(e?.message ?? "Summary failed.");
     } finally {
-      setAddingSummary(false);
+      setSavingSummary(false);
     }
   };
 
@@ -389,7 +366,7 @@ export function ConversationPanel(props: {
           <div className="text-sm font-semibold text-zinc-900">Conversation</div>
           {askedText ? (
             <div className="mt-1 text-xs text-zinc-600 truncate">
-              <span className="font-medium text-zinc-700">You asked:</span> {askedText}
+              <span className="font-medium text-zinc-700">Decision:</span> {askedText}
             </div>
           ) : null}
         </div>
@@ -421,7 +398,7 @@ export function ConversationPanel(props: {
 
             const bubbleClass = isUser
               ? [widthUser, "rounded-3xl bg-zinc-100 px-5 py-3.5 text-sm leading-relaxed text-zinc-900"].join(" ")
-              : [widthAsst, "rounded-3xl bg-white px-5 py-3.5 text-sm leading-relaxed text-zinc-800"].join(" ");
+              : [widthAsst, "rounded-3xl bg-white px-5 py-3.5 text-sm leading-relaxed text-zinc-800 border border-zinc-100"].join(" ");
 
             return (
               <div key={idx} className={isUser ? "flex justify-end" : "flex justify-start"}>
@@ -433,32 +410,13 @@ export function ConversationPanel(props: {
           })}
         </div>
 
-        {summaryText ? (
+        {savedSummaryText ? (
           <div className="mt-6">
             <div className="flex justify-start">
               <div className={[widthAsst, "rounded-3xl bg-zinc-50 px-5 py-4"].join(" ")}>
-                <div className="mb-2 text-xs text-zinc-500">Capture preview</div>
-                <MarkdownBubble content={summaryText} />
-
-                <div className="mt-3 flex flex-wrap items-center gap-2">
-                  <Chip onClick={addSummaryToDecision} title="Save this summary to the decision (explicit consent)">
-                    {addingSummary ? "Saving…" : addedSummary ? "Saved" : "Save to decision"}
-                  </Chip>
-                  <Chip
-                    onClick={() => {
-                      setSummaryText("");
-                      setSummaryStatus("");
-                      setAddedSummary(false);
-                      setAddSummaryStatus("");
-                    }}
-                    title="Dismiss preview"
-                  >
-                    Dismiss
-                  </Chip>
-                  {addSummaryStatus ? <div className="text-xs text-zinc-500">{addSummaryStatus}</div> : null}
-                </div>
-
-                <div className="mt-2 text-xs text-zinc-500">Nothing commits until you choose to save.</div>
+                <div className="mb-2 text-xs text-zinc-500">Saved chat summary</div>
+                <MarkdownBubble content={savedSummaryText} />
+                <div className="mt-2 text-xs text-zinc-500">You can edit this later in the decision view.</div>
               </div>
             </div>
           </div>
@@ -472,14 +430,14 @@ export function ConversationPanel(props: {
         {status ? <div className="mb-2 px-2 text-xs text-zinc-500">{status}</div> : null}
         {summaryStatus ? <div className="mb-2 px-2 text-xs text-zinc-500">{summaryStatus}</div> : null}
 
-        <div className="rounded-2xl bg-zinc-50 p-3">
+        <div className="rounded-2xl bg-white">
           <div className="relative">
             <textarea
               ref={inputRef}
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
               rows={3}
-              placeholder="Talk it through…"
+              placeholder="Write back…"
               className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 pr-12 text-sm text-zinc-800 outline-none focus:ring-2 focus:ring-zinc-200"
               onKeyDown={(e) => {
                 const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad|iPod/.test(navigator.platform);
@@ -504,7 +462,7 @@ export function ConversationPanel(props: {
                 onClick={() => void send()}
                 className="absolute bottom-3 right-3 inline-flex h-9 w-9 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50 focus:outline-none focus:ring-2 focus:ring-zinc-200"
                 aria-label="Send"
-                title="Send (Enter)"
+                title="Send"
               >
                 →
               </button>
@@ -512,12 +470,9 @@ export function ConversationPanel(props: {
           </div>
 
           <div className="mt-2 flex flex-wrap items-center gap-2">
-            {/* ✅ removed duplicate "Send" chip (arrow + Enter already send) */}
-            <Chip onClick={summariseChat} title="Generate a capture preview (nothing commits yet)">
-              {summarising ? "Capturing…" : "Capture preview"}
+            <Chip onClick={saveChatSummary} title="Summarise this chat and save it to the decision">
+              {savingSummary ? "Saving summary…" : "Save chat summary"}
             </Chip>
-
-            <div className="text-xs text-zinc-500">Enter to send • Shift+Enter for newline</div>
           </div>
         </div>
       </div>

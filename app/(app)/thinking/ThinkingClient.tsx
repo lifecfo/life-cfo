@@ -1,11 +1,10 @@
-// app/(app)/thinking/ThinkingClient.tsx
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { Page } from "@/components/Page";
-import { Chip, Card, CardContent, useToast } from "@/components/ui";
+import { Chip, useToast } from "@/components/ui";
 import { ConversationPanel } from "./ConversationPanel";
 
 // ✅ Assisted retrieval + tiles
@@ -193,7 +192,7 @@ export default function ThinkingClient({ surface = "thinking" }: { surface?: "th
   const pageTitle = surface === "decisions" ? "Decisions" : "Thinking";
   const pageSubtitle =
     surface === "decisions"
-      ? "Talk it through here. Capture what matters, then decide or schedule a review."
+      ? "Have a financial decision to make? Write it below. I’ll help you clarify what matters, explore the options, and decide what to do next."
       : "Work on drafts here. When you’re ready to commit, save it into Decisions.";
 
   const [highlightId, setHighlightId] = useState<string | null>(null);
@@ -246,7 +245,7 @@ export default function ThinkingClient({ surface = "thinking" }: { surface?: "th
   // ✅ Capture-style delete confirm
   const [confirmDeleteForId, setConfirmDeleteForId] = useState<string | null>(null);
 
-  // ✅ NEW: Details collapse (keeps all existing functionality)
+  // ✅ Details collapse (keeps all existing functionality)
   const [showDetailsById, setShowDetailsById] = useState<Record<string, boolean>>({});
 
   // ✅ Composer state
@@ -268,9 +267,12 @@ export default function ThinkingClient({ surface = "thinking" }: { surface?: "th
   // Composer: show Files only when requested OR there are files
   const [composerShowFiles, setComposerShowFiles] = useState<boolean>(false);
 
-  // ✅ NEW: pass first message into ConversationPanel (chat-first)
+  // ✅ pass first message into ConversationPanel (chat-first)
   const [pendingFirstMsgById, setPendingFirstMsgById] = useState<Record<string, string>>({});
   const [pendingFirstMsgTokenById, setPendingFirstMsgTokenById] = useState<Record<string, number>>({});
+
+  // ✅ NEW: auto-create draft when user starts typing (debounced)
+  const autoCreateTimerRef = useRef<number | null>(null);
 
   const composerDraft = useMemo(() => {
     if (!newDraftId) return null;
@@ -828,9 +830,9 @@ export default function ThinkingClient({ surface = "thinking" }: { surface?: "th
   };
 
   // ✅ Create a new draft for the composer (chat-first)
-  const createNewDraftIfNeeded = async (statementOverride?: string) => {
+  const createNewDraftIfNeeded = async (statementOverride?: string, opts?: { silent?: boolean }) => {
     if (!userId) {
-      showToast({ message: "Not signed in." }, 2500);
+      if (!opts?.silent) showToast({ message: "Not signed in." }, 2500);
       return null;
     }
 
@@ -838,10 +840,12 @@ export default function ThinkingClient({ surface = "thinking" }: { surface?: "th
 
     const statement = (statementOverride ?? newText ?? "").trim();
     if (!statement) {
-      showToast({ message: "Type what’s on your mind first." }, 2200);
-      try {
-        composerInputRef.current?.focus?.();
-      } catch {}
+      if (!opts?.silent) {
+        showToast({ message: "Type your decision first." }, 2200);
+        try {
+          composerInputRef.current?.focus?.();
+        } catch {}
+      }
       return null;
     }
 
@@ -866,7 +870,7 @@ export default function ThinkingClient({ surface = "thinking" }: { surface?: "th
         .single();
 
       if (error || !data?.id) {
-        showToast({ message: `Couldn’t create: ${error?.message ?? "Unknown error"}` }, 3500);
+        if (!opts?.silent) showToast({ message: `Couldn’t create: ${error?.message ?? "Unknown error"}` }, 3500);
         return null;
       }
 
@@ -902,7 +906,7 @@ export default function ThinkingClient({ surface = "thinking" }: { surface?: "th
 
       return created.id;
     } catch (e: any) {
-      showToast({ message: e?.message ?? "Couldn’t create draft." }, 3500);
+      if (!opts?.silent) showToast({ message: e?.message ?? "Couldn’t create draft." }, 3500);
       return null;
     } finally {
       setCreatingNew(false);
@@ -945,7 +949,7 @@ export default function ThinkingClient({ surface = "thinking" }: { surface?: "th
   const sendFromComposer = async () => {
     const text = (newText ?? "").trim();
     if (!text) {
-      showToast({ message: "Type what’s on your mind first." }, 2000);
+      showToast({ message: "Type your decision first." }, 2000);
       return;
     }
 
@@ -970,6 +974,32 @@ export default function ThinkingClient({ surface = "thinking" }: { surface?: "th
       el?.scrollIntoView?.({ behavior: "smooth", block: "start" });
     }, 60);
   };
+
+  // ✅ Auto-create draft when typing starts (Decisions surface only)
+  useEffect(() => {
+    if (surface !== "decisions") return;
+    if (!userId) return;
+    if (composerChatForId) return;
+    if (newDraftId) return;
+
+    const t = (newText ?? "").trim();
+    if (t.length < 3) {
+      if (autoCreateTimerRef.current) window.clearTimeout(autoCreateTimerRef.current);
+      autoCreateTimerRef.current = null;
+      return;
+    }
+
+    if (autoCreateTimerRef.current) window.clearTimeout(autoCreateTimerRef.current);
+    autoCreateTimerRef.current = window.setTimeout(() => {
+      void createNewDraftIfNeeded(t, { silent: true });
+    }, 550);
+
+    return () => {
+      if (autoCreateTimerRef.current) window.clearTimeout(autoCreateTimerRef.current);
+      autoCreateTimerRef.current = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [newText, userId, surface, composerChatForId, newDraftId]);
 
   return (
     <Page title={pageTitle} subtitle={pageSubtitle} right={null}>
@@ -1004,116 +1034,114 @@ export default function ThinkingClient({ surface = "thinking" }: { surface?: "th
 
         {/* ✅ Chat-first composer (Decisions only) */}
         {surface === "decisions" ? (
-          <div ref={composerRef}>
-          <Card className="border-0 bg-white shadow-sm">
-            <CardContent className="p-5">
-              <div className="space-y-4">
-                <div className="space-y-1">
-                  <div className="text-sm font-semibold text-zinc-900">Talk it through</div>
-                  <div className="text-sm text-zinc-600">Start messy. We’ll make it clear as we go.</div>
+          <div ref={composerRef} className="rounded-3xl bg-white p-5 shadow-sm">
+            <div className="space-y-4">
+              <div className="space-y-1">
+                <div className="text-sm font-semibold text-zinc-900">Talk it through</div>
+                <div className="text-sm text-zinc-600">
+                  A draft decision is created automatically when you start typing.
                 </div>
+              </div>
 
-                {composerChatForId ? (
-                  <div id="composer-chat" className="pt-1">
-                    <ConversationPanel
-                      decisionId={composerChatForId}
-                      decisionTitle={drafts.find((x) => x.id === composerChatForId)?.title ?? "New decision"}
-                      askedText={drafts.find((x) => x.id === composerChatForId)?.title ?? ""}
-                      frame={{ decision_statement: drafts.find((x) => x.id === composerChatForId)?.title ?? "" }}
-                      onClose={() => setComposerChatForId(null)}
-                      onSummarySaved={() => void reloadSummaries(composerChatForId)}
-                      autoFocusToken={chatFocusTokenById[composerChatForId] ?? 0}
-                      autoStartToken={chatFocusTokenById[composerChatForId] ?? 0}
-                      initialUserMessage={pendingFirstMsgById[composerChatForId] ?? ""}
-                      initialUserMessageToken={pendingFirstMsgTokenById[composerChatForId] ?? 0}
-                      onInitialUserMessageConsumed={() => {
-                        const id = composerChatForId;
-                        if (!id) return;
-                        setPendingFirstMsgById((p) => ({ ...p, [id]: "" }));
-                      }}
-                    />
+              {composerChatForId ? (
+                <div id="composer-chat" className="pt-1">
+                  <ConversationPanel
+                    decisionId={composerChatForId}
+                    decisionTitle={drafts.find((x) => x.id === composerChatForId)?.title ?? "New decision"}
+                    askedText={drafts.find((x) => x.id === composerChatForId)?.title ?? ""}
+                    frame={{ decision_statement: drafts.find((x) => x.id === composerChatForId)?.title ?? "" }}
+                    onClose={() => setComposerChatForId(null)}
+                    onSummarySaved={() => void reloadSummaries(composerChatForId)}
+                    autoFocusToken={chatFocusTokenById[composerChatForId] ?? 0}
+                    autoStartToken={chatFocusTokenById[composerChatForId] ?? 0}
+                    initialUserMessage={pendingFirstMsgById[composerChatForId] ?? ""}
+                    initialUserMessageToken={pendingFirstMsgTokenById[composerChatForId] ?? 0}
+                    onInitialUserMessageConsumed={() => {
+                      const id = composerChatForId;
+                      if (!id) return;
+                      setPendingFirstMsgById((p) => ({ ...p, [id]: "" }));
+                    }}
+                  />
 
-                    <div className="mt-3 flex flex-wrap items-center gap-2">
-                      {newDraftId ? (
-                        <Chip
-                          onClick={() => {
-                            const id = newDraftId;
-                            if (!id) return;
-                            openCardAtTop(id);
-                            setComposerChatForId(null);
-                          }}
-                          title="Open the draft below"
-                        >
-                          Open draft
-                        </Chip>
-                      ) : null}
-
-                      <Chip onClick={resetComposer} title="Start a fresh new decision">
-                        Start another
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    {newDraftId ? (
+                      <Chip
+                        onClick={() => {
+                          const id = newDraftId;
+                          if (!id) return;
+                          openCardAtTop(id);
+                          setComposerChatForId(null);
+                        }}
+                        title="Open the draft below"
+                      >
+                        Go to draft
                       </Chip>
-                    </div>
+                    ) : null}
 
-                    {userId && newDraftId && (composerShowFiles || composerHasFiles) ? (
-                      <div className="mt-3 rounded-2xl bg-zinc-50 p-4">
-                        <AttachmentsBlock userId={userId} decisionId={newDraftId} title="Files" bucket="captures" initial={[]} />
-                        <div className="mt-2 text-xs text-zinc-500">These files are attached to this draft.</div>
-                      </div>
+                    <Chip onClick={resetComposer} title="Start a fresh new decision">
+                      New decision
+                    </Chip>
+                  </div>
+
+                  {userId && newDraftId && (composerShowFiles || composerHasFiles) ? (
+                    <div className="mt-3 rounded-2xl bg-white">
+                      <AttachmentsBlock userId={userId} decisionId={newDraftId} title="Files" bucket="captures" initial={[]} />
+                      <div className="mt-2 text-xs text-zinc-500">These files are attached to this draft.</div>
+                    </div>
+                  ) : null}
+                </div>
+              ) : (
+                <>
+                  <textarea
+                    ref={composerInputRef}
+                    value={newText}
+                    onChange={(e) => setNewText(e.target.value)}
+                    rows={3}
+                    placeholder="Have a financial decision to make? Write it here…"
+                    className="w-full resize-y rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-[15px] leading-relaxed text-zinc-900 outline-none focus:ring-2 focus:ring-zinc-200"
+                    onKeyDown={(e) => {
+                      // Enter sends (Shift+Enter newline)
+                      if (e.key === "Enter" && !e.shiftKey) {
+                        e.preventDefault();
+                        void sendFromComposer();
+                      }
+                    }}
+                  />
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    <PrimaryActionButton disabled={creatingNew} onClick={() => void sendFromComposer()} title="Send">
+                      {creatingNew ? "Creating…" : "Send"}
+                    </PrimaryActionButton>
+
+                    <Chip
+                      onClick={async () => {
+                        const id = await createNewDraftIfNeeded(undefined, { silent: false });
+                        if (!id) return;
+                        setComposerShowFiles(true);
+                        setComposerChatForId(id);
+                      }}
+                      title="Attach files"
+                    >
+                      Add files
+                    </Chip>
+
+                    {newDraftId ? (
+                      <Chip
+                        onClick={() => {
+                          const id = newDraftId;
+                          if (!id) return;
+                          openCardAtTop(id);
+                          setComposerChatForId(null);
+                        }}
+                        title="Open the draft below"
+                      >
+                        Go to draft
+                      </Chip>
                     ) : null}
                   </div>
-                ) : (
-                  <>
-                    <textarea
-                      ref={composerInputRef}
-                      value={newText}
-                      onChange={(e) => setNewText(e.target.value)}
-                      rows={3}
-                      placeholder="What’s on your mind?"
-                      className="w-full resize-y rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-[15px] leading-relaxed text-zinc-900 outline-none focus:ring-2 focus:ring-zinc-200"
-                      onKeyDown={(e) => {
-                        // Enter sends (Shift+Enter newline)
-                        if (e.key === "Enter" && !e.shiftKey) {
-                          e.preventDefault();
-                          void sendFromComposer();
-                        }
-                      }}
-                    />
-
-                    <div className="flex flex-wrap items-center gap-2">
-                      <PrimaryActionButton disabled={creatingNew} onClick={() => void sendFromComposer()} title="Send">
-                        {creatingNew ? "Creating…" : "Send"}
-                      </PrimaryActionButton>
-
-                      <Chip
-                        onClick={async () => {
-                          const id = await createNewDraftIfNeeded();
-                          if (!id) return;
-                          setComposerShowFiles(true);
-                          setComposerChatForId(id);
-                        }}
-                        title="Attach files"
-                      >
-                        Add files
-                      </Chip>
-
-                      {newDraftId ? (
-                        <Chip
-                          onClick={() => {
-                            const id = newDraftId;
-                            if (!id) return;
-                            openCardAtTop(id);
-                            setComposerChatForId(null);
-                          }}
-                          title="Open the draft below"
-                        >
-                          Open draft
-                        </Chip>
-                      ) : null}
-                    </div>
-                  </>
-                )}
-              </div>
-            </CardContent>
-          </Card>
+                </>
+              )}
+            </div>
           </div>
         ) : null}
 
@@ -1138,14 +1166,12 @@ export default function ThinkingClient({ surface = "thinking" }: { surface?: "th
         ) : null}
 
         {filteredDrafts.length === 0 ? (
-          <Card className="border-zinc-200 bg-white">
-            <CardContent>
-              <div className="space-y-2">
-                <div className="text-sm font-semibold text-zinc-900">All clear.</div>
-                <div className="text-sm text-zinc-600">When something needs thinking time, it can live here quietly.</div>
-              </div>
-            </CardContent>
-          </Card>
+          <div className="rounded-3xl bg-white p-5 shadow-sm">
+            <div className="space-y-2">
+              <div className="text-sm font-semibold text-zinc-900">All clear.</div>
+              <div className="text-sm text-zinc-600">When something needs thinking time, it can live here quietly.</div>
+            </div>
+          </div>
         ) : (
           <div className="grid gap-3">
             {visibleDrafts.map((d) => {
@@ -1175,7 +1201,7 @@ export default function ThinkingClient({ surface = "thinking" }: { surface?: "th
               const isEditingDraft = !!isEditingDraftById[d.id];
 
               const allAtt = normalizeAttachments(d.attachments) as AttachmentMeta[];
-              const attachmentsTitle = allAtt.length > 0 ? `Attachments (${allAtt.length})` : "Attachments";
+              const attachmentsTitle = allAtt.length > 0 ? `Files (${allAtt.length})` : "Files";
 
               return (
                 <div
@@ -1183,363 +1209,352 @@ export default function ThinkingClient({ surface = "thinking" }: { surface?: "th
                   ref={(el) => {
                     cardRefs.current[d.id] = el;
                   }}
+                  className={[
+                    "rounded-3xl bg-white p-5 shadow-sm transition",
+                    highlightId === d.id ? "ring-2 ring-zinc-200" : "",
+                    animateCardId === d.id ? "animate-pulse" : "",
+                  ].join(" ")}
                 >
-                  <Card
-                    className={[
-                      "border-zinc-200 bg-white transition",
-                      highlightId === d.id ? "ring-2 ring-zinc-300" : "",
-                      animateCardId === d.id ? "animate-pulse" : "",
-                    ].join(" ")}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const nextOpen = isOpen ? null : d.id;
+                      setOpenId(nextOpen);
+
+                      if (!nextOpen) {
+                        setChatForId(null);
+                        setLabelsEditForId(null);
+                        setConfirmDeleteForId(null);
+                        return;
+                      }
+
+                      // when opening: ensure snapshot + open conversation by default
+                      setOriginalCaptureById((prev) => {
+                        if (prev[d.id]) return prev;
+                        return { ...prev, [d.id]: { title: d.title ?? "", captured: parts.captured ?? "" } };
+                      });
+
+                      setChatForId(d.id);
+                      setChatFocusTokenById((p) => ({ ...p, [d.id]: (p[d.id] ?? 0) + 1 }));
+                    }}
+                    className="w-full text-left"
+                    aria-expanded={isOpen}
+                    title={isOpen ? "Collapse" : "Open"}
                   >
-                    <CardContent>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const nextOpen = isOpen ? null : d.id;
-                          setOpenId(nextOpen);
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div className="min-w-[240px] flex-1">
+                        <div className="text-base font-semibold text-zinc-900">{d.title}</div>
 
-                          if (!nextOpen) {
-                            setChatForId(null);
-                            setLabelsEditForId(null);
-                            setConfirmDeleteForId(null);
-                            return;
-                          }
+                        <div className="mt-1 text-xs text-zinc-500">
+                          Started {softWhen(d.created_at)}
+                          {d.review_at ? ` • Review ${softWhen(d.review_at)}` : ""}
+                        </div>
 
-                          // when opening: ensure snapshot + open conversation by default
-                          setOriginalCaptureById((prev) => {
-                            if (prev[d.id]) return prev;
-                            return { ...prev, [d.id]: { title: d.title ?? "", captured: parts.captured ?? "" } };
-                          });
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          {domainName ? <Chip title="Filed under">{domainName}</Chip> : null}
+                          {memberNames.slice(0, 2).map((n) => (
+                            <Chip key={n} title="Filed under">
+                              {n}
+                            </Chip>
+                          ))}
+                          {memberNames.length > 2 ? <Chip title="More">+{memberNames.length - 2}</Chip> : null}
+                        </div>
+                      </div>
 
-                          setChatForId(d.id);
-                          setChatFocusTokenById((p) => ({ ...p, [d.id]: (p[d.id] ?? 0) + 1 }));
-                        }}
-                        className="w-full text-left"
-                        aria-expanded={isOpen}
-                        title={isOpen ? "Collapse" : "Open"}
-                      >
-                        <div className="flex flex-wrap items-start justify-between gap-3">
-                          <div className="min-w-[240px] flex-1">
-                            <div className="text-base font-semibold text-zinc-900">{d.title}</div>
+                      <div className="flex items-center gap-2">
+                        <Chip>{isOpen ? "Hide" : "Open"}</Chip>
+                      </div>
+                    </div>
+                  </button>
 
-                            <div className="mt-1 text-xs text-zinc-500">
-                              Started {softWhen(d.created_at)}
-                              {d.review_at ? ` • Review ${softWhen(d.review_at)}` : ""}
+                  {isOpen ? (
+                    <div className="mt-4 space-y-4">
+                      {/* Conversation first (primary experience) */}
+                      {isChatOpen ? (
+                        <ConversationPanel
+                          decisionId={d.id}
+                          decisionTitle={d.title}
+                          askedText={d.title}
+                          frame={{ decision_statement: d.title }}
+                          autoFocusToken={chatFocusTokenById[d.id] ?? 0}
+                          autoStartToken={chatFocusTokenById[d.id] ?? 0}
+                          onClose={() => setChatForId(null)}
+                          onSummarySaved={() => void reloadSummaries(d.id)}
+                        />
+                      ) : (
+                        <div className="rounded-2xl bg-white">
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="min-w-0">
+                              <div className="text-sm font-semibold text-zinc-900">Conversation</div>
+                              <div className="mt-0.5 text-xs text-zinc-500 truncate">Anchored to: {d.title}</div>
                             </div>
-
-                            <div className="mt-2 flex flex-wrap gap-2">
-                              {domainName ? <Chip title="Filed under">{domainName}</Chip> : null}
-                              {memberNames.slice(0, 2).map((n) => (
-                                <Chip key={n} title="Filed under">
-                                  {n}
-                                </Chip>
-                              ))}
-                              {memberNames.length > 2 ? <Chip title="More">+{memberNames.length - 2}</Chip> : null}
-                            </div>
-                          </div>
-
-                          <div className="flex items-center gap-2">
-                            <Chip>{isOpen ? "Hide" : "Open"}</Chip>
+                            <Chip
+                              onClick={() => {
+                                setChatForId(d.id);
+                                setChatFocusTokenById((p) => ({ ...p, [d.id]: (p[d.id] ?? 0) + 1 }));
+                              }}
+                            >
+                              Open chat
+                            </Chip>
                           </div>
                         </div>
-                      </button>
+                      )}
 
-                      {isOpen ? (
-                        <div className="mt-4 space-y-4">
-                          {/* Conversation first (primary experience) */}
-                          {isChatOpen ? (
-                            <ConversationPanel
-                              decisionId={d.id}
-                              decisionTitle={d.title}
-                              askedText={d.title}
-                              frame={{ decision_statement: d.title }}
-                              autoFocusToken={chatFocusTokenById[d.id] ?? 0}
-                              autoStartToken={chatFocusTokenById[d.id] ?? 0}
-                              onClose={() => setChatForId(null)}
-                              onSummarySaved={() => void reloadSummaries(d.id)}
-                            />
-                          ) : (
-                            <Card className="border-zinc-200 bg-white">
-                              <CardContent>
-                                <div className="flex items-center justify-between gap-3">
-                                  <div className="min-w-0">
-                                    <div className="text-sm font-semibold text-zinc-900">Conversation</div>
-                                    <div className="mt-0.5 text-xs text-zinc-500 truncate">Anchored to: {d.title}</div>
-                                  </div>
+                      {/* Primary actions */}
+                      <div className="space-y-2">
+                        {confirmDeleteForId === d.id ? (
+                          <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[#C94A4A] bg-[#FCECEC] px-4 py-3">
+                            <div className="text-sm text-[#7A1E1E]">
+                              Delete this draft? <span className="opacity-80">This can’t be undone.</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <Chip onClick={() => setConfirmDeleteForId(null)} title="Cancel">
+                                Cancel
+                              </Chip>
+                              <button
+                                type="button"
+                                onClick={() => void performDeleteDraft(d)}
+                                className="inline-flex select-none items-center justify-center rounded-full border border-[#C94A4A] bg-[#C94A4A] px-4 py-2 text-sm text-white transition hover:bg-[#b94141]"
+                                title="Delete"
+                              >
+                                Delete
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="flex flex-wrap items-center gap-2">
+                            <PrimaryActionButton onClick={() => decideNow(d)} title="Confirm and save into Decisions">
+                              Decide
+                            </PrimaryActionButton>
+
+                            <div className="flex flex-wrap items-center gap-2">
+                              <div className="text-xs text-zinc-500">Review</div>
+
+                              <select
+                                className="h-9 rounded-full border border-zinc-200 bg-white px-3 text-sm text-zinc-700"
+                                value={revisitMode}
+                                onChange={(e) => {
+                                  const v = e.target.value as "7" | "30" | "90" | "custom" | "";
+                                  setRevisitModeById((prev) => ({ ...prev, [d.id]: v }));
+
+                                  if (v === "7") void scheduleRevisit(d, 7);
+                                  if (v === "30") void scheduleRevisit(d, 30);
+                                  if (v === "90") void scheduleRevisit(d, 90);
+                                }}
+                                aria-label="Review schedule"
+                                title="Choose when to bring this back"
+                              >
+                                <option value="">Choose…</option>
+                                <option value="7">In 7 days</option>
+                                <option value="30">In 30 days</option>
+                                <option value="90">In 90 days</option>
+                                <option value="custom">Pick a date…</option>
+                              </select>
+
+                              {revisitMode === "custom" ? (
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <input
+                                    type="date"
+                                    className="h-9 rounded-full border border-zinc-200 bg-white px-3 text-sm text-zinc-700"
+                                    value={customDate}
+                                    onChange={(e) => setCustomDateById((prev) => ({ ...prev, [d.id]: e.target.value }))}
+                                    aria-label="Custom review date"
+                                    title="Pick a date"
+                                  />
                                   <Chip
                                     onClick={() => {
-                                      setChatForId(d.id);
-                                      setChatFocusTokenById((p) => ({ ...p, [d.id]: (p[d.id] ?? 0) + 1 }));
+                                      const iso = isoFromDateInput(customDate);
+                                      if (!iso) {
+                                        showToast({ message: "Pick a valid date." }, 2000);
+                                        return;
+                                      }
+                                      void scheduleRevisitAt(d, iso);
                                     }}
+                                    title="Set revisit date"
                                   >
-                                    Open chat
+                                    Set date
                                   </Chip>
                                 </div>
-                              </CardContent>
-                            </Card>
-                          )}
-
-                          {/* Primary actions */}
-                          <div className="space-y-2">
-                            <div className="text-xs text-zinc-500">
-                              Decide saves it into <span className="font-medium">Decisions</span>. Review schedules it for later.
+                              ) : null}
                             </div>
 
-                            {confirmDeleteForId === d.id ? (
-                              <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[#C94A4A] bg-[#FCECEC] px-4 py-3">
-                                <div className="text-sm text-[#7A1E1E]">
-                                  Delete this draft? <span className="opacity-80">This can’t be undone.</span>
-                                </div>
+                            <Chip onClick={() => router.push("/revisit")} title="Open Review to see scheduled items">
+                              Go to Review
+                            </Chip>
+
+                            <Chip
+                              onClick={() => setShowDetailsById((p) => ({ ...p, [d.id]: !p[d.id] }))}
+                              title="Show/hide draft details"
+                            >
+                              {showDetails ? "Hide details" : "Draft details"}
+                            </Chip>
+
+                            <Chip onClick={() => setConfirmDeleteForId(d.id)} title="Delete this draft">
+                              Delete
+                            </Chip>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Details (collapsed by default; preserves all V1 functionality) */}
+                      {showDetails ? (
+                        <div className="space-y-4">
+                          <div className="rounded-2xl border border-zinc-200 bg-white p-4 space-y-2">
+                            <div className="text-sm font-semibold text-zinc-900">Original</div>
+                            <div className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-700">
+                              {(originalSnapshot.captured || originalSnapshot.title || "").trim() || "—"}
+                            </div>
+                          </div>
+
+                          <div className="rounded-2xl border border-zinc-200 bg-white p-4 space-y-3">
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="text-sm font-semibold text-zinc-900">Draft</div>
+
+                              {!isEditingDraft ? (
+                                <Chip onClick={() => beginEditDraft(d)} title="Edit">
+                                  Edit
+                                </Chip>
+                              ) : (
                                 <div className="flex items-center gap-2">
-                                  <Chip onClick={() => setConfirmDeleteForId(null)} title="Cancel">
+                                  <Chip onClick={() => cancelEditDraft(d)} title="Cancel">
                                     Cancel
                                   </Chip>
-                                  <button
-                                    type="button"
-                                    onClick={() => void performDeleteDraft(d)}
-                                    className="inline-flex select-none items-center justify-center rounded-full border border-[#C94A4A] bg-[#C94A4A] px-4 py-2 text-sm text-white transition hover:bg-[#b94141]"
-                                    title="Delete"
-                                  >
-                                    Delete
-                                  </button>
+                                  <Chip onClick={() => void saveDraftOverwrite(d)} title="Save">
+                                    Save
+                                  </Chip>
                                 </div>
-                              </div>
-                            ) : (
-                              <div className="flex flex-wrap items-center gap-2">
-                                <PrimaryActionButton onClick={() => decideNow(d)} title="Confirm and save into Decisions">
-                                  Decide
-                                </PrimaryActionButton>
+                              )}
+                            </div>
 
-                                <div className="flex flex-wrap items-center gap-2">
-                                  <div className="text-xs text-zinc-500">Review</div>
+                            <div className="space-y-2">
+                              <div className="text-xs text-zinc-500">Title</div>
+                              <input
+                                value={isEditingDraft ? (draftTitleById[d.id] ?? d.title) : d.title}
+                                disabled={!isEditingDraft}
+                                onChange={(e) => setDraftTitleById((prev) => ({ ...prev, [d.id]: e.target.value }))}
+                                className={`h-11 w-full rounded-2xl border px-4 text-[15px] text-zinc-900 outline-none ${
+                                  isEditingDraft
+                                    ? "border-zinc-200 bg-white focus:ring-2 focus:ring-zinc-200"
+                                    : "border-zinc-100 bg-zinc-50 text-zinc-900"
+                                }`}
+                                aria-label="Draft title"
+                              />
+                            </div>
 
-                                  <select
-                                    className="h-9 rounded-full border border-zinc-200 bg-white px-3 text-sm text-zinc-700"
-                                    value={revisitMode}
-                                    onChange={(e) => {
-                                      const v = e.target.value as "7" | "30" | "90" | "custom" | "";
-                                      setRevisitModeById((prev) => ({ ...prev, [d.id]: v }));
+                            <div className="space-y-2">
+                              <div className="text-xs text-zinc-500">Body</div>
 
-                                      if (v === "7") void scheduleRevisit(d, 7);
-                                      if (v === "30") void scheduleRevisit(d, 30);
-                                      if (v === "90") void scheduleRevisit(d, 90);
-                                    }}
-                                    aria-label="Review schedule"
-                                    title="Choose when to bring this back"
-                                  >
-                                    <option value="">Choose…</option>
-                                    <option value="7">In 7 days</option>
-                                    <option value="30">In 30 days</option>
-                                    <option value="90">In 90 days</option>
-                                    <option value="custom">Pick a date…</option>
-                                  </select>
-
-                                  {revisitMode === "custom" ? (
-                                    <div className="flex flex-wrap items-center gap-2">
-                                      <input
-                                        type="date"
-                                        className="h-9 rounded-full border border-zinc-200 bg-white px-3 text-sm text-zinc-700"
-                                        value={customDate}
-                                        onChange={(e) => setCustomDateById((prev) => ({ ...prev, [d.id]: e.target.value }))}
-                                        aria-label="Custom review date"
-                                        title="Pick a date"
-                                      />
-                                      <Chip
-                                        onClick={() => {
-                                          const iso = isoFromDateInput(customDate);
-                                          if (!iso) {
-                                            showToast({ message: "Pick a valid date." }, 2000);
-                                            return;
-                                          }
-                                          void scheduleRevisitAt(d, iso);
-                                        }}
-                                        title="Set revisit date"
-                                      >
-                                        Set date
-                                      </Chip>
-                                    </div>
-                                  ) : null}
+                              {!isEditingDraft ? (
+                                <div className="whitespace-pre-wrap rounded-2xl border border-zinc-100 bg-zinc-50 px-4 py-3 text-[15px] leading-relaxed text-zinc-800">
+                                  {parts.draft?.trim() ? parts.draft : <span className="text-zinc-500">This is what I’m deciding… (optional)</span>}
                                 </div>
+                              ) : (
+                                <textarea
+                                  value={draftBodyById[d.id] ?? parts.draft ?? ""}
+                                  onChange={(e) => setDraftBodyById((prev) => ({ ...prev, [d.id]: e.target.value }))}
+                                  placeholder="This is what I’m deciding… (optional)"
+                                  className="w-full min-h-[160px] resize-y rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-[15px] leading-relaxed text-zinc-900 outline-none focus:ring-2 focus:ring-zinc-200"
+                                  aria-label="Draft body"
+                                />
+                              )}
+                            </div>
+                          </div>
 
-                                <Chip onClick={() => router.push("/revisit")} title="Open Review to see scheduled items">
-                                  Go to Review
-                                </Chip>
+                          <DecisionNotes decisionId={d.id} kind="thinking" />
 
+                          {showFiledUnderCard ? (
+                            <div className="rounded-2xl border border-zinc-200 bg-white p-3 space-y-2">
+                              <div className="flex flex-wrap items-center justify-between gap-2">
+                                <div className="text-xs font-semibold text-zinc-700">Filed under</div>
                                 <Chip
-                                  onClick={() => setShowDetailsById((p) => ({ ...p, [d.id]: !p[d.id] }))}
-                                  title="Show/hide draft details"
+                                  onClick={() => {
+                                    if (!hasAnyLabelOptions) {
+                                      showToast({ message: "No areas or groups yet." }, 2000);
+                                      return;
+                                    }
+                                    setLabelsEditForId((cur) => (cur === d.id ? null : d.id));
+                                  }}
                                 >
-                                  {showDetails ? "Hide details" : "Draft details"}
-                                </Chip>
-
-                                <Chip onClick={() => setConfirmDeleteForId(d.id)} title="Delete this draft">
-                                  Delete
+                                  {isEditingLabels ? "Done" : "Edit"}
                                 </Chip>
                               </div>
+
+                              {!isEditingLabels ? (
+                                <div className="text-sm text-zinc-700">
+                                  {filedUnder.length > 0 ? <span>{filedUnder.join(", ")}</span> : <span className="text-zinc-600">Not set.</span>}
+                                </div>
+                              ) : (
+                                <div className="space-y-3">
+                                  <div className="text-xs text-zinc-500">Optional. Helps you group and filter later.</div>
+
+                                  <div className="space-y-2">
+                                    <div className="text-xs text-zinc-500">Area</div>
+                                    <div className="flex flex-wrap items-center gap-2">
+                                      <Chip active={!domainId} onClick={() => void setDecisionDomain(d.id, null)}>
+                                        None
+                                      </Chip>
+                                      {domains.map((dom) => (
+                                        <Chip key={dom.id} active={domainId === dom.id} onClick={() => void setDecisionDomain(d.id, dom.id)}>
+                                          {dom.name}
+                                        </Chip>
+                                      ))}
+                                    </div>
+                                  </div>
+
+                                  <div className="space-y-2">
+                                    <div className="text-xs text-zinc-500">Groups</div>
+                                    {constellations.length === 0 ? (
+                                      <div className="text-sm text-zinc-600">No groups yet.</div>
+                                    ) : (
+                                      <div className="flex flex-wrap items-center gap-2">
+                                        {constellations.map((c) => {
+                                          const active = memberIds.includes(c.id);
+                                          return (
+                                            <Chip key={c.id} active={active} onClick={() => void toggleConstellation(d.id, c.id)}>
+                                              {c.name}
+                                            </Chip>
+                                          );
+                                        })}
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          ) : null}
+
+                          <div className="rounded-2xl border border-zinc-200 bg-white p-3 space-y-2">
+                            {userId ? (
+                              <AttachmentsBlock userId={userId} decisionId={d.id} title={attachmentsTitle} bucket="captures" initial={allAtt} />
+                            ) : (
+                              <div className="text-sm text-zinc-600">Files unavailable.</div>
                             )}
                           </div>
 
-                          {/* Details (collapsed by default; preserves all V1 functionality) */}
-                          {showDetails ? (
-                            <div className="space-y-4">
-                              <div className="rounded-xl border border-zinc-200 bg-white p-4 space-y-2">
-                                <div className="text-sm font-semibold text-zinc-900">Original</div>
-                                <div className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-700">
-                                  {(originalSnapshot.captured || originalSnapshot.title || "").trim() || "—"}
-                                </div>
+                          {summaries.length > 0 ? (
+                            <div className="rounded-2xl border border-zinc-200 bg-white p-3 space-y-2">
+                              <div className="space-y-1">
+                                <div className="text-xs font-semibold text-zinc-700">Saved chat summaries</div>
+                                <div className="text-xs text-zinc-500">You can edit these later in the decision view.</div>
                               </div>
 
-                              <div className="rounded-xl border border-zinc-200 bg-white p-4 space-y-3">
-                                <div className="flex items-center justify-between gap-2">
-                                  <div className="text-sm font-semibold text-zinc-900">Draft</div>
-
-                                  {!isEditingDraft ? (
-                                    <Chip onClick={() => beginEditDraft(d)} title="Edit">
-                                      Edit
-                                    </Chip>
-                                  ) : (
-                                    <div className="flex items-center gap-2">
-                                      <Chip onClick={() => cancelEditDraft(d)} title="Cancel">
-                                        Cancel
-                                      </Chip>
-                                      <Chip onClick={() => void saveDraftOverwrite(d)} title="Save">
-                                        Save
-                                      </Chip>
-                                    </div>
-                                  )}
-                                </div>
-
-                                <div className="space-y-2">
-                                  <div className="text-xs text-zinc-500">Title</div>
-                                  <input
-                                    value={isEditingDraft ? (draftTitleById[d.id] ?? d.title) : d.title}
-                                    disabled={!isEditingDraft}
-                                    onChange={(e) => setDraftTitleById((prev) => ({ ...prev, [d.id]: e.target.value }))}
-                                    className={`h-11 w-full rounded-2xl border px-4 text-[15px] text-zinc-900 outline-none ${
-                                      isEditingDraft
-                                        ? "border-zinc-200 bg-white focus:ring-2 focus:ring-zinc-200"
-                                        : "border-zinc-100 bg-zinc-50 text-zinc-900"
-                                    }`}
-                                    aria-label="Draft title"
-                                  />
-                                </div>
-
-                                <div className="space-y-2">
-                                  <div className="text-xs text-zinc-500">Body</div>
-
-                                  {!isEditingDraft ? (
-                                    <div className="whitespace-pre-wrap rounded-2xl border border-zinc-100 bg-zinc-50 px-4 py-3 text-[15px] leading-relaxed text-zinc-800">
-                                      {parts.draft?.trim() ? parts.draft : <span className="text-zinc-500">This is what I’m deciding… (optional)</span>}
-                                    </div>
-                                  ) : (
-                                    <textarea
-                                      value={draftBodyById[d.id] ?? parts.draft ?? ""}
-                                      onChange={(e) => setDraftBodyById((prev) => ({ ...prev, [d.id]: e.target.value }))}
-                                      placeholder="This is what I’m deciding… (optional)"
-                                      className="w-full min-h-[160px] resize-y rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-[15px] leading-relaxed text-zinc-900 outline-none focus:ring-2 focus:ring-zinc-200"
-                                      aria-label="Draft body"
-                                    />
-                                  )}
-                                </div>
-                              </div>
-
-                              <DecisionNotes decisionId={d.id} kind="thinking" />
-
-                              {showFiledUnderCard ? (
-                                <div className="rounded-xl border border-zinc-200 bg-white p-3 space-y-2">
-                                  <div className="flex flex-wrap items-center justify-between gap-2">
-                                    <div className="text-xs font-semibold text-zinc-700">Filed under</div>
-                                    <Chip
-                                      onClick={() => {
-                                        if (!hasAnyLabelOptions) {
-                                          showToast({ message: "No areas or groups yet." }, 2000);
-                                          return;
-                                        }
-                                        setLabelsEditForId((cur) => (cur === d.id ? null : d.id));
-                                      }}
-                                    >
-                                      {isEditingLabels ? "Done" : "Edit"}
+                              {summaries.map((s) => (
+                                <div key={s.id} className="space-y-2">
+                                  <div className="text-xs text-zinc-500">Saved {softWhen(s.created_at)}</div>
+                                  <div className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-800">{s.summary_text}</div>
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <Chip onClick={() => useSummaryAsContext(d, s)} title="Append this into the draft context">
+                                      Use as context
                                     </Chip>
                                   </div>
-
-                                  {!isEditingLabels ? (
-                                    <div className="text-sm text-zinc-700">
-                                      {filedUnder.length > 0 ? <span>{filedUnder.join(", ")}</span> : <span className="text-zinc-600">Not set.</span>}
-                                    </div>
-                                  ) : (
-                                    <div className="space-y-3">
-                                      <div className="text-xs text-zinc-500">Optional. Helps you group and filter later.</div>
-
-                                      <div className="space-y-2">
-                                        <div className="text-xs text-zinc-500">Area</div>
-                                        <div className="flex flex-wrap items-center gap-2">
-                                          <Chip active={!domainId} onClick={() => void setDecisionDomain(d.id, null)}>
-                                            None
-                                          </Chip>
-                                          {domains.map((dom) => (
-                                            <Chip key={dom.id} active={domainId === dom.id} onClick={() => void setDecisionDomain(d.id, dom.id)}>
-                                              {dom.name}
-                                            </Chip>
-                                          ))}
-                                        </div>
-                                      </div>
-
-                                      <div className="space-y-2">
-                                        <div className="text-xs text-zinc-500">Groups</div>
-                                        {constellations.length === 0 ? (
-                                          <div className="text-sm text-zinc-600">No groups yet.</div>
-                                        ) : (
-                                          <div className="flex flex-wrap items-center gap-2">
-                                            {constellations.map((c) => {
-                                              const active = memberIds.includes(c.id);
-                                              return (
-                                                <Chip key={c.id} active={active} onClick={() => void toggleConstellation(d.id, c.id)}>
-                                                  {c.name}
-                                                </Chip>
-                                              );
-                                            })}
-                                          </div>
-                                        )}
-                                      </div>
-                                    </div>
-                                  )}
                                 </div>
-                              ) : null}
-
-                              <div className="rounded-xl border border-zinc-200 bg-white p-3 space-y-2">
-                                {userId ? (
-                                  <AttachmentsBlock userId={userId} decisionId={d.id} title={attachmentsTitle} bucket="captures" initial={allAtt} />
-                                ) : (
-                                  <div className="text-sm text-zinc-600">Attachments unavailable.</div>
-                                )}
-                              </div>
-
-                              {summaries.length > 0 ? (
-                                <div className="rounded-xl border border-zinc-200 bg-white p-3 space-y-2">
-                                  <div className="space-y-1">
-                                    <div className="text-xs font-semibold text-zinc-700">Saved summaries</div>
-                                    <div className="text-xs text-zinc-500">These appear after you choose to save a chat summary.</div>
-                                  </div>
-
-                                  {summaries.map((s) => (
-                                    <div key={s.id} className="space-y-2">
-                                      <div className="text-xs text-zinc-500">Saved {softWhen(s.created_at)}</div>
-                                      <div className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-800">{s.summary_text}</div>
-                                      <div className="flex flex-wrap items-center gap-2">
-                                        <Chip onClick={() => useSummaryAsContext(d, s)} title="Append this into the draft context">
-                                          Use as context
-                                        </Chip>
-                                      </div>
-                                    </div>
-                                  ))}
-                                </div>
-                              ) : null}
+                              ))}
                             </div>
                           ) : null}
                         </div>
                       ) : null}
-                    </CardContent>
-                  </Card>
+                    </div>
+                  ) : null}
                 </div>
               );
             })}
