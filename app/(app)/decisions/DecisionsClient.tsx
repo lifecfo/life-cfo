@@ -478,7 +478,7 @@ export default function DecisionsClient({ surface = "thinking" }: { surface?: "t
       if (el?.scrollIntoView) el.scrollIntoView({ behavior: "smooth", block: "start" });
     }, 60);
 
-    router.replace(surface === "decisions" ? "/decisions" : "/thinking");
+   router.replace("/decisions");
 
     const t = window.setTimeout(() => setHighlightId(null), 1600);
     return () => window.clearTimeout(t);

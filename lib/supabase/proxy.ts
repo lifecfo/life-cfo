@@ -10,11 +10,7 @@ function envOrThrow(key: string) {
 
 function getSupabaseKey() {
   // Support either env var name
-  return (
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
-    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
-    ""
-  );
+  return process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || "";
 }
 
 export async function updateSession(request: NextRequest) {
@@ -32,9 +28,7 @@ export async function updateSession(request: NextRequest) {
       setAll(cookiesToSet) {
         // write cookies to BOTH the request (for downstream) and response (for browser)
         cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value));
-
         response = NextResponse.next({ request });
-
         cookiesToSet.forEach(({ name, value, options }) => response.cookies.set(name, value, options));
       },
     },
@@ -71,8 +65,6 @@ export async function updateSession(request: NextRequest) {
     pathname.startsWith("/inbox/") ||
     pathname === "/capture" ||
     pathname.startsWith("/capture/") ||
-    pathname === "/thinking" ||
-    pathname.startsWith("/thinking/") ||
     pathname === "/decisions" ||
     pathname.startsWith("/decisions/") ||
     pathname === "/revisit" ||

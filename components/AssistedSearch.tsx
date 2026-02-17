@@ -8,6 +8,8 @@ import { cn } from "@/lib/cn";
 import { Chip } from "@/components/ui";
 
 export type Scope =
+  // NOTE: "thinking" kept as alias for backwards compatibility.
+  // It now routes to /decisions and uses decisions filtering.
   | "thinking"
   | "decisions"
   | "revisit"
@@ -42,8 +44,9 @@ function softDate(iso: unknown) {
   return new Date(ms).toLocaleDateString();
 }
 
+/** ✅ Decisions now live at /decisions */
 function routeForDecision(decisionId: string) {
-  return `/thinking?open=${encodeURIComponent(decisionId)}`;
+  return `/decisions?open=${encodeURIComponent(decisionId)}`;
 }
 
 function routeForCapture(inboxId: string) {
@@ -95,16 +98,16 @@ type CaptureRow = {
   status: string | null;
   framed_decision_id: string | null;
   type: string | null;
-  // future-proof: if you later add attachments as a column/rel
   attachments?: unknown;
   attachment_count?: number | null;
 };
 
 function scopeDecisionFilter(scope: Scope) {
-  if (scope === "thinking") return { statusEq: "draft" as const };
+  // ✅ "thinking" is now an alias of decisions (no draft-only behavior)
+  if (scope === "thinking") return { notChapter: true };
   if (scope === "chapters") return { statusEq: "chapter" as const };
   if (scope === "revisit") return { notDraft: true, requireReviewAt: true };
-  if (scope === "decisions") return { notDraft: true, notChapter: true };
+  if (scope === "decisions") return { notChapter: true };
   return { any: true };
 }
 
@@ -115,26 +118,16 @@ async function getUserId(): Promise<string | null> {
 }
 
 /* --------------------- ATTACHMENTS HINT --------------------- */
-/**
- * Robust "has attachments" detector:
- * 1) if row has attachments/attachment_count fields (future), use them
- * 2) else try JSON.parse(body) and look for attachments array
- * 3) else fallback to regex for "attachments":
- */
 function hasAttachmentsHint(row: CaptureRow): boolean {
-  // (1) Future: attachment_count
   if (typeof row.attachment_count === "number") return row.attachment_count > 0;
 
-  // (1b) Future: attachments field on the row
   const a: any = (row as any).attachments;
   if (Array.isArray(a)) return a.length > 0;
   if (a && typeof a === "object") {
-    // sometimes stored as { files: [...] } or similar; best-effort
     const maybeArr = (a as any).files ?? (a as any).items ?? null;
     if (Array.isArray(maybeArr)) return maybeArr.length > 0;
   }
 
-  // (2) Current: body might be JSON with attachments
   const body = safeStr(row.body);
   if (!body) return false;
 
@@ -144,15 +137,11 @@ function hasAttachmentsHint(row: CaptureRow): boolean {
       const parsed: any = JSON.parse(trimmed);
       const att = parsed?.attachments;
       if (Array.isArray(att)) return att.length > 0;
-      // also allow { attachments: { files: [] } } patterns
       const attFiles = att?.files ?? att?.items ?? null;
       if (Array.isArray(attFiles)) return attFiles.length > 0;
-    } catch {
-      // ignore parse errors, fall back to regex below
-    }
+    } catch {}
   }
 
-  // (3) Fallback: cheap detection (avoid hardcoding exact JSON format)
   return /"attachments"\s*:/.test(body);
 }
 
@@ -271,7 +260,6 @@ async function fetchTopCaptureSuggestions(): Promise<Suggestion[]> {
   const uid = await getUserId();
   if (!uid) return [];
 
-  // NOTE: we intentionally do NOT depend on a special attachments schema here.
   const { data, error } = await supabase
     .from("decision_inbox")
     .select("id,title,body,created_at,status,framed_decision_id,type,attachments,attachment_count")
@@ -333,20 +321,20 @@ async function fetchTopDecisionSuggestions(scope: Scope): Promise<Suggestion[]> 
 
   if ("statusEq" in filter) {
     q = q.eq("status", filter.statusEq);
-  } else if ("notDraft" in filter && filter.notDraft) {
+  } else if ("notDraft" in filter && (filter as any).notDraft) {
     q = q.neq("status", "draft");
-    if ("notChapter" in filter && filter.notChapter) q = q.neq("status", "chapter");
-    if ("requireReviewAt" in filter && filter.requireReviewAt) q = q.not("review_at", "is", null);
+    if ("requireReviewAt" in filter && (filter as any).requireReviewAt) q = q.not("review_at", "is", null);
+  } else if ("notChapter" in filter && (filter as any).notChapter) {
+    q = q.neq("status", "chapter");
   }
 
   if (scope === "revisit") {
     q = q.order("review_at", { ascending: true }).limit(7);
   } else if (scope === "chapters") {
     q = q.order("chaptered_at", { ascending: false, nullsFirst: false }).order("decided_at", { ascending: false, nullsFirst: false }).limit(7);
-  } else if (scope === "decisions") {
-    q = q.order("decided_at", { ascending: false, nullsFirst: false }).order("created_at", { ascending: false }).limit(7);
   } else {
-    q = q.order("created_at", { ascending: false }).limit(7);
+    // decisions + thinking alias
+    q = q.order("decided_at", { ascending: false, nullsFirst: false }).order("created_at", { ascending: false }).limit(7);
   }
 
   const res = await q;
@@ -354,7 +342,7 @@ async function fetchTopDecisionSuggestions(scope: Scope): Promise<Suggestion[]> 
 
   return (res.data ?? []).slice(0, 7).map((d: any) => {
     const status = safeStr(d.status);
-    const subtitle = status === "draft" ? "Draft" : status === "chapter" ? "Chapter" : "Decision";
+    const subtitle = status === "chapter" ? "Chapter" : "Decision";
     return { kind: "decision", id: String(d.id), title: safeStr(d.title) || "Untitled", subtitle, href: routeForDecision(String(d.id)) };
   });
 }
@@ -376,20 +364,19 @@ async function fetchDecisionMatches(scope: Scope, q: string): Promise<Suggestion
 
   if ("statusEq" in filter) {
     db = db.eq("status", filter.statusEq);
-  } else if ("notDraft" in filter && filter.notDraft) {
+  } else if ("notDraft" in filter && (filter as any).notDraft) {
     db = db.neq("status", "draft");
-    if ("notChapter" in filter && filter.notChapter) db = db.neq("status", "chapter");
-    if ("requireReviewAt" in filter && filter.requireReviewAt) db = db.not("review_at", "is", null);
+    if ("requireReviewAt" in filter && (filter as any).requireReviewAt) db = db.not("review_at", "is", null);
+  } else if ("notChapter" in filter && (filter as any).notChapter) {
+    db = db.neq("status", "chapter");
   }
 
   if (scope === "revisit") {
     db = db.order("review_at", { ascending: true }).limit(10);
   } else if (scope === "chapters") {
     db = db.order("chaptered_at", { ascending: false, nullsFirst: false }).order("decided_at", { ascending: false, nullsFirst: false }).limit(10);
-  } else if (scope === "decisions") {
-    db = db.order("decided_at", { ascending: false, nullsFirst: false }).order("created_at", { ascending: false }).limit(10);
   } else {
-    db = db.order("created_at", { ascending: false }).limit(10);
+    db = db.order("decided_at", { ascending: false, nullsFirst: false }).order("created_at", { ascending: false }).limit(10);
   }
 
   const { data, error } = await db;
@@ -397,7 +384,7 @@ async function fetchDecisionMatches(scope: Scope, q: string): Promise<Suggestion
 
   return (data ?? []).map((d: DecisionRow) => {
     const status = safeStr(d.status);
-    const subtitle = status === "draft" ? "Draft" : status === "chapter" ? "Chapter" : "Decision";
+    const subtitle = status === "chapter" ? "Chapter" : "Decision";
     return { kind: "decision", id: String(d.id), title: safeStr(d.title) || "Untitled", subtitle, href: routeForDecision(String(d.id)) };
   });
 }
