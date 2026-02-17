@@ -19,6 +19,14 @@ import { AttachmentsBlock } from "@/components/AttachmentsBlock";
 
 export const dynamic = "force-dynamic";
 
+/**
+ * ✅ Decisions model (locked):
+ * - Decisions page shows ALL ACTIVE items (status !== "chapter")
+ * - Review is purely a view/filter (review_at), NOT a separate status
+ * - Chapters is closed decisions (status === "chapter")
+ * - No draft/decided distinction for the Decisions surface
+ */
+
 type AttachmentMeta = {
   name: string;
   path: string; // storage path inside bucket
@@ -37,7 +45,6 @@ type Decision = {
   review_at: string | null;
   origin: string | null;
   framed_at: string | null;
-
   attachments: AttachmentMeta[] | null; // decisions.attachments (jsonb)
 };
 
@@ -108,14 +115,17 @@ function sortByName<T extends { name: string; sort_order?: number | null }>(item
 }
 
 /**
- * Thinking context format (V1):
+ * Context format (V1-compatible):
  * Stored in decisions.context as:
  *   Captured:
  *   <original capture text>
  *
  *   ---
  *   Draft:
- *   <editable draft body>
+ *   <editable body>
+ *
+ * We keep this structure, but we DO NOT treat the decision as a “draft status”.
+ * It’s just the editable body + a stable original snapshot.
  */
 function splitThinkingContext(context: string | null) {
   const raw = (context ?? "").trim();
@@ -192,7 +202,7 @@ export default function ThinkingClient({ surface = "thinking" }: { surface?: "th
   const pageTitle = surface === "decisions" ? "Decisions" : "Thinking";
   const pageSubtitle =
     surface === "decisions"
-      ? "Have a financial decision to make? Write it below. I’ll help you clarify what matters, explore the options, and decide what to do next."
+      ? "Bring any money decision here. Talk it through, capture what matters, and save the conclusion — without turning it into a project."
       : "Work on drafts here. When you’re ready to commit, save it into Decisions.";
 
   const [highlightId, setHighlightId] = useState<string | null>(null);
@@ -200,14 +210,14 @@ export default function ThinkingClient({ surface = "thinking" }: { surface?: "th
 
   const [userId, setUserId] = useState<string | null>(null);
   const [statusLine, setStatusLine] = useState<string>("Loading…");
-  const [drafts, setDrafts] = useState<Decision[]>([]);
+  const [items, setItems] = useState<Decision[]>([]);
   const [openId, setOpenId] = useState<string | null>(null);
 
   // ✅ Top-5 default (V1 pattern)
   const DEFAULT_LIMIT = 5;
   const [showAll, setShowAll] = useState(false);
 
-  // Summaries for the currently open draft (small, capped)
+  // Summaries for the currently open decision (small, capped)
   const [summaries, setSummaries] = useState<DecisionSummary[]>([]);
 
   // ✅ Labels (tiles + assignment)
@@ -232,7 +242,7 @@ export default function ThinkingClient({ surface = "thinking" }: { surface?: "th
   const [revisitModeById, setRevisitModeById] = useState<Record<string, "7" | "30" | "90" | "custom" | "">>({});
   const [customDateById, setCustomDateById] = useState<Record<string, string>>({});
 
-  // ✅ Draft editor
+  // ✅ Draft/body editor (content, not status)
   const [isEditingDraftById, setIsEditingDraftById] = useState<Record<string, boolean>>({});
   const [draftTitleById, setDraftTitleById] = useState<Record<string, string>>({});
   const [draftBodyById, setDraftBodyById] = useState<Record<string, string>>({});
@@ -242,44 +252,40 @@ export default function ThinkingClient({ surface = "thinking" }: { surface?: "th
     {}
   );
 
-  // ✅ Capture-style delete confirm
+  // ✅ Delete confirm
   const [confirmDeleteForId, setConfirmDeleteForId] = useState<string | null>(null);
 
-  // ✅ Details collapse (keeps all existing functionality)
+  // ✅ Details collapse (keeps functionality but keeps UI calm)
   const [showDetailsById, setShowDetailsById] = useState<Record<string, boolean>>({});
 
-  // ✅ Composer state
+  // ✅ Composer state (Decisions surface)
   const composerRef = useRef<HTMLDivElement | null>(null);
   const composerInputRef = useRef<HTMLTextAreaElement | null>(null);
   const [newText, setNewText] = useState<string>("");
-  const [newDraftId, setNewDraftId] = useState<string | null>(null);
+  const [newDecisionId, setNewDecisionId] = useState<string | null>(null);
   const [creatingNew, setCreatingNew] = useState<boolean>(false);
 
   // chat focus/boot tokens (decisionId -> number)
   const [chatFocusTokenById, setChatFocusTokenById] = useState<Record<string, number>>({});
-
-  // Which decision has an open conversation panel within a card
   const [chatForId, setChatForId] = useState<string | null>(null);
-
-  // Composer-hosted conversation
   const [composerChatForId, setComposerChatForId] = useState<string | null>(null);
 
   // Composer: show Files only when requested OR there are files
   const [composerShowFiles, setComposerShowFiles] = useState<boolean>(false);
 
-  // ✅ pass first message into ConversationPanel (chat-first)
+  // Pass first message into ConversationPanel (chat-first)
   const [pendingFirstMsgById, setPendingFirstMsgById] = useState<Record<string, string>>({});
   const [pendingFirstMsgTokenById, setPendingFirstMsgTokenById] = useState<Record<string, number>>({});
 
-  // ✅ NEW: auto-create draft when user starts typing (debounced)
+  // Auto-create on typing (debounced)
   const autoCreateTimerRef = useRef<number | null>(null);
 
-  const composerDraft = useMemo(() => {
-    if (!newDraftId) return null;
-    return drafts.find((x) => x.id === newDraftId) ?? null;
-  }, [newDraftId, drafts]);
+  const composerDecision = useMemo(() => {
+    if (!newDecisionId) return null;
+    return items.find((x) => x.id === newDecisionId) ?? null;
+  }, [newDecisionId, items]);
 
-  const composerHasFiles = (composerDraft?.attachments?.length ?? 0) > 0;
+  const composerHasFiles = (composerDecision?.attachments?.length ?? 0) > 0;
 
   const scheduleReload = () => {
     if (reloadTimerRef.current) window.clearTimeout(reloadTimerRef.current);
@@ -288,7 +294,7 @@ export default function ThinkingClient({ surface = "thinking" }: { surface?: "th
     }, 250);
   };
 
-  const openDraft = useMemo(() => drafts.find((d) => d.id === openId) ?? null, [drafts, openId]);
+  const openDecision = useMemo(() => items.find((d) => d.id === openId) ?? null, [items, openId]);
 
   const reloadSummaries = async (decisionId: string) => {
     if (!userId) return;
@@ -316,7 +322,7 @@ export default function ThinkingClient({ surface = "thinking" }: { surface?: "th
     const { data: auth, error: authError } = await supabase.auth.getUser();
     if (authError || !auth?.user) {
       setUserId(null);
-      setDrafts([]);
+      setItems([]);
       setStatusLine("Not signed in.");
       return;
     }
@@ -324,15 +330,23 @@ export default function ThinkingClient({ surface = "thinking" }: { surface?: "th
     const uid = auth.user.id;
     setUserId(uid);
 
-    const { data, error } = await supabase
+    // ✅ Surface behavior:
+    // - Decisions: ACTIVE only (status !== "chapter")
+    // - Thinking: keep legacy “draft-only” behavior (if you still use the page)
+    const q = supabase
       .from("decisions")
       .select("id,user_id,title,context,status,created_at,decided_at,review_at,origin,framed_at,attachments")
       .eq("user_id", uid)
-      .eq("status", "draft")
       .order("created_at", { ascending: false });
 
+    const { data, error } =
+      surface === "decisions"
+        ? await q.neq("status", "chapter")
+        : // legacy behavior: Thinking still only shows drafts (safe, non-breaking)
+          await q.eq("status", "draft");
+
     if (error) {
-      setDrafts([]);
+      setItems([]);
       setStatusLine(`Error: ${error.message}`);
       return;
     }
@@ -343,7 +357,7 @@ export default function ThinkingClient({ surface = "thinking" }: { surface?: "th
       user_id: r.user_id,
       title: r.title ?? "",
       context: r.context ?? null,
-      status: r.status ?? "draft",
+      status: r.status ?? "",
       created_at: r.created_at ?? new Date().toISOString(),
       decided_at: r.decided_at ?? null,
       review_at: r.review_at ?? null,
@@ -352,7 +366,7 @@ export default function ThinkingClient({ surface = "thinking" }: { surface?: "th
       attachments: normalizeAttachments(r.attachments),
     }));
 
-    setDrafts(list);
+    setItems(list);
 
     const [domRes, conRes] = await Promise.all([
       supabase.from("domains").select("id,name,sort_order").eq("user_id", uid).order("sort_order", { ascending: true }),
@@ -424,7 +438,7 @@ export default function ThinkingClient({ surface = "thinking" }: { surface?: "th
       setConstellationsByDecision({});
     }
 
-    setStatusLine(list.length === 0 ? "No drafts right now." : "Loaded.");
+    setStatusLine(list.length === 0 ? "All clear." : "Loaded.");
   };
 
   useEffect(() => {
@@ -440,14 +454,14 @@ export default function ThinkingClient({ surface = "thinking" }: { surface?: "th
       reloadTimerRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [surface]);
 
   // ✅ Auto-open from query (?open=...) + scroll + clear param
   useEffect(() => {
     if (!openFromQuery) return;
-    if (drafts.length === 0) return;
+    if (items.length === 0) return;
 
-    const match = drafts.find((d) => d.id === openFromQuery);
+    const match = items.find((d) => d.id === openFromQuery);
     if (!match) return;
 
     setOpenId(match.id);
@@ -466,7 +480,7 @@ export default function ThinkingClient({ surface = "thinking" }: { surface?: "th
 
     const t = window.setTimeout(() => setHighlightId(null), 1600);
     return () => window.clearTimeout(t);
-  }, [openFromQuery, drafts, router, surface]);
+  }, [openFromQuery, items, router, surface]);
 
   // Keep chat only for the open card
   useEffect(() => {
@@ -483,124 +497,137 @@ export default function ThinkingClient({ surface = "thinking" }: { surface?: "th
     setConfirmDeleteForId((cur) => (cur && openId && cur === openId ? cur : null));
   }, [openId]);
 
-  // Load summaries for the open draft (capped)
+  // Load summaries for the open decision (capped)
   useEffect(() => {
-    if (!userId || !openDraft) {
+    if (!userId || !openDecision) {
       setSummaries([]);
       return;
     }
-    void reloadSummaries(openDraft.id);
+    void reloadSummaries(openDecision.id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userId, openDraft?.id]);
+  }, [userId, openDecision?.id]);
 
-  // Realtime: draft decisions
+  // Realtime: decisions
   useEffect(() => {
     if (!userId) return;
 
     const channel = supabase
-      .channel(`thinking-drafts-${userId}`)
-      .on("postgres_changes", { event: "*", schema: "public", table: "decisions", filter: `user_id=eq.${userId}` }, (payload: any) => {
-        const eventType: string | undefined = payload?.eventType;
-        const next = payload?.new as any | undefined;
-        const prev = payload?.old as any | undefined;
+      .channel(`decisions-${surface}-${userId}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "decisions", filter: `user_id=eq.${userId}` },
+        (payload: any) => {
+          const eventType: string | undefined = payload?.eventType;
+          const next = payload?.new as any | undefined;
+          const prev = payload?.old as any | undefined;
 
-        const id = (next?.id ?? prev?.id) as string | undefined;
-        if (!eventType || !id) {
+          const id = (next?.id ?? prev?.id) as string | undefined;
+          if (!eventType || !id) {
+            scheduleReload();
+            return;
+          }
+
+          const rowStatus = String(next?.status ?? prev?.status ?? "");
+
+          const shouldBeVisible =
+            surface === "decisions"
+              ? rowStatus !== "chapter"
+              : // legacy: thinking shows only drafts
+                rowStatus === "draft";
+
+          setItems((current) => {
+            if (eventType === "DELETE") {
+              if (openId === id) setOpenId(null);
+              if (chatForId === id) setChatForId(null);
+              if (labelsEditForId === id) setLabelsEditForId(null);
+              if (confirmDeleteForId === id) setConfirmDeleteForId(null);
+              if (composerChatForId === id) setComposerChatForId(null);
+              if (newDecisionId === id) setNewDecisionId(null);
+              return current.filter((d) => d.id !== id);
+            }
+
+            if (!shouldBeVisible) {
+              if (openId === id) setOpenId(null);
+              if (chatForId === id) setChatForId(null);
+              if (labelsEditForId === id) setLabelsEditForId(null);
+              if (confirmDeleteForId === id) setConfirmDeleteForId(null);
+              if (composerChatForId === id) setComposerChatForId(null);
+              if (newDecisionId === id) setNewDecisionId(null);
+              return current.filter((d) => d.id !== id);
+            }
+
+            const toDecision = (r: any): Decision => ({
+              id: r.id,
+              user_id: r.user_id,
+              title: r.title ?? "",
+              context: r.context ?? null,
+              status: r.status ?? "",
+              created_at: r.created_at ?? new Date().toISOString(),
+              decided_at: r.decided_at ?? null,
+              review_at: r.review_at ?? null,
+              origin: r.origin ?? null,
+              framed_at: r.framed_at ?? null,
+              attachments: normalizeAttachments(r.attachments),
+            });
+
+            const patch = toDecision(next ?? prev);
+
+            const exists = current.some((d) => d.id === patch.id);
+            const merged = exists ? current.map((d) => (d.id === patch.id ? { ...d, ...patch } : d)) : [patch, ...current];
+
+            merged.sort((a, b) => {
+              const ta = safeMs(a.created_at) ?? 0;
+              const tb = safeMs(b.created_at) ?? 0;
+              return tb - ta;
+            });
+
+            return merged;
+          });
+
           scheduleReload();
-          return;
         }
-
-        const rowStatus = String(next?.status ?? prev?.status ?? "");
-        const isDraft = rowStatus === "draft";
-
-        setDrafts((current) => {
-          if (eventType === "DELETE") {
-            if (openId === id) setOpenId(null);
-            if (chatForId === id) setChatForId(null);
-            if (labelsEditForId === id) setLabelsEditForId(null);
-            if (confirmDeleteForId === id) setConfirmDeleteForId(null);
-            if (composerChatForId === id) setComposerChatForId(null);
-            if (newDraftId === id) setNewDraftId(null);
-            return current.filter((d) => d.id !== id);
-          }
-
-          if (!isDraft) {
-            if (openId === id) setOpenId(null);
-            if (chatForId === id) setChatForId(null);
-            if (labelsEditForId === id) setLabelsEditForId(null);
-            if (confirmDeleteForId === id) setConfirmDeleteForId(null);
-            if (composerChatForId === id) setComposerChatForId(null);
-            if (newDraftId === id) setNewDraftId(null);
-            return current.filter((d) => d.id !== id);
-          }
-
-          const toDecision = (r: any): Decision => ({
-            id: r.id,
-            user_id: r.user_id,
-            title: r.title ?? "",
-            context: r.context ?? null,
-            status: r.status ?? "draft",
-            created_at: r.created_at ?? new Date().toISOString(),
-            decided_at: r.decided_at ?? null,
-            review_at: r.review_at ?? null,
-            origin: r.origin ?? null,
-            framed_at: r.framed_at ?? null,
-            attachments: normalizeAttachments(r.attachments),
-          });
-
-          const patch = toDecision(next ?? prev);
-
-          const exists = current.some((d) => d.id === patch.id);
-          const merged = exists ? current.map((d) => (d.id === patch.id ? { ...d, ...patch } : d)) : [patch, ...current];
-
-          merged.sort((a, b) => {
-            const ta = safeMs(a.created_at) ?? 0;
-            const tb = safeMs(b.created_at) ?? 0;
-            return tb - ta;
-          });
-
-          return merged;
-        });
-
-        scheduleReload();
-      })
+      )
       .subscribe();
 
     return () => {
       supabase.removeChannel(channel);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userId, openId, chatForId, labelsEditForId, confirmDeleteForId, composerChatForId, newDraftId]);
+  }, [userId, surface, openId, chatForId, labelsEditForId, confirmDeleteForId, composerChatForId, newDecisionId]);
 
-  const decideNow = async (d: Decision) => {
+  /**
+   * ✅ “Save conclusion” (Decisions surface)
+   * - DOES NOT change status
+   * - Simply stamps decided_at (and can optionally clear review if you want)
+   */
+  const saveConclusionNow = async (d: Decision) => {
     if (!userId) return;
 
-    setDrafts((prev) => prev.filter((x) => x.id !== d.id));
-    if (openId === d.id) setOpenId(null);
-    if (chatForId === d.id) setChatForId(null);
-    if (labelsEditForId === d.id) setLabelsEditForId(null);
-    if (confirmDeleteForId === d.id) setConfirmDeleteForId(null);
+    const prevDecidedAt = d.decided_at;
+
+    setItems((prev) => prev.map((x) => (x.id === d.id ? { ...x, decided_at: new Date().toISOString() } : x)));
 
     const { error } = await supabase
       .from("decisions")
-      .update({ status: "decided", decided_at: new Date().toISOString() })
+      .update({ decided_at: new Date().toISOString() })
       .eq("id", d.id)
       .eq("user_id", userId);
 
     if (error) {
-      showToast({ message: `Couldn’t mark decided: ${error.message}` }, 3500);
+      showToast({ message: `Couldn’t save: ${error.message}` }, 3500);
+      setItems((prev) => prev.map((x) => (x.id === d.id ? { ...x, decided_at: prevDecidedAt ?? null } : x)));
       loadRef.current({ silent: true });
       return;
     }
 
     showToast(
       {
-        message: "Saved to Decisions.",
+        message: "Conclusion saved.",
         undoLabel: "Undo",
         onUndo: async () => {
           const { error: undoErr } = await supabase
             .from("decisions")
-            .update({ status: "draft", decided_at: null })
+            .update({ decided_at: prevDecidedAt ?? null })
             .eq("id", d.id)
             .eq("user_id", userId);
 
@@ -618,13 +645,9 @@ export default function ThinkingClient({ surface = "thinking" }: { surface?: "th
   const scheduleRevisitAt = async (d: Decision, review_at: string) => {
     if (!userId) return;
 
-    setDrafts((prev) => prev.map((x) => (x.id === d.id ? { ...x, review_at } : x)));
+    setItems((prev) => prev.map((x) => (x.id === d.id ? { ...x, review_at } : x)));
 
-    const { error } = await supabase
-      .from("decisions")
-      .update({ review_at, reviewed_at: null })
-      .eq("id", d.id)
-      .eq("user_id", userId);
+    const { error } = await supabase.from("decisions").update({ review_at, reviewed_at: null }).eq("id", d.id).eq("user_id", userId);
 
     if (error) {
       showToast({ message: `Couldn’t schedule: ${error.message}` }, 3500);
@@ -640,11 +663,27 @@ export default function ThinkingClient({ surface = "thinking" }: { surface?: "th
     await scheduleRevisitAt(d, review_at);
   };
 
-  const performDeleteDraft = async (d: Decision) => {
+  const clearRevisit = async (d: Decision) => {
     if (!userId) return;
 
-    const prev = drafts;
-    setDrafts((p) => p.filter((x) => x.id !== d.id));
+    setItems((prev) => prev.map((x) => (x.id === d.id ? { ...x, review_at: null } : x)));
+
+    const { error } = await supabase.from("decisions").update({ review_at: null }).eq("id", d.id).eq("user_id", userId);
+
+    if (error) {
+      showToast({ message: `Couldn’t clear: ${error.message}` }, 3500);
+      loadRef.current({ silent: true });
+      return;
+    }
+
+    showToast({ message: "Review cleared." }, 2000);
+  };
+
+  const performDelete = async (d: Decision) => {
+    if (!userId) return;
+
+    const prev = items;
+    setItems((p) => p.filter((x) => x.id !== d.id));
     if (openId === d.id) setOpenId(null);
     if (chatForId === d.id) setChatForId(null);
     if (labelsEditForId === d.id) setLabelsEditForId(null);
@@ -669,12 +708,12 @@ export default function ThinkingClient({ surface = "thinking" }: { surface?: "th
     if (error || deletedCount === 0) {
       const msg = error?.message ? `Couldn’t delete: ${error.message}` : "Couldn’t delete right now.";
       showToast({ message: msg }, 3500);
-      setDrafts(prev);
+      setItems(prev);
       loadRef.current({ silent: true });
       return;
     }
 
-    showToast({ message: "Draft deleted." }, 3000);
+    showToast({ message: "Deleted." }, 2500);
   };
 
   const useSummaryAsContext = async (d: Decision, summary: DecisionSummary) => {
@@ -687,17 +726,17 @@ export default function ThinkingClient({ surface = "thinking" }: { surface?: "th
       ? `${existing}\n\n---\nSummary added (${softWhen(summary.created_at)}):\n${chunk}`
       : `Summary added (${softWhen(summary.created_at)}):\n${chunk}`;
 
-    setDrafts((prev) => prev.map((x) => (x.id === d.id ? { ...x, context: nextContext } : x)));
+    setItems((prev) => prev.map((x) => (x.id === d.id ? { ...x, context: nextContext } : x)));
 
     const { error } = await supabase.from("decisions").update({ context: nextContext }).eq("id", d.id).eq("user_id", userId);
 
     if (error) {
-      showToast({ message: `Couldn’t update context: ${error.message}` }, 3500);
+      showToast({ message: `Couldn’t update: ${error.message}` }, 3500);
       loadRef.current({ silent: true });
       return;
     }
 
-    showToast({ message: "Added to context." }, 2500);
+    showToast({ message: "Added to context." }, 2000);
   };
 
   const setDecisionDomain = async (decisionId: string, domainId: string | null) => {
@@ -709,7 +748,7 @@ export default function ThinkingClient({ surface = "thinking" }: { surface?: "th
       if (!domainId) {
         const { error } = await supabase.from("decision_domains").delete().eq("user_id", userId).eq("decision_id", decisionId);
         if (error) throw error;
-        showToast({ message: "Cleared." }, 1800);
+        showToast({ message: "Cleared." }, 1600);
         return;
       }
 
@@ -718,7 +757,7 @@ export default function ThinkingClient({ surface = "thinking" }: { surface?: "th
         .upsert({ user_id: userId, decision_id: decisionId, domain_id: domainId }, { onConflict: "user_id,decision_id" });
 
       if (error) throw error;
-      showToast({ message: "Saved." }, 1800);
+      showToast({ message: "Saved." }, 1600);
     } catch {
       showToast({ message: `Couldn’t update.` }, 2200);
       loadRef.current({ silent: true });
@@ -744,7 +783,7 @@ export default function ThinkingClient({ surface = "thinking" }: { surface?: "th
           .eq("constellation_id", constellationId);
 
         if (error) throw error;
-        showToast({ message: "Removed." }, 1800);
+        showToast({ message: "Removed." }, 1600);
         return;
       }
 
@@ -755,15 +794,15 @@ export default function ThinkingClient({ surface = "thinking" }: { surface?: "th
       });
 
       if (error) throw error;
-      showToast({ message: "Saved." }, 1800);
+      showToast({ message: "Saved." }, 1600);
     } catch {
       showToast({ message: `Couldn’t update.` }, 2200);
       loadRef.current({ silent: true });
     }
   };
 
-  const filteredDrafts = useMemo(() => {
-    let list = drafts;
+  const filteredItems = useMemo(() => {
+    let list = items;
 
     if (activeDomainId) {
       list = list.filter((d) => (domainByDecision[d.id] ?? null) === activeDomainId);
@@ -774,17 +813,17 @@ export default function ThinkingClient({ surface = "thinking" }: { surface?: "th
     }
 
     return list;
-  }, [drafts, activeDomainId, activeConstellationId, domainByDecision, constellationsByDecision]);
+  }, [items, activeDomainId, activeConstellationId, domainByDecision, constellationsByDecision]);
 
-  const visibleDrafts = useMemo(() => {
-    if (showAll) return filteredDrafts;
-    return filteredDrafts.slice(0, DEFAULT_LIMIT);
-  }, [filteredDrafts, showAll]);
+  const visibleItems = useMemo(() => {
+    if (showAll) return filteredItems;
+    return filteredItems.slice(0, DEFAULT_LIMIT);
+  }, [filteredItems, showAll]);
 
-  const hasMore = filteredDrafts.length > DEFAULT_LIMIT;
+  const hasMore = filteredItems.length > DEFAULT_LIMIT;
   const hasAnyLabelOptions = domains.length > 0 || constellations.length > 0;
 
-  const beginEditDraft = (d: Decision) => {
+  const beginEditBody = (d: Decision) => {
     const parts = splitThinkingContext(d.context);
     setIsEditingDraftById((prev) => ({ ...prev, [d.id]: true }));
     setDraftTitleById((prev) => ({ ...prev, [d.id]: d.title ?? "" }));
@@ -796,29 +835,23 @@ export default function ThinkingClient({ surface = "thinking" }: { surface?: "th
     });
   };
 
-  const cancelEditDraft = (d: Decision) => {
+  const cancelEditBody = (d: Decision) => {
     setIsEditingDraftById((prev) => ({ ...prev, [d.id]: false }));
   };
 
-  const saveDraftOverwrite = async (d: Decision) => {
+  const saveBodyOverwrite = async (d: Decision) => {
     if (!userId) return;
 
     const snapshot = originalCaptureById[d.id] ?? { title: d.title ?? "", captured: splitThinkingContext(d.context).captured ?? "" };
 
     const nextTitle = (draftTitleById[d.id] ?? "").trim() || d.title || "Untitled";
     const nextDraftBody = (draftBodyById[d.id] ?? "").trim();
-
     const nextContext = composeThinkingContext(snapshot.captured, nextDraftBody);
 
-    setDrafts((prev) => prev.map((x) => (x.id === d.id ? { ...x, title: nextTitle, context: nextContext } : x)));
+    setItems((prev) => prev.map((x) => (x.id === d.id ? { ...x, title: nextTitle, context: nextContext } : x)));
     setIsEditingDraftById((prev) => ({ ...prev, [d.id]: false }));
 
-    const { error } = await supabase
-      .from("decisions")
-      .update({ title: nextTitle, context: nextContext })
-      .eq("id", d.id)
-      .eq("user_id", userId)
-      .eq("status", "draft");
+    const { error } = await supabase.from("decisions").update({ title: nextTitle, context: nextContext }).eq("id", d.id).eq("user_id", userId);
 
     if (error) {
       showToast({ message: `Couldn’t save: ${error.message}` }, 3500);
@@ -826,17 +859,17 @@ export default function ThinkingClient({ surface = "thinking" }: { surface?: "th
       return;
     }
 
-    showToast({ message: "Saved." }, 1800);
+    showToast({ message: "Saved." }, 1600);
   };
 
-  // ✅ Create a new draft for the composer (chat-first)
-  const createNewDraftIfNeeded = async (statementOverride?: string, opts?: { silent?: boolean }) => {
+  // ✅ Create a new ACTIVE decision for the composer (chat-first)
+  const createNewDecisionIfNeeded = async (statementOverride?: string, opts?: { silent?: boolean }) => {
     if (!userId) {
       if (!opts?.silent) showToast({ message: "Not signed in." }, 2500);
       return null;
     }
 
-    if (newDraftId) return newDraftId;
+    if (newDecisionId) return newDecisionId;
 
     const statement = (statementOverride ?? newText ?? "").trim();
     if (!statement) {
@@ -856,13 +889,16 @@ export default function ThinkingClient({ surface = "thinking" }: { surface?: "th
       const title = titleFromStatement(statement);
       const context = composeThinkingContext(statement, "");
 
+      // ✅ IMPORTANT:
+      // We intentionally do NOT use "draft" here.
+      // We set status to "open" (active). Ensure your DB accepts this value.
       const { data, error } = await supabase
         .from("decisions")
         .insert({
           user_id: userId,
           title,
           context,
-          status: "draft",
+          status: "open",
           origin: "decisions",
           decided_at: null,
         })
@@ -880,7 +916,7 @@ export default function ThinkingClient({ surface = "thinking" }: { surface?: "th
         user_id: row.user_id,
         title: row.title ?? title,
         context: row.context ?? context,
-        status: row.status ?? "draft",
+        status: row.status ?? "open",
         created_at: row.created_at ?? new Date().toISOString(),
         decided_at: row.decided_at ?? null,
         review_at: row.review_at ?? null,
@@ -889,14 +925,14 @@ export default function ThinkingClient({ surface = "thinking" }: { surface?: "th
         attachments: normalizeAttachments(row.attachments),
       };
 
-      setDrafts((prev) => [created, ...prev]);
+      setItems((prev) => [created, ...prev]);
 
       setOriginalCaptureById((prev) => ({
         ...prev,
         [created.id]: { title: created.title ?? "", captured: statement },
       }));
 
-      setNewDraftId(created.id);
+      setNewDecisionId(created.id);
 
       // default: hide Files until user asks (or there are files)
       setComposerShowFiles(false);
@@ -906,7 +942,7 @@ export default function ThinkingClient({ surface = "thinking" }: { surface?: "th
 
       return created.id;
     } catch (e: any) {
-      if (!opts?.silent) showToast({ message: e?.message ?? "Couldn’t create draft." }, 3500);
+      if (!opts?.silent) showToast({ message: e?.message ?? "Couldn’t create." }, 3500);
       return null;
     } finally {
       setCreatingNew(false);
@@ -931,7 +967,7 @@ export default function ThinkingClient({ surface = "thinking" }: { surface?: "th
 
   const resetComposer = () => {
     setNewText("");
-    setNewDraftId(null);
+    setNewDecisionId(null);
     setCreatingNew(false);
     setComposerChatForId(null);
     setComposerShowFiles(false);
@@ -953,10 +989,9 @@ export default function ThinkingClient({ surface = "thinking" }: { surface?: "th
       return;
     }
 
-    const id = await createNewDraftIfNeeded(text);
+    const id = await createNewDecisionIfNeeded(text);
     if (!id) return;
 
-    // show composer conversation
     setComposerChatForId(id);
 
     // hand first message into ConversationPanel
@@ -975,12 +1010,12 @@ export default function ThinkingClient({ surface = "thinking" }: { surface?: "th
     }, 60);
   };
 
-  // ✅ Auto-create draft when typing starts (Decisions surface only)
+  // ✅ Auto-create when typing starts (Decisions surface only)
   useEffect(() => {
     if (surface !== "decisions") return;
     if (!userId) return;
     if (composerChatForId) return;
-    if (newDraftId) return;
+    if (newDecisionId) return;
 
     const t = (newText ?? "").trim();
     if (t.length < 3) {
@@ -991,7 +1026,7 @@ export default function ThinkingClient({ surface = "thinking" }: { surface?: "th
 
     if (autoCreateTimerRef.current) window.clearTimeout(autoCreateTimerRef.current);
     autoCreateTimerRef.current = window.setTimeout(() => {
-      void createNewDraftIfNeeded(t, { silent: true });
+      void createNewDecisionIfNeeded(t, { silent: true });
     }, 550);
 
     return () => {
@@ -999,7 +1034,7 @@ export default function ThinkingClient({ surface = "thinking" }: { surface?: "th
       autoCreateTimerRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [newText, userId, surface, composerChatForId, newDraftId]);
+  }, [newText, userId, surface, composerChatForId, newDecisionId]);
 
   return (
     <Page title={pageTitle} subtitle={pageSubtitle} right={null}>
@@ -1007,10 +1042,10 @@ export default function ThinkingClient({ surface = "thinking" }: { surface?: "th
         {surface === "decisions" ? (
           <div className="flex justify-center">
             <div className="flex flex-wrap items-center gap-2">
-              <Chip active title="Open (this page)">
-                Open
+              <Chip active title="Active (this page)">
+                Active
               </Chip>
-              <Chip onClick={() => router.push("/revisit")} title="Review scheduled items">
+              <Chip onClick={() => router.push("/revisit")} title="Review (filter view)">
                 Review
               </Chip>
               <Chip onClick={() => router.push("/chapters")} title="Chapters">
@@ -1032,24 +1067,22 @@ export default function ThinkingClient({ surface = "thinking" }: { surface?: "th
           </div>
         )}
 
-        {/* ✅ Chat-first composer (Decisions only) */}
+        {/* ✅ Chat-first composer (Decisions only) — calmer, not “chat app” */}
         {surface === "decisions" ? (
-          <div ref={composerRef} className="rounded-3xl bg-white p-5 shadow-sm">
-            <div className="space-y-4">
+          <div ref={composerRef} className="rounded-2xl border border-zinc-200 bg-white p-4">
+            <div className="space-y-3">
               <div className="space-y-1">
                 <div className="text-sm font-semibold text-zinc-900">Talk it through</div>
-                <div className="text-sm text-zinc-600">
-                  A draft decision is created automatically when you start typing.
-                </div>
+                <div className="text-sm text-zinc-600">Start typing. We’ll create the decision quietly in the background.</div>
               </div>
 
               {composerChatForId ? (
                 <div id="composer-chat" className="pt-1">
                   <ConversationPanel
                     decisionId={composerChatForId}
-                    decisionTitle={drafts.find((x) => x.id === composerChatForId)?.title ?? "New decision"}
-                    askedText={drafts.find((x) => x.id === composerChatForId)?.title ?? ""}
-                    frame={{ decision_statement: drafts.find((x) => x.id === composerChatForId)?.title ?? "" }}
+                    decisionTitle={items.find((x) => x.id === composerChatForId)?.title ?? "New decision"}
+                    askedText={items.find((x) => x.id === composerChatForId)?.title ?? ""}
+                    frame={{ decision_statement: items.find((x) => x.id === composerChatForId)?.title ?? "" }}
                     onClose={() => setComposerChatForId(null)}
                     onSummarySaved={() => void reloadSummaries(composerChatForId)}
                     autoFocusToken={chatFocusTokenById[composerChatForId] ?? 0}
@@ -1064,17 +1097,17 @@ export default function ThinkingClient({ surface = "thinking" }: { surface?: "th
                   />
 
                   <div className="mt-3 flex flex-wrap items-center gap-2">
-                    {newDraftId ? (
+                    {newDecisionId ? (
                       <Chip
                         onClick={() => {
-                          const id = newDraftId;
+                          const id = newDecisionId;
                           if (!id) return;
                           openCardAtTop(id);
                           setComposerChatForId(null);
                         }}
-                        title="Open the draft below"
+                        title="Open below"
                       >
-                        Go to draft
+                        Go to it
                       </Chip>
                     ) : null}
 
@@ -1083,10 +1116,10 @@ export default function ThinkingClient({ surface = "thinking" }: { surface?: "th
                     </Chip>
                   </div>
 
-                  {userId && newDraftId && (composerShowFiles || composerHasFiles) ? (
+                  {userId && newDecisionId && (composerShowFiles || composerHasFiles) ? (
                     <div className="mt-3 rounded-2xl bg-white">
-                      <AttachmentsBlock userId={userId} decisionId={newDraftId} title="Files" bucket="captures" initial={[]} />
-                      <div className="mt-2 text-xs text-zinc-500">These files are attached to this draft.</div>
+                      <AttachmentsBlock userId={userId} decisionId={newDecisionId} title="Files" bucket="captures" initial={[]} />
+                      <div className="mt-2 text-xs text-zinc-500">These files are attached to this decision.</div>
                     </div>
                   ) : null}
                 </div>
@@ -1097,7 +1130,7 @@ export default function ThinkingClient({ surface = "thinking" }: { surface?: "th
                     value={newText}
                     onChange={(e) => setNewText(e.target.value)}
                     rows={3}
-                    placeholder="Have a financial decision to make? Write it here…"
+                    placeholder="What decision are you holding right now?"
                     className="w-full resize-y rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-[15px] leading-relaxed text-zinc-900 outline-none focus:ring-2 focus:ring-zinc-200"
                     onKeyDown={(e) => {
                       // Enter sends (Shift+Enter newline)
@@ -1109,13 +1142,13 @@ export default function ThinkingClient({ surface = "thinking" }: { surface?: "th
                   />
 
                   <div className="flex flex-wrap items-center gap-2">
-                    <PrimaryActionButton disabled={creatingNew} onClick={() => void sendFromComposer()} title="Send">
-                      {creatingNew ? "Creating…" : "Send"}
+                    <PrimaryActionButton disabled={creatingNew} onClick={() => void sendFromComposer()} title="Start the conversation">
+                      {creatingNew ? "Starting…" : "Talk"}
                     </PrimaryActionButton>
 
                     <Chip
                       onClick={async () => {
-                        const id = await createNewDraftIfNeeded(undefined, { silent: false });
+                        const id = await createNewDecisionIfNeeded(undefined, { silent: false });
                         if (!id) return;
                         setComposerShowFiles(true);
                         setComposerChatForId(id);
@@ -1125,17 +1158,17 @@ export default function ThinkingClient({ surface = "thinking" }: { surface?: "th
                       Add files
                     </Chip>
 
-                    {newDraftId ? (
+                    {newDecisionId ? (
                       <Chip
                         onClick={() => {
-                          const id = newDraftId;
+                          const id = newDecisionId;
                           if (!id) return;
                           openCardAtTop(id);
                           setComposerChatForId(null);
                         }}
-                        title="Open the draft below"
+                        title="Open below"
                       >
-                        Go to draft
+                        Go to it
                       </Chip>
                     ) : null}
                   </div>
@@ -1145,36 +1178,41 @@ export default function ThinkingClient({ surface = "thinking" }: { surface?: "th
           </div>
         ) : null}
 
-        <AssistedSearch scope={assistedScope as any} placeholder="Search drafts and decisions…" />
+        <AssistedSearch scope={assistedScope as any} placeholder="Search decisions…" />
 
         <div className="space-y-4">
           <TilesRow title="Filter by area" items={domains} activeId={activeDomainId} onSelect={(id) => setActiveDomainId(id)} />
-          <TilesRow title="Filter by group" items={constellations} activeId={activeConstellationId} onSelect={(id) => setActiveConstellationId(id)} />
+          <TilesRow
+            title="Filter by group"
+            items={constellations}
+            activeId={activeConstellationId}
+            onSelect={(id) => setActiveConstellationId(id)}
+          />
         </div>
 
         <div className="text-xs text-zinc-500">{statusLine}</div>
 
-        {filteredDrafts.length > 0 && hasMore ? (
+        {filteredItems.length > 0 && hasMore ? (
           <div className="flex items-center gap-2">
             <Chip onClick={() => setShowAll((v) => !v)}>{showAll ? "Show less" : "Show all"}</Chip>
             {!showAll ? (
               <div className="text-xs text-zinc-500">
-                Showing {DEFAULT_LIMIT} of {filteredDrafts.length}
+                Showing {DEFAULT_LIMIT} of {filteredItems.length}
               </div>
             ) : null}
           </div>
         ) : null}
 
-        {filteredDrafts.length === 0 ? (
-          <div className="rounded-3xl bg-white p-5 shadow-sm">
+        {filteredItems.length === 0 ? (
+          <div className="rounded-2xl border border-zinc-200 bg-white p-4">
             <div className="space-y-2">
               <div className="text-sm font-semibold text-zinc-900">All clear.</div>
-              <div className="text-sm text-zinc-600">When something needs thinking time, it can live here quietly.</div>
+              <div className="text-sm text-zinc-600">When something needs attention, it can live here quietly.</div>
             </div>
           </div>
         ) : (
-          <div className="grid gap-3">
-            {visibleDrafts.map((d) => {
+          <div className="space-y-4">
+            {visibleItems.map((d, idx) => {
               const isOpen = openId === d.id;
               const isChatOpen = chatForId === d.id;
               const showDetails = !!showDetailsById[d.id];
@@ -1210,7 +1248,9 @@ export default function ThinkingClient({ surface = "thinking" }: { surface?: "th
                     cardRefs.current[d.id] = el;
                   }}
                   className={[
-                    "rounded-3xl bg-white p-5 shadow-sm transition",
+                    "bg-white",
+                    "rounded-2xl border border-zinc-200",
+                    "px-4 py-4",
                     highlightId === d.id ? "ring-2 ring-zinc-200" : "",
                     animateCardId === d.id ? "animate-pulse" : "",
                   ].join(" ")}
@@ -1247,18 +1287,21 @@ export default function ThinkingClient({ surface = "thinking" }: { surface?: "th
 
                         <div className="mt-1 text-xs text-zinc-500">
                           Started {softWhen(d.created_at)}
+                          {d.decided_at ? ` • Conclusion saved ${softWhen(d.decided_at)}` : ""}
                           {d.review_at ? ` • Review ${softWhen(d.review_at)}` : ""}
                         </div>
 
-                        <div className="mt-2 flex flex-wrap gap-2">
-                          {domainName ? <Chip title="Filed under">{domainName}</Chip> : null}
-                          {memberNames.slice(0, 2).map((n) => (
-                            <Chip key={n} title="Filed under">
-                              {n}
-                            </Chip>
-                          ))}
-                          {memberNames.length > 2 ? <Chip title="More">+{memberNames.length - 2}</Chip> : null}
-                        </div>
+                        {filedUnder.length > 0 ? (
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            {domainName ? <Chip title="Filed under">{domainName}</Chip> : null}
+                            {memberNames.slice(0, 2).map((n) => (
+                              <Chip key={n} title="Filed under">
+                                {n}
+                              </Chip>
+                            ))}
+                            {memberNames.length > 2 ? <Chip title="More">+{memberNames.length - 2}</Chip> : null}
+                          </div>
+                        ) : null}
                       </div>
 
                       <div className="flex items-center gap-2">
@@ -1282,7 +1325,7 @@ export default function ThinkingClient({ surface = "thinking" }: { surface?: "th
                           onSummarySaved={() => void reloadSummaries(d.id)}
                         />
                       ) : (
-                        <div className="rounded-2xl bg-white">
+                        <div className="rounded-2xl border border-zinc-200 bg-white p-3">
                           <div className="flex items-center justify-between gap-3">
                             <div className="min-w-0">
                               <div className="text-sm font-semibold text-zinc-900">Conversation</div>
@@ -1294,7 +1337,7 @@ export default function ThinkingClient({ surface = "thinking" }: { surface?: "th
                                 setChatFocusTokenById((p) => ({ ...p, [d.id]: (p[d.id] ?? 0) + 1 }));
                               }}
                             >
-                              Open chat
+                              Open
                             </Chip>
                           </div>
                         </div>
@@ -1305,7 +1348,7 @@ export default function ThinkingClient({ surface = "thinking" }: { surface?: "th
                         {confirmDeleteForId === d.id ? (
                           <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[#C94A4A] bg-[#FCECEC] px-4 py-3">
                             <div className="text-sm text-[#7A1E1E]">
-                              Delete this draft? <span className="opacity-80">This can’t be undone.</span>
+                              Delete this decision? <span className="opacity-80">This can’t be undone.</span>
                             </div>
                             <div className="flex items-center gap-2">
                               <Chip onClick={() => setConfirmDeleteForId(null)} title="Cancel">
@@ -1313,7 +1356,7 @@ export default function ThinkingClient({ surface = "thinking" }: { surface?: "th
                               </Chip>
                               <button
                                 type="button"
-                                onClick={() => void performDeleteDraft(d)}
+                                onClick={() => void performDelete(d)}
                                 className="inline-flex select-none items-center justify-center rounded-full border border-[#C94A4A] bg-[#C94A4A] px-4 py-2 text-sm text-white transition hover:bg-[#b94141]"
                                 title="Delete"
                               >
@@ -1323,8 +1366,9 @@ export default function ThinkingClient({ surface = "thinking" }: { surface?: "th
                           </div>
                         ) : (
                           <div className="flex flex-wrap items-center gap-2">
-                            <PrimaryActionButton onClick={() => decideNow(d)} title="Confirm and save into Decisions">
-                              Decide
+                            {/* ✅ No status change */}
+                            <PrimaryActionButton onClick={() => void saveConclusionNow(d)} title="Stamp the conclusion as saved">
+                              Save conclusion
                             </PrimaryActionButton>
 
                             <div className="flex flex-wrap items-center gap-2">
@@ -1370,33 +1414,39 @@ export default function ThinkingClient({ surface = "thinking" }: { surface?: "th
                                       }
                                       void scheduleRevisitAt(d, iso);
                                     }}
-                                    title="Set revisit date"
+                                    title="Set review date"
                                   >
-                                    Set date
+                                    Set
                                   </Chip>
                                 </div>
                               ) : null}
+
+                              {d.review_at ? (
+                                <Chip onClick={() => void clearRevisit(d)} title="Clear review">
+                                  Clear
+                                </Chip>
+                              ) : null}
                             </div>
 
-                            <Chip onClick={() => router.push("/revisit")} title="Open Review to see scheduled items">
-                              Go to Review
+                            <Chip onClick={() => router.push("/revisit")} title="Open Review view">
+                              Review view
                             </Chip>
 
                             <Chip
                               onClick={() => setShowDetailsById((p) => ({ ...p, [d.id]: !p[d.id] }))}
-                              title="Show/hide draft details"
+                              title="Show/hide notes, files, labels"
                             >
-                              {showDetails ? "Hide details" : "Draft details"}
+                              {showDetails ? "Hide details" : "Details"}
                             </Chip>
 
-                            <Chip onClick={() => setConfirmDeleteForId(d.id)} title="Delete this draft">
+                            <Chip onClick={() => setConfirmDeleteForId(d.id)} title="Delete">
                               Delete
                             </Chip>
                           </div>
                         )}
                       </div>
 
-                      {/* Details (collapsed by default; preserves all V1 functionality) */}
+                      {/* Details (collapsed by default) */}
                       {showDetails ? (
                         <div className="space-y-4">
                           <div className="rounded-2xl border border-zinc-200 bg-white p-4 space-y-2">
@@ -1408,18 +1458,18 @@ export default function ThinkingClient({ surface = "thinking" }: { surface?: "th
 
                           <div className="rounded-2xl border border-zinc-200 bg-white p-4 space-y-3">
                             <div className="flex items-center justify-between gap-2">
-                              <div className="text-sm font-semibold text-zinc-900">Draft</div>
+                              <div className="text-sm font-semibold text-zinc-900">Working notes</div>
 
                               {!isEditingDraft ? (
-                                <Chip onClick={() => beginEditDraft(d)} title="Edit">
+                                <Chip onClick={() => beginEditBody(d)} title="Edit">
                                   Edit
                                 </Chip>
                               ) : (
                                 <div className="flex items-center gap-2">
-                                  <Chip onClick={() => cancelEditDraft(d)} title="Cancel">
+                                  <Chip onClick={() => cancelEditBody(d)} title="Cancel">
                                     Cancel
                                   </Chip>
-                                  <Chip onClick={() => void saveDraftOverwrite(d)} title="Save">
+                                  <Chip onClick={() => void saveBodyOverwrite(d)} title="Save">
                                     Save
                                   </Chip>
                                 </div>
@@ -1437,7 +1487,7 @@ export default function ThinkingClient({ surface = "thinking" }: { surface?: "th
                                     ? "border-zinc-200 bg-white focus:ring-2 focus:ring-zinc-200"
                                     : "border-zinc-100 bg-zinc-50 text-zinc-900"
                                 }`}
-                                aria-label="Draft title"
+                                aria-label="Decision title"
                               />
                             </div>
 
@@ -1446,15 +1496,15 @@ export default function ThinkingClient({ surface = "thinking" }: { surface?: "th
 
                               {!isEditingDraft ? (
                                 <div className="whitespace-pre-wrap rounded-2xl border border-zinc-100 bg-zinc-50 px-4 py-3 text-[15px] leading-relaxed text-zinc-800">
-                                  {parts.draft?.trim() ? parts.draft : <span className="text-zinc-500">This is what I’m deciding… (optional)</span>}
+                                  {parts.draft?.trim() ? parts.draft : <span className="text-zinc-500">Notes (optional)…</span>}
                                 </div>
                               ) : (
                                 <textarea
                                   value={draftBodyById[d.id] ?? parts.draft ?? ""}
                                   onChange={(e) => setDraftBodyById((prev) => ({ ...prev, [d.id]: e.target.value }))}
-                                  placeholder="This is what I’m deciding… (optional)"
+                                  placeholder="Notes (optional)…"
                                   className="w-full min-h-[160px] resize-y rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-[15px] leading-relaxed text-zinc-900 outline-none focus:ring-2 focus:ring-zinc-200"
-                                  aria-label="Draft body"
+                                  aria-label="Decision notes"
                                 />
                               )}
                             </div>
@@ -1535,7 +1585,7 @@ export default function ThinkingClient({ surface = "thinking" }: { surface?: "th
                             <div className="rounded-2xl border border-zinc-200 bg-white p-3 space-y-2">
                               <div className="space-y-1">
                                 <div className="text-xs font-semibold text-zinc-700">Saved chat summaries</div>
-                                <div className="text-xs text-zinc-500">You can edit these later in the decision view.</div>
+                                <div className="text-xs text-zinc-500">Tap to append one into context if useful.</div>
                               </div>
 
                               {summaries.map((s) => (
@@ -1543,7 +1593,7 @@ export default function ThinkingClient({ surface = "thinking" }: { surface?: "th
                                   <div className="text-xs text-zinc-500">Saved {softWhen(s.created_at)}</div>
                                   <div className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-800">{s.summary_text}</div>
                                   <div className="flex flex-wrap items-center gap-2">
-                                    <Chip onClick={() => useSummaryAsContext(d, s)} title="Append this into the draft context">
+                                    <Chip onClick={() => useSummaryAsContext(d, s)} title="Append into context">
                                       Use as context
                                     </Chip>
                                   </div>
@@ -1553,6 +1603,9 @@ export default function ThinkingClient({ surface = "thinking" }: { surface?: "th
                           ) : null}
                         </div>
                       ) : null}
+
+                      {/* subtle divider for rhythm */}
+                      {idx !== visibleItems.length - 1 ? <div className="pt-1" /> : null}
                     </div>
                   ) : null}
                 </div>
