@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { Page } from "@/components/Page";
@@ -138,7 +139,7 @@ function composeContext(captured: string, notes: string) {
 }
 
 function PrimaryActionButton(props: {
-  children: React.ReactNode;
+  children: ReactNode;
   onClick?: () => void;
   title?: string;
   disabled?: boolean;
@@ -877,13 +878,7 @@ export default function DecisionsClient() {
           {/* Files */}
           <div className="rounded-2xl border border-zinc-200 bg-white p-3">
             {userId ? (
-              <AttachmentsBlock
-                userId={userId}
-                decisionId={d.id}
-                title={allAtt.length ? `Files (${allAtt.length})` : "Files"}
-                bucket="captures"
-                initial={allAtt}
-              />
+              <AttachmentsBlock userId={userId} decisionId={d.id} title={allAtt.length ? `Files (${allAtt.length})` : "Files"} bucket="captures" initial={allAtt} />
             ) : (
               <div className="text-sm text-zinc-600">Files unavailable.</div>
             )}
