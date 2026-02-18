@@ -306,6 +306,69 @@ const sortLabel: Record<SortKey, string> = {
   titleZA: "Title Z–A",
 };
 
+// --- summary rendering helpers (bullets + real bold) ---
+function stripBulletPrefix(line: string) {
+  return line.replace(/^[-•]\s+/, "").trim();
+}
+function stripMdMarkers(line: string) {
+  return line.replace(/\*\*/g, "");
+}
+function renderInlineBold(text: string) {
+  const parts = String(text ?? "").split(/(\*\*[^*]+\*\*)/g).filter(Boolean);
+  return parts.map((p, i) => {
+    const m = p.match(/^\*\*([^*]+)\*\*$/);
+    if (m) return <strong key={i}>{m[1]}</strong>;
+    return <span key={i}>{p}</span>;
+  });
+}
+function summaryOneLine(text: string) {
+  const lines = String(text ?? "")
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean);
+  const first = lines[0] ?? "";
+  return stripMdMarkers(stripBulletPrefix(first));
+}
+function renderSummaryBody(text: string) {
+  const lines = String(text ?? "")
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean);
+
+  const out: React.ReactNode[] = [];
+  let i = 0;
+
+  while (i < lines.length) {
+    const line = lines[i];
+    const isBullet = /^[-•]\s+/.test(line);
+
+    if (isBullet) {
+      const bullets: string[] = [];
+      while (i < lines.length && /^[-•]\s+/.test(lines[i])) {
+        bullets.push(stripBulletPrefix(lines[i]));
+        i++;
+      }
+      out.push(
+        <ul key={`ul-${i}`} className="list-disc pl-5 space-y-1 text-sm leading-relaxed text-zinc-800">
+          {bullets.map((b, idx) => (
+            <li key={idx}>{renderInlineBold(b)}</li>
+          ))}
+        </ul>
+      );
+      continue;
+    }
+
+    out.push(
+      <p key={`p-${i}`} className="text-sm leading-relaxed text-zinc-800">
+        {renderInlineBold(line)}
+      </p>
+    );
+    i++;
+  }
+
+  return out;
+}
+
 export default function DecisionsClient() {
   const router = useRouter();
   const { showToast } = useToast();
@@ -362,9 +425,11 @@ export default function DecisionsClient() {
   const [workForId, setWorkForId] = useState<string | null>(null);
 
   const [summaries, setSummaries] = useState<DecisionSummary[]>([]);
+  const [expandedSummary, setExpandedSummary] = useState<Record<string, boolean>>({});
 
   const reloadTimerRef = useRef<number | null>(null);
   const cardRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const topAnchorRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
   const [confirmDeleteForId, setConfirmDeleteForId] = useState<string | null>(null);
 
@@ -423,6 +488,11 @@ export default function DecisionsClient() {
   const [noteDraftByDecisionId, setNoteDraftByDecisionId] = useState<Record<string, string>>({});
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
   const [editingNoteDraft, setEditingNoteDraft] = useState<string>("");
+
+  const scrollToDecisionTop = (id: string) => {
+    const anchor = topAnchorRefs.current[id] ?? cardRefs.current[id];
+    anchor?.scrollIntoView?.({ behavior: "smooth", block: "start" });
+  };
 
   const scheduleReload = () => {
     if (reloadTimerRef.current) window.clearTimeout(reloadTimerRef.current);
@@ -519,7 +589,6 @@ export default function DecisionsClient() {
     // ✅ Decisions query: push search + sort + pagination into Supabase (filters remain client-side for now)
     let q = supabase
       .from("decisions")
-      // count exact enables “Load more” correctly
       .select("id,user_id,title,context,status,created_at,decided_at,review_at,origin,framed_at,attachments", { count: "exact" })
       .eq("user_id", uid);
 
@@ -530,15 +599,11 @@ export default function DecisionsClient() {
     // Search (server-side)
     const t = (searchDebounced ?? "").trim();
     if (t) {
-      // match title OR context
-      const safe = t.replace(/[%_]/g, "\\$&"); // escape % and _ for ilike patterns
+      const safe = t.replace(/[%_]/g, "\\$&");
       q = q.or(`title.ilike.%${safe}%,context.ilike.%${safe}%`);
     }
 
     // Sort (server-side)
-    // Notes:
-    // - review_at sorts use nulls last
-    // - secondary sort keeps stable ordering
     if (sortKey === "newest") {
       q = q.order("created_at", { ascending: false });
     } else if (sortKey === "oldest") {
@@ -685,8 +750,7 @@ export default function DecisionsClient() {
     if (openFromQuery) {
       setOpenId(openFromQuery);
       window.setTimeout(() => {
-        const el = cardRefs.current[openFromQuery];
-        el?.scrollIntoView?.({ behavior: "smooth", block: "start" });
+        scrollToDecisionTop(openFromQuery);
       }, 60);
     } else {
       setOpenId(null);
@@ -694,10 +758,13 @@ export default function DecisionsClient() {
 
     if (workFromQuery && openFromQuery) {
       setWorkForId(openFromQuery);
+      // ✅ keep anchored at top of card (no scroll to chat)
       window.setTimeout(() => {
-        const el = cardRefs.current[openFromQuery];
-        el?.scrollIntoView?.({ behavior: "smooth", block: "start" });
+        scrollToDecisionTop(openFromQuery);
       }, 60);
+      window.setTimeout(() => {
+        scrollToDecisionTop(openFromQuery);
+      }, 320);
     } else {
       setWorkForId(null);
     }
@@ -855,15 +922,9 @@ export default function DecisionsClient() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId, tab, openDecision?.id]);
 
-  const filterCount = useMemo(() => {
-    return (activeDomainId ? 1 : 0) + (activeConstellationId ? 1 : 0) + (hasReviewDateOnly ? 1 : 0) + (reviewDueOnly ? 1 : 0);
-  }, [activeDomainId, activeConstellationId, hasReviewDateOnly, reviewDueOnly]);
-
-  const sortIsActive = sortKey !== "newest";
-
   const filteredItems = useMemo(() => {
     // items are already server-searched + server-sorted + paged.
-    // Filters remain client-side for now.
+    // Filters remain client-side.
     let list = items;
 
     if (tab === "closed") list = list.filter((d) => d.status === "chapter");
@@ -888,7 +949,6 @@ export default function DecisionsClient() {
   const hasMoreInUI = others.length > DEFAULT_LIMIT;
 
   const hasServerMore = useMemo(() => {
-    // if totalCount is exact from server: loaded fewer than total implies more
     return items.length < totalCount;
   }, [items.length, totalCount]);
 
@@ -897,56 +957,7 @@ export default function DecisionsClient() {
     setPage((p) => p + 1);
   };
 
-  // (kept) simple createNewDecision - no longer used by Page 1 UI after framing patch, but harmless to keep
-  const createNewDecision = async () => {
-    if (!userId) {
-      showToast({ message: "Not signed in." }, 2500);
-      return;
-    }
-
-    const statement = (newText ?? "").trim();
-    if (!statement) {
-      showToast({ message: "Type your decision first." }, 2000);
-      newRef.current?.focus?.();
-      return;
-    }
-
-    if (creatingNew) return;
-    setCreatingNew(true);
-
-    try {
-      const title = titleFromStatement(statement);
-      const context = composeContext(statement, "");
-
-      const { data, error } = await supabase
-        .from("decisions")
-        .insert({
-          user_id: userId,
-          title,
-          context,
-          status: "open",
-          origin: "decisions",
-          decided_at: null,
-        })
-        .select("id")
-        .single();
-
-      if (error || !data?.id) {
-        showToast({ message: `Couldn’t save: ${error?.message ?? "Unknown error"}` }, 3500);
-        return;
-      }
-
-      const id = String(data.id);
-      setNewText("");
-      showToast({ message: "Saved to Active Decisions." }, 1800);
-
-      router.push(buildUrl("active", { open: id, work: false, q: searchDebounced, sort: sortKey, domain: activeDomainId, group: activeConstellationId, hasReview: hasReviewDateOnly, reviewDue: reviewDueOnly }));
-    } finally {
-      setCreatingNew(false);
-    }
-  };
-
-  // Page 1 requestFrame + saveFramedDecision
+  // Page 1 requestFrame + saveFramedDecision (unchanged)
   const requestFrame = async () => {
     const text = (newText ?? "").trim();
     if (!text) {
@@ -973,7 +984,7 @@ export default function DecisionsClient() {
       const f = json?.frame ?? null;
       if (!f) throw new Error("No frame returned.");
 
-      const next: FrameDraft = {
+      const next = {
         title: String(f.title ?? "").trim() || titleFromStatement(text),
         statement: String(f.statement ?? "").trim() || text,
         what_im_hearing: String(f.what_im_hearing ?? "").trim(),
@@ -1042,7 +1053,18 @@ export default function DecisionsClient() {
       setNewStep("input");
 
       showToast({ message: "Saved to Active Decisions." }, 1500);
-      router.push(buildUrl("active", { open: id, work: false, q: searchDebounced, sort: sortKey, domain: activeDomainId, group: activeConstellationId, hasReview: hasReviewDateOnly, reviewDue: reviewDueOnly }));
+      router.push(
+        buildUrl("active", {
+          open: id,
+          work: false,
+          q: searchDebounced,
+          sort: sortKey,
+          domain: activeDomainId,
+          group: activeConstellationId,
+          hasReview: hasReviewDateOnly,
+          reviewDue: reviewDueOnly,
+        })
+      );
     } catch (e: any) {
       showToast({ message: e?.message ?? "Save failed." }, 3500);
     } finally {
@@ -1099,7 +1121,16 @@ export default function DecisionsClient() {
     }
 
     showToast({ message: "Moved to Closed." }, 1800);
-    router.push(buildUrl("active", { q: searchDebounced, sort: sortKey, domain: activeDomainId, group: activeConstellationId, hasReview: hasReviewDateOnly, reviewDue: reviewDueOnly }));
+    router.push(
+      buildUrl("active", {
+        q: searchDebounced,
+        sort: sortKey,
+        domain: activeDomainId,
+        group: activeConstellationId,
+        hasReview: hasReviewDateOnly,
+        reviewDue: reviewDueOnly,
+      })
+    );
   };
 
   const reopenDecision = async (d: Decision) => {
@@ -1115,7 +1146,18 @@ export default function DecisionsClient() {
     }
 
     showToast({ message: "Re-opened." }, 1600);
-    router.push(buildUrl("active", { open: d.id, work: false, q: searchDebounced, sort: sortKey, domain: activeDomainId, group: activeConstellationId, hasReview: hasReviewDateOnly, reviewDue: reviewDueOnly }));
+    router.push(
+      buildUrl("active", {
+        open: d.id,
+        work: false,
+        q: searchDebounced,
+        sort: sortKey,
+        domain: activeDomainId,
+        group: activeConstellationId,
+        hasReview: hasReviewDateOnly,
+        reviewDue: reviewDueOnly,
+      })
+    );
   };
 
   const setReviewAt = async (d: Decision, review_at: string | null) => {
@@ -1134,16 +1176,52 @@ export default function DecisionsClient() {
     showToast({ message: review_at ? "Review scheduled." : "Review cleared." }, 1600);
   };
 
+  const filterCount = useMemo(() => {
+    return (activeDomainId ? 1 : 0) + (activeConstellationId ? 1 : 0) + (hasReviewDateOnly ? 1 : 0) + (reviewDueOnly ? 1 : 0);
+  }, [activeDomainId, activeConstellationId, hasReviewDateOnly, reviewDueOnly]);
+
+  const sortIsActive = sortKey !== "newest";
+
   const TopTabs = () => (
     <div className="flex justify-center">
       <div className="flex flex-wrap items-center gap-2">
         <Chip active={tab === "new"} onClick={() => router.push(buildUrl("new"))} title="New decision">
           New Decision
         </Chip>
-        <Chip active={tab === "active"} onClick={() => router.push(buildUrl("active", { q: searchDebounced, sort: sortKey, domain: activeDomainId, group: activeConstellationId, hasReview: hasReviewDateOnly, reviewDue: reviewDueOnly }))} title="Active decisions">
+        <Chip
+          active={tab === "active"}
+          onClick={() =>
+            router.push(
+              buildUrl("active", {
+                q: searchDebounced,
+                sort: sortKey,
+                domain: activeDomainId,
+                group: activeConstellationId,
+                hasReview: hasReviewDateOnly,
+                reviewDue: reviewDueOnly,
+              })
+            )
+          }
+          title="Active decisions"
+        >
           Active Decisions
         </Chip>
-        <Chip active={tab === "closed"} onClick={() => router.push(buildUrl("closed", { q: searchDebounced, sort: sortKey, domain: activeDomainId, group: activeConstellationId, hasReview: hasReviewDateOnly, reviewDue: reviewDueOnly }))} title="Closed decisions">
+        <Chip
+          active={tab === "closed"}
+          onClick={() =>
+            router.push(
+              buildUrl("closed", {
+                q: searchDebounced,
+                sort: sortKey,
+                domain: activeDomainId,
+                group: activeConstellationId,
+                hasReview: hasReviewDateOnly,
+                reviewDue: reviewDueOnly,
+              })
+            )
+          }
+          title="Closed decisions"
+        >
           Closed Decisions
         </Chip>
       </div>
@@ -1181,10 +1259,7 @@ export default function DecisionsClient() {
                 })
               );
 
-              window.setTimeout(() => {
-                const el = cardRefs.current[d.id];
-                el?.scrollIntoView?.({ behavior: "smooth", block: "start" });
-              }, 60);
+              window.setTimeout(() => scrollToDecisionTop(d.id), 60);
             }}
           >
             Open
@@ -1211,6 +1286,13 @@ export default function DecisionsClient() {
         }}
         className="rounded-2xl border border-zinc-200 bg-white p-4"
       >
+        {/* top anchor for scroll-to-top */}
+        <div
+          ref={(el) => {
+            topAnchorRefs.current[d.id] = el;
+          }}
+        />
+
         {/* Header */}
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
@@ -1241,14 +1323,14 @@ export default function DecisionsClient() {
                   })
                 );
 
-                window.setTimeout(() => {
-                  const el = cardRefs.current[d.id];
-                  el?.scrollIntoView?.({ behavior: "smooth", block: "start" });
-                }, 60);
+                // ✅ anchor to very top of decision card (yellow arrow area)
+                window.setTimeout(() => scrollToDecisionTop(d.id), 0);
+                window.setTimeout(() => scrollToDecisionTop(d.id), 80);
+                window.setTimeout(() => scrollToDecisionTop(d.id), 320);
               }}
               title="Open the conversation"
             >
-              Let’s work this through
+              Let’s work this through…
             </PrimaryActionButton>
           </div>
         ) : null}
@@ -1259,7 +1341,7 @@ export default function DecisionsClient() {
             <ConversationPanel
               decisionId={d.id}
               decisionTitle={d.title}
-              askedText={d.title}
+              askedText={""} // ✅ remove repeated small text under the header
               frame={{ decision_statement: d.title }}
               autoFocusToken={1}
               autoStartToken={1}
@@ -1277,6 +1359,7 @@ export default function DecisionsClient() {
                     reviewDue: reviewDueOnly,
                   })
                 );
+                window.setTimeout(() => scrollToDecisionTop(d.id), 0);
               }}
               onSummarySaved={() => void reloadSummaries(d.id)}
             />
@@ -1386,7 +1469,13 @@ export default function DecisionsClient() {
           {/* Files */}
           <div className="rounded-2xl border border-zinc-200 bg-white p-3">
             {userId ? (
-              <AttachmentsBlock userId={userId} decisionId={d.id} title={allAtt.length ? `Files (${allAtt.length})` : "Files"} bucket="captures" initial={allAtt} />
+              <AttachmentsBlock
+                userId={userId}
+                decisionId={d.id}
+                title={allAtt.length ? `Files (${allAtt.length})` : "Files"}
+                bucket="captures"
+                initial={allAtt}
+              />
             ) : (
               <div className="text-sm text-zinc-600">Files unavailable.</div>
             )}
@@ -1424,12 +1513,36 @@ export default function DecisionsClient() {
                 <div className="text-xs text-zinc-500">Saved summaries attached to this decision.</div>
               </div>
 
-              {summaries.map((s) => (
-                <div key={s.id} className="space-y-2">
-                  <div className="text-xs text-zinc-500">Saved {softWhen(s.created_at)}</div>
-                  <div className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-800">{s.summary_text}</div>
-                </div>
-              ))}
+              {summaries.map((s) => {
+                const one = summaryOneLine(s.summary_text);
+                const open = !!expandedSummary[s.id];
+
+                return (
+                  <details
+                    key={s.id}
+                    open={open}
+                    onToggle={(e) => {
+                      const nextOpen = (e.currentTarget as HTMLDetailsElement).open;
+                      setExpandedSummary((p) => ({ ...p, [s.id]: nextOpen }));
+                    }}
+                    className="rounded-2xl border border-zinc-200 bg-white px-4 py-3"
+                  >
+                    <summary className="cursor-pointer list-none">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="text-xs text-zinc-500">Saved {softWhen(s.created_at)}</div>
+                          <div className="mt-1 text-sm font-medium text-zinc-900 truncate">{renderInlineBold(one)}</div>
+                        </div>
+                        <div className="shrink-0">
+                          <span className="text-xs text-zinc-500">{open ? "Hide" : "Expand"}</span>
+                        </div>
+                      </div>
+                    </summary>
+
+                    <div className="mt-3 space-y-2">{renderSummaryBody(s.summary_text)}</div>
+                  </details>
+                );
+              })}
             </div>
           ) : null}
 
@@ -1458,7 +1571,16 @@ export default function DecisionsClient() {
                   setWorkForId(null);
                   setConfirmDeleteForId(null);
                   cancelEditNote();
-                  router.push(buildUrl("active", { q: searchDebounced, sort: sortKey, domain: activeDomainId, group: activeConstellationId, hasReview: hasReviewDateOnly, reviewDue: reviewDueOnly }));
+                  router.push(
+                    buildUrl("active", {
+                      q: searchDebounced,
+                      sort: sortKey,
+                      domain: activeDomainId,
+                      group: activeConstellationId,
+                      hasReview: hasReviewDateOnly,
+                      reviewDue: reviewDueOnly,
+                    })
+                  );
                 }}
                 title="Hide decision"
               >
@@ -1574,18 +1696,10 @@ export default function DecisionsClient() {
             <div className="space-y-2">
               <div className="text-xs font-semibold text-zinc-500">Quick</div>
               <div className="flex flex-wrap gap-2">
-                <Chip
-                  active={reviewDueOnly}
-                  onClick={() => setReviewDueOnly((v) => !v)}
-                  title="Show only decisions that are due for review"
-                >
+                <Chip active={reviewDueOnly} onClick={() => setReviewDueOnly((v) => !v)} title="Show only decisions that are due for review">
                   Review due
                 </Chip>
-                <Chip
-                  active={hasReviewDateOnly}
-                  onClick={() => setHasReviewDateOnly((v) => !v)}
-                  title="Show only decisions with a review date"
-                >
+                <Chip active={hasReviewDateOnly} onClick={() => setHasReviewDateOnly((v) => !v)} title="Show only decisions with a review date">
                   Has review date
                 </Chip>
               </div>
@@ -1808,7 +1922,21 @@ export default function DecisionsClient() {
                   {framingBusy ? "Clarifying…" : "Next"}
                 </PrimaryActionButton>
 
-                <Chip onClick={() => router.push(buildUrl("active", { q: searchDebounced, sort: sortKey, domain: activeDomainId, group: activeConstellationId, hasReview: hasReviewDateOnly, reviewDue: reviewDueOnly }))} title="Go to Active Decisions">
+                <Chip
+                  onClick={() =>
+                    router.push(
+                      buildUrl("active", {
+                        q: searchDebounced,
+                        sort: sortKey,
+                        domain: activeDomainId,
+                        group: activeConstellationId,
+                        hasReview: hasReviewDateOnly,
+                        reviewDue: reviewDueOnly,
+                      })
+                    )
+                  }
+                  title="Go to Active Decisions"
+                >
                   Active Decisions
                 </Chip>
               </div>
@@ -1949,11 +2077,3 @@ export default function DecisionsClient() {
     </Page>
   );
 }
-
-/**
- * SQL needed: none.
- *
- * Notes:
- * - Search + Sort + Pagination now happen in the Supabase decisions query.
- * - Domain/Group/Review filters remain client-side (as requested).
- */
