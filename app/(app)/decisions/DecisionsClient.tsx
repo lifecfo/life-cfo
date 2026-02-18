@@ -1,3 +1,4 @@
+// app/(app)/decisions/DecisionsClient.tsx
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -46,11 +47,12 @@ type Constellation = { id: string; name: string; sort_order?: number | null };
 
 type Tab = "new" | "active" | "closed";
 
-/** ✅ NEW: decision notes table rows */
+/** ✅ decision notes table rows (Path B: many notes with timestamps) */
 type DecisionNote = {
   id: string;
   user_id: string;
   decision_id: string;
+  kind: "framing" | "thinking" | "note";
   body: string;
   created_at: string;
   updated_at: string | null;
@@ -71,7 +73,6 @@ function softWhen(iso: string | null | undefined) {
 function softWhenDateTime(iso: string | null | undefined) {
   const ms = safeMs(iso);
   if (!ms) return "";
-  // compact, readable
   return new Date(ms).toLocaleString(undefined, {
     year: "numeric",
     month: "2-digit",
@@ -126,7 +127,7 @@ function titleFromStatement(statement: string) {
  * <notes>
  *
  * ✅ We keep Captured in context for provenance,
- * but decision NOTES are now stored in decision_notes table.
+ * but decision NOTES are stored in decision_notes table.
  */
 function splitContext(context: string | null) {
   const raw = (context ?? "").trim();
@@ -163,12 +164,7 @@ function composeContext(captured: string, notes: string) {
   return `Captured:\n${cap}\n\n---\nDraft:\n${n}`;
 }
 
-function PrimaryActionButton(props: {
-  children: React.ReactNode;
-  onClick?: () => void;
-  title?: string;
-  disabled?: boolean;
-}) {
+function PrimaryActionButton(props: { children: React.ReactNode; onClick?: () => void; title?: string; disabled?: boolean }) {
   const { children, onClick, title, disabled } = props;
   return (
     <button
@@ -261,7 +257,7 @@ export default function DecisionsClient() {
   const [newText, setNewText] = useState<string>("");
   const [creatingNew, setCreatingNew] = useState<boolean>(false);
 
-  // ✅ Page 1 framing step (PATCH)
+  // ✅ Page 1 framing step
   type FrameDraft = {
     title: string;
     statement: string;
@@ -276,7 +272,7 @@ export default function DecisionsClient() {
   const DEFAULT_LIMIT = 5;
   const [showAll, setShowAll] = useState(false);
 
-  /** ✅ NEW: decision notes state (per open decision) */
+  /** ✅ decision notes state (per open decision) */
   const [notesByDecisionId, setNotesByDecisionId] = useState<Record<string, DecisionNote[]>>({});
   const [notesLoadingByDecisionId, setNotesLoadingByDecisionId] = useState<Record<string, boolean>>({});
   const [noteDraftByDecisionId, setNoteDraftByDecisionId] = useState<Record<string, string>>({});
@@ -456,7 +452,7 @@ export default function DecisionsClient() {
     setSummaries((data ?? []) as DecisionSummary[]);
   };
 
-  /** ✅ NEW: load notes for a decision */
+  /** ✅ load notes for a decision (Path B: includes kind) */
   const loadNotes = async (decisionId: string) => {
     if (!userId) return;
 
@@ -464,7 +460,7 @@ export default function DecisionsClient() {
 
     const { data, error } = await supabase
       .from("decision_notes")
-      .select("id,user_id,decision_id,body,created_at,updated_at")
+      .select("id,user_id,decision_id,kind,body,created_at,updated_at")
       .eq("user_id", userId)
       .eq("decision_id", decisionId)
       .order("created_at", { ascending: false });
@@ -483,6 +479,7 @@ export default function DecisionsClient() {
         id: String(r.id),
         user_id: String(r.user_id),
         decision_id: String(r.decision_id),
+        kind: r.kind === "framing" || r.kind === "thinking" || r.kind === "note" ? r.kind : "note",
         body: String(r.body),
         created_at: String(r.created_at ?? new Date().toISOString()),
         updated_at: r.updated_at ? String(r.updated_at) : null,
@@ -492,6 +489,7 @@ export default function DecisionsClient() {
     setNotesLoadingByDecisionId((p) => ({ ...p, [decisionId]: false }));
   };
 
+  /** ✅ Path B insert: always provide kind (use "note") */
   const addNote = async (decisionId: string) => {
     if (!userId) {
       showToast({ message: "Not signed in." }, 2500);
@@ -510,6 +508,7 @@ export default function DecisionsClient() {
     const { error } = await supabase.from("decision_notes").insert({
       user_id: userId,
       decision_id: decisionId,
+      kind: "note",
       body: text,
     });
 
@@ -585,7 +584,7 @@ export default function DecisionsClient() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId, openDecision?.id]);
 
-  // ✅ when open decision changes, load its notes
+  // when open decision changes, load its notes
   useEffect(() => {
     if (!userId) return;
     if (tab !== "active") return;
@@ -679,7 +678,7 @@ export default function DecisionsClient() {
     }
   };
 
-  // ✅ PATCH: Page 1 requestFrame + saveFramedDecision
+  // Page 1 requestFrame + saveFramedDecision
   const requestFrame = async () => {
     const text = (newText ?? "").trim();
     if (!text) {
@@ -900,6 +899,7 @@ export default function DecisionsClient() {
 
   const renderOpenDecision = (d: Decision) => {
     const parts = splitContext(d.context);
+    void parts; // provenance only; keep in case you later surface captured context
 
     const allAtt = normalizeAttachments(d.attachments) as AttachmentMeta[];
     const isWorking = workForId === d.id;
@@ -980,7 +980,7 @@ export default function DecisionsClient() {
 
         {/* Workspace */}
         <div className="mt-5 space-y-4">
-          {/* ✅ NOTES (new model) */}
+          {/* NOTES */}
           <div className="rounded-2xl border border-zinc-200 bg-white p-4 space-y-3">
             <div className="flex items-center justify-between gap-2">
               <div className="text-sm font-semibold text-zinc-900">Notes</div>
@@ -999,7 +999,6 @@ export default function DecisionsClient() {
                 placeholder="Add a note…"
                 className="w-full min-h-[90px] resize-y rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-[15px] leading-relaxed text-zinc-900 outline-none focus:ring-2 focus:ring-zinc-200"
                 onKeyDown={(e) => {
-                  // Cmd/Ctrl+Enter saves note
                   const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad|iPod/.test(navigator.platform);
                   const cmdOrCtrl = isMac ? e.metaKey : e.ctrlKey;
                   if (cmdOrCtrl && e.key === "Enter") {
@@ -1014,9 +1013,7 @@ export default function DecisionsClient() {
                   Save note
                 </PrimaryActionButton>
 
-                {editingNoteId ? (
-                  <div className="text-xs text-zinc-500">Editing a note below — save/cancel there.</div>
-                ) : null}
+                {editingNoteId ? <div className="text-xs text-zinc-500">Editing a note below — save/cancel there.</div> : null}
               </div>
             </div>
 
@@ -1025,9 +1022,7 @@ export default function DecisionsClient() {
               {notesLoading ? <div className="text-sm text-zinc-500">Loading notes…</div> : null}
 
               {!notesLoading && notes.length === 0 ? (
-                <div className="rounded-2xl border border-zinc-100 bg-zinc-50 px-4 py-3 text-sm text-zinc-600">
-                  No notes yet.
-                </div>
+                <div className="rounded-2xl border border-zinc-100 bg-zinc-50 px-4 py-3 text-sm text-zinc-600">No notes yet.</div>
               ) : null}
 
               {!notesLoading
@@ -1035,6 +1030,8 @@ export default function DecisionsClient() {
                     const isEditing = editingNoteId === n.id;
                     const stamp = softWhenDateTime(n.created_at);
                     const edited = n.updated_at ? ` • edited ${softWhenDateTime(n.updated_at)}` : "";
+                    const kindLabel =
+                      n.kind === "framing" ? "Framing" : n.kind === "thinking" ? "Thinking" : n.kind === "note" ? "Note" : "Note";
 
                     return (
                       <div key={n.id} className="rounded-2xl border border-zinc-200 bg-white px-4 py-3">
@@ -1043,6 +1040,7 @@ export default function DecisionsClient() {
                             <div className="text-xs text-zinc-500">
                               {stamp}
                               {edited}
+                              <span className="text-zinc-400"> • {kindLabel}</span>
                             </div>
                           </div>
 
@@ -1088,13 +1086,7 @@ export default function DecisionsClient() {
           {/* Files */}
           <div className="rounded-2xl border border-zinc-200 bg-white p-3">
             {userId ? (
-              <AttachmentsBlock
-                userId={userId}
-                decisionId={d.id}
-                title={allAtt.length ? `Files (${allAtt.length})` : "Files"}
-                bucket="captures"
-                initial={allAtt}
-              />
+              <AttachmentsBlock userId={userId} decisionId={d.id} title={allAtt.length ? `Files (${allAtt.length})` : "Files"} bucket="captures" initial={allAtt} />
             ) : (
               <div className="text-sm text-zinc-600">Files unavailable.</div>
             )}
@@ -1181,7 +1173,19 @@ export default function DecisionsClient() {
   return (
     <Page title={pageTitle} subtitle={pageSubtitle} right={null}>
       <div className="mx-auto w-full max-w-[760px] space-y-6">
-        <TopTabs />
+        <div className="flex justify-center">
+          <div className="flex flex-wrap items-center gap-2">
+            <Chip active={tab === "new"} onClick={() => router.push(buildUrl("new"))} title="New decision">
+              New Decision
+            </Chip>
+            <Chip active={tab === "active"} onClick={() => router.push(buildUrl("active"))} title="Active decisions">
+              Active Decisions
+            </Chip>
+            <Chip active={tab === "closed"} onClick={() => router.push(buildUrl("closed"))} title="Closed decisions">
+              Closed Decisions
+            </Chip>
+          </div>
+        </div>
 
         {/* Page 1: New Decision */}
         {tab === "new" ? (
@@ -1334,12 +1338,7 @@ export default function DecisionsClient() {
 
             <div className="space-y-4">
               <TilesRow title="Filter by area" items={domains} activeId={activeDomainId} onSelect={(id) => setActiveDomainId(id)} />
-              <TilesRow
-                title="Filter by group"
-                items={constellations}
-                activeId={activeConstellationId}
-                onSelect={(id) => setActiveConstellationId(id)}
-              />
+              <TilesRow title="Filter by group" items={constellations} activeId={activeConstellationId} onSelect={(id) => setActiveConstellationId(id)} />
             </div>
 
             <div className="text-xs text-zinc-500">{statusLine}</div>
@@ -1367,11 +1366,7 @@ export default function DecisionsClient() {
                     {hasMore ? (
                       <div className="flex items-center gap-2">
                         <Chip onClick={() => setShowAll((v) => !v)}>{showAll ? "Show less" : "Show all"}</Chip>
-                        {!showAll ? (
-                          <div className="text-xs text-zinc-500">
-                            Showing {DEFAULT_LIMIT} of {others.length}
-                          </div>
-                        ) : null}
+                        {!showAll ? <div className="text-xs text-zinc-500">Showing {DEFAULT_LIMIT} of {others.length}</div> : null}
                       </div>
                     ) : null}
                   </div>
