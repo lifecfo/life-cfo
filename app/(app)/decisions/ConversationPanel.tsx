@@ -171,9 +171,8 @@ export function ConversationPanel(props: {
     if (!autoStartToken) return;
 
     const asked = (askedText || decisionStatement || decisionTitle || "").trim();
-    const line1 = asked ? `Okay — let’s work through this: “${asked}”.` : "Okay — let’s work through this.";
-    const line2 = "I’ll clarify what matters, check constraints, then lay out options + trade-offs.";
-
+    const line1 = asked ? `Okay — let’s work through: “${asked}”.` : "Okay — let’s work through this.";
+    const line2 = "I’ll clarify what matters, then lay out options + trade-offs.";
     setBootMessage(`${line1}\n\n${line2}`);
   }, [autoStartToken, askedText, decisionStatement, decisionTitle]);
 
@@ -286,7 +285,6 @@ export function ConversationPanel(props: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialUserMessageToken]);
 
-  // ✅ Single action: summarise + save to decision
   const saveChatSummary = async () => {
     if (savingSummary) return;
 
@@ -356,18 +354,16 @@ export function ConversationPanel(props: {
   };
 
   const widthUser = "max-w-[68%]";
-  const widthAsst = "max-w-[80%]";
+  const widthAsst = "max-w-[84%]";
 
   return (
     <div className="w-full">
-      {/* Minimal header */}
-      <div className="flex items-start justify-between gap-3 px-1">
+      {/* Minimal header (no heavy card) */}
+      <div className="flex items-start justify-between gap-3 px-0">
         <div className="min-w-0">
           <div className="text-sm font-semibold text-zinc-900">Conversation</div>
           {askedText ? (
-            <div className="mt-1 text-xs text-zinc-600 truncate">
-              <span className="font-medium text-zinc-700">Decision:</span> {askedText}
-            </div>
+            <div className="mt-1 truncate text-xs text-zinc-500">{askedText}</div>
           ) : null}
         </div>
 
@@ -378,27 +374,27 @@ export function ConversationPanel(props: {
         </div>
       </div>
 
-      {/* Messages */}
-      <div className="mt-3 max-h-[560px] overflow-auto px-2 py-3 sm:px-4">
-        {loading ? <div className="px-2 text-sm text-zinc-600">Loading…</div> : null}
+      {/* Messages (flat, white; subtle bubbles) */}
+      <div className="mt-3 max-h-[560px] overflow-auto px-0 py-2">
+        {loading ? <div className="text-sm text-zinc-600">Loading…</div> : null}
 
         {!loading && messages.length === 0 ? (
           <div className="py-2">
             <div className="flex justify-start">
-              <div className={[widthAsst, "rounded-3xl bg-zinc-50 px-5 py-3.5 text-sm leading-relaxed text-zinc-800"].join(" ")}>
+              <div className={[widthAsst, "rounded-2xl bg-zinc-50 px-4 py-3 text-sm leading-relaxed text-zinc-800"].join(" ")}>
                 <div className="whitespace-pre-wrap">{bootMessage || "Okay — let’s think this through."}</div>
               </div>
             </div>
           </div>
         ) : null}
 
-        <div className="space-y-5">
+        <div className="space-y-4">
           {messages.map((m, idx) => {
             const isUser = m.role === "user";
 
             const bubbleClass = isUser
-              ? [widthUser, "rounded-3xl bg-zinc-100 px-5 py-3.5 text-sm leading-relaxed text-zinc-900"].join(" ")
-              : [widthAsst, "rounded-3xl bg-white px-5 py-3.5 text-sm leading-relaxed text-zinc-800 border border-zinc-100"].join(" ");
+              ? [widthUser, "rounded-2xl bg-zinc-100 px-4 py-3 text-sm leading-relaxed text-zinc-900"].join(" ")
+              : [widthAsst, "rounded-2xl bg-white px-4 py-3 text-sm leading-relaxed text-zinc-800"].join(" ");
 
             return (
               <div key={idx} className={isUser ? "flex justify-end" : "flex justify-start"}>
@@ -411,12 +407,11 @@ export function ConversationPanel(props: {
         </div>
 
         {savedSummaryText ? (
-          <div className="mt-6">
+          <div className="mt-5">
             <div className="flex justify-start">
-              <div className={[widthAsst, "rounded-3xl bg-zinc-50 px-5 py-4"].join(" ")}>
+              <div className={[widthAsst, "rounded-2xl bg-zinc-50 px-4 py-3"].join(" ")}>
                 <div className="mb-2 text-xs text-zinc-500">Saved chat summary</div>
                 <MarkdownBubble content={savedSummaryText} />
-                <div className="mt-2 text-xs text-zinc-500">You can edit this later in the decision view.</div>
               </div>
             </div>
           </div>
@@ -425,12 +420,12 @@ export function ConversationPanel(props: {
         <div ref={endRef} />
       </div>
 
-      {/* Composer */}
-      <div className="px-2 pb-3 sm:px-4">
-        {status ? <div className="mb-2 px-2 text-xs text-zinc-500">{status}</div> : null}
-        {summaryStatus ? <div className="mb-2 px-2 text-xs text-zinc-500">{summaryStatus}</div> : null}
+      {/* Composer (flat) */}
+      <div className="pt-2">
+        {status ? <div className="mb-2 text-xs text-zinc-500">{status}</div> : null}
+        {summaryStatus ? <div className="mb-2 text-xs text-zinc-500">{summaryStatus}</div> : null}
 
-        <div className="rounded-2xl bg-white">
+        <div className="space-y-2">
           <div className="relative">
             <textarea
               ref={inputRef}
@@ -469,9 +464,9 @@ export function ConversationPanel(props: {
             ) : null}
           </div>
 
-          <div className="mt-2 flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Chip onClick={saveChatSummary} title="Summarise this chat and save it to the decision">
-              {savingSummary ? "Saving summary…" : "Save chat summary"}
+              {savingSummary ? "Saving…" : "Save summary"}
             </Chip>
           </div>
         </div>

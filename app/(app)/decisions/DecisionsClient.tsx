@@ -1,5 +1,3 @@
- // app/(app)/decisions/DecisionsClient.tsx
-
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -9,29 +7,26 @@ import { Page } from "@/components/Page";
 import { Chip, useToast } from "@/components/ui";
 import { ConversationPanel } from "./ConversationPanel";
 
-// ✅ Assisted retrieval + tiles
 import { AssistedSearch } from "@/components/AssistedSearch";
 import { TilesRow } from "@/components/TilesRow";
 
-// ✅ Notes (quiet)
 import { DecisionNotes } from "@/components/decision/DecisionNotes";
-
-// ✅ Attachments
 import { AttachmentsBlock } from "@/components/AttachmentsBlock";
 
 export const dynamic = "force-dynamic";
 
 /**
  * ✅ Decisions model (locked):
- * - Decisions page shows ALL ACTIVE items (status !== "chapter")
- * - Review is purely a view/filter (review_at), NOT a separate status
- * - Chapters is closed decisions (status === "chapter")
- * - No draft/decided distinction for the Decisions surface
+ * - Single Decisions identity
+ * - Active Decisions: status !== "chapter"
+ * - Closed Decisions: status === "chapter"
+ * - Review = filter view only (review_at), not a separate status
+ * - No draft/decided identity in UI
  */
 
 type AttachmentMeta = {
   name: string;
-  path: string; // storage path inside bucket
+  path: string;
   type: string;
   size: number;
 };
@@ -47,7 +42,7 @@ type Decision = {
   review_at: string | null;
   origin: string | null;
   framed_at: string | null;
-  attachments: AttachmentMeta[] | null; // decisions.attachments (jsonb)
+  attachments: AttachmentMeta[] | null;
 };
 
 type DecisionSummary = {
@@ -116,52 +111,10 @@ function sortByName<T extends { name: string; sort_order?: number | null }>(item
   });
 }
 
-/**
- * Context format (V1-compatible):
- * Stored in decisions.context as:
- *   Captured:
- *   <original capture text>
- *
- *   ---
- *   Draft:
- *   <editable body>
- *
- * We keep this structure, but we DO NOT treat the decision as a “draft status”.
- * It’s just the editable body + a stable original snapshot.
- */
-function splitThinkingContext(context: string | null) {
-  const raw = (context ?? "").trim();
-  if (!raw) return { captured: "", draft: "" };
-
-  const sep = "\n\n---\nDraft:\n";
-  const altSep = "\n---\nDraft:\n";
-
-  const idx = raw.indexOf(sep);
-  const idxAlt = raw.indexOf(altSep);
-
-  const cut = idx >= 0 ? idx : idxAlt;
-  const sepLen = idx >= 0 ? sep.length : idxAlt >= 0 ? altSep.length : 0;
-
-  if (cut >= 0) {
-    const capturedPart = raw.slice(0, cut).trim();
-    const draftPart = raw.slice(cut + sepLen).trim();
-    const captured = capturedPart.replace(/^Captured:\s*/i, "").trim();
-    return { captured, draft: draftPart };
-  }
-
-  const captured = raw.replace(/^Captured:\s*/i, "").trim();
-  return { captured, draft: "" };
-}
-
-function composeThinkingContext(captured: string, draft: string) {
-  const cap = (captured ?? "").trim();
-  const dr = (draft ?? "").trim();
-
-  if (!cap && !dr) return null;
-  if (cap && !dr) return `Captured:\n${cap}`;
-  if (!cap && dr) return dr;
-
-  return `Captured:\n${cap}\n\n---\nDraft:\n${dr}`;
+function titleFromStatement(statement: string) {
+  const s = (statement || "").trim().replace(/\s+/g, " ");
+  if (!s) return "Untitled";
+  return s.length > 90 ? `${s.slice(0, 87)}…` : s;
 }
 
 function PrimaryActionButton(props: {
@@ -189,41 +142,21 @@ function PrimaryActionButton(props: {
   );
 }
 
-function titleFromStatement(statement: string) {
-  const s = (statement || "").trim().replace(/\s+/g, " ");
-  if (!s) return "Untitled";
-  return s.length > 90 ? `${s.slice(0, 87)}…` : s;
-}
+type DecisionsSurface = "decisions" | "chapters" | "revisit";
 
-type DecisionsSurface = "thinking" | "decisions" | "revisit" | "chapters";
-
-export default function DecisionsClient({
-  surface = "decisions",
-}: {
-  surface?: DecisionsSurface;
-}) {
+export default function DecisionsClient({ surface = "decisions" }: { surface?: DecisionsSurface }) {
   const router = useRouter();
   const { showToast } = useToast();
   const searchParams = useSearchParams();
   const openFromQuery = searchParams.get("open");
 
-  const pageTitle =
-    surface === "decisions"
-      ? "Decisions"
-      : surface === "thinking"
-      ? "Thinking"
-      : surface === "revisit"
-      ? "Review"
-      : "Chapters";
-
+  const pageTitle = "Decisions";
   const pageSubtitle =
     surface === "decisions"
       ? "Bring any money decision here. Talk it through, capture what matters, and save the conclusion — without turning it into a project."
-      : surface === "thinking"
-      ? "Work on drafts here. When you’re ready to commit, save it into Decisions."
-      : surface === "revisit"
-      ? "A light review view — just what needs attention, no more."
-      : "Closed decisions live here quietly, still searchable whenever you need them.";
+      : surface === "chapters"
+      ? "Closed decisions live here quietly, still searchable whenever you need them."
+      : "A light review view — just what needs attention, no more.";
 
   const [highlightId, setHighlightId] = useState<string | null>(null);
   const [animateCardId, setAnimateCardId] = useState<string | null>(null);
@@ -233,71 +166,46 @@ export default function DecisionsClient({
   const [items, setItems] = useState<Decision[]>([]);
   const [openId, setOpenId] = useState<string | null>(null);
 
-  // ✅ Top-5 default (V1 pattern)
   const DEFAULT_LIMIT = 5;
   const [showAll, setShowAll] = useState(false);
 
-  // Summaries for the currently open decision (small, capped)
   const [summaries, setSummaries] = useState<DecisionSummary[]>([]);
 
-  // ✅ Labels (tiles + assignment)
   const [domains, setDomains] = useState<Domain[]>([]);
   const [constellations, setConstellations] = useState<Constellation[]>([]);
   const [activeDomainId, setActiveDomainId] = useState<string | null>(null);
   const [activeConstellationId, setActiveConstellationId] = useState<string | null>(null);
 
-  // decision_id -> domain_id
   const [domainByDecision, setDomainByDecision] = useState<Record<string, string | null>>({});
-  // decision_id -> constellation_ids[]
   const [constellationsByDecision, setConstellationsByDecision] = useState<Record<string, string[]>>({});
 
   const loadRef = useRef<(opts?: { silent?: boolean }) => void>(() => {});
   const reloadTimerRef = useRef<number | null>(null);
 
-  // ✅ Card refs for scroll-to-open
   const cardRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
-  // ✅ Inline label editor + revisit control state
   const [labelsEditForId, setLabelsEditForId] = useState<string | null>(null);
   const [revisitModeById, setRevisitModeById] = useState<Record<string, "7" | "30" | "90" | "custom" | "">>({});
   const [customDateById, setCustomDateById] = useState<Record<string, string>>({});
 
-  // ✅ Draft/body editor (content, not status)
-  const [isEditingDraftById, setIsEditingDraftById] = useState<Record<string, boolean>>({});
-  const [draftTitleById, setDraftTitleById] = useState<Record<string, string>>({});
-  const [draftBodyById, setDraftBodyById] = useState<Record<string, string>>({});
-
-  // ✅ Stable “Original decision” snapshot (read-only)
-  const [originalCaptureById, setOriginalCaptureById] = useState<Record<string, { title: string; captured: string }>>(
-    {}
-  );
-
-  // ✅ Delete confirm
   const [confirmDeleteForId, setConfirmDeleteForId] = useState<string | null>(null);
-
-  // ✅ Details collapse (keeps functionality but keeps UI calm)
   const [showDetailsById, setShowDetailsById] = useState<Record<string, boolean>>({});
 
-  // ✅ Composer state (Decisions surface)
   const composerRef = useRef<HTMLDivElement | null>(null);
   const composerInputRef = useRef<HTMLTextAreaElement | null>(null);
   const [newText, setNewText] = useState<string>("");
   const [newDecisionId, setNewDecisionId] = useState<string | null>(null);
   const [creatingNew, setCreatingNew] = useState<boolean>(false);
 
-  // chat focus/boot tokens (decisionId -> number)
   const [chatFocusTokenById, setChatFocusTokenById] = useState<Record<string, number>>({});
   const [chatForId, setChatForId] = useState<string | null>(null);
   const [composerChatForId, setComposerChatForId] = useState<string | null>(null);
 
-  // Composer: show Files only when requested OR there are files
   const [composerShowFiles, setComposerShowFiles] = useState<boolean>(false);
 
-  // Pass first message into ConversationPanel (chat-first)
   const [pendingFirstMsgById, setPendingFirstMsgById] = useState<Record<string, string>>({});
   const [pendingFirstMsgTokenById, setPendingFirstMsgTokenById] = useState<Record<string, number>>({});
 
-  // Auto-create on typing (debounced)
   const autoCreateTimerRef = useRef<number | null>(null);
 
   const composerDecision = useMemo(() => {
@@ -350,20 +258,21 @@ export default function DecisionsClient({
     const uid = auth.user.id;
     setUserId(uid);
 
-    // ✅ Surface behavior:
-    // - Decisions: ACTIVE only (status !== "chapter")
-    // - Thinking: keep legacy “draft-only” behavior (if you still use the page)
-    const q = supabase
+    let q = supabase
       .from("decisions")
       .select("id,user_id,title,context,status,created_at,decided_at,review_at,origin,framed_at,attachments")
-      .eq("user_id", uid)
-      .order("created_at", { ascending: false });
+      .eq("user_id", uid);
 
-    const { data, error } =
-      surface === "decisions"
-        ? await q.neq("status", "chapter")
-        : // legacy behavior: Thinking still only shows drafts (safe, non-breaking)
-          await q.eq("status", "draft");
+    if (surface === "decisions") {
+      q = q.neq("status", "chapter").order("created_at", { ascending: false });
+    } else if (surface === "chapters") {
+      q = q.eq("status", "chapter").order("created_at", { ascending: false });
+    } else {
+      // review filter view
+      q = q.neq("status", "chapter").not("review_at", "is", null).order("review_at", { ascending: true });
+    }
+
+    const { data, error } = await q;
 
     if (error) {
       setItems([]);
@@ -390,11 +299,7 @@ export default function DecisionsClient({
 
     const [domRes, conRes] = await Promise.all([
       supabase.from("domains").select("id,name,sort_order").eq("user_id", uid).order("sort_order", { ascending: true }),
-      supabase
-        .from("constellations")
-        .select("id,name,sort_order")
-        .eq("user_id", uid)
-        .order("sort_order", { ascending: true }),
+      supabase.from("constellations").select("id,name,sort_order").eq("user_id", uid).order("sort_order", { ascending: true }),
     ]);
 
     if (!domRes.error) {
@@ -425,11 +330,7 @@ export default function DecisionsClient({
     if (decisionIds.length > 0) {
       const [ddRes, ciRes] = await Promise.all([
         supabase.from("decision_domains").select("decision_id,domain_id").eq("user_id", uid).in("decision_id", decisionIds),
-        supabase
-          .from("constellation_items")
-          .select("decision_id,constellation_id")
-          .eq("user_id", uid)
-          .in("decision_id", decisionIds),
+        supabase.from("constellation_items").select("decision_id,constellation_id").eq("user_id", uid).in("decision_id", decisionIds),
       ]);
 
       if (!ddRes.error) {
@@ -476,7 +377,12 @@ export default function DecisionsClient({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [surface]);
 
-  // ✅ Auto-open from query (?open=...) + scroll + clear param
+  const clearOpenQueryToSurface = () => {
+    if (surface === "chapters") router.replace("/chapters");
+    else if (surface === "revisit") router.replace("/revisit");
+    else router.replace("/decisions");
+  };
+
   useEffect(() => {
     if (!openFromQuery) return;
     if (items.length === 0) return;
@@ -487,7 +393,6 @@ export default function DecisionsClient({
     setOpenId(match.id);
     setHighlightId(match.id);
 
-    // open conversation by default on open
     setChatForId(match.id);
     setChatFocusTokenById((p) => ({ ...p, [match.id]: (p[match.id] ?? 0) + 1 }));
 
@@ -496,13 +401,12 @@ export default function DecisionsClient({
       if (el?.scrollIntoView) el.scrollIntoView({ behavior: "smooth", block: "start" });
     }, 60);
 
-   router.replace("/decisions");
+    clearOpenQueryToSurface();
 
     const t = window.setTimeout(() => setHighlightId(null), 1600);
     return () => window.clearTimeout(t);
   }, [openFromQuery, items, router, surface]);
 
-  // Keep chat only for the open card
   useEffect(() => {
     setChatForId((cur) => {
       if (!cur) return null;
@@ -511,13 +415,11 @@ export default function DecisionsClient({
     });
   }, [openId]);
 
-  // Close inline editors when changing open card
   useEffect(() => {
     setLabelsEditForId((cur) => (cur && openId && cur === openId ? cur : null));
     setConfirmDeleteForId((cur) => (cur && openId && cur === openId ? cur : null));
   }, [openId]);
 
-  // Load summaries for the open decision (capped)
   useEffect(() => {
     if (!userId || !openDecision) {
       setSummaries([]);
@@ -527,99 +429,22 @@ export default function DecisionsClient({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId, openDecision?.id]);
 
-  // Realtime: decisions
   useEffect(() => {
     if (!userId) return;
 
     const channel = supabase
       .channel(`decisions-${surface}-${userId}`)
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "decisions", filter: `user_id=eq.${userId}` },
-        (payload: any) => {
-          const eventType: string | undefined = payload?.eventType;
-          const next = payload?.new as any | undefined;
-          const prev = payload?.old as any | undefined;
-
-          const id = (next?.id ?? prev?.id) as string | undefined;
-          if (!eventType || !id) {
-            scheduleReload();
-            return;
-          }
-
-          const rowStatus = String(next?.status ?? prev?.status ?? "");
-
-          const shouldBeVisible =
-            surface === "decisions"
-              ? rowStatus !== "chapter"
-              : // legacy: thinking shows only drafts
-                rowStatus === "draft";
-
-          setItems((current) => {
-            if (eventType === "DELETE") {
-              if (openId === id) setOpenId(null);
-              if (chatForId === id) setChatForId(null);
-              if (labelsEditForId === id) setLabelsEditForId(null);
-              if (confirmDeleteForId === id) setConfirmDeleteForId(null);
-              if (composerChatForId === id) setComposerChatForId(null);
-              if (newDecisionId === id) setNewDecisionId(null);
-              return current.filter((d) => d.id !== id);
-            }
-
-            if (!shouldBeVisible) {
-              if (openId === id) setOpenId(null);
-              if (chatForId === id) setChatForId(null);
-              if (labelsEditForId === id) setLabelsEditForId(null);
-              if (confirmDeleteForId === id) setConfirmDeleteForId(null);
-              if (composerChatForId === id) setComposerChatForId(null);
-              if (newDecisionId === id) setNewDecisionId(null);
-              return current.filter((d) => d.id !== id);
-            }
-
-            const toDecision = (r: any): Decision => ({
-              id: r.id,
-              user_id: r.user_id,
-              title: r.title ?? "",
-              context: r.context ?? null,
-              status: r.status ?? "",
-              created_at: r.created_at ?? new Date().toISOString(),
-              decided_at: r.decided_at ?? null,
-              review_at: r.review_at ?? null,
-              origin: r.origin ?? null,
-              framed_at: r.framed_at ?? null,
-              attachments: normalizeAttachments(r.attachments),
-            });
-
-            const patch = toDecision(next ?? prev);
-
-            const exists = current.some((d) => d.id === patch.id);
-            const merged = exists ? current.map((d) => (d.id === patch.id ? { ...d, ...patch } : d)) : [patch, ...current];
-
-            merged.sort((a, b) => {
-              const ta = safeMs(a.created_at) ?? 0;
-              const tb = safeMs(b.created_at) ?? 0;
-              return tb - ta;
-            });
-
-            return merged;
-          });
-
-          scheduleReload();
-        }
-      )
+      .on("postgres_changes", { event: "*", schema: "public", table: "decisions", filter: `user_id=eq.${userId}` }, () => {
+        scheduleReload();
+      })
       .subscribe();
 
     return () => {
       supabase.removeChannel(channel);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userId, surface, openId, chatForId, labelsEditForId, confirmDeleteForId, composerChatForId, newDecisionId]);
+  }, [userId, surface]);
 
-  /**
-   * ✅ “Save conclusion” (Decisions surface)
-   * - DOES NOT change status
-   * - Simply stamps decided_at (and can optionally clear review if you want)
-   */
   const saveConclusionNow = async (d: Decision) => {
     if (!userId) return;
 
@@ -843,46 +668,6 @@ export default function DecisionsClient({
   const hasMore = filteredItems.length > DEFAULT_LIMIT;
   const hasAnyLabelOptions = domains.length > 0 || constellations.length > 0;
 
-  const beginEditBody = (d: Decision) => {
-    const parts = splitThinkingContext(d.context);
-    setIsEditingDraftById((prev) => ({ ...prev, [d.id]: true }));
-    setDraftTitleById((prev) => ({ ...prev, [d.id]: d.title ?? "" }));
-    setDraftBodyById((prev) => ({ ...prev, [d.id]: parts.draft ?? "" }));
-
-    setOriginalCaptureById((prev) => {
-      if (prev[d.id]) return prev;
-      return { ...prev, [d.id]: { title: d.title ?? "", captured: parts.captured ?? "" } };
-    });
-  };
-
-  const cancelEditBody = (d: Decision) => {
-    setIsEditingDraftById((prev) => ({ ...prev, [d.id]: false }));
-  };
-
-  const saveBodyOverwrite = async (d: Decision) => {
-    if (!userId) return;
-
-    const snapshot = originalCaptureById[d.id] ?? { title: d.title ?? "", captured: splitThinkingContext(d.context).captured ?? "" };
-
-    const nextTitle = (draftTitleById[d.id] ?? "").trim() || d.title || "Untitled";
-    const nextDraftBody = (draftBodyById[d.id] ?? "").trim();
-    const nextContext = composeThinkingContext(snapshot.captured, nextDraftBody);
-
-    setItems((prev) => prev.map((x) => (x.id === d.id ? { ...x, title: nextTitle, context: nextContext } : x)));
-    setIsEditingDraftById((prev) => ({ ...prev, [d.id]: false }));
-
-    const { error } = await supabase.from("decisions").update({ title: nextTitle, context: nextContext }).eq("id", d.id).eq("user_id", userId);
-
-    if (error) {
-      showToast({ message: `Couldn’t save: ${error.message}` }, 3500);
-      loadRef.current({ silent: true });
-      return;
-    }
-
-    showToast({ message: "Saved." }, 1600);
-  };
-
-  // ✅ Create a new ACTIVE decision for the composer (chat-first)
   const createNewDecisionIfNeeded = async (statementOverride?: string, opts?: { silent?: boolean }) => {
     if (!userId) {
       if (!opts?.silent) showToast({ message: "Not signed in." }, 2500);
@@ -907,17 +692,13 @@ export default function DecisionsClient({
 
     try {
       const title = titleFromStatement(statement);
-      const context = composeThinkingContext(statement, "");
 
-      // ✅ IMPORTANT:
-      // We intentionally do NOT use "draft" here.
-      // We set status to "open" (active). Ensure your DB accepts this value.
       const { data, error } = await supabase
         .from("decisions")
         .insert({
           user_id: userId,
           title,
-          context,
+          context: null,
           status: "open",
           origin: "decisions",
           decided_at: null,
@@ -935,7 +716,7 @@ export default function DecisionsClient({
         id: row.id,
         user_id: row.user_id,
         title: row.title ?? title,
-        context: row.context ?? context,
+        context: row.context ?? null,
         status: row.status ?? "open",
         created_at: row.created_at ?? new Date().toISOString(),
         decided_at: row.decided_at ?? null,
@@ -946,15 +727,8 @@ export default function DecisionsClient({
       };
 
       setItems((prev) => [created, ...prev]);
-
-      setOriginalCaptureById((prev) => ({
-        ...prev,
-        [created.id]: { title: created.title ?? "", captured: statement },
-      }));
-
       setNewDecisionId(created.id);
 
-      // default: hide Files until user asks (or there are files)
       setComposerShowFiles(false);
 
       setAnimateCardId(created.id);
@@ -973,7 +747,6 @@ export default function DecisionsClient({
     setOpenId(id);
     setHighlightId(id);
 
-    // open conversation by default
     setChatForId(id);
     setChatFocusTokenById((p) => ({ ...p, [id]: (p[id] ?? 0) + 1 }));
 
@@ -1000,7 +773,7 @@ export default function DecisionsClient({
     }
   };
 
-  const assistedScope = surface === "decisions" ? "decisions" : "thinking";
+  const assistedScope = surface === "chapters" ? "chapters" : surface === "revisit" ? "revisit" : "decisions";
 
   const sendFromComposer = async () => {
     const text = (newText ?? "").trim();
@@ -1014,14 +787,11 @@ export default function DecisionsClient({
 
     setComposerChatForId(id);
 
-    // hand first message into ConversationPanel
     setPendingFirstMsgById((p) => ({ ...p, [id]: text }));
     setPendingFirstMsgTokenById((p) => ({ ...p, [id]: (p[id] ?? 0) + 1 }));
 
-    // focus + boot
     setChatFocusTokenById((p) => ({ ...p, [id]: (p[id] ?? 0) + 1 }));
 
-    // clear input
     setNewText("");
 
     window.setTimeout(() => {
@@ -1030,7 +800,6 @@ export default function DecisionsClient({
     }, 60);
   };
 
-  // ✅ Auto-create when typing starts (Decisions surface only)
   useEffect(() => {
     if (surface !== "decisions") return;
     if (!userId) return;
@@ -1059,37 +828,24 @@ export default function DecisionsClient({
   return (
     <Page title={pageTitle} subtitle={pageSubtitle} right={null}>
       <div className="mx-auto w-full max-w-[760px] space-y-6">
-        {surface === "decisions" ? (
-          <div className="flex justify-center">
-            <div className="flex flex-wrap items-center gap-2">
-              <Chip active title="Active (this page)">
-                Active
-              </Chip>
-              <Chip onClick={() => router.push("/revisit")} title="Review (filter view)">
-                Review
-              </Chip>
-              <Chip onClick={() => router.push("/chapters")} title="Chapters">
-                Chapters
-              </Chip>
-            </div>
+        {/* Top state controls */}
+        <div className="flex justify-center">
+          <div className="flex flex-wrap items-center gap-2">
+            <Chip active={surface === "decisions"} onClick={() => router.push("/decisions")} title="Active items">
+              Active Decisions
+            </Chip>
+            <Chip active={surface === "chapters"} onClick={() => router.push("/chapters")} title="Closed items">
+              Closed Decisions
+            </Chip>
+            <Chip active={surface === "revisit"} onClick={() => router.push("/revisit")} title="Review filter view">
+              Review
+            </Chip>
           </div>
-        ) : (
-          <div className="flex items-center justify-end gap-3">
-            <div className="flex items-center gap-2">
-              <Chip onClick={() => router.push("/capture")} title="Back: Capture">
-                <span className="mr-1 opacity-70">‹</span> Back: Capture
-              </Chip>
+        </div>
 
-              <Chip onClick={() => router.push("/decisions")} title="Next: Decisions">
-                Next: Decisions <span className="ml-1 opacity-70">›</span>
-              </Chip>
-            </div>
-          </div>
-        )}
-
-        {/* ✅ Chat-first composer (Decisions only) — calmer, not “chat app” */}
+        {/* Chat-first composer (Active only) */}
         {surface === "decisions" ? (
-          <div ref={composerRef} className="rounded-2xl border border-zinc-200 bg-white p-4">
+          <div ref={composerRef} className="border-b border-zinc-200 pb-6">
             <div className="space-y-3">
               <div className="space-y-1">
                 <div className="text-sm font-semibold text-zinc-900">Talk it through</div>
@@ -1137,7 +893,7 @@ export default function DecisionsClient({
                   </div>
 
                   {userId && newDecisionId && (composerShowFiles || composerHasFiles) ? (
-                    <div className="mt-3 rounded-2xl bg-white">
+                    <div className="mt-3">
                       <AttachmentsBlock userId={userId} decisionId={newDecisionId} title="Files" bucket="captures" initial={[]} />
                       <div className="mt-2 text-xs text-zinc-500">These files are attached to this decision.</div>
                     </div>
@@ -1153,7 +909,6 @@ export default function DecisionsClient({
                     placeholder="What decision are you holding right now?"
                     className="w-full resize-y rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-[15px] leading-relaxed text-zinc-900 outline-none focus:ring-2 focus:ring-zinc-200"
                     onKeyDown={(e) => {
-                      // Enter sends (Shift+Enter newline)
                       if (e.key === "Enter" && !e.shiftKey) {
                         e.preventDefault();
                         void sendFromComposer();
@@ -1200,14 +955,10 @@ export default function DecisionsClient({
 
         <AssistedSearch scope={assistedScope as any} placeholder="Search decisions…" />
 
+        {/* Filters (kept, but visually lighter) */}
         <div className="space-y-4">
           <TilesRow title="Filter by area" items={domains} activeId={activeDomainId} onSelect={(id) => setActiveDomainId(id)} />
-          <TilesRow
-            title="Filter by group"
-            items={constellations}
-            activeId={activeConstellationId}
-            onSelect={(id) => setActiveConstellationId(id)}
-          />
+          <TilesRow title="Filter by group" items={constellations} activeId={activeConstellationId} onSelect={(id) => setActiveConstellationId(id)} />
         </div>
 
         <div className="text-xs text-zinc-500">{statusLine}</div>
@@ -1231,8 +982,8 @@ export default function DecisionsClient({
             </div>
           </div>
         ) : (
-          <div className="space-y-4">
-            {visibleItems.map((d, idx) => {
+          <div className="divide-y divide-zinc-200 rounded-2xl border border-zinc-200 bg-white">
+            {visibleItems.map((d) => {
               const isOpen = openId === d.id;
               const isChatOpen = chatForId === d.id;
               const showDetails = !!showDetailsById[d.id];
@@ -1248,15 +999,10 @@ export default function DecisionsClient({
               const filedUnder = [domainName, ...memberNames].filter(Boolean) as string[];
               const isEditingLabels = labelsEditForId === d.id;
 
-              const showFiledUnderCard =
-                (hasAnyLabelOptions && isEditingLabels) || (hasAnyLabelOptions && filedUnder.length > 0);
+              const showFiledUnderCard = (hasAnyLabelOptions && isEditingLabels) || (hasAnyLabelOptions && filedUnder.length > 0);
 
               const revisitMode = revisitModeById[d.id] ?? "";
               const customDate = customDateById[d.id] ?? "";
-
-              const parts = splitThinkingContext(d.context);
-              const originalSnapshot = originalCaptureById[d.id] ?? { title: d.title ?? "", captured: parts.captured ?? "" };
-              const isEditingDraft = !!isEditingDraftById[d.id];
 
               const allAtt = normalizeAttachments(d.attachments) as AttachmentMeta[];
               const attachmentsTitle = allAtt.length > 0 ? `Files (${allAtt.length})` : "Files";
@@ -1268,8 +1014,6 @@ export default function DecisionsClient({
                     cardRefs.current[d.id] = el;
                   }}
                   className={[
-                    "bg-white",
-                    "rounded-2xl border border-zinc-200",
                     "px-4 py-4",
                     highlightId === d.id ? "ring-2 ring-zinc-200" : "",
                     animateCardId === d.id ? "animate-pulse" : "",
@@ -1287,12 +1031,6 @@ export default function DecisionsClient({
                         setConfirmDeleteForId(null);
                         return;
                       }
-
-                      // when opening: ensure snapshot + open conversation by default
-                      setOriginalCaptureById((prev) => {
-                        if (prev[d.id]) return prev;
-                        return { ...prev, [d.id]: { title: d.title ?? "", captured: parts.captured ?? "" } };
-                      });
 
                       setChatForId(d.id);
                       setChatFocusTokenById((p) => ({ ...p, [d.id]: (p[d.id] ?? 0) + 1 }));
@@ -1332,7 +1070,7 @@ export default function DecisionsClient({
 
                   {isOpen ? (
                     <div className="mt-4 space-y-4">
-                      {/* Conversation first (primary experience) */}
+                      {/* Conversation first */}
                       {isChatOpen ? (
                         <ConversationPanel
                           decisionId={d.id}
@@ -1345,191 +1083,123 @@ export default function DecisionsClient({
                           onSummarySaved={() => void reloadSummaries(d.id)}
                         />
                       ) : (
-                        <div className="rounded-2xl border border-zinc-200 bg-white p-3">
-                          <div className="flex items-center justify-between gap-3">
-                            <div className="min-w-0">
-                              <div className="text-sm font-semibold text-zinc-900">Conversation</div>
-                              <div className="mt-0.5 text-xs text-zinc-500 truncate">Anchored to: {d.title}</div>
-                            </div>
-                            <Chip
-                              onClick={() => {
-                                setChatForId(d.id);
-                                setChatFocusTokenById((p) => ({ ...p, [d.id]: (p[d.id] ?? 0) + 1 }));
-                              }}
-                            >
-                              Open
-                            </Chip>
+                        <div className="flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-white px-4 py-3">
+                          <div className="min-w-0">
+                            <div className="text-sm font-semibold text-zinc-900">Conversation</div>
+                            <div className="mt-0.5 truncate text-xs text-zinc-500">{d.title}</div>
                           </div>
+                          <Chip
+                            onClick={() => {
+                              setChatForId(d.id);
+                              setChatFocusTokenById((p) => ({ ...p, [d.id]: (p[d.id] ?? 0) + 1 }));
+                            }}
+                          >
+                            Open
+                          </Chip>
                         </div>
                       )}
 
                       {/* Primary actions */}
-                      <div className="space-y-2">
-                        {confirmDeleteForId === d.id ? (
-                          <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[#C94A4A] bg-[#FCECEC] px-4 py-3">
-                            <div className="text-sm text-[#7A1E1E]">
-                              Delete this decision? <span className="opacity-80">This can’t be undone.</span>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <Chip onClick={() => setConfirmDeleteForId(null)} title="Cancel">
-                                Cancel
-                              </Chip>
-                              <button
-                                type="button"
-                                onClick={() => void performDelete(d)}
-                                className="inline-flex select-none items-center justify-center rounded-full border border-[#C94A4A] bg-[#C94A4A] px-4 py-2 text-sm text-white transition hover:bg-[#b94141]"
-                                title="Delete"
-                              >
-                                Delete
-                              </button>
-                            </div>
+                      {confirmDeleteForId === d.id ? (
+                        <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[#C94A4A] bg-[#FCECEC] px-4 py-3">
+                          <div className="text-sm text-[#7A1E1E]">
+                            Delete this decision? <span className="opacity-80">This can’t be undone.</span>
                           </div>
-                        ) : (
-                          <div className="flex flex-wrap items-center gap-2">
-                            {/* ✅ No status change */}
-                            <PrimaryActionButton onClick={() => void saveConclusionNow(d)} title="Stamp the conclusion as saved">
-                              Save conclusion
-                            </PrimaryActionButton>
-
-                            <div className="flex flex-wrap items-center gap-2">
-                              <div className="text-xs text-zinc-500">Review</div>
-
-                              <select
-                                className="h-9 rounded-full border border-zinc-200 bg-white px-3 text-sm text-zinc-700"
-                                value={revisitMode}
-                                onChange={(e) => {
-                                  const v = e.target.value as "7" | "30" | "90" | "custom" | "";
-                                  setRevisitModeById((prev) => ({ ...prev, [d.id]: v }));
-
-                                  if (v === "7") void scheduleRevisit(d, 7);
-                                  if (v === "30") void scheduleRevisit(d, 30);
-                                  if (v === "90") void scheduleRevisit(d, 90);
-                                }}
-                                aria-label="Review schedule"
-                                title="Choose when to bring this back"
-                              >
-                                <option value="">Choose…</option>
-                                <option value="7">In 7 days</option>
-                                <option value="30">In 30 days</option>
-                                <option value="90">In 90 days</option>
-                                <option value="custom">Pick a date…</option>
-                              </select>
-
-                              {revisitMode === "custom" ? (
-                                <div className="flex flex-wrap items-center gap-2">
-                                  <input
-                                    type="date"
-                                    className="h-9 rounded-full border border-zinc-200 bg-white px-3 text-sm text-zinc-700"
-                                    value={customDate}
-                                    onChange={(e) => setCustomDateById((prev) => ({ ...prev, [d.id]: e.target.value }))}
-                                    aria-label="Custom review date"
-                                    title="Pick a date"
-                                  />
-                                  <Chip
-                                    onClick={() => {
-                                      const iso = isoFromDateInput(customDate);
-                                      if (!iso) {
-                                        showToast({ message: "Pick a valid date." }, 2000);
-                                        return;
-                                      }
-                                      void scheduleRevisitAt(d, iso);
-                                    }}
-                                    title="Set review date"
-                                  >
-                                    Set
-                                  </Chip>
-                                </div>
-                              ) : null}
-
-                              {d.review_at ? (
-                                <Chip onClick={() => void clearRevisit(d)} title="Clear review">
-                                  Clear
-                                </Chip>
-                              ) : null}
-                            </div>
-
-                            <Chip onClick={() => router.push("/revisit")} title="Open Review view">
-                              Review view
+                          <div className="flex items-center gap-2">
+                            <Chip onClick={() => setConfirmDeleteForId(null)} title="Cancel">
+                              Cancel
                             </Chip>
-
-                            <Chip
-                              onClick={() => setShowDetailsById((p) => ({ ...p, [d.id]: !p[d.id] }))}
-                              title="Show/hide notes, files, labels"
+                            <button
+                              type="button"
+                              onClick={() => void performDelete(d)}
+                              className="inline-flex select-none items-center justify-center rounded-full border border-[#C94A4A] bg-[#C94A4A] px-4 py-2 text-sm text-white transition hover:bg-[#b94141]"
+                              title="Delete"
                             >
-                              {showDetails ? "Hide details" : "Details"}
-                            </Chip>
-
-                            <Chip onClick={() => setConfirmDeleteForId(d.id)} title="Delete">
                               Delete
-                            </Chip>
+                            </button>
                           </div>
-                        )}
-                      </div>
+                        </div>
+                      ) : (
+                        <div className="flex flex-wrap items-center gap-2">
+                          <PrimaryActionButton onClick={() => void saveConclusionNow(d)} title="Stamp the conclusion as saved">
+                            Save conclusion
+                          </PrimaryActionButton>
 
-                      {/* Details (collapsed by default) */}
+                          {/* Review schedule (filter-only surface, but scheduling lives here) */}
+                          <div className="flex flex-wrap items-center gap-2">
+                            <div className="text-xs text-zinc-500">Review</div>
+
+                            <select
+                              className="h-9 rounded-full border border-zinc-200 bg-white px-3 text-sm text-zinc-700"
+                              value={revisitMode}
+                              onChange={(e) => {
+                                const v = e.target.value as "7" | "30" | "90" | "custom" | "";
+                                setRevisitModeById((prev) => ({ ...prev, [d.id]: v }));
+
+                                if (v === "7") void scheduleRevisit(d, 7);
+                                if (v === "30") void scheduleRevisit(d, 30);
+                                if (v === "90") void scheduleRevisit(d, 90);
+                              }}
+                              aria-label="Review schedule"
+                              title="Choose when to bring this back"
+                            >
+                              <option value="">Choose…</option>
+                              <option value="7">In 7 days</option>
+                              <option value="30">In 30 days</option>
+                              <option value="90">In 90 days</option>
+                              <option value="custom">Pick a date…</option>
+                            </select>
+
+                            {revisitMode === "custom" ? (
+                              <div className="flex flex-wrap items-center gap-2">
+                                <input
+                                  type="date"
+                                  className="h-9 rounded-full border border-zinc-200 bg-white px-3 text-sm text-zinc-700"
+                                  value={customDate}
+                                  onChange={(e) => setCustomDateById((prev) => ({ ...prev, [d.id]: e.target.value }))}
+                                  aria-label="Custom review date"
+                                  title="Pick a date"
+                                />
+                                <Chip
+                                  onClick={() => {
+                                    const iso = isoFromDateInput(customDate);
+                                    if (!iso) {
+                                      showToast({ message: "Pick a valid date." }, 2000);
+                                      return;
+                                    }
+                                    void scheduleRevisitAt(d, iso);
+                                  }}
+                                  title="Set review date"
+                                >
+                                  Set
+                                </Chip>
+                              </div>
+                            ) : null}
+
+                            {d.review_at ? (
+                              <Chip onClick={() => void clearRevisit(d)} title="Clear review">
+                                Clear
+                              </Chip>
+                            ) : null}
+                          </div>
+
+                          <Chip onClick={() => router.push("/revisit")} title="Open Review view">
+                            Review view
+                          </Chip>
+
+                          <Chip onClick={() => setShowDetailsById((p) => ({ ...p, [d.id]: !p[d.id] }))} title="Show/hide notes, files, labels">
+                            {showDetails ? "Hide details" : "Details"}
+                          </Chip>
+
+                          <Chip onClick={() => setConfirmDeleteForId(d.id)} title="Delete">
+                            Delete
+                          </Chip>
+                        </div>
+                      )}
+
+                      {/* Details (simplified; no Working Notes block) */}
                       {showDetails ? (
                         <div className="space-y-4">
-                          <div className="rounded-2xl border border-zinc-200 bg-white p-4 space-y-2">
-                            <div className="text-sm font-semibold text-zinc-900">Original</div>
-                            <div className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-700">
-                              {(originalSnapshot.captured || originalSnapshot.title || "").trim() || "—"}
-                            </div>
-                          </div>
-
-                          <div className="rounded-2xl border border-zinc-200 bg-white p-4 space-y-3">
-                            <div className="flex items-center justify-between gap-2">
-                              <div className="text-sm font-semibold text-zinc-900">Working notes</div>
-
-                              {!isEditingDraft ? (
-                                <Chip onClick={() => beginEditBody(d)} title="Edit">
-                                  Edit
-                                </Chip>
-                              ) : (
-                                <div className="flex items-center gap-2">
-                                  <Chip onClick={() => cancelEditBody(d)} title="Cancel">
-                                    Cancel
-                                  </Chip>
-                                  <Chip onClick={() => void saveBodyOverwrite(d)} title="Save">
-                                    Save
-                                  </Chip>
-                                </div>
-                              )}
-                            </div>
-
-                            <div className="space-y-2">
-                              <div className="text-xs text-zinc-500">Title</div>
-                              <input
-                                value={isEditingDraft ? (draftTitleById[d.id] ?? d.title) : d.title}
-                                disabled={!isEditingDraft}
-                                onChange={(e) => setDraftTitleById((prev) => ({ ...prev, [d.id]: e.target.value }))}
-                                className={`h-11 w-full rounded-2xl border px-4 text-[15px] text-zinc-900 outline-none ${
-                                  isEditingDraft
-                                    ? "border-zinc-200 bg-white focus:ring-2 focus:ring-zinc-200"
-                                    : "border-zinc-100 bg-zinc-50 text-zinc-900"
-                                }`}
-                                aria-label="Decision title"
-                              />
-                            </div>
-
-                            <div className="space-y-2">
-                              <div className="text-xs text-zinc-500">Body</div>
-
-                              {!isEditingDraft ? (
-                                <div className="whitespace-pre-wrap rounded-2xl border border-zinc-100 bg-zinc-50 px-4 py-3 text-[15px] leading-relaxed text-zinc-800">
-                                  {parts.draft?.trim() ? parts.draft : <span className="text-zinc-500">Notes (optional)…</span>}
-                                </div>
-                              ) : (
-                                <textarea
-                                  value={draftBodyById[d.id] ?? parts.draft ?? ""}
-                                  onChange={(e) => setDraftBodyById((prev) => ({ ...prev, [d.id]: e.target.value }))}
-                                  placeholder="Notes (optional)…"
-                                  className="w-full min-h-[160px] resize-y rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-[15px] leading-relaxed text-zinc-900 outline-none focus:ring-2 focus:ring-zinc-200"
-                                  aria-label="Decision notes"
-                                />
-                              )}
-                            </div>
-                          </div>
-
                           <DecisionNotes decisionId={d.id} kind="thinking" />
 
                           {showFiledUnderCard ? (
@@ -1623,9 +1293,6 @@ export default function DecisionsClient({
                           ) : null}
                         </div>
                       ) : null}
-
-                      {/* subtle divider for rhythm */}
-                      {idx !== visibleItems.length - 1 ? <div className="pt-1" /> : null}
                     </div>
                   ) : null}
                 </div>
