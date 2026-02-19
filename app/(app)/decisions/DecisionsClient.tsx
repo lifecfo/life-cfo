@@ -164,12 +164,7 @@ function composeContext(captured: string, notes: string) {
   return `Captured:\n${cap}\n\n---\nDraft:\n${n}`;
 }
 
-function PrimaryActionButton(props: {
-  children: React.ReactNode;
-  onClick?: () => void;
-  title?: string;
-  disabled?: boolean;
-}) {
+function PrimaryActionButton(props: { children: React.ReactNode; onClick?: () => void; title?: string; disabled?: boolean }) {
   const { children, onClick, title, disabled } = props;
   return (
     <button
@@ -231,15 +226,7 @@ function FilterIconButton({
   );
 }
 
-function SortIconButton({
-  active,
-  onClick,
-  title,
-}: {
-  active?: boolean;
-  onClick?: () => void;
-  title?: string;
-}) {
+function SortIconButton({ active, onClick, title }: { active?: boolean; onClick?: () => void; title?: string }) {
   return (
     <button
       type="button"
@@ -344,7 +331,8 @@ function summaryHeadingFrom(text: string, fallbackTitle: string) {
 
   // prefer a "Decision:" bullet if present
   const decisionLine =
-    meaningful.find((l) => /^[-•]\s*\**\s*Decision\s*\**\s*:/i.test(l)) ?? meaningful.find((l) => /Decision\s*:/i.test(l));
+    meaningful.find((l) => /^[-•]\s*\**\s*Decision\s*\**\s*:/i.test(l)) ??
+    meaningful.find((l) => /Decision\s*:/i.test(l));
 
   if (decisionLine) {
     const cleaned = stripMdMarkers(stripBulletPrefix(decisionLine));
@@ -459,8 +447,10 @@ export default function DecisionsClient() {
   const [summaries, setSummaries] = useState<DecisionSummary[]>([]);
   const [expandedSummary, setExpandedSummary] = useState<Record<string, boolean>>({});
 
-    // Closed Decisions: per-row details toggle (read-only)
+  // Closed Decisions: per-row details toggle (read-only)
   const [expandedClosed, setExpandedClosed] = useState<Record<string, boolean>>({});
+  const [closedSummariesByDecisionId, setClosedSummariesByDecisionId] = useState<Record<string, DecisionSummary[]>>({});
+  const [closedSummariesLoadingByDecisionId, setClosedSummariesLoadingByDecisionId] = useState<Record<string, boolean>>({});
 
   const reloadTimerRef = useRef<number | null>(null);
   const cardRefs = useRef<Record<string, HTMLDivElement | null>>({});
@@ -822,6 +812,29 @@ export default function DecisionsClient() {
     }
 
     setSummaries((data ?? []) as DecisionSummary[]);
+  };
+
+  const loadClosedSummaries = async (decisionId: string) => {
+    if (!userId) return;
+
+    setClosedSummariesLoadingByDecisionId((p) => ({ ...p, [decisionId]: true }));
+
+    const { data, error } = await supabase
+      .from("decision_summaries")
+      .select("id,decision_id,summary_text,created_at")
+      .eq("user_id", userId)
+      .eq("decision_id", decisionId)
+      .order("created_at", { ascending: false })
+      .limit(3);
+
+    if (error) {
+      setClosedSummariesByDecisionId((p) => ({ ...p, [decisionId]: [] }));
+      setClosedSummariesLoadingByDecisionId((p) => ({ ...p, [decisionId]: false }));
+      return;
+    }
+
+    setClosedSummariesByDecisionId((p) => ({ ...p, [decisionId]: (data ?? []) as DecisionSummary[] }));
+    setClosedSummariesLoadingByDecisionId((p) => ({ ...p, [decisionId]: false }));
   };
 
   /** ✅ load notes for a decision */
@@ -1642,7 +1655,8 @@ export default function DecisionsClient() {
     );
   };
 
-  const shouldShowStatusLine = statusLine && (statusLine.startsWith("Error:") || statusLine === "Not signed in." || statusLine === "Loading…");
+  const shouldShowStatusLine =
+    statusLine && (statusLine.startsWith("Error:") || statusLine === "Not signed in." || statusLine === "Loading…");
 
   const ActiveFilterChips = () => {
     const any = filterCount > 0 || sortIsActive || !!(searchDebounced ?? "").trim();
@@ -1672,7 +1686,7 @@ export default function DecisionsClient() {
         {hasReviewDateOnly ? <ChipPill label="Has review date" onClear={() => setHasReviewDateOnly(false)} /> : null}
         {reviewDueOnly ? <ChipPill label="Review due" onClear={() => setReviewDueOnly(false)} /> : null}
 
-        {(filterCount > 0 || sortIsActive || (searchDebounced ?? "").trim()) ? (
+        {filterCount > 0 || sortIsActive || (searchDebounced ?? "").trim() ? (
           <button
             type="button"
             onClick={() => {
@@ -2086,68 +2100,156 @@ export default function DecisionsClient() {
               </div>
             ) : (
               <div className="rounded-2xl border border-zinc-200 bg-white">
-                {filteredItems.map((d) => (
-                  <div key={d.id} className="px-4 py-4 border-b border-zinc-200 last:border-b-0">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <div className="text-base font-semibold text-zinc-900">{d.title}</div>
-                        <div className="mt-1 text-xs text-zinc-500">Started {softWhen(d.created_at)}</div>
+                {filteredItems.map((d) => {
+                  const isOpen = !!expandedClosed[d.id];
+                  const notes = notesByDecisionId[d.id] ?? [];
+                  const notesLoading = !!notesLoadingByDecisionId[d.id];
+                  const closedSummaries = closedSummariesByDecisionId[d.id] ?? [];
+                  const closedSummariesLoading = !!closedSummariesLoadingByDecisionId[d.id];
+                  const captured = splitContext(d.context).captured;
+
+                  return (
+                    <div key={d.id} className="px-4 py-4 border-b border-zinc-200 last:border-b-0">
+                      {/* header row */}
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="text-base font-semibold text-zinc-900">{d.title}</div>
+                          <div className="mt-1 text-xs text-zinc-500">Started {softWhen(d.created_at)}</div>
+                        </div>
+
+                        <div className="shrink-0 flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setExpandedClosed((p) => {
+                                const nextOpen = !p[d.id];
+                                if (nextOpen) {
+                                  void loadNotes(d.id);
+                                  void loadClosedSummaries(d.id);
+                                }
+                                return { ...p, [d.id]: nextOpen };
+                              });
+                            }}
+                            className="text-xs text-zinc-500 hover:text-zinc-700"
+                            title={isOpen ? "Hide details" : "Show details"}
+                          >
+                            {isOpen ? "Hide" : "Show details"}
+                          </button>
+
+                          <Chip onClick={() => void reopenDecision(d)} title="Re-open this decision">
+                            Re-open
+                          </Chip>
+                        </div>
                       </div>
 
-                            <div className="shrink-0 flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => setExpandedClosed((p) => ({ ...p, [d.id]: !p[d.id] }))}
-                          className="text-xs text-zinc-500 hover:text-zinc-700"
-                          title={expandedClosed[d.id] ? "Hide details" : "Show details"}
-                        >
-                          {expandedClosed[d.id] ? "Hide" : "Show details"}
-                        </button>
+                      {/* details (active-style headings, read-only) */}
+                      {isOpen ? (
+                        <div className="mt-4 space-y-4">
+                          {/* Captured */}
+                          <div className="rounded-2xl border border-zinc-200 bg-white p-4 space-y-2">
+                            <div className="text-sm font-semibold text-zinc-900">Captured</div>
+                            {captured ? (
+                              <div className="whitespace-pre-wrap text-[15px] leading-relaxed text-zinc-800">{captured}</div>
+                            ) : d.context ? (
+                              <div className="whitespace-pre-wrap text-[15px] leading-relaxed text-zinc-800">{d.context}</div>
+                            ) : (
+                              <div className="text-sm text-zinc-600">No captured text.</div>
+                            )}
+                          </div>
 
-                        <Chip onClick={() => void reopenDecision(d)} title="Re-open this decision">
-                          Re-open
-                        </Chip>
-                      </div>
-                        {expandedClosed[d.id] ? (
-                        (() => {
-                          const { captured } = splitContext(d.context);
-                          const areaId = domainByDecision[d.id] ?? null;
-                          const areaName = areaId ? domains.find((x) => x.id === areaId)?.name : null;
+                          {/* Notes (read-only) */}
+                          <div className="rounded-2xl border border-zinc-200 bg-white p-4 space-y-3">
+                            <div className="text-sm font-semibold text-zinc-900">Notes</div>
 
-                          const groupIds = constellationsByDecision[d.id] ?? [];
-                          const groupNames = groupIds
-                            .map((gid) => constellations.find((c) => c.id === gid)?.name)
-                            .filter(Boolean)
-                            .join(", ");
-
-                          const closedStamp = d.decided_at ? softWhen(d.decided_at) : null;
-
-                          return (
-                            <div className="mt-3 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 space-y-2">
-                              <div className="text-xs text-zinc-500">
-                                {areaName ? `Area: ${areaName}` : ""}
-                                {areaName && groupNames ? " • " : ""}
-                                {groupNames ? `Group: ${groupNames}` : ""}
-                                {(areaName || groupNames) && (d.review_at || closedStamp) ? " • " : ""}
-                                {d.review_at ? `Review: ${softWhen(d.review_at)}` : ""}
-                                {d.review_at && closedStamp ? " • " : ""}
-                                {closedStamp ? `Closed: ${closedStamp}` : ""}
+                            {notesLoading ? (
+                              <div className="text-sm text-zinc-500">Loading notes…</div>
+                            ) : notes.length === 0 ? (
+                              <div className="rounded-2xl border border-zinc-100 bg-zinc-50 px-4 py-3 text-sm text-zinc-600">No notes.</div>
+                            ) : (
+                              <div className="space-y-3">
+                                {notes.map((n) => (
+                                  <div key={n.id} className="rounded-2xl border border-zinc-200 bg-white px-4 py-3">
+                                    <div className="text-xs text-zinc-500">
+                                      {softWhenDateTime(n.created_at)}
+                                      {n.updated_at ? ` • edited ${softWhenDateTime(n.updated_at)}` : ""}
+                                    </div>
+                                    <div className="mt-2 whitespace-pre-wrap text-[15px] leading-relaxed text-zinc-800">{n.body}</div>
+                                  </div>
+                                ))}
                               </div>
+                            )}
+                          </div>
 
-                              {captured ? (
-                                <div className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-800">{captured}</div>
-                              ) : d.context ? (
-                                <div className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-800">{d.context}</div>
-                              ) : (
-                                <div className="text-sm text-zinc-600">No details saved.</div>
-                              )}
+                          {/* Files (read-only list) */}
+                          <div className="rounded-2xl border border-zinc-200 bg-white p-4 space-y-2">
+                            <div className="text-sm font-semibold text-zinc-900">Files</div>
+                            {normalizeAttachments(d.attachments).length === 0 ? (
+                              <div className="text-sm text-zinc-600">No attachments.</div>
+                            ) : (
+                              <ul className="list-disc pl-5 text-sm text-zinc-700 space-y-1">
+                                {normalizeAttachments(d.attachments).map((a, idx) => (
+                                  <li key={`${a.path}-${idx}`} className="truncate">
+                                    {a.name}
+                                  </li>
+                                ))}
+                              </ul>
+                            )}
+                          </div>
+
+                          {/* Review (read-only) */}
+                          <div className="rounded-2xl border border-zinc-200 bg-white p-4 space-y-2">
+                            <div className="text-sm font-semibold text-zinc-900">Review</div>
+                            <div className="text-sm text-zinc-700">{d.review_at ? softWhen(d.review_at) : "No review date."}</div>
+                          </div>
+
+                          {/* Chat summaries (read-only) */}
+                          <div className="rounded-2xl border border-zinc-200 bg-white p-4 space-y-3">
+                            <div className="space-y-1">
+                              <div className="text-sm font-semibold text-zinc-900">Chat summaries</div>
+                              <div className="text-xs text-zinc-500">Saved summaries attached to this decision.</div>
                             </div>
-                          );
-                        })()
+
+                            {closedSummariesLoading ? (
+                              <div className="text-sm text-zinc-500">Loading summaries…</div>
+                            ) : closedSummaries.length === 0 ? (
+                              <div className="text-sm text-zinc-600">No summaries yet.</div>
+                            ) : (
+                              <div className="space-y-3">
+                                {closedSummaries.map((s) => {
+                                  const heading = summaryHeadingFrom(s.summary_text, d.title);
+                                  const open = !!expandedSummary[s.id];
+
+                                  return (
+                                    <div key={s.id} className="rounded-2xl border border-zinc-200 bg-white px-4 py-3">
+                                      <div className="flex items-start justify-between gap-3">
+                                        <div className="min-w-0">
+                                          <div className="text-xs text-zinc-500">Saved {softWhen(s.created_at)}</div>
+                                          <div className="mt-1 text-sm font-medium text-zinc-900 truncate">{renderInlineBold(heading)}</div>
+                                        </div>
+
+                                        <div className="shrink-0">
+                                          <button
+                                            type="button"
+                                            onClick={() => setExpandedSummary((p) => ({ ...p, [s.id]: !open }))}
+                                            className="text-xs text-zinc-500 hover:text-zinc-700"
+                                          >
+                                            {open ? "Hide" : "Expand"}
+                                          </button>
+                                        </div>
+                                      </div>
+
+                                      {open ? <div className="mt-3 space-y-2">{renderSummaryBody(s.summary_text)}</div> : null}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </div>
+                        </div>
                       ) : null}
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
 
