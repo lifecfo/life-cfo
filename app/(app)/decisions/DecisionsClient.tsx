@@ -314,20 +314,52 @@ function stripMdMarkers(line: string) {
   return line.replace(/\*\*/g, "");
 }
 function renderInlineBold(text: string) {
-  const parts = String(text ?? "").split(/(\*\*[^*]+\*\*)/g).filter(Boolean);
+  const parts = String(text ?? "")
+    .split(/(\*\*[^*]+\*\*)/g)
+    .filter(Boolean);
   return parts.map((p, i) => {
     const m = p.match(/^\*\*([^*]+)\*\*$/);
     if (m) return <strong key={i}>{m[1]}</strong>;
     return <span key={i}>{p}</span>;
   });
 }
-function summaryOneLine(text: string) {
+function isGenericSummaryLine(line: string) {
+  const s = stripMdMarkers(stripBulletPrefix(line)).toLowerCase();
+  return (
+    s === "here’s a summary of the conversation so far:" ||
+    s === "here's a summary of the conversation so far:" ||
+    s.startsWith("here’s a summary") ||
+    s.startsWith("here's a summary")
+  );
+}
+
+function summaryHeadingFrom(text: string, fallbackTitle: string) {
   const lines = String(text ?? "")
     .split(/\r?\n/)
     .map((l) => l.trim())
     .filter(Boolean);
-  const first = lines[0] ?? "";
-  return stripMdMarkers(stripBulletPrefix(first));
+
+  // drop generic header lines like "Here's a summary..."
+  const meaningful = lines.filter((l) => !isGenericSummaryLine(l));
+
+  // prefer a "Decision:" bullet if present
+  const decisionLine =
+    meaningful.find((l) => /^[-•]\s*\**\s*Decision\s*\**\s*:/i.test(l)) ?? meaningful.find((l) => /Decision\s*:/i.test(l));
+
+  if (decisionLine) {
+    const cleaned = stripMdMarkers(stripBulletPrefix(decisionLine));
+    const after = cleaned.split(/Decision\s*:/i)[1]?.trim();
+    if (after) return after.length > 84 ? `${after.slice(0, 81)}…` : after;
+  }
+
+  // otherwise use first meaningful line/bullet
+  const first = meaningful[0] ?? "";
+  const one = stripMdMarkers(stripBulletPrefix(first));
+  if (one) return one.length > 84 ? `${one.slice(0, 81)}…` : one;
+
+  // fallback
+  const fb = (fallbackTitle ?? "").trim();
+  return fb.length > 84 ? `${fb.slice(0, 81)}…` : fb || "Summary";
 }
 function renderSummaryBody(text: string) {
   const lines = String(text ?? "")
@@ -391,7 +423,7 @@ export default function DecisionsClient() {
   // Ensure /decisions defaults to tab=new
   useEffect(() => {
     const hasTab = searchParams.get("tab");
-    if (!hasTab) router.replace(buildUrl("new"));
+    if (!hasTab) router.replace(buildUrl("new"), { scroll: false });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -400,8 +432,8 @@ export default function DecisionsClient() {
     tab === "new"
       ? "This is the place to process any decisions you're working through. I can help clarify what matters, then lay out options and tradeoffs. You can set a review date, or close out the decision when it's done. We'll hold it safely for you."
       : tab === "active"
-      ? "Active decisions you’re working through."
-      : "Closed decisions live here quietly — still searchable whenever you need them.";
+        ? "Active decisions you’re working through."
+        : "Closed decisions live here quietly — still searchable whenever you need them.";
 
   const [userId, setUserId] = useState<string | null>(null);
   const [statusLine, setStatusLine] = useState<string>("Loading…");
@@ -566,7 +598,7 @@ export default function DecisionsClient() {
   useEffect(() => {
     // Avoid replace loops: only replace if params differ.
     const current = `/decisions?${searchParams.toString()}`;
-    if (current !== desiredUrl) router.replace(desiredUrl);
+    if (current !== desiredUrl) router.replace(desiredUrl, { scroll: false });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [desiredUrl]);
 
@@ -1063,7 +1095,8 @@ export default function DecisionsClient() {
           group: activeConstellationId,
           hasReview: hasReviewDateOnly,
           reviewDue: reviewDueOnly,
-        })
+        }),
+        { scroll: false }
       );
     } catch (e: any) {
       showToast({ message: e?.message ?? "Save failed." }, 3500);
@@ -1129,7 +1162,8 @@ export default function DecisionsClient() {
         group: activeConstellationId,
         hasReview: hasReviewDateOnly,
         reviewDue: reviewDueOnly,
-      })
+      }),
+      { scroll: false }
     );
   };
 
@@ -1156,7 +1190,8 @@ export default function DecisionsClient() {
         group: activeConstellationId,
         hasReview: hasReviewDateOnly,
         reviewDue: reviewDueOnly,
-      })
+      }),
+      { scroll: false }
     );
   };
 
@@ -1185,7 +1220,7 @@ export default function DecisionsClient() {
   const TopTabs = () => (
     <div className="flex justify-center">
       <div className="flex flex-wrap items-center gap-2">
-        <Chip active={tab === "new"} onClick={() => router.push(buildUrl("new"))} title="New decision">
+        <Chip active={tab === "new"} onClick={() => router.push(buildUrl("new"), { scroll: false })} title="New decision">
           New Decision
         </Chip>
         <Chip
@@ -1199,7 +1234,8 @@ export default function DecisionsClient() {
                 group: activeConstellationId,
                 hasReview: hasReviewDateOnly,
                 reviewDue: reviewDueOnly,
-              })
+              }),
+              { scroll: false }
             )
           }
           title="Active decisions"
@@ -1217,7 +1253,8 @@ export default function DecisionsClient() {
                 group: activeConstellationId,
                 hasReview: hasReviewDateOnly,
                 reviewDue: reviewDueOnly,
-              })
+              }),
+              { scroll: false }
             )
           }
           title="Closed decisions"
@@ -1256,7 +1293,8 @@ export default function DecisionsClient() {
                   group: activeConstellationId,
                   hasReview: hasReviewDateOnly,
                   reviewDue: reviewDueOnly,
-                })
+                }),
+                { scroll: false }
               );
 
               window.setTimeout(() => scrollToDecisionTop(d.id), 60);
@@ -1320,7 +1358,8 @@ export default function DecisionsClient() {
                     group: activeConstellationId,
                     hasReview: hasReviewDateOnly,
                     reviewDue: reviewDueOnly,
-                  })
+                  }),
+                  { scroll: false }
                 );
 
                 // ✅ anchor to very top of decision card (yellow arrow area)
@@ -1357,7 +1396,8 @@ export default function DecisionsClient() {
                     group: activeConstellationId,
                     hasReview: hasReviewDateOnly,
                     reviewDue: reviewDueOnly,
-                  })
+                  }),
+                  { scroll: false }
                 );
                 window.setTimeout(() => scrollToDecisionTop(d.id), 0);
               }}
@@ -1514,33 +1554,30 @@ export default function DecisionsClient() {
               </div>
 
               {summaries.map((s) => {
-                const one = summaryOneLine(s.summary_text);
+                const one = summaryHeadingFrom(s.summary_text, d.title);
                 const open = !!expandedSummary[s.id];
 
                 return (
-                  <details
-                    key={s.id}
-                    open={open}
-                    onToggle={(e) => {
-                      const nextOpen = (e.currentTarget as HTMLDetailsElement).open;
-                      setExpandedSummary((p) => ({ ...p, [s.id]: nextOpen }));
-                    }}
-                    className="rounded-2xl border border-zinc-200 bg-white px-4 py-3"
-                  >
-                    <summary className="cursor-pointer list-none">
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <div className="text-xs text-zinc-500">Saved {softWhen(s.created_at)}</div>
-                          <div className="mt-1 text-sm font-medium text-zinc-900 truncate">{renderInlineBold(one)}</div>
-                        </div>
-                        <div className="shrink-0">
-                          <span className="text-xs text-zinc-500">{open ? "Hide" : "Expand"}</span>
-                        </div>
+                  <div key={s.id} className="rounded-2xl border border-zinc-200 bg-white px-4 py-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="text-xs text-zinc-500">Saved {softWhen(s.created_at)}</div>
+                        <div className="mt-1 text-sm font-medium text-zinc-900 truncate">{renderInlineBold(one)}</div>
                       </div>
-                    </summary>
 
-                    <div className="mt-3 space-y-2">{renderSummaryBody(s.summary_text)}</div>
-                  </details>
+                      <div className="shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => setExpandedSummary((p) => ({ ...p, [s.id]: !open }))}
+                          className="text-xs text-zinc-500 hover:text-zinc-700"
+                        >
+                          {open ? "Hide" : "Expand"}
+                        </button>
+                      </div>
+                    </div>
+
+                    {open ? <div className="mt-3 space-y-2">{renderSummaryBody(s.summary_text)}</div> : null}
+                  </div>
                 );
               })}
             </div>
@@ -1579,7 +1616,8 @@ export default function DecisionsClient() {
                       group: activeConstellationId,
                       hasReview: hasReviewDateOnly,
                       reviewDue: reviewDueOnly,
-                    })
+                    }),
+                    { scroll: false }
                   );
                 }}
                 title="Hide decision"
@@ -1601,8 +1639,7 @@ export default function DecisionsClient() {
     );
   };
 
-  const shouldShowStatusLine =
-    statusLine && (statusLine.startsWith("Error:") || statusLine === "Not signed in." || statusLine === "Loading…");
+  const shouldShowStatusLine = statusLine && (statusLine.startsWith("Error:") || statusLine === "Not signed in." || statusLine === "Loading…");
 
   const ActiveFilterChips = () => {
     const any = filterCount > 0 || sortIsActive || !!(searchDebounced ?? "").trim();
@@ -1733,7 +1770,7 @@ export default function DecisionsClient() {
               </div>
             </div>
 
-            {(hasReviewDateOnly || reviewDueOnly) ? (
+            {hasReviewDateOnly || reviewDueOnly ? (
               <div className="text-xs text-zinc-500">
                 Tip: Use Sort → <span className="font-medium">Review soonest</span> to line them up.
               </div>
@@ -1932,7 +1969,8 @@ export default function DecisionsClient() {
                         group: activeConstellationId,
                         hasReview: hasReviewDateOnly,
                         reviewDue: reviewDueOnly,
-                      })
+                      }),
+                      { scroll: false }
                     )
                   }
                   title="Go to Active Decisions"
