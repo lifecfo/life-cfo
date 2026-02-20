@@ -123,9 +123,6 @@ function titleFromStatement(statement: string) {
  * ---
  * Draft:
  * <notes>
- *
- * ✅ We keep Captured in context for provenance,
- * but decision NOTES are now stored in decision_notes table.
  */
 function splitContext(context: string | null) {
   const raw = (context ?? "").trim();
@@ -185,6 +182,14 @@ function PrimaryActionButton(props: { children: React.ReactNode; onClick?: () =>
 
 function TextAction(props: { children: React.ReactNode; onClick?: () => void; title?: string; subtle?: boolean; danger?: boolean }) {
   const { children, onClick, title, subtle, danger } = props;
+
+  // ✅ Change "danger" to black (per request)
+  const cls = danger
+    ? "text-zinc-900 hover:bg-zinc-100"
+    : subtle
+      ? "text-zinc-500 hover:bg-zinc-50"
+      : "text-zinc-700 hover:bg-zinc-50";
+
   return (
     <button
       type="button"
@@ -192,7 +197,7 @@ function TextAction(props: { children: React.ReactNode; onClick?: () => void; ti
       title={title}
       className={[
         "inline-flex items-center rounded-full px-2.5 py-1.5 text-xs font-medium transition",
-        danger ? "text-[#C94A4A] hover:bg-[#FCECEC]" : subtle ? "text-zinc-500 hover:bg-zinc-50" : "text-zinc-700 hover:bg-zinc-50",
+        cls,
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6FAFB2]/30 focus-visible:ring-offset-2",
       ].join(" ")}
     >
@@ -431,7 +436,7 @@ function SegTabs({ tab, onTab }: { tab: Tab; onTab: (t: Tab) => void }) {
   );
 }
 
-/* ---------- review helpers (presets: 1 day / 1 week / 1 month / 3 / 6 / 1 year + custom) ---------- */
+/* ---------- review helpers (required dropdown + custom date + explicit set/clear) ---------- */
 
 type ReviewPreset = "none" | "oneDay" | "oneWeek" | "oneMonth" | "threeMonths" | "sixMonths" | "oneYear" | "custom";
 
@@ -465,37 +470,6 @@ function reviewIsoFromPreset(preset: ReviewPreset): string | null {
   if (preset === "sixMonths") return isoAtLocalNoon(addMonthsLocal(today, 6));
   if (preset === "oneYear") return isoAtLocalNoon(addMonthsLocal(today, 12));
   return null;
-}
-
-/* ---------- small section header ---------- */
-
-function SectionHeader(props: {
-  title: string;
-  open: boolean;
-  onToggle: () => void;
-  onAdd?: () => void;
-  addLabel?: string;
-  rightMeta?: React.ReactNode;
-}) {
-  const { title, open, onToggle, onAdd, addLabel, rightMeta } = props;
-  return (
-    <div className="flex items-center justify-between gap-2">
-      <div className="flex items-center gap-2">
-        <div className="text-sm font-semibold text-zinc-900">{title}</div>
-        {rightMeta ? <div className="text-xs text-zinc-500">{rightMeta}</div> : null}
-      </div>
-      <div className="flex items-center gap-1">
-        {onAdd ? (
-          <TextAction onClick={onAdd} title={addLabel ?? `Add to ${title}`}>
-            +
-          </TextAction>
-        ) : null}
-        <TextAction subtle onClick={onToggle} title={open ? "Hide section" : "Expand section"}>
-          {open ? "Hide" : "Expand"}
-        </TextAction>
-      </div>
-    </div>
-  );
 }
 
 export default function DecisionsClient() {
@@ -605,32 +579,33 @@ export default function DecisionsClient() {
   const PAGE_SIZE = 50;
   const [page, setPage] = useState(1);
 
-  /** ✅ decision notes state (per open decision) */
+  /** ✅ decision notes state */
   const [notesByDecisionId, setNotesByDecisionId] = useState<Record<string, DecisionNote[]>>({});
   const [notesLoadingByDecisionId, setNotesLoadingByDecisionId] = useState<Record<string, boolean>>({});
   const [noteDraftByDecisionId, setNoteDraftByDecisionId] = useState<Record<string, string>>({});
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
   const [editingNoteDraft, setEditingNoteDraft] = useState<string>("");
 
-  /* ---------- per-section expand/collapse (active open decision) ---------- */
-  const [notesSectionOpenByDecisionId, setNotesSectionOpenByDecisionId] = useState<Record<string, boolean>>({});
-  const [filesSectionOpenByDecisionId, setFilesSectionOpenByDecisionId] = useState<Record<string, boolean>>({});
-  const [reviewSectionOpenByDecisionId, setReviewSectionOpenByDecisionId] = useState<Record<string, boolean>>({});
-  const [summariesSectionOpenByDecisionId, setSummariesSectionOpenByDecisionId] = useState<Record<string, boolean>>({});
-
-  /* ---------- composers/editors ---------- */
+  /* ---------- add/edit controls ---------- */
   const [noteComposerOpenByDecisionId, setNoteComposerOpenByDecisionId] = useState<Record<string, boolean>>({});
   const [filesComposerOpenByDecisionId, setFilesComposerOpenByDecisionId] = useState<Record<string, boolean>>({});
-  const [reviewOpenByDecisionId, setReviewOpenByDecisionId] = useState<Record<string, boolean>>({});
+  const [reviewEditorOpenByDecisionId, setReviewEditorOpenByDecisionId] = useState<Record<string, boolean>>({});
 
+  // ✅ subsection hide/expand (requested)
+  const [summariesExpandedByDecisionId, setSummariesExpandedByDecisionId] = useState<Record<string, boolean>>({});
+  const [notesExpandedByDecisionId, setNotesExpandedByDecisionId] = useState<Record<string, boolean>>({});
+  const [filesExpandedByDecisionId, setFilesExpandedByDecisionId] = useState<Record<string, boolean>>({});
+  const [reviewExpandedByDecisionId, setReviewExpandedByDecisionId] = useState<Record<string, boolean>>({});
+
+  // ✅ review draft (no auto set)
   const [reviewPresetByDecisionId, setReviewPresetByDecisionId] = useState<Record<string, ReviewPreset>>({});
   const [reviewCustomDateByDecisionId, setReviewCustomDateByDecisionId] = useState<Record<string, string>>({});
 
-  // pending selection (so we can apply only when user presses “Set review date”)
-  const [reviewPendingPresetByDecisionId, setReviewPendingPresetByDecisionId] = useState<Record<string, ReviewPreset>>({});
-  const [reviewPendingCustomDateByDecisionId, setReviewPendingCustomDateByDecisionId] = useState<Record<string, string>>({});
-
   const prevAttachmentCountRef = useRef<Record<string, number>>({});
+
+  // ✅ editable chat summaries
+  const [editingSummaryId, setEditingSummaryId] = useState<string | null>(null);
+  const [editingSummaryDraft, setEditingSummaryDraft] = useState<string>("");
 
   const scrollToDecisionTop = (id: string) => {
     const anchor = topAnchorRefs.current[id] ?? cardRefs.current[id];
@@ -1003,6 +978,7 @@ export default function DecisionsClient() {
 
     showToast({ message: "Note saved." }, 1400);
     setNoteComposerOpenByDecisionId((p) => ({ ...p, [decisionId]: false }));
+    setNotesExpandedByDecisionId((p) => ({ ...p, [decisionId]: true }));
     void loadNotes(decisionId);
   };
 
@@ -1052,6 +1028,38 @@ export default function DecisionsClient() {
     void loadNotes(decisionId);
   };
 
+  // ✅ chat summary edit/save
+  const startEditSummary = (s: DecisionSummary) => {
+    setEditingSummaryId(s.id);
+    setEditingSummaryDraft(s.summary_text ?? "");
+    setExpandedSummary((p) => ({ ...p, [s.id]: true }));
+  };
+  const cancelEditSummary = () => {
+    setEditingSummaryId(null);
+    setEditingSummaryDraft("");
+  };
+  const saveEditSummary = async (decisionId: string, summaryId: string) => {
+    if (!userId) return;
+
+    const next = (editingSummaryDraft ?? "").trim();
+    if (!next) {
+      showToast({ message: "Summary can’t be empty." }, 2000);
+      return;
+    }
+
+    const { error } = await supabase.from("decision_summaries").update({ summary_text: next }).eq("user_id", userId).eq("id", summaryId);
+
+    if (error) {
+      showToast({ message: `Couldn’t update summary: ${error.message}` }, 3500);
+      return;
+    }
+
+    setEditingSummaryId(null);
+    setEditingSummaryDraft("");
+    showToast({ message: "Updated." }, 1400);
+    void reloadSummaries(decisionId);
+  };
+
   const openDecision = useMemo(() => items.find((d) => d.id === openId) ?? null, [items, openId]);
 
   useEffect(() => {
@@ -1073,22 +1081,17 @@ export default function DecisionsClient() {
     const count = normalizeAttachments(openDecision.attachments).length;
     prevAttachmentCountRef.current[openDecision.id] = count;
 
-    // hydrate review edit state
+    // ✅ review draft state init (no auto-set)
     const iso = openDecision.review_at;
     const dateStr = iso ? new Date(safeMs(iso) ?? Date.now()).toISOString().slice(0, 10) : "";
-
     setReviewCustomDateByDecisionId((p) => (p[openDecision.id] != null ? p : { ...p, [openDecision.id]: dateStr }));
     setReviewPresetByDecisionId((p) => (p[openDecision.id] != null ? p : { ...p, [openDecision.id]: iso ? "custom" : "none" }));
 
-    setReviewPendingPresetByDecisionId((p) => (p[openDecision.id] != null ? p : { ...p, [openDecision.id]: iso ? "custom" : "none" }));
-    setReviewPendingCustomDateByDecisionId((p) => (p[openDecision.id] != null ? p : { ...p, [openDecision.id]: dateStr }));
-
-    // default section openness: keep things calm (collapsed) unless content exists
-    setNotesSectionOpenByDecisionId((p) => (p[openDecision.id] != null ? p : { ...p, [openDecision.id]: false }));
-    setFilesSectionOpenByDecisionId((p) => (p[openDecision.id] != null ? p : { ...p, [openDecision.id]: false }));
-    setReviewSectionOpenByDecisionId((p) => (p[openDecision.id] != null ? p : { ...p, [openDecision.id]: false }));
-    setSummariesSectionOpenByDecisionId((p) => (p[openDecision.id] != null ? p : { ...p, [openDecision.id]: true }));
-
+    // defaults for expand/hide (compact state)
+    setNotesExpandedByDecisionId((p) => (p[openDecision.id] != null ? p : { ...p, [openDecision.id]: false }));
+    setFilesExpandedByDecisionId((p) => (p[openDecision.id] != null ? p : { ...p, [openDecision.id]: false }));
+    setReviewExpandedByDecisionId((p) => (p[openDecision.id] != null ? p : { ...p, [openDecision.id]: false }));
+    setSummariesExpandedByDecisionId((p) => (p[openDecision.id] != null ? p : { ...p, [openDecision.id]: true }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId, tab, openDecision?.id]);
 
@@ -1205,8 +1208,7 @@ export default function DecisionsClient() {
           origin: "decisions",
           decided_at: null,
           framed_at: new Date().toISOString(),
-          // ✅ ensure no review date is set on creation
-          review_at: null,
+          review_at: null, // ✅ ensure no auto review date set on creation
         })
         .select("id")
         .single();
@@ -1358,34 +1360,6 @@ export default function DecisionsClient() {
     }
   };
 
-  const deleteAttachment = async (d: Decision, a: AttachmentMeta) => {
-    if (!userId) return;
-
-    // Optimistic UI: remove from attachments list in-memory first
-    const nextAtt = normalizeAttachments(d.attachments).filter((x) => x.path !== a.path);
-    setItems((prev) => prev.map((x) => (x.id === d.id ? { ...x, attachments: nextAtt } : x)));
-
-    // Persist: update JSON attachments on decision row
-    const { error: upErr } = await supabase
-      .from("decisions")
-      .update({ attachments: nextAtt })
-      .eq("user_id", userId)
-      .eq("id", d.id);
-
-    if (upErr) {
-      showToast({ message: `Couldn’t remove file: ${upErr.message}` }, 3500);
-      scheduleReload();
-      return;
-    }
-
-    // Best-effort: remove from storage as well (ignore if fails)
-    try {
-      await supabase.storage.from("captures").remove([a.path]);
-    } catch {}
-
-    showToast({ message: "File removed." }, 1400);
-  };
-
   const filterCount = useMemo(() => {
     return (activeDomainId ? 1 : 0) + (activeConstellationId ? 1 : 0) + (hasReviewDateOnly ? 1 : 0) + (reviewDueOnly ? 1 : 0);
   }, [activeDomainId, activeConstellationId, hasReviewDateOnly, reviewDueOnly]);
@@ -1433,7 +1407,8 @@ export default function DecisionsClient() {
   );
 
   const renderOpenDecision = (d: Decision) => {
-    splitContext(d.context);
+    const ctx = splitContext(d.context);
+    const capturedForChat = (ctx.captured || "").trim();
 
     const allAtt = normalizeAttachments(d.attachments) as AttachmentMeta[];
     const isWorking = workForId === d.id;
@@ -1444,20 +1419,23 @@ export default function DecisionsClient() {
 
     const noteComposerOpen = !!noteComposerOpenByDecisionId[d.id];
     const filesComposerOpen = !!filesComposerOpenByDecisionId[d.id];
-    const reviewOpen = !!reviewOpenByDecisionId[d.id];
+    const reviewEditorOpen = !!reviewEditorOpenByDecisionId[d.id];
 
     const summariesHasAny = summaries.length > 0;
+    const notesCount = notes.length;
+    const filesCount = allAtt.length;
+    const hasReview = !!d.review_at;
 
-    const notesHasAny = notes.length > 0;
-    const filesHasAny = allAtt.length > 0;
+    const summariesExpanded = !!summariesExpandedByDecisionId[d.id];
+    const notesExpanded = !!notesExpandedByDecisionId[d.id];
+    const filesExpanded = !!filesExpandedByDecisionId[d.id];
+    const reviewExpanded = !!reviewExpandedByDecisionId[d.id];
 
-    // section expand state
-    const notesSectionOpen = !!notesSectionOpenByDecisionId[d.id];
-    const filesSectionOpen = !!filesSectionOpenByDecisionId[d.id];
-    const reviewSectionOpen = !!reviewSectionOpenByDecisionId[d.id];
-    const summariesSectionOpen = summariesHasAny ? !!summariesSectionOpenByDecisionId[d.id] : false;
+    const preset = (reviewPresetByDecisionId[d.id] ?? (d.review_at ? "custom" : "none")) as ReviewPreset;
+    const customDateStr =
+      reviewCustomDateByDecisionId[d.id] ??
+      (d.review_at ? new Date(safeMs(d.review_at) ?? Date.now()).toISOString().slice(0, 10) : "");
 
-    // close file composer automatically when AttachmentsBlock updates attachments
     const currentAttCount = allAtt.length;
     const prevAttCount = prevAttachmentCountRef.current[d.id] ?? currentAttCount;
     if (prevAttCount !== currentAttCount) {
@@ -1467,36 +1445,65 @@ export default function DecisionsClient() {
       }
     }
 
-    // review UI state: pending selection
-    const currentPreset = (reviewPresetByDecisionId[d.id] ?? (d.review_at ? "custom" : "none")) as ReviewPreset;
-    const currentDateStr =
-      reviewCustomDateByDecisionId[d.id] ?? (d.review_at ? new Date(safeMs(d.review_at) ?? Date.now()).toISOString().slice(0, 10) : "");
-
-    const pendingPreset = (reviewPendingPresetByDecisionId[d.id] ?? currentPreset) as ReviewPreset;
-    const pendingDateStr = reviewPendingCustomDateByDecisionId[d.id] ?? currentDateStr;
-
-    const applyReviewSelection = async () => {
-      const preset = pendingPreset;
-
-      let iso: string | null = null;
-      if (preset === "custom") iso = isoFromDateInput(pendingDateStr);
-      else iso = reviewIsoFromPreset(preset);
-
-      setReviewPresetByDecisionId((p) => ({ ...p, [d.id]: preset }));
-      setReviewCustomDateByDecisionId((p) => ({ ...p, [d.id]: preset === "custom" ? pendingDateStr : "" }));
-
-      await setReviewAt(d, iso);
-
-      setReviewOpenByDecisionId((p) => ({ ...p, [d.id]: false }));
-      setReviewSectionOpenByDecisionId((p) => ({ ...p, [d.id]: true }));
+    const closeChat = () => {
+      setWorkForId(null);
+      router.push(
+        buildUrl("active", {
+          open: d.id,
+          work: false,
+          q: searchDebounced,
+          sort: sortKey,
+          domain: activeDomainId,
+          group: activeConstellationId,
+          hasReview: hasReviewDateOnly,
+          reviewDue: reviewDueOnly,
+        }),
+        { scroll: false }
+      );
+      window.setTimeout(() => scrollToDecisionTop(d.id), 0);
     };
 
-    const clearReview = async () => {
-      setReviewPendingPresetByDecisionId((p) => ({ ...p, [d.id]: "none" }));
-      setReviewPendingCustomDateByDecisionId((p) => ({ ...p, [d.id]: "" }));
-      setReviewPresetByDecisionId((p) => ({ ...p, [d.id]: "none" }));
-      setReviewCustomDateByDecisionId((p) => ({ ...p, [d.id]: "" }));
-      await setReviewAt(d, null);
+    const SectionRow = (props: {
+      title: string;
+      meta?: string;
+      count?: number;
+      showPlus?: boolean;
+      expanded?: boolean;
+      onToggle?: () => void;
+      onPlus?: () => void;
+      rightLabel?: string;
+    }) => {
+      const { title, meta, count, showPlus, expanded, onToggle, onPlus } = props;
+      return (
+        <div className="flex items-center justify-between gap-3 py-3">
+          <div className="min-w-0 flex-1 flex items-center gap-2">
+            <div className="text-sm font-semibold text-zinc-900">{title}</div>
+            {typeof count === "number" ? <div className="text-xs text-zinc-500">({count})</div> : null}
+            {meta ? <div className="text-xs text-zinc-500 truncate">{meta}</div> : null}
+
+            {/* ✅ plus close to heading */}
+            {showPlus ? (
+              <button
+                type="button"
+                onClick={onPlus}
+                className="ml-1 inline-flex h-7 w-7 items-center justify-center rounded-full text-zinc-700 hover:bg-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6FAFB2]/30 focus-visible:ring-offset-2"
+                title="Add"
+                aria-label="Add"
+              >
+                +
+              </button>
+            ) : null}
+          </div>
+
+          <div className="shrink-0">
+            {onToggle ? (
+              <TextAction subtle onClick={onToggle} title={expanded ? "Hide" : "Expand"}>
+                {expanded ? "Hide" : "Expand"}
+              </TextAction>
+            ) : null}
+          </div>
+        </div>
+      );
     };
 
     return (
@@ -1504,7 +1511,7 @@ export default function DecisionsClient() {
         ref={(el) => {
           cardRefs.current[d.id] = el;
         }}
-        className="rounded-2xl bg-zinc-50 p-4 sm:p-5 shadow-sm"
+        className="rounded-2xl bg-zinc-50 p-5 sm:p-6 shadow-sm"
       >
         <div
           ref={(el) => {
@@ -1527,6 +1534,7 @@ export default function DecisionsClient() {
                 setWorkForId(null);
                 setConfirmDeleteForId(null);
                 cancelEditNote();
+                cancelEditSummary();
                 router.push(
                   buildUrl("active", {
                     q: searchDebounced,
@@ -1548,7 +1556,7 @@ export default function DecisionsClient() {
 
         {/* Primary action */}
         {!isWorking ? (
-          <div className="mt-3">
+          <div className="mt-4">
             <PrimaryActionButton
               onClick={() => {
                 setWorkForId(d.id);
@@ -1579,72 +1587,210 @@ export default function DecisionsClient() {
 
         {/* Conversation */}
         {isWorking ? (
-          <div id="work-through-panel" className="mt-4 rounded-2xl bg-white">
+          <div id="work-through-panel" className="mt-5 rounded-2xl bg-white">
             <div className="p-3 sm:p-4">
               <ConversationPanel
                 decisionId={d.id}
                 decisionTitle={d.title}
-                askedText={""}
+                // ✅ show the original “new decision” input at start (so it doesn’t feel wasted)
+                askedText={capturedForChat || d.title}
                 frame={{ decision_statement: d.title }}
                 autoFocusToken={1}
                 autoStartToken={1}
-                onClose={() => {
-                  setWorkForId(null);
-                  router.push(
-                    buildUrl("active", {
-                      open: d.id,
-                      work: false,
-                      q: searchDebounced,
-                      sort: sortKey,
-                      domain: activeDomainId,
-                      group: activeConstellationId,
-                      hasReview: hasReviewDateOnly,
-                      reviewDue: reviewDueOnly,
-                    }),
-                    { scroll: false }
-                  );
-                  window.setTimeout(() => scrollToDecisionTop(d.id), 0);
-                }}
+                // ✅ remove top "Done" by not providing onClose; we provide Close Chat at bottom instead
                 onSummarySaved={() => void reloadSummaries(d.id)}
               />
+              <div className="mt-3 flex items-center justify-between">
+                <div className="text-xs text-zinc-500">{capturedForChat ? "Using your original captured statement to anchor the chat." : ""}</div>
+                <TextAction onClick={closeChat} title="Close chat">
+                  Close chat
+                </TextAction>
+              </div>
             </div>
           </div>
         ) : null}
 
         {/* Sections */}
-        <div className="mt-4 space-y-5">
-          {/* Chat summaries (only after first summary exists) */}
+        <div className="mt-5 divide-y divide-zinc-100 rounded-2xl bg-white px-4">
+          {/* Chat summaries (only appear once at least one exists) */}
           {summariesHasAny ? (
-            <div className="space-y-3">
-              <SectionHeader
+            <>
+              <SectionRow
                 title="Chat summaries"
-                open={summariesSectionOpen}
-                onToggle={() => setSummariesSectionOpenByDecisionId((p) => ({ ...p, [d.id]: !summariesSectionOpen }))}
-                rightMeta={<span>({summaries.length})</span>}
+                count={summaries.length}
+                showPlus={false}
+                expanded={summariesExpanded}
+                onToggle={() => setSummariesExpandedByDecisionId((p) => ({ ...p, [d.id]: !summariesExpanded }))}
               />
 
-              {summariesSectionOpen ? (
-                <div className="divide-y divide-zinc-100 rounded-2xl bg-white">
-                  {summaries.map((s) => {
-                    const one = summaryHeadingFrom(s.summary_text, d.title);
-                    const open = !!expandedSummary[s.id];
+              {summariesExpanded ? (
+                <div className="pb-4">
+                  <div className="divide-y divide-zinc-100 rounded-2xl bg-white">
+                    {summaries.map((s) => {
+                      const one = summaryHeadingFrom(s.summary_text, d.title);
+                      const open = !!expandedSummary[s.id];
+                      const isEditing = editingSummaryId === s.id;
 
-                    return (
-                      <div key={s.id} className="px-4 py-3">
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="min-w-0">
-                            <div className="text-xs text-zinc-500">Saved {softWhen(s.created_at)}</div>
-                            <div className="mt-1 text-sm font-medium text-zinc-900 truncate">{renderInlineBold(one)}</div>
+                      return (
+                        <div key={s.id} className="py-3">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <div className="text-xs text-zinc-500">Saved {softWhen(s.created_at)}</div>
+                              <div className="mt-1 text-sm font-medium text-zinc-900 truncate">{renderInlineBold(one)}</div>
+                            </div>
+
+                            <div className="shrink-0 flex items-center gap-1">
+                              {!isEditing ? (
+                                <>
+                                  <TextAction subtle onClick={() => startEditSummary(s)} title="Edit summary">
+                                    Edit
+                                  </TextAction>
+                                  <TextAction subtle onClick={() => setExpandedSummary((p) => ({ ...p, [s.id]: !open }))} title="Expand">
+                                    {open ? "Hide" : "Expand"}
+                                  </TextAction>
+                                </>
+                              ) : (
+                                <>
+                                  <TextAction onClick={() => void saveEditSummary(d.id, s.id)} title="Save summary edits">
+                                    Save
+                                  </TextAction>
+                                  <TextAction subtle onClick={cancelEditSummary} title="Cancel">
+                                    Cancel
+                                  </TextAction>
+                                </>
+                              )}
+                            </div>
                           </div>
 
-                          <div className="shrink-0">
-                            <TextAction subtle onClick={() => setExpandedSummary((p) => ({ ...p, [s.id]: !open }))} title="Expand">
-                              {open ? "Hide" : "Expand"}
-                            </TextAction>
+                          {open ? (
+                            <div className="mt-3 space-y-2">
+                              {!isEditing ? (
+                                renderSummaryBody(s.summary_text)
+                              ) : (
+                                <textarea
+                                  value={editingSummaryDraft}
+                                  onChange={(e) => setEditingSummaryDraft(e.target.value)}
+                                  className="w-full min-h-[140px] resize-y rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-[15px] leading-relaxed text-zinc-900 outline-none focus:ring-2 focus:ring-zinc-200"
+                                />
+                              )}
+                            </div>
+                          ) : null}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : null}
+            </>
+          ) : null}
+
+          {/* Notes (always present) */}
+          <SectionRow
+            title="Notes"
+            count={notesCount}
+            showPlus
+            expanded={notesExpanded}
+            onToggle={() => {
+              setNotesExpandedByDecisionId((p) => ({ ...p, [d.id]: !notesExpanded }));
+              if (!notesExpanded) void loadNotes(d.id);
+            }}
+            onPlus={() => {
+              setNoteComposerOpenByDecisionId((p) => ({ ...p, [d.id]: true }));
+              setNotesExpandedByDecisionId((p) => ({ ...p, [d.id]: true }));
+              void loadNotes(d.id);
+            }}
+          />
+
+          {notesExpanded ? (
+            <div className="pb-4 space-y-3">
+              {noteComposerOpen ? (
+                <>
+                  <textarea
+                    value={composerValue}
+                    onChange={(e) => setNoteDraftByDecisionId((p) => ({ ...p, [d.id]: e.target.value }))}
+                    placeholder="Add a note…"
+                    className="w-full min-h-[96px] resize-y rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-[15px] leading-relaxed text-zinc-900 outline-none focus:ring-2 focus:ring-zinc-200"
+                    onKeyDown={(e) => {
+                      const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad|iPod/.test(navigator.platform);
+                      const cmdOrCtrl = isMac ? e.metaKey : e.ctrlKey;
+                      if (cmdOrCtrl && e.key === "Enter") {
+                        e.preventDefault();
+                        void addNote(d.id);
+                      }
+                    }}
+                  />
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    <TextAction onClick={() => void addNote(d.id)} title="Save note">
+                      Save note
+                    </TextAction>
+                    <TextAction
+                      subtle
+                      onClick={() => {
+                        setNoteComposerOpenByDecisionId((p) => ({ ...p, [d.id]: false }));
+                        setNoteDraftByDecisionId((p) => ({ ...p, [d.id]: "" }));
+                      }}
+                      title="Cancel"
+                    >
+                      Cancel
+                    </TextAction>
+                  </div>
+                </>
+              ) : null}
+
+              {notesLoading ? <div className="text-sm text-zinc-500">Loading notes…</div> : null}
+
+              {!notesLoading && notes.length === 0 ? <div className="text-sm text-zinc-600">No notes yet.</div> : null}
+
+              {!notesLoading && notes.length > 0 ? (
+                <div className="divide-y divide-zinc-100 rounded-2xl bg-white">
+                  {notes.map((n) => {
+                    const isEditing = editingNoteId === n.id;
+                    const stamp = softWhenDateTime(n.created_at);
+                    const edited = n.updated_at ? ` • edited ${softWhenDateTime(n.updated_at)}` : "";
+
+                    return (
+                      <div key={n.id} className="px-4 py-3">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="text-xs text-zinc-500">
+                              {stamp}
+                              {edited}
+                            </div>
+                          </div>
+
+                          <div className="shrink-0 flex items-center gap-1">
+                            {!isEditing ? (
+                              <>
+                                <TextAction subtle onClick={() => startEditNote(n)} title="Edit note">
+                                  Edit
+                                </TextAction>
+                                <TextAction danger onClick={() => void deleteNote(d.id, n.id)} title="Delete note">
+                                  Delete
+                                </TextAction>
+                              </>
+                            ) : (
+                              <>
+                                <TextAction onClick={() => void saveEditNote(d.id, n.id)} title="Save changes">
+                                  Save
+                                </TextAction>
+                                <TextAction subtle onClick={cancelEditNote} title="Cancel edit">
+                                  Cancel
+                                </TextAction>
+                              </>
+                            )}
                           </div>
                         </div>
 
-                        {open ? <div className="mt-3 space-y-2">{renderSummaryBody(s.summary_text)}</div> : null}
+                        {!isEditing ? (
+                          <div className="mt-2 whitespace-pre-wrap text-[15px] leading-relaxed text-zinc-800">{n.body}</div>
+                        ) : (
+                          <textarea
+                            value={editingNoteDraft}
+                            onChange={(e) => setEditingNoteDraft(e.target.value)}
+                            className="mt-2 w-full min-h-[90px] resize-y rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-[15px] leading-relaxed text-zinc-900 outline-none focus:ring-2 focus:ring-zinc-200"
+                          />
+                        )}
                       </div>
                     );
                   })}
@@ -1653,328 +1799,232 @@ export default function DecisionsClient() {
             </div>
           ) : null}
 
-          {/* Notes */}
-          <div className="space-y-3">
-            <SectionHeader
-              title="Notes"
-              open={notesSectionOpen}
-              onToggle={() => setNotesSectionOpenByDecisionId((p) => ({ ...p, [d.id]: !notesSectionOpen }))}
-              onAdd={() => {
-                setNotesSectionOpenByDecisionId((p) => ({ ...p, [d.id]: true }));
-                setNoteComposerOpenByDecisionId((p) => ({ ...p, [d.id]: true }));
-                void loadNotes(d.id);
-              }}
-              addLabel="Add note"
-              rightMeta={notesHasAny ? <span>({notes.length})</span> : null}
-            />
+          {/* Files (always present) */}
+          <SectionRow
+            title="Files"
+            count={filesCount}
+            showPlus
+            expanded={filesExpanded}
+            onToggle={() => setFilesExpandedByDecisionId((p) => ({ ...p, [d.id]: !filesExpanded }))}
+            onPlus={() => {
+              setFilesComposerOpenByDecisionId((p) => ({ ...p, [d.id]: true }));
+              setFilesExpandedByDecisionId((p) => ({ ...p, [d.id]: true }));
+            }}
+          />
 
-            {notesSectionOpen ? (
-              <div className="space-y-3">
-                {noteComposerOpen ? (
-                  <div className="rounded-2xl bg-white p-3">
-                    <textarea
-                      value={composerValue}
-                      onChange={(e) => setNoteDraftByDecisionId((p) => ({ ...p, [d.id]: e.target.value }))}
-                      placeholder="Add a note…"
-                      className="w-full min-h-[96px] resize-y rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-[15px] leading-relaxed text-zinc-900 outline-none focus:ring-2 focus:ring-zinc-200"
-                      onKeyDown={(e) => {
-                        const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad|iPod/.test(navigator.platform);
-                        const cmdOrCtrl = isMac ? e.metaKey : e.ctrlKey;
-                        if (cmdOrCtrl && e.key === "Enter") {
-                          e.preventDefault();
-                          void addNote(d.id);
-                        }
-                      }}
+          {filesExpanded ? (
+            <div className="pb-4 space-y-3">
+              {filesCount > 0 ? (
+                <div className="rounded-2xl bg-white px-4 py-3">
+                  <ul className="space-y-2">
+                    {allAtt.map((a, idx) => (
+                      <li key={`${a.path}-${idx}`} className="flex items-center justify-between gap-3">
+                        <button
+                          type="button"
+                          onClick={() => void openAttachment(a)}
+                          className="min-w-0 truncate text-sm text-zinc-700 hover:underline underline-offset-4"
+                          title="Open file"
+                        >
+                          {a.name}
+                        </button>
+                        {/* delete handled in AttachmentsBlock; keep list simple */}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : (
+                <div className="text-sm text-zinc-600">No files yet.</div>
+              )}
+
+              {filesComposerOpen ? (
+                <div className="rounded-2xl bg-white p-3">
+                  {userId ? (
+                    <AttachmentsBlock
+                      userId={userId}
+                      decisionId={d.id}
+                      title={allAtt.length ? `Add files (currently ${allAtt.length})` : "Add files"}
+                      bucket="captures"
+                      initial={allAtt}
                     />
-
-                    <div className="mt-2 flex flex-wrap items-center gap-2">
-                      <TextAction onClick={() => void addNote(d.id)} title="Save note">
-                        Save note
-                      </TextAction>
-                      <TextAction
-                        subtle
-                        onClick={() => {
-                          setNoteComposerOpenByDecisionId((p) => ({ ...p, [d.id]: false }));
-                          setNoteDraftByDecisionId((p) => ({ ...p, [d.id]: "" }));
-                        }}
-                        title="Cancel"
-                      >
-                        Cancel
-                      </TextAction>
-                    </div>
+                  ) : (
+                    <div className="text-sm text-zinc-600">Files unavailable.</div>
+                  )}
+                  <div className="mt-2 flex items-center justify-between">
+                    <div className="text-xs text-zinc-500">Tip: after an upload completes, this panel will close automatically.</div>
+                    <TextAction subtle onClick={() => setFilesComposerOpenByDecisionId((p) => ({ ...p, [d.id]: false }))} title="Close">
+                      Close
+                    </TextAction>
                   </div>
-                ) : null}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
 
-                {notesLoading ? <div className="text-sm text-zinc-500">Loading notes…</div> : null}
+          {/* Review (always present) */}
+          <SectionRow
+            title="Review"
+            meta={d.review_at ? `Next review ${softWhen(d.review_at)}` : ""}
+            showPlus
+            expanded={reviewExpanded}
+            onToggle={() => setReviewExpandedByDecisionId((p) => ({ ...p, [d.id]: !reviewExpanded }))}
+            onPlus={() => {
+              setReviewEditorOpenByDecisionId((p) => ({ ...p, [d.id]: true }));
+              setReviewExpandedByDecisionId((p) => ({ ...p, [d.id]: true }));
 
-                {!notesLoading && notes.length === 0 ? <div className="text-sm text-zinc-600">No notes yet.</div> : null}
+              // init draft (no auto set)
+              setReviewPresetByDecisionId((p) => ({ ...p, [d.id]: d.review_at ? "custom" : "none" }));
+              setReviewCustomDateByDecisionId((p) => ({
+                ...p,
+                [d.id]: d.review_at ? new Date(safeMs(d.review_at) ?? Date.now()).toISOString().slice(0, 10) : p[d.id] ?? "",
+              }));
+            }}
+          />
 
-                {!notesLoading && notes.length > 0 ? (
-                  <div className="rounded-2xl bg-white px-3 py-2">
-                    <ul className="space-y-2">
-                      {notes.map((n) => {
-                        const isEditing = editingNoteId === n.id;
-                        const lastEditedIso = n.updated_at ?? n.created_at;
-                        const lastEdited = softWhenDateTime(lastEditedIso);
+          {reviewExpanded ? (
+            <div className="pb-4 space-y-3">
+              <div className="text-sm text-zinc-700">{d.review_at ? `Next review: ${softWhen(d.review_at)}` : "No review date set."}</div>
 
-                        const oneLine = (n.body ?? "").trim().replace(/\s+/g, " ");
-                        const label = oneLine.length > 120 ? `${oneLine.slice(0, 117)}…` : oneLine;
+              {reviewEditorOpen ? (
+                <div className="space-y-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <select
+                      className="h-9 rounded-full border border-zinc-200 bg-white px-3 text-sm text-zinc-700"
+                      value={preset}
+                      onChange={(e) => {
+                        const next = e.target.value as ReviewPreset;
+                        setReviewPresetByDecisionId((p) => ({ ...p, [d.id]: next }));
 
-                        return (
-                          <li key={n.id} className="flex items-start justify-between gap-3 rounded-xl px-2 py-1 hover:bg-zinc-50">
-                            <div className="min-w-0 flex-1">
-                              {!isEditing ? (
-                                <div className="flex items-start gap-2">
-                                  <div className="mt-[6px] h-1.5 w-1.5 shrink-0 rounded-full bg-zinc-400" />
-                                  <div className="min-w-0">
-                                    <div className="text-sm text-zinc-800">{label || <span className="text-zinc-500">(empty)</span>}</div>
-                                    <div className="mt-0.5 text-xs text-zinc-500">Last edited {lastEdited}</div>
-                                  </div>
-                                </div>
-                              ) : (
-                                <div className="space-y-2">
-                                  <textarea
-                                    value={editingNoteDraft}
-                                    onChange={(e) => setEditingNoteDraft(e.target.value)}
-                                    className="w-full min-h-[90px] resize-y rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-[15px] leading-relaxed text-zinc-900 outline-none focus:ring-2 focus:ring-zinc-200"
-                                  />
-                                  <div className="flex items-center gap-2">
-                                    <TextAction onClick={() => void saveEditNote(d.id, n.id)} title="Save note">
-                                      Save
-                                    </TextAction>
-                                    <TextAction subtle onClick={cancelEditNote} title="Cancel edit">
-                                      Cancel
-                                    </TextAction>
-                                  </div>
-                                </div>
-                              )}
-                            </div>
+                        // do not auto-apply; user must press "Set review date"
+                        if (next !== "custom" && next !== "none") return;
+                        if (next === "none") return;
 
-                            {!isEditing ? (
-                              <div className="shrink-0 flex items-center gap-1">
-                                <TextAction
-                                  subtle
-                                  onClick={() => {
-                                    setNotesSectionOpenByDecisionId((p) => ({ ...p, [d.id]: true }));
-                                    startEditNote(n);
-                                  }}
-                                  title="Edit note"
-                                >
-                                  Edit
-                                </TextAction>
-                                <TextAction danger onClick={() => void deleteNote(d.id, n.id)} title="Delete note">
-                                  Delete
-                                </TextAction>
-                              </div>
-                            ) : null}
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  </div>
-                ) : null}
-              </div>
-            ) : null}
-          </div>
+                        const fallback = d.review_at ? new Date(safeMs(d.review_at) ?? Date.now()).toISOString().slice(0, 10) : "";
+                        setReviewCustomDateByDecisionId((p) => ({ ...p, [d.id]: p[d.id] ?? fallback }));
+                      }}
+                      title="Choose a review time"
+                    >
+                      <option value="none">No review date</option>
+                      <option value="oneDay">1 day</option>
+                      <option value="oneWeek">1 week</option>
+                      <option value="oneMonth">1 month</option>
+                      <option value="threeMonths">3 months</option>
+                      <option value="sixMonths">6 months</option>
+                      <option value="oneYear">1 year</option>
+                      <option value="custom">Custom…</option>
+                    </select>
 
-          {/* Files */}
-          <div className="space-y-3">
-            <SectionHeader
-              title="Files"
-              open={filesSectionOpen}
-              onToggle={() => setFilesSectionOpenByDecisionId((p) => ({ ...p, [d.id]: !filesSectionOpen }))}
-              onAdd={() => {
-                setFilesSectionOpenByDecisionId((p) => ({ ...p, [d.id]: true }));
-                setFilesComposerOpenByDecisionId((p) => ({ ...p, [d.id]: true }));
-              }}
-              addLabel="Add file"
-              rightMeta={filesHasAny ? <span>({allAtt.length})</span> : null}
-            />
-
-            {filesSectionOpen ? (
-              <div className="space-y-3">
-                {filesHasAny ? (
-                  <div className="rounded-2xl bg-white px-3 py-2">
-                    <ul className="space-y-2">
-                      {allAtt.map((a, idx) => (
-                        <li key={`${a.path}-${idx}`} className="flex items-start justify-between gap-3 rounded-xl px-2 py-1 hover:bg-zinc-50">
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-start gap-2">
-                              <div className="mt-[6px] h-1.5 w-1.5 shrink-0 rounded-full bg-zinc-400" />
-                              <div className="min-w-0">
-                                <button
-                                  type="button"
-                                  onClick={() => void openAttachment(a)}
-                                  className="truncate text-sm text-zinc-800 hover:underline underline-offset-4"
-                                  title="Open file"
-                                >
-                                  {a.name}
-                                </button>
-                                <div className="mt-0.5 text-xs text-zinc-500">Uploaded {softWhen(d.created_at)}</div>
-                              </div>
-                            </div>
-                          </div>
-
-                          <div className="shrink-0">
-                            <TextAction danger onClick={() => void deleteAttachment(d, a)} title="Delete file">
-                              Delete
-                            </TextAction>
-                          </div>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                ) : (
-                  <div className="text-sm text-zinc-600">No files yet.</div>
-                )}
-
-                {filesComposerOpen ? (
-                  <div className="rounded-2xl bg-white p-3">
-                    {userId ? (
-                      <AttachmentsBlock
-                        userId={userId}
-                        decisionId={d.id}
-                        title={allAtt.length ? `Add files (currently ${allAtt.length})` : "Add files"}
-                        bucket="captures"
-                        initial={allAtt}
-                      />
-                    ) : (
-                      <div className="text-sm text-zinc-600">Files unavailable.</div>
-                    )}
-                    <div className="mt-2 flex items-center justify-between gap-2">
-                      <div className="text-xs text-zinc-500">After an upload completes, this panel will close automatically.</div>
-                      <TextAction subtle onClick={() => setFilesComposerOpenByDecisionId((p) => ({ ...p, [d.id]: false }))} title="Close uploader">
-                        Close
-                      </TextAction>
-                    </div>
-                  </div>
-                ) : null}
-              </div>
-            ) : null}
-          </div>
-
-          {/* Review */}
-          <div className="space-y-3">
-            <SectionHeader
-              title="Review"
-              open={reviewSectionOpen}
-              onToggle={() => setReviewSectionOpenByDecisionId((p) => ({ ...p, [d.id]: !reviewSectionOpen }))}
-              onAdd={() => {
-                setReviewSectionOpenByDecisionId((p) => ({ ...p, [d.id]: true }));
-                setReviewOpenByDecisionId((p) => ({ ...p, [d.id]: true }));
-
-                const iso = d.review_at;
-                const dateStr = iso ? new Date(safeMs(iso) ?? Date.now()).toISOString().slice(0, 10) : "";
-
-                setReviewPendingPresetByDecisionId((p) => ({ ...p, [d.id]: iso ? "custom" : "oneMonth" }));
-                setReviewPendingCustomDateByDecisionId((p) => ({ ...p, [d.id]: dateStr }));
-              }}
-              addLabel="Set review"
-              rightMeta={d.review_at ? <span>Next review {softWhen(d.review_at)}</span> : null}
-            />
-
-            {reviewSectionOpen ? (
-              <div className="space-y-2">
-                {!reviewOpen ? (
-                  <div className="text-sm text-zinc-700">{d.review_at ? `Next review: ${softWhen(d.review_at)}` : "No review date set."}</div>
-                ) : (
-                  <div className="rounded-2xl bg-white p-3 space-y-3">
-                    <div className="text-sm font-medium text-zinc-900">Set review date</div>
-
-                    <div className="flex flex-wrap items-center gap-2">
-                      <select
+                    {preset === "custom" ? (
+                      <input
+                        type="date"
                         className="h-9 rounded-full border border-zinc-200 bg-white px-3 text-sm text-zinc-700"
-                        value={pendingPreset}
-                        onChange={(e) => {
-                          const next = e.target.value as ReviewPreset;
-                          setReviewPendingPresetByDecisionId((p) => ({ ...p, [d.id]: next }));
-                          if (next !== "custom") return;
-                          const fallback = d.review_at ? new Date(safeMs(d.review_at) ?? Date.now()).toISOString().slice(0, 10) : "";
-                          setReviewPendingCustomDateByDecisionId((p) => ({ ...p, [d.id]: p[d.id] ?? fallback }));
-                        }}
-                        title="Choose a review interval"
-                      >
-                        <option value="oneDay">1 day</option>
-                        <option value="oneWeek">1 week</option>
-                        <option value="oneMonth">1 month</option>
-                        <option value="threeMonths">3 months</option>
-                        <option value="sixMonths">6 months</option>
-                        <option value="oneYear">1 year</option>
-                        <option value="custom">Custom…</option>
-                        <option value="none">No review date</option>
-                      </select>
-
-                      {pendingPreset === "custom" ? (
-                        <input
-                          type="date"
-                          className="h-9 rounded-full border border-zinc-200 bg-white px-3 text-sm text-zinc-700"
-                          value={pendingDateStr}
-                          onChange={(e) => setReviewPendingCustomDateByDecisionId((p) => ({ ...p, [d.id]: e.target.value }))}
-                          title="Pick a date"
-                        />
-                      ) : null}
-                    </div>
-
-                    <div className="flex flex-wrap items-center gap-2">
-                      <TextAction onClick={() => void applyReviewSelection()} title="Set review date">
-                        Set review date
-                      </TextAction>
-
-                      {d.review_at ? (
-                        <TextAction subtle onClick={() => void clearReview()} title="Delete review date">
-                          Delete review date
-                        </TextAction>
-                      ) : null}
-
-                      <TextAction
-                        subtle
-                        onClick={() => {
-                          setReviewOpenByDecisionId((p) => ({ ...p, [d.id]: false }));
-                          // reset pending to current
-                          setReviewPendingPresetByDecisionId((p) => ({ ...p, [d.id]: currentPreset }));
-                          setReviewPendingCustomDateByDecisionId((p) => ({ ...p, [d.id]: currentDateStr }));
-                        }}
-                        title="Close"
-                      >
-                        Close
-                      </TextAction>
-                    </div>
+                        value={customDateStr}
+                        onChange={(e) => setReviewCustomDateByDecisionId((p) => ({ ...p, [d.id]: e.target.value }))}
+                        title="Pick a date"
+                      />
+                    ) : null}
                   </div>
-                )}
-              </div>
-            ) : null}
-          </div>
 
-          {/* Bottom actions */}
-          {confirmDeleteForId === d.id ? (
-            <div className="mt-2 flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-[#FCECEC] px-4 py-3">
-              <div className="text-sm text-[#7A1E1E]">
-                Delete this decision? <span className="opacity-80">This can’t be undone.</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <TextAction subtle onClick={() => setConfirmDeleteForId(null)}>
-                  Cancel
-                </TextAction>
-                <button
-                  type="button"
-                  onClick={() => void performDelete(d)}
-                  className="inline-flex select-none items-center justify-center rounded-full bg-[#C94A4A] px-4 py-2 text-sm text-white transition hover:bg-[#b94141]"
+                  <div className="flex flex-wrap items-center gap-2 pt-1">
+                    <TextAction
+                      onClick={() => {
+                        if (preset === "none") {
+                          void setReviewAt(d, null);
+                          setReviewEditorOpenByDecisionId((p) => ({ ...p, [d.id]: false }));
+                          return;
+                        }
+
+                        if (preset === "custom") {
+                          const iso = isoFromDateInput(customDateStr);
+                          if (!iso) {
+                            showToast({ message: "Pick a valid date." }, 2200);
+                            return;
+                          }
+                          void setReviewAt(d, iso);
+                          setReviewEditorOpenByDecisionId((p) => ({ ...p, [d.id]: false }));
+                          return;
+                        }
+
+                        const iso = reviewIsoFromPreset(preset);
+                        if (!iso) {
+                          showToast({ message: "Choose a review option." }, 2200);
+                          return;
+                        }
+                        void setReviewAt(d, iso);
+                        setReviewEditorOpenByDecisionId((p) => ({ ...p, [d.id]: false }));
+                      }}
+                      title="Set review date"
+                    >
+                      Set review date
+                    </TextAction>
+
+                    <TextAction
+                      danger
+                      onClick={() => {
+                        setReviewPresetByDecisionId((p) => ({ ...p, [d.id]: "none" }));
+                        setReviewCustomDateByDecisionId((p) => ({ ...p, [d.id]: "" }));
+                        void setReviewAt(d, null);
+                      }}
+                      title="Delete review date"
+                    >
+                      Delete review date
+                    </TextAction>
+
+                    <TextAction subtle onClick={() => setReviewEditorOpenByDecisionId((p) => ({ ...p, [d.id]: false }))} title="Close">
+                      Close
+                    </TextAction>
+                  </div>
+                </div>
+              ) : null}
+
+              {!reviewEditorOpen ? (
+                <TextAction
+                  subtle
+                  onClick={() => {
+                    setReviewEditorOpenByDecisionId((p) => ({ ...p, [d.id]: true }));
+                    setReviewPresetByDecisionId((p) => ({ ...p, [d.id]: d.review_at ? "custom" : "none" }));
+                    setReviewCustomDateByDecisionId((p) => ({
+                      ...p,
+                      [d.id]: d.review_at ? new Date(safeMs(d.review_at) ?? Date.now()).toISOString().slice(0, 10) : p[d.id] ?? "",
+                    }));
+                  }}
+                  title="Edit review date"
                 >
-                  Delete
-                </button>
-              </div>
+                  Set review date
+                </TextAction>
+              ) : null}
             </div>
-          ) : (
-            <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-zinc-100 pt-4">
-              <TextAction onClick={() => void closeDecision(d)} title="Move to Closed">
-                Move to Closed
-              </TextAction>
-              <TextAction danger onClick={() => setConfirmDeleteForId(d.id)} title="Delete decision">
-                Delete
-              </TextAction>
-            </div>
-          )}
+          ) : null}
         </div>
+
+        {/* Bottom actions */}
+        {confirmDeleteForId === d.id ? (
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-zinc-100 px-4 py-3">
+            <div className="text-sm text-zinc-900">
+              Delete this decision? <span className="opacity-70">This can’t be undone.</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <TextAction subtle onClick={() => setConfirmDeleteForId(null)}>
+                Cancel
+              </TextAction>
+              <button
+                type="button"
+                onClick={() => void performDelete(d)}
+                className="inline-flex select-none items-center justify-center rounded-full bg-zinc-900 px-4 py-2 text-sm text-white transition hover:bg-zinc-800"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-zinc-100 pt-4">
+            <TextAction onClick={() => void closeDecision(d)} title="Move to Closed">
+              Move to Closed
+            </TextAction>
+            <TextAction danger onClick={() => setConfirmDeleteForId(d.id)} title="Delete decision">
+              Delete
+            </TextAction>
+          </div>
+        )}
       </div>
     );
   };
@@ -1995,7 +2045,7 @@ export default function DecisionsClient() {
         className="inline-flex items-center gap-2 rounded-full bg-zinc-100 px-3 py-1.5 text-xs text-zinc-700 hover:bg-zinc-200/70"
         title="Clear"
       >
-        <span className="truncate max-w-[220px]">{label}</span>
+        <span className="truncate max-w-[260px]">{label}</span>
         <span className="text-zinc-500">×</span>
       </button>
     );
@@ -2183,7 +2233,8 @@ export default function DecisionsClient() {
 
   return (
     <Page title={pageTitle} subtitle={pageSubtitle} right={null}>
-      <div className="mx-auto w-full max-w-[760px] space-y-6">
+      {/* ✅ wider layout so cards fill the page better */}
+      <div className="mx-auto w-full max-w-[1100px] space-y-6 px-2 sm:px-0">
         <SegTabs
           tab={tab}
           onTab={(t) => {
@@ -2546,7 +2597,7 @@ export default function DecisionsClient() {
 
                           <div className="space-y-2">
                             <div className="text-sm font-semibold text-zinc-900">Review</div>
-                            <div className="text-sm text-zinc-700">{d.review_at ? softWhen(d.review_at) : "No review date."}</div>
+                            <div className="text-sm text-zinc-700">{d.review_at ? `Next review: ${softWhen(d.review_at)}` : "No review date."}</div>
                           </div>
 
                           <div className="space-y-3">

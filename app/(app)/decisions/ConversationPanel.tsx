@@ -62,7 +62,10 @@ export function ConversationPanel(props: {
   decisionId: string;
   decisionTitle: string;
   frame?: Frame | null;
-  onClose: () => void;
+
+  // ✅ optional now to fix TS error in callers that don’t pass it
+  onClose?: () => void;
+
   onSummarySaved?: () => void;
 
   autoFocusToken?: number;
@@ -365,18 +368,15 @@ export function ConversationPanel(props: {
 
   return (
     <div className="w-full">
-      {/* Minimal header */}
+      {/* Minimal header (no top-right close) */}
       <div className="flex items-start justify-between gap-3 px-1">
         <div className="min-w-0">
           <div className="text-sm font-semibold text-zinc-900">Let’s work this through</div>
           {askedText ? <div className="mt-1 text-xs text-zinc-500 truncate">{askedText}</div> : null}
         </div>
 
-        <div className="shrink-0">
-          <Chip onClick={onClose} title="Close">
-            Done
-          </Chip>
-        </div>
+        {/* intentionally blank right side */}
+        <div className="shrink-0" />
       </div>
 
       {/* Messages */}
@@ -488,6 +488,15 @@ export function ConversationPanel(props: {
               </Chip>
             ) : null}
           </div>
+
+          {/* ✅ Bottom "Close chat" (no top Done) */}
+          {onClose ? (
+            <div className="mt-3 flex items-center justify-start">
+              <Chip onClick={onClose} title="Close chat">
+                Close chat
+              </Chip>
+            </div>
+          ) : null}
         </div>
       </div>
     </div>
