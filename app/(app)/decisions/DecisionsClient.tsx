@@ -184,11 +184,7 @@ function TextAction(props: { children: React.ReactNode; onClick?: () => void; ti
   const { children, onClick, title, subtle, danger } = props;
 
   // ✅ Change "danger" to black (per request)
-  const cls = danger
-    ? "text-zinc-900 hover:bg-zinc-100"
-    : subtle
-      ? "text-zinc-500 hover:bg-zinc-50"
-      : "text-zinc-700 hover:bg-zinc-50";
+  const cls = danger ? "text-zinc-900 hover:bg-zinc-100" : subtle ? "text-zinc-500 hover:bg-zinc-50" : "text-zinc-700 hover:bg-zinc-50";
 
   return (
     <button
@@ -848,29 +844,16 @@ export default function DecisionsClient() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId, tab]);
 
+  // ✅ FIX: there was an accidentally-nested duplicate useEffect here (caused TS2345 + parse cascade).
+  // Keep a single effect that syncs open/work from query params when in Active tab.
   useEffect(() => {
     if (tab !== "active") return;
 
-    if (openFromQuery) {
-      setOpenId(openFromQuery);
-      window.setTimeout(() => {
-        scrollToDecisionTop(openFromQuery);
-      }, 60);
-    } else {
-      setOpenId(null);
-    }
+    if (openFromQuery) setOpenId(openFromQuery);
+    else setOpenId(null);
 
-    if (workFromQuery && openFromQuery) {
-      setWorkForId(openFromQuery);
-      window.setTimeout(() => {
-        scrollToDecisionTop(openFromQuery);
-      }, 60);
-      window.setTimeout(() => {
-        scrollToDecisionTop(openFromQuery);
-      }, 320);
-    } else {
-      setWorkForId(null);
-    }
+    if (workFromQuery && openFromQuery) setWorkForId(openFromQuery);
+    else setWorkForId(null);
   }, [tab, openFromQuery, workFromQuery]);
 
   const reloadSummaries = async (decisionId: string) => {
@@ -1371,9 +1354,11 @@ export default function DecisionsClient() {
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <div className="text-[15px] font-semibold text-zinc-900">{d.title}</div>
-          <div className="mt-1 text-xs text-zinc-500">Started {softWhen(d.created_at)}</div>
+          <div className="mt-1 text-xs text-zinc-500">
+            Started {softWhen(d.created_at)}
+            {d.review_at ? <> • Next review {softWhen(d.review_at)}</> : null}
+          </div>
         </div>
-
         <div className="shrink-0">
           <TextAction
             onClick={() => {
@@ -1394,8 +1379,6 @@ export default function DecisionsClient() {
                 }),
                 { scroll: false }
               );
-
-              window.setTimeout(() => scrollToDecisionTop(d.id), 60);
             }}
             title="Open"
           >
@@ -1424,7 +1407,6 @@ export default function DecisionsClient() {
     const summariesHasAny = summaries.length > 0;
     const notesCount = notes.length;
     const filesCount = allAtt.length;
-    const hasReview = !!d.review_at;
 
     const summariesExpanded = !!summariesExpandedByDecisionId[d.id];
     const notesExpanded = !!notesExpandedByDecisionId[d.id];
@@ -1460,7 +1442,6 @@ export default function DecisionsClient() {
         }),
         { scroll: false }
       );
-      window.setTimeout(() => scrollToDecisionTop(d.id), 0);
     };
 
     const SectionRow = (props: {
@@ -1523,9 +1504,11 @@ export default function DecisionsClient() {
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <div className="text-base font-semibold text-zinc-900">{d.title}</div>
-            <div className="mt-1 text-xs text-zinc-500">Started {softWhen(d.created_at)}</div>
+            <div className="mt-1 text-xs text-zinc-500">
+              Started {softWhen(d.created_at)}
+              {d.review_at ? <> • Next review {softWhen(d.review_at)}</> : null}
+            </div>
           </div>
-
           <div className="shrink-0 flex items-center gap-2">
             <TextAction
               subtle
@@ -1573,10 +1556,6 @@ export default function DecisionsClient() {
                   }),
                   { scroll: false }
                 );
-
-                window.setTimeout(() => scrollToDecisionTop(d.id), 0);
-                window.setTimeout(() => scrollToDecisionTop(d.id), 80);
-                window.setTimeout(() => scrollToDecisionTop(d.id), 320);
               }}
               title="Open the conversation"
             >
@@ -1589,19 +1568,19 @@ export default function DecisionsClient() {
         {isWorking ? (
           <div id="work-through-panel" className="mt-5 rounded-2xl bg-white">
             <div className="p-3 sm:p-4">
+              {/* askedText: use original captured text */}
+              {/* frame: anchor boot message to it */}
               <ConversationPanel
                 decisionId={d.id}
                 decisionTitle={d.title}
-                // ✅ show the original “new decision” input at start (so it doesn’t feel wasted)
-                askedText={capturedForChat || d.title}
-                frame={{ decision_statement: d.title }}
+                askedText={capturedForChat || ""}
+                frame={{ decision_statement: capturedForChat || d.title }}
                 autoFocusToken={1}
                 autoStartToken={1}
-                // ✅ remove top "Done" by not providing onClose; we provide Close Chat at bottom instead
+                onClose={() => {}}
                 onSummarySaved={() => void reloadSummaries(d.id)}
               />
               <div className="mt-3 flex items-center justify-between">
-                <div className="text-xs text-zinc-500">{capturedForChat ? "Using your original captured statement to anchor the chat." : ""}</div>
                 <TextAction onClick={closeChat} title="Close chat">
                   Close chat
                 </TextAction>
@@ -1645,7 +1624,11 @@ export default function DecisionsClient() {
                                   <TextAction subtle onClick={() => startEditSummary(s)} title="Edit summary">
                                     Edit
                                   </TextAction>
-                                  <TextAction subtle onClick={() => setExpandedSummary((p) => ({ ...p, [s.id]: !open }))} title="Expand">
+                                  <TextAction
+                                    subtle
+                                    onClick={() => setExpandedSummary((p) => ({ ...p, [s.id]: !open }))}
+                                    title="Expand"
+                                  >
                                     {open ? "Hide" : "Expand"}
                                   </TextAction>
                                 </>
@@ -1827,7 +1810,6 @@ export default function DecisionsClient() {
                         >
                           {a.name}
                         </button>
-                        {/* delete handled in AttachmentsBlock; keep list simple */}
                       </li>
                     ))}
                   </ul>
@@ -1863,7 +1845,7 @@ export default function DecisionsClient() {
           {/* Review (always present) */}
           <SectionRow
             title="Review"
-            meta={d.review_at ? `Next review ${softWhen(d.review_at)}` : ""}
+            meta={""}
             showPlus
             expanded={reviewExpanded}
             onToggle={() => setReviewExpandedByDecisionId((p) => ({ ...p, [d.id]: !reviewExpanded }))}
