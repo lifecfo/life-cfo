@@ -1,4 +1,4 @@
-// app/(app)/money/MoneyClient.tsx
+// app/(app)/money/page.tsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -69,6 +69,17 @@ async function fetchJson<T>(url: string): Promise<T> {
   return json as T;
 }
 
+async function postJson<T>(url: string, body: any): Promise<T> {
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body ?? {}),
+  });
+  const json = await res.json();
+  if (!res.ok) throw new Error(json?.error ?? "Request failed");
+  return json as T;
+}
+
 export default function MoneyClient() {
   const { showToast } = useToast();
 
@@ -77,18 +88,14 @@ export default function MoneyClient() {
   const [tx, setTx] = useState<TxRow[]>([]);
   const [q, setQ] = useState("");
 
+  const [connecting, setConnecting] = useState(false);
+
   const filteredTx = useMemo(() => {
     const query = q.trim().toLowerCase();
     if (!query) return tx;
 
     return tx.filter((t) => {
-      const hay = [
-        safeStr(t.description),
-        safeStr(t.merchant),
-        safeStr(t.category),
-        safeStr(t.date),
-        safeStr(t.currency),
-      ]
+      const hay = [safeStr(t.description), safeStr(t.merchant), safeStr(t.category), safeStr(t.date), safeStr(t.currency)]
         .join(" ")
         .toLowerCase();
       return hay.includes(query);
@@ -108,13 +115,27 @@ export default function MoneyClient() {
     return byCur;
   }, [accounts]);
 
+  const refresh = async () => {
+    setLoading(true);
+    try {
+      // Accounts API should already exist from your earlier step
+      const a = await fetchJson<{ ok: boolean; accounts: AccountRow[] }>("/api/money/accounts");
+      const t = await fetchJson<{ ok: boolean; transactions: TxRow[] }>("/api/money/transactions?limit=25");
+      setAccounts(a.accounts ?? []);
+      setTx(t.transactions ?? []);
+    } catch (e: any) {
+      showToast({ message: e?.message ?? "Couldn’t load money data." }, 2500);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
     let alive = true;
 
     (async () => {
       setLoading(true);
       try {
-        // Accounts API should already exist from your earlier step
         const a = await fetchJson<{ ok: boolean; accounts: AccountRow[] }>("/api/money/accounts");
         const t = await fetchJson<{ ok: boolean; transactions: TxRow[] }>("/api/money/transactions?limit=25");
 
@@ -135,12 +156,35 @@ export default function MoneyClient() {
     };
   }, [showToast]);
 
+  const connectAccounts = async () => {
+    if (connecting) return;
+
+    setConnecting(true);
+    try {
+      // Provider-agnostic stub connection for now.
+      // Later: swap this to launch provider link flow (Plaid/Basiq) and then upsert provider_connection_id.
+      await postJson<{ ok: boolean; connection?: any }>("/api/money/connections", {
+        provider: "manual",
+        display_name: "Manual connection",
+      });
+
+      showToast({ message: "Connected." }, 1500);
+
+      // Optional: refresh local data (accounts/tx). Connections list page comes next.
+      await refresh();
+    } catch (e: any) {
+      showToast({ message: e?.message ?? "Couldn’t connect." }, 2500);
+    } finally {
+      setConnecting(false);
+    }
+  };
+
   return (
     <Page title="Money" subtitle="A calm view of your accounts and activity.">
       {/* Top actions */}
       <div className="flex flex-wrap items-center gap-2">
-        <Chip title="Connect accounts (provider layer next)" onClick={() => showToast({ message: "Connect flow is next." }, 1500)}>
-          Connect accounts
+        <Chip title="Connect accounts (provider layer next)" onClick={() => void connectAccounts()}>
+          {connecting ? "Connecting…" : "Connect accounts"}
         </Chip>
 
         <Link href="/accounts">
@@ -181,9 +225,7 @@ export default function MoneyClient() {
             <div className="flex items-center justify-between gap-3">
               <div className="min-w-0">
                 <div className="text-sm font-semibold text-zinc-900">Accounts</div>
-                <div className="mt-0.5 text-xs text-zinc-500">
-                  {loading ? "Loading…" : accounts.length ? "Most recent accounts" : "No accounts yet."}
-                </div>
+                <div className="mt-0.5 text-xs text-zinc-500">{loading ? "Loading…" : accounts.length ? "Most recent accounts" : "No accounts yet."}</div>
               </div>
               <Link href="/accounts">
                 <Chip>View</Chip>
@@ -191,21 +233,24 @@ export default function MoneyClient() {
             </div>
 
             <div className="mt-3 divide-y divide-zinc-100">
-              {(accounts ?? []).filter((a) => !a.archived).slice(0, 5).map((a) => {
-                const cur = safeStr(a.currency) || "AUD";
-                const cents = typeof a.current_balance_cents === "number" ? a.current_balance_cents : 0;
-                return (
-                  <div key={a.id} className="flex items-center justify-between gap-3 py-3">
-                    <div className="min-w-0">
-                      <div className="truncate text-sm font-medium text-zinc-900">{safeStr(a.name) || "Untitled account"}</div>
-                      <div className="truncate text-xs text-zinc-500">
-                        {[safeStr(a.provider) || "Manual", a.updated_at ? `Updated ${softDate(a.updated_at)}` : null].filter(Boolean).join(" • ")}
+              {(accounts ?? [])
+                .filter((a) => !a.archived)
+                .slice(0, 5)
+                .map((a) => {
+                  const cur = safeStr(a.currency) || "AUD";
+                  const cents = typeof a.current_balance_cents === "number" ? a.current_balance_cents : 0;
+                  return (
+                    <div key={a.id} className="flex items-center justify-between gap-3 py-3">
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-medium text-zinc-900">{safeStr(a.name) || "Untitled account"}</div>
+                        <div className="truncate text-xs text-zinc-500">
+                          {[safeStr(a.provider) || "Manual", a.updated_at ? `Updated ${softDate(a.updated_at)}` : null].filter(Boolean).join(" • ")}
+                        </div>
                       </div>
+                      <div className="shrink-0 text-sm font-semibold text-zinc-900">{moneyFromCents(cents, cur)}</div>
                     </div>
-                    <div className="shrink-0 text-sm font-semibold text-zinc-900">{moneyFromCents(cents, cur)}</div>
-                  </div>
-                );
-              })}
+                  );
+                })}
             </div>
           </CardContent>
         </Card>
