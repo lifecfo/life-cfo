@@ -7,18 +7,26 @@ export const dynamic = "force-dynamic";
 
 export async function GET() {
   try {
-    const supabase = supabaseRoute();
+    const supabase = await supabaseRoute();
 
-    const { data: auth, error: authErr } = await supabase.auth.getUser();
-    if (authErr) throw authErr;
+    const {
+      data: { user },
+      error: authErr,
+    } = await supabase.auth.getUser();
 
-    const uid = auth?.user?.id;
-    if (!uid) return NextResponse.json({ ok: false, error: "Not signed in." }, { status: 401 });
+    if (authErr || !user?.id) {
+      return NextResponse.json(
+        { ok: false, error: "Not signed in." },
+        { status: 401 }
+      );
+    }
 
     const { data, error } = await supabase
       .from("accounts")
-      .select("id,user_id,name,provider,type,status,archived,current_balance_cents,currency,updated_at,created_at")
-      .eq("user_id", uid)
+      .select(
+        "id,user_id,name,provider,type,status,archived,current_balance_cents,currency,updated_at,created_at"
+      )
+      .eq("user_id", user.id)
       .eq("archived", false)
       .order("updated_at", { ascending: false })
       .order("created_at", { ascending: false })
@@ -28,6 +36,9 @@ export async function GET() {
 
     return NextResponse.json({ ok: true, accounts: data ?? [] });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message ?? "Accounts fetch failed" }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, error: e?.message ?? "Accounts fetch failed" },
+      { status: 500 }
+    );
   }
 }
