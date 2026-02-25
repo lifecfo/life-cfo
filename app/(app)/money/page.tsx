@@ -1,4 +1,3 @@
-// app/(app)/money/page.tsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -54,7 +53,6 @@ function softDate(isoOrDate: string | null | undefined) {
   if (!isoOrDate) return "";
   const ms = Date.parse(isoOrDate);
   if (!Number.isFinite(ms)) {
-    // try date-only YYYY-MM-DD
     const ms2 = Date.parse(isoOrDate + "T00:00:00Z");
     if (!Number.isFinite(ms2)) return "";
     return new Date(ms2).toLocaleDateString();
@@ -103,8 +101,6 @@ export default function MoneyClient() {
   }, [q, tx]);
 
   const totalBalance = useMemo(() => {
-    // If you eventually support multi-currency, we’ll show per-currency totals.
-    // For now, if mixed currencies exist we keep it conservative.
     const byCur = new Map<string, number>();
     for (const a of accounts) {
       if (a.archived) continue;
@@ -118,7 +114,6 @@ export default function MoneyClient() {
   const refresh = async () => {
     setLoading(true);
     try {
-      // Accounts API should already exist from your earlier step
       const a = await fetchJson<{ ok: boolean; accounts: AccountRow[] }>("/api/money/accounts");
       const t = await fetchJson<{ ok: boolean; transactions: TxRow[] }>("/api/money/transactions?limit=25");
       setAccounts(a.accounts ?? []);
@@ -161,16 +156,12 @@ export default function MoneyClient() {
 
     setConnecting(true);
     try {
-      // Provider-agnostic stub connection for now.
-      // Later: swap this to launch provider link flow (Plaid/Basiq) and then upsert provider_connection_id.
       await postJson<{ ok: boolean; connection?: any }>("/api/money/connections", {
         provider: "manual",
         display_name: "Manual connection",
       });
 
       showToast({ message: "Connected." }, 1500);
-
-      // Optional: refresh local data (accounts/tx). Connections list page comes next.
       await refresh();
     } catch (e: any) {
       showToast({ message: e?.message ?? "Couldn’t connect." }, 2500);
@@ -186,6 +177,10 @@ export default function MoneyClient() {
         <Chip title="Connect accounts (provider layer next)" onClick={() => void connectAccounts()}>
           {connecting ? "Connecting…" : "Connect accounts"}
         </Chip>
+
+        <Link href="/connections">
+          <Chip>Connections</Chip>
+        </Link>
 
         <Link href="/accounts">
           <Chip>All accounts</Chip>
@@ -225,7 +220,9 @@ export default function MoneyClient() {
             <div className="flex items-center justify-between gap-3">
               <div className="min-w-0">
                 <div className="text-sm font-semibold text-zinc-900">Accounts</div>
-                <div className="mt-0.5 text-xs text-zinc-500">{loading ? "Loading…" : accounts.length ? "Most recent accounts" : "No accounts yet."}</div>
+                <div className="mt-0.5 text-xs text-zinc-500">
+                  {loading ? "Loading…" : accounts.length ? "Most recent accounts" : "No accounts yet."}
+                </div>
               </div>
               <Link href="/accounts">
                 <Chip>View</Chip>
@@ -244,7 +241,9 @@ export default function MoneyClient() {
                       <div className="min-w-0">
                         <div className="truncate text-sm font-medium text-zinc-900">{safeStr(a.name) || "Untitled account"}</div>
                         <div className="truncate text-xs text-zinc-500">
-                          {[safeStr(a.provider) || "Manual", a.updated_at ? `Updated ${softDate(a.updated_at)}` : null].filter(Boolean).join(" • ")}
+                          {[safeStr(a.provider) || "Manual", a.updated_at ? `Updated ${softDate(a.updated_at)}` : null]
+                            .filter(Boolean)
+                            .join(" • ")}
                         </div>
                       </div>
                       <div className="shrink-0 text-sm font-semibold text-zinc-900">{moneyFromCents(cents, cur)}</div>
