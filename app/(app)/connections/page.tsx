@@ -28,6 +28,7 @@ export default function ConnectionsPage() {
   const [items, setItems] = useState<Connection[]>([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
+  const [syncingId, setSyncingId] = useState<string | null>(null);
 
   async function load() {
     setLoading(true);
@@ -69,6 +70,25 @@ export default function ConnectionsPage() {
     }
   }
 
+  async function syncConnection(id: string) {
+    setSyncingId(id);
+    try {
+      const res = await fetch(`/api/money/sync/${id}`, {
+        method: "POST",
+      });
+
+      const json = await res.json();
+      if (!res.ok) throw new Error(json?.error || "Sync failed");
+
+      toast({ title: "Synced" });
+      await load();
+    } catch (e: any) {
+      toast({ title: "Couldn’t sync", description: e?.message });
+    } finally {
+      setSyncingId(null);
+    }
+  }
+
   function statusChip(status: string) {
     const base = "text-xs rounded-full px-3 py-1 border";
 
@@ -101,22 +121,10 @@ export default function ConnectionsPage() {
   }
 
   function syncLine(c: Connection) {
-    if (c.last_sync_at) {
-      return `Synced ${softDate(c.last_sync_at)}`;
-    }
-
-    if (c.status === "manual") {
-      return "Manual entry";
-    }
-
-    if (c.status === "needs_auth") {
-      return "Awaiting connection";
-    }
-
-    if (c.status === "error") {
-      return "Needs review";
-    }
-
+    if (c.last_sync_at) return `Synced ${softDate(c.last_sync_at)}`;
+    if (c.status === "manual") return "Manual entry";
+    if (c.status === "needs_auth") return "Awaiting connection";
+    if (c.status === "error") return "Needs review";
     return "";
   }
 
@@ -135,7 +143,7 @@ export default function ConnectionsPage() {
                   Data sources
                 </div>
                 <div className="text-xs text-zinc-500">
-                  You can link banks later. Manual works for now.
+                  Manual now. Bank linking next.
                 </div>
               </div>
 
@@ -179,7 +187,20 @@ export default function ConnectionsPage() {
                         </div>
                       </div>
 
-                      {statusChip(c.status)}
+                      <div className="flex items-center gap-2">
+                        {c.status === "active" && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => syncConnection(c.id)}
+                            disabled={syncingId === c.id}
+                          >
+                            {syncingId === c.id ? "Syncing…" : "Sync"}
+                          </Button>
+                        )}
+
+                        {statusChip(c.status)}
+                      </div>
                     </div>
                   </div>
                 ))
