@@ -5,7 +5,10 @@ import { supabaseRoute } from "@/lib/supabaseRoute";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-async function getHouseholdIdForUser(supabase: any, userId: string): Promise<string | null> {
+async function getHouseholdIdForUser(
+  supabase: any,
+  userId: string
+): Promise<string | null> {
   const { data, error } = await supabase
     .from("household_members")
     .select("household_id")
@@ -34,7 +37,7 @@ function defaultDisplayName(provider: string): string | null {
 
 export async function GET() {
   try {
-    const supabase = supabaseRoute();
+    const supabase = await supabaseRoute();
 
     const {
       data: { user },
@@ -42,17 +45,25 @@ export async function GET() {
     } = await supabase.auth.getUser();
 
     if (userErr || !user?.id) {
-      return NextResponse.json({ ok: false, error: "Not signed in." }, { status: 401 });
+      return NextResponse.json(
+        { ok: false, error: "Not signed in." },
+        { status: 401 }
+      );
     }
 
     const householdId = await getHouseholdIdForUser(supabase, user.id);
     if (!householdId) {
-      return NextResponse.json({ ok: false, error: "User not linked to a household." }, { status: 400 });
+      return NextResponse.json(
+        { ok: false, error: "User not linked to a household." },
+        { status: 400 }
+      );
     }
 
     const { data, error } = await supabase
       .from("external_connections")
-      .select("id,provider,status,provider_connection_id,display_name,last_sync_at,created_at,updated_at")
+      .select(
+        "id,provider,status,provider_connection_id,display_name,last_sync_at,created_at,updated_at"
+      )
       .eq("user_id", user.id)
       .eq("household_id", householdId)
       .order("created_at", { ascending: false });
@@ -61,13 +72,16 @@ export async function GET() {
 
     return NextResponse.json({ ok: true, connections: data ?? [] });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message ?? "Connections fetch failed" }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, error: e?.message ?? "Connections fetch failed" },
+      { status: 500 }
+    );
   }
 }
 
 export async function POST(req: Request) {
   try {
-    const supabase = supabaseRoute();
+    const supabase = await supabaseRoute();
 
     const {
       data: { user },
@@ -75,12 +89,18 @@ export async function POST(req: Request) {
     } = await supabase.auth.getUser();
 
     if (userErr || !user?.id) {
-      return NextResponse.json({ ok: false, error: "Not signed in." }, { status: 401 });
+      return NextResponse.json(
+        { ok: false, error: "Not signed in." },
+        { status: 401 }
+      );
     }
 
     const householdId = await getHouseholdIdForUser(supabase, user.id);
     if (!householdId) {
-      return NextResponse.json({ ok: false, error: "User not linked to a household." }, { status: 400 });
+      return NextResponse.json(
+        { ok: false, error: "User not linked to a household." },
+        { status: 400 }
+      );
     }
 
     const body = await req.json().catch(() => ({}));
@@ -88,9 +108,11 @@ export async function POST(req: Request) {
     const provider = normalizeProvider(body?.provider);
     const status = connectionStatusForProvider(provider);
 
-    const display_name = typeof body?.display_name === "string" ? body.display_name : defaultDisplayName(provider);
+    const display_name =
+      typeof body?.display_name === "string"
+        ? body.display_name
+        : defaultDisplayName(provider);
 
-    // 1️⃣ Create connection row (manual placeholder, no tokens yet)
     const { data: connection, error: connErr } = await supabase
       .from("external_connections")
       .insert({
@@ -100,14 +122,13 @@ export async function POST(req: Request) {
         status,
         display_name,
         provider_connection_id: null,
-        encrypted_access_token: null, // must be nullable in DB
+        encrypted_access_token: null,
       })
       .select("id,provider,status,display_name,created_at")
       .maybeSingle();
 
     if (connErr) throw connErr;
 
-    // 2️⃣ Seed starter accounts IF none exist
     const { count: existingCount, error: countErr } = await supabase
       .from("accounts")
       .select("id", { count: "exact", head: true })
@@ -119,7 +140,8 @@ export async function POST(req: Request) {
     let seeded_accounts: any[] = [];
 
     if ((existingCount ?? 0) === 0) {
-      const currency = typeof body?.currency === "string" ? body.currency : "AUD";
+      const currency =
+        typeof body?.currency === "string" ? body.currency : "AUD";
 
       const seed = [
         { name: "Everyday Spending", type: "cash" },
@@ -141,19 +163,19 @@ export async function POST(req: Request) {
       const { data: created, error: seedErr } = await supabase
         .from("accounts")
         .insert(rows)
-        .select("id,name,provider,type,status,currency,current_balance_cents,updated_at,created_at");
+        .select(
+          "id,name,provider,type,status,currency,current_balance_cents,updated_at,created_at"
+        );
 
       if (seedErr) throw seedErr;
-
       seeded_accounts = created ?? [];
     }
 
-    return NextResponse.json({
-      ok: true,
-      connection,
-      seeded_accounts,
-    });
+    return NextResponse.json({ ok: true, connection, seeded_accounts });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message ?? "Connection create failed" }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, error: e?.message ?? "Connection create failed" },
+      { status: 500 }
+    );
   }
 }
