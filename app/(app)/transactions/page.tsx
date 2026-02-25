@@ -264,7 +264,7 @@ export default function TransactionsClient() {
           Refresh
         </Chip>
       ) : null}
-      <Chip onClick={() => router.push("/home")}>Back to Home</Chip>
+      <Chip onClick={() => router.push("/money")}>Back to Money</Chip>
     </div>
   );
 
