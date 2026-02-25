@@ -19,8 +19,19 @@ async function supabaseServer() {
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
-        get(name: string) {
-          return cookieStore.get(name)?.value;
+        getAll() {
+          return cookieStore.getAll();
+        },
+        setAll(cookiesToSet) {
+          // Route handlers generally can't persist cookies reliably without a Response object.
+          // For our usage (read session + DB writes), this is safe as a best-effort no-op.
+          try {
+            cookiesToSet.forEach(({ name, value, options }) => {
+              cookieStore.set(name, value, options);
+            });
+          } catch {
+            // ignore
+          }
         },
       },
     }
@@ -38,6 +49,25 @@ async function getHouseholdIdForUser(supabase: any, userId: string): Promise<str
 
   if (error) throw error;
   return data?.[0]?.household_id ?? null;
+}
+
+function normalizeProvider(input: unknown): string {
+  if (typeof input !== "string") return "manual";
+  const p = input.trim().toLowerCase();
+  if (!p) return "manual";
+  return p;
+}
+
+function connectionStatusForProvider(provider: string): string {
+  // Placeholder connections (manual) should not present as authenticated/active.
+  // When Plaid/Basiq link flows exist, adapters can move this to "active".
+  return provider === "manual" ? "manual" : "needs_auth";
+}
+
+function defaultDisplayName(provider: string): string | null {
+  if (provider === "manual") return "Manual";
+  // Keep it simple; can be improved later when provider metadata exists.
+  return provider.toUpperCase();
 }
 
 export async function GET() {
@@ -93,18 +123,28 @@ export async function POST(req: Request) {
 
     const body = await req.json().catch(() => ({}));
 
-    const provider = typeof body?.provider === "string" ? body.provider : "manual";
-    const display_name = typeof body?.display_name === "string" ? body.display_name : null;
+    const provider = normalizeProvider(body?.provider);
+    const status = connectionStatusForProvider(provider);
+
+    const display_name =
+      typeof body?.display_name === "string"
+        ? body.display_name
+        : defaultDisplayName(provider);
 
     // 1) Create connection row
+    // NOTE: For now we explicitly set token fields to null for manual/placeholder connections.
+    // Adapters will later fill provider_connection_id + tokens and transition status to "active".
     const { data: connection, error: connErr } = await supabase
       .from("external_connections")
       .insert({
         user_id: user.id,
         household_id: householdId,
         provider,
-        status: "active",
+        status,
         display_name,
+        provider_connection_id: null,
+        encrypted_access_token: null,
+        encrypted_refresh_token: null,
         // provider-specific ids/tokens get filled later by adapters
       })
       .select("id,provider,status,display_name,created_at")
@@ -134,7 +174,7 @@ export async function POST(req: Request) {
 
       const rows = seed.map((s) => ({
         user_id: user.id,
-        provider: provider,
+        provider,
         name: s.name,
         type: s.type,
         status: "active",
