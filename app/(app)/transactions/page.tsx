@@ -14,7 +14,7 @@ type Tx = {
   id: string;
   user_id: string;
 
-  occurred_at: string | null;
+  date: string | null;
   description: string;
   amount_cents: number;
   currency: string;
@@ -120,9 +120,9 @@ export default function TransactionsClient() {
     try {
       const res = await supabase
         .from("transactions")
-        .select("id,user_id,occurred_at,description,amount_cents,currency,account_id,merchant,category,notes,created_at,updated_at")
+        .select("id,user_id,date,description,amount_cents,currency,account_id,merchant,category,notes,created_at,updated_at")
         .eq("user_id", uid)
-        .order("occurred_at", { ascending: false, nullsFirst: false })
+        .order("date", { ascending: false, nullsFirst: false })
         .order("created_at", { ascending: false })
         .limit(300);
 
@@ -136,7 +136,7 @@ export default function TransactionsClient() {
       const normalized: Tx[] = (res.data ?? []).map((r: any) => ({
         id: String(r.id),
         user_id: String(r.user_id),
-        occurred_at: r.occurred_at ?? null,
+        date: r.date ?? null,
         description: String(r.description ?? ""),
         amount_cents: safeNumber(r.amount_cents),
         currency: String(r.currency ?? "AUD"),
@@ -235,7 +235,7 @@ export default function TransactionsClient() {
     const m = now.getMonth();
 
     return items.reduce((sum, t) => {
-      const d = safeDate(t.occurred_at);
+      const d = safeDate(t.date);
       if (!d) return sum;
       if (d.getFullYear() !== y || d.getMonth() !== m) return sum;
       return sum + safeNumber(t.amount_cents);
@@ -347,7 +347,7 @@ export default function TransactionsClient() {
                             <div className="mt-1 text-xs text-zinc-500">
                               {t.merchant ? t.merchant : "—"}
                               {t.category ? ` • ${t.category}` : ""}
-                              {t.occurred_at ? ` • ${softWhen(t.occurred_at)}` : ""}
+                              {t.date ? ` • ${softWhen(t.date)}` : ""}
                             </div>
                             <div className="mt-2 flex flex-wrap gap-2">
                               <Badge>{signLabel(t.amount_cents)}</Badge>
