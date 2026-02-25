@@ -1,17 +1,14 @@
-// app/api/money/connections/route.ts
-
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
 
+export const dynamic = "force-dynamic";
+
 async function supabaseServer() {
-  // Next's cookies() shape varies by version — treat it as async-safe.
-  // @supabase/ssr wants getAll/setAll.
   const cookieStore = await Promise.resolve(cookies() as any);
 
   return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    // Use ANON key + user cookies (RLS + session auth)
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
@@ -19,18 +16,28 @@ async function supabaseServer() {
           return cookieStore.getAll?.() ?? [];
         },
         setAll(cookiesToSet) {
-          // In Route Handlers you typically can't persist cookies reliably
-          // without a Response object. Supabase still works for reads.
-          // We no-op safely here.
           try {
-            cookiesToSet.forEach(({ name, value, options }: any) => cookieStore.set?.(name, value, options));
-          } catch {
-            // ignore
-          }
+            cookiesToSet.forEach(({ name, value, options }: any) =>
+              cookieStore.set?.(name, value, options)
+            );
+          } catch {}
         },
       },
     }
   );
+}
+
+async function getUserHouseholdId(supabase: any, userId: string) {
+  const { data, error } = await supabase
+    .from("household_members")
+    .select("household_id")
+    .eq("user_id", userId)
+    .limit(1)
+    .maybeSingle();
+
+  if (error) throw error;
+
+  return data?.household_id ?? null;
 }
 
 export async function GET() {
@@ -41,11 +48,17 @@ export async function GET() {
     if (authErr) throw authErr;
 
     const uid = auth?.user?.id;
-    if (!uid) return NextResponse.json({ ok: false, error: "Not signed in." }, { status: 401 });
+    if (!uid)
+      return NextResponse.json(
+        { ok: false, error: "Not signed in." },
+        { status: 401 }
+      );
 
     const { data, error } = await supabase
       .from("external_connections")
-      .select("id,provider,status,provider_connection_id,display_name,last_sync_at,created_at,updated_at")
+      .select(
+        "id,provider,status,provider_connection_id,display_name,last_sync_at,created_at,updated_at"
+      )
       .eq("user_id", uid)
       .order("created_at", { ascending: false });
 
@@ -53,7 +66,10 @@ export async function GET() {
 
     return NextResponse.json({ ok: true, connections: data ?? [] });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message ?? "Connections fetch failed" }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, error: e?.message ?? "Connections fetch failed" },
+      { status: 500 }
+    );
   }
 }
 
@@ -65,16 +81,33 @@ export async function POST(req: Request) {
     if (authErr) throw authErr;
 
     const uid = auth?.user?.id;
-    if (!uid) return NextResponse.json({ ok: false, error: "Not signed in." }, { status: 401 });
+    if (!uid)
+      return NextResponse.json(
+        { ok: false, error: "Not signed in." },
+        { status: 401 }
+      );
+
+    const householdId = await getUserHouseholdId(supabase, uid);
+    if (!householdId) {
+      return NextResponse.json(
+        { ok: false, error: "User not linked to a household." },
+        { status: 400 }
+      );
+    }
 
     const body = await req.json().catch(() => ({}));
-    const provider = typeof body?.provider === "string" ? body.provider : "manual";
-    const display_name = typeof body?.display_name === "string" ? body.display_name : "Manual connection";
+    const provider =
+      typeof body?.provider === "string" ? body.provider : "manual";
+    const display_name =
+      typeof body?.display_name === "string"
+        ? body.display_name
+        : "Manual connection";
 
     const { data, error } = await supabase
       .from("external_connections")
       .insert({
         user_id: uid,
+        household_id: householdId,
         provider,
         status: "active",
         display_name,
@@ -87,6 +120,9 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ ok: true, connection: data });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message ?? "Connection create failed" }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, error: e?.message ?? "Connection create failed" },
+      { status: 500 }
+    );
   }
 }
