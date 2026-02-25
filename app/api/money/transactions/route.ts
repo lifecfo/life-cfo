@@ -16,14 +16,11 @@ export async function GET(req: Request) {
 
     const {
       data: { user },
-      error: authErr,
+      error: userErr,
     } = await supabase.auth.getUser();
 
-    if (authErr || !user?.id) {
-      return NextResponse.json(
-        { ok: false, error: "Not signed in." },
-        { status: 401 }
-      );
+    if (userErr || !user?.id) {
+      return NextResponse.json({ ok: false, error: "Not signed in." }, { status: 401 });
     }
 
     const url = new URL(req.url);
@@ -54,9 +51,6 @@ export async function GET(req: Request) {
 
     return NextResponse.json({ ok: true, transactions: data ?? [] });
   } catch (e: any) {
-    return NextResponse.json(
-      { ok: false, error: e?.message ?? "Transactions fetch failed" },
-      { status: 500 }
-    );
+    return NextResponse.json({ ok: false, error: e?.message ?? "Transactions fetch failed" }, { status: 500 });
   }
 }

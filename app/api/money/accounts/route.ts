@@ -11,21 +11,16 @@ export async function GET() {
 
     const {
       data: { user },
-      error: authErr,
+      error: userErr,
     } = await supabase.auth.getUser();
 
-    if (authErr || !user?.id) {
-      return NextResponse.json(
-        { ok: false, error: "Not signed in." },
-        { status: 401 }
-      );
+    if (userErr || !user?.id) {
+      return NextResponse.json({ ok: false, error: "Not signed in." }, { status: 401 });
     }
 
     const { data, error } = await supabase
       .from("accounts")
-      .select(
-        "id,user_id,name,provider,type,status,archived,current_balance_cents,currency,updated_at,created_at"
-      )
+      .select("id,user_id,name,provider,type,status,archived,current_balance_cents,currency,updated_at,created_at")
       .eq("user_id", user.id)
       .eq("archived", false)
       .order("updated_at", { ascending: false })
@@ -36,9 +31,6 @@ export async function GET() {
 
     return NextResponse.json({ ok: true, accounts: data ?? [] });
   } catch (e: any) {
-    return NextResponse.json(
-      { ok: false, error: e?.message ?? "Accounts fetch failed" },
-      { status: 500 }
-    );
+    return NextResponse.json({ ok: false, error: e?.message ?? "Accounts fetch failed" }, { status: 500 });
   }
 }
