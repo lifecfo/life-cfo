@@ -1,18 +1,23 @@
+// app/api/money/connections/route.ts
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
 
-function supabaseServer() {
-  const cookieStore = cookies(); // Next gives a Promise-like cookie store in newer versions; @supabase/ssr handles access
+async function supabaseServer() {
+  // In newer Next versions, cookies() is async and returns a cookie store.
+  const cookieStore = await cookies();
+
   return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!, // server-only
+    // ✅ Use ANON key for user-scoped routes (keeps RLS protection)
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
         get(name: string) {
-          // @ts-expect-error Next cookies type differences across versions
           return cookieStore.get(name)?.value;
         },
+        // For now we don't need to mutate cookies in this route.
+        // If/when you add session refresh handling here, we can wire set/remove properly.
         set() {},
         remove() {},
       },
@@ -22,7 +27,7 @@ function supabaseServer() {
 
 export async function GET() {
   try {
-    const supabase = supabaseServer();
+    const supabase = await supabaseServer();
 
     const { data: auth } = await supabase.auth.getUser();
     const uid = auth?.user?.id;
@@ -44,7 +49,7 @@ export async function GET() {
 
 export async function POST(req: Request) {
   try {
-    const supabase = supabaseServer();
+    const supabase = await supabaseServer();
 
     const { data: auth } = await supabase.auth.getUser();
     const uid = auth?.user?.id;
