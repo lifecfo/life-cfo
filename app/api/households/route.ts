@@ -11,7 +11,6 @@ const COOKIE_NAME = "lifecfo_household";
 export async function GET() {
   try {
     const supabase = await supabaseRoute();
-    const cookieStore = cookies();
 
     const {
       data: { user },
@@ -22,30 +21,38 @@ export async function GET() {
       return NextResponse.json({ ok: false, error: "Not signed in." }, { status: 401 });
     }
 
-    const { data: membershipsRaw, error } = await supabase
+    const { data: memberships, error } = await supabase
       .from("household_members")
-      .select("household_id, role, households!inner(id,name)")
+      .select("household_id, role, households ( id, name )")
       .eq("user_id", user.id)
       .order("created_at", { ascending: true });
 
     if (error) throw error;
 
-    const memberships =
-      membershipsRaw?.map((m: any) => ({
-        household_id: String(m.household_id),
-        role: String(m.role ?? "viewer"),
-        household_name: String(m.households?.name ?? "Household"),
+    const rows =
+      memberships?.map((m: any) => ({
+        id: m.household_id,
+        name: m.households?.name ?? "Untitled",
+        role: m.role,
       })) ?? [];
 
+    const cookieStore = await cookies(); // ✅ MUST AWAIT
     const cookieValue = cookieStore.get(COOKIE_NAME)?.value ?? null;
 
     const active_household_id =
-      (cookieValue && memberships.some((m) => m.household_id === cookieValue) ? cookieValue : null) ??
-      memberships[0]?.household_id ??
+      (cookieValue && rows.some((m) => m.id === cookieValue) ? cookieValue : null) ??
+      rows[0]?.id ??
       null;
 
-    return NextResponse.json({ ok: true, active_household_id, memberships });
+    return NextResponse.json({
+      ok: true,
+      households: rows,
+      active_household_id,
+    });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message ?? "Failed to load households." }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, error: e?.message ?? "Households fetch failed" },
+      { status: 500 }
+    );
   }
 }
