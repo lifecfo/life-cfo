@@ -1,59 +1,37 @@
 // app/api/money/connections/route.ts
 import { NextResponse } from "next/server";
+import { cookies } from "next/headers";
 import { supabaseRoute } from "@/lib/supabaseRoute";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-async function getMemberRole(supabase: any, userId: string, householdId: string): Promise<string | null> {
+const COOKIE_NAME = "lifecfo_household";
+
+async function resolveHouseholdId(supabase: any, userId: string): Promise<string | null> {
+  const cookieStore = cookies();
+  const cookieValue = cookieStore.get(COOKIE_NAME)?.value ?? null;
+
+  if (cookieValue) {
+    const { data, error } = await supabase
+      .from("household_members")
+      .select("id")
+      .eq("user_id", userId)
+      .eq("household_id", cookieValue)
+      .limit(1);
+
+    if (!error && data?.length) return cookieValue;
+  }
+
   const { data, error } = await supabase
-    .from("household_members")
-    .select("role")
-    .eq("user_id", userId)
-    .eq("household_id", householdId)
-    .limit(1);
-
-  if (error) throw error;
-  return (data?.[0]?.role as string | undefined) ?? null;
-}
-
-async function resolveHouseholdId(supabase: any, userId: string, requested?: string | null) {
-  // 1) explicit request (persist)
-  if (requested) {
-    const role = await getMemberRole(supabase, userId, requested);
-    if (role) {
-      await supabase
-        .from("household_preferences")
-        .upsert({ user_id: userId, active_household_id: requested }, { onConflict: "user_id" });
-      return requested;
-    }
-  }
-
-  // 2) preference
-  const { data: pref, error: prefErr } = await supabase
-    .from("household_preferences")
-    .select("active_household_id")
-    .eq("user_id", userId)
-    .maybeSingle();
-
-  if (prefErr) throw prefErr;
-
-  const preferred = pref?.active_household_id as string | undefined;
-  if (preferred) {
-    const role = await getMemberRole(supabase, userId, preferred);
-    if (role) return preferred;
-  }
-
-  // 3) fallback
-  const { data: hm, error: hmErr } = await supabase
     .from("household_members")
     .select("household_id")
     .eq("user_id", userId)
     .order("created_at", { ascending: true })
     .limit(1);
 
-  if (hmErr) throw hmErr;
-  return (hm?.[0]?.household_id as string | undefined) ?? null;
+  if (error) throw error;
+  return data?.[0]?.household_id ?? null;
 }
 
 function normalizeProvider(input: unknown): string {
@@ -71,7 +49,7 @@ function defaultDisplayName(provider: string): string | null {
   return provider.toUpperCase();
 }
 
-export async function GET(req: Request) {
+export async function GET() {
   try {
     const supabase = await supabaseRoute();
 
@@ -80,17 +58,10 @@ export async function GET(req: Request) {
       error: userErr,
     } = await supabase.auth.getUser();
 
-    if (userErr || !user?.id) {
-      return NextResponse.json({ ok: false, error: "Not signed in." }, { status: 401 });
-    }
+    if (userErr || !user?.id) return NextResponse.json({ ok: false, error: "Not signed in." }, { status: 401 });
 
-    const url = new URL(req.url);
-    const requestedHouseholdId = url.searchParams.get("household_id");
-
-    const householdId = await resolveHouseholdId(supabase, user.id, requestedHouseholdId);
-    if (!householdId) {
-      return NextResponse.json({ ok: false, error: "User not linked to a household." }, { status: 400 });
-    }
+    const householdId = await resolveHouseholdId(supabase, user.id);
+    if (!householdId) return NextResponse.json({ ok: false, error: "User not linked to a household." }, { status: 400 });
 
     const { data, error } = await supabase
       .from("external_connections")
@@ -115,35 +86,21 @@ export async function POST(req: Request) {
       error: userErr,
     } = await supabase.auth.getUser();
 
-    if (userErr || !user?.id) {
-      return NextResponse.json({ ok: false, error: "Not signed in." }, { status: 401 });
-    }
+    if (userErr || !user?.id) return NextResponse.json({ ok: false, error: "Not signed in." }, { status: 401 });
+
+    const householdId = await resolveHouseholdId(supabase, user.id);
+    if (!householdId) return NextResponse.json({ ok: false, error: "User not linked to a household." }, { status: 400 });
 
     const body = await req.json().catch(() => ({}));
-
-    const requestedHouseholdId = typeof body?.household_id === "string" ? body.household_id : null;
-    const householdId = await resolveHouseholdId(supabase, user.id, requestedHouseholdId);
-
-    if (!householdId) {
-      return NextResponse.json({ ok: false, error: "User not linked to a household." }, { status: 400 });
-    }
-
-    const role = await getMemberRole(supabase, user.id, householdId);
-    if (!role) return NextResponse.json({ ok: false, error: "Not a member of that household." }, { status: 403 });
-
-    // enforce: only owner/editor can create connections
-    if (role !== "owner" && role !== "editor") {
-      return NextResponse.json({ ok: false, error: "You don’t have permission to connect accounts for this household." }, { status: 403 });
-    }
 
     const provider = normalizeProvider(body?.provider);
     const status = connectionStatusForProvider(provider);
     const display_name = typeof body?.display_name === "string" ? body.display_name : defaultDisplayName(provider);
+    const currency = typeof body?.currency === "string" ? body.currency : "AUD";
 
     const { data: connection, error: connErr } = await supabase
       .from("external_connections")
       .insert({
-        user_id: user.id,
         household_id: householdId,
         provider,
         status,
@@ -156,7 +113,7 @@ export async function POST(req: Request) {
 
     if (connErr) throw connErr;
 
-    // Seed accounts only if household has no accounts yet (household-scoped!)
+    // Seed simple accounts if none exist for this household
     const { count: existingCount, error: countErr } = await supabase
       .from("accounts")
       .select("id", { count: "exact", head: true })
@@ -168,8 +125,6 @@ export async function POST(req: Request) {
     let seeded_accounts: any[] = [];
 
     if ((existingCount ?? 0) === 0) {
-      const currency = typeof body?.currency === "string" ? body.currency : "AUD";
-
       const seed = [
         { name: "Everyday Spending", type: "cash" },
         { name: "Bills Buffer", type: "cash" },
@@ -178,7 +133,6 @@ export async function POST(req: Request) {
 
       const rows = seed.map((s) => ({
         household_id: householdId,
-        user_id: user.id,
         provider,
         name: s.name,
         type: s.type,
@@ -191,7 +145,7 @@ export async function POST(req: Request) {
       const { data: created, error: seedErr } = await supabase
         .from("accounts")
         .insert(rows)
-        .select("id,name,provider,type,status,currency,current_balance_cents,updated_at,created_at");
+        .select("id,household_id,name,provider,type,status,currency,current_balance_cents,updated_at,created_at");
 
       if (seedErr) throw seedErr;
       seeded_accounts = created ?? [];
