@@ -5,13 +5,13 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { Page } from "@/components/Page";
 import { Card, CardContent, Chip, useToast } from "@/components/ui";
-import { AssistedSearch } from "@/components/AssistedSearch";
 
 export const dynamic = "force-dynamic";
 
 type FamilyMember = {
   id: string;
   user_id: string;
+  household_id: string;
   name: string;
   birth_year: number | null;
   relationship: string | null;
@@ -23,6 +23,7 @@ type FamilyMember = {
 type Pet = {
   id: string;
   user_id: string;
+  household_id: string;
   name: string;
   type: string | null;
   notes: string | null;
@@ -83,6 +84,7 @@ export default function FamilyClient() {
   const [loading, setLoading] = useState(true);
   const [statusLine, setStatusLine] = useState<string>("Loading…");
   const [userId, setUserId] = useState<string | null>(null);
+  const [activeHouseholdId, setActiveHouseholdId] = useState<string | null>(null);
 
   const [family, setFamily] = useState<FamilyMember[]>([]);
   const [pets, setPets] = useState<Pet[]>([]);
@@ -123,12 +125,12 @@ export default function FamilyClient() {
     return sortedPets.slice(0, DEFAULT_LIMIT);
   }, [sortedPets, showAllPets]);
 
-  const ensureMeRow = async (uid: string) => {
+  const ensureMeRow = async (householdId: string, uid: string) => {
     const { data, error } = await supabase
       .from("family_members")
       .select("id,relationship")
-      .eq("user_id", uid)
-      .limit(50);
+      .eq("household_id", householdId)
+      .limit(200);
 
     if (error) return;
 
@@ -136,6 +138,7 @@ export default function FamilyClient() {
     if (hasMe) return;
 
     await supabase.from("family_members").insert({
+      household_id: householdId,
       user_id: uid,
       name: "Me",
       birth_year: null,
@@ -153,6 +156,7 @@ export default function FamilyClient() {
       const user = auth?.user;
       if (!user) {
         setUserId(null);
+        setActiveHouseholdId(null);
         setFamily([]);
         setPets([]);
         setStatusLine("Not signed in.");
@@ -161,18 +165,33 @@ export default function FamilyClient() {
 
       setUserId(user.id);
 
-      await ensureMeRow(user.id);
+      // get active household (cookie + server preference)
+      const hhRes = await fetch("/api/households", { method: "GET" });
+      const hhJson = await hhRes.json();
+      const hhId = hhJson?.ok ? (hhJson.active_household_id as string | null) : null;
+
+      if (!hhId) {
+        setActiveHouseholdId(null);
+        setFamily([]);
+        setPets([]);
+        setStatusLine("No household selected.");
+        return;
+      }
+
+      setActiveHouseholdId(hhId);
+
+      await ensureMeRow(hhId, user.id);
 
       const [fRes, pRes] = await Promise.all([
         supabase
           .from("family_members")
-          .select("id,user_id,name,birth_year,relationship,about,created_at,updated_at")
-          .eq("user_id", user.id)
+          .select("id,user_id,household_id,name,birth_year,relationship,about,created_at,updated_at")
+          .eq("household_id", hhId)
           .order("created_at", { ascending: true }),
         supabase
           .from("pets")
-          .select("id,user_id,name,type,notes,created_at,updated_at")
-          .eq("user_id", user.id)
+          .select("id,user_id,household_id,name,type,notes,created_at,updated_at")
+          .eq("household_id", hhId)
           .order("created_at", { ascending: true }),
       ]);
 
@@ -237,7 +256,7 @@ export default function FamilyClient() {
   };
 
   const saveMe = async () => {
-    if (!userId || !me) return;
+    if (!userId || !me || !activeHouseholdId) return;
 
     const key = "me";
     const d = drafts[key] as MeDraft | undefined;
@@ -257,7 +276,12 @@ export default function FamilyClient() {
       updated_at: new Date().toISOString(),
     };
 
-    const { error } = await supabase.from("family_members").update(patch).eq("id", me.id).eq("user_id", userId);
+    const { error } = await supabase
+      .from("family_members")
+      .update(patch)
+      .eq("id", me.id)
+      .eq("household_id", activeHouseholdId);
+
     if (error) {
       toast({ title: "Couldn’t save", description: error.message });
       setStatusLine("Couldn’t save.");
@@ -270,7 +294,7 @@ export default function FamilyClient() {
   };
 
   const saveFamily = async (m: FamilyMember) => {
-    if (!userId) return;
+    if (!activeHouseholdId) return;
 
     const key = `fm:${m.id}`;
     const d = drafts[key] as FamilyDraft | undefined;
@@ -293,7 +317,12 @@ export default function FamilyClient() {
       updated_at: new Date().toISOString(),
     };
 
-    const { error } = await supabase.from("family_members").update(patch).eq("id", m.id).eq("user_id", userId);
+    const { error } = await supabase
+      .from("family_members")
+      .update(patch)
+      .eq("id", m.id)
+      .eq("household_id", activeHouseholdId);
+
     if (error) {
       toast({ title: "Couldn’t save", description: error.message });
       setStatusLine("Couldn’t save.");
@@ -306,7 +335,7 @@ export default function FamilyClient() {
   };
 
   const savePet = async (p: Pet) => {
-    if (!userId) return;
+    if (!activeHouseholdId) return;
 
     const key = `pet:${p.id}`;
     const d = drafts[key] as PetDraft | undefined;
@@ -327,7 +356,12 @@ export default function FamilyClient() {
       updated_at: new Date().toISOString(),
     };
 
-    const { error } = await supabase.from("pets").update(patch).eq("id", p.id).eq("user_id", userId);
+    const { error } = await supabase
+      .from("pets")
+      .update(patch)
+      .eq("id", p.id)
+      .eq("household_id", activeHouseholdId);
+
     if (error) {
       toast({ title: "Couldn’t save", description: error.message });
       setStatusLine("Couldn’t save.");
@@ -359,7 +393,7 @@ export default function FamilyClient() {
   };
 
   const performDelete = async () => {
-    if (!userId) return;
+    if (!activeHouseholdId) return;
     if (!deleteConfirm.open) return;
 
     const { kind, id } = deleteConfirm;
@@ -371,10 +405,9 @@ export default function FamilyClient() {
         if (!row) return;
         if (isMe(row)) return;
 
-        // optimistic
         setFamily((prev) => prev.filter((x) => x.id !== id));
 
-        const { error } = await supabase.from("family_members").delete().eq("id", id).eq("user_id", userId);
+        const { error } = await supabase.from("family_members").delete().eq("id", id).eq("household_id", activeHouseholdId);
         if (error) throw error;
 
         setStatusLine("Removed.");
@@ -385,10 +418,9 @@ export default function FamilyClient() {
         const row = pets.find((x) => x.id === id);
         if (!row) return;
 
-        // optimistic
         setPets((prev) => prev.filter((x) => x.id !== id));
 
-        const { error } = await supabase.from("pets").delete().eq("id", id).eq("user_id", userId);
+        const { error } = await supabase.from("pets").delete().eq("id", id).eq("household_id", activeHouseholdId);
         if (error) throw error;
 
         setStatusLine("Removed.");
@@ -397,19 +429,18 @@ export default function FamilyClient() {
     } catch (e: any) {
       toast({ title: "Couldn’t remove", description: e?.message ?? "Please try again." });
       setStatusLine("Couldn’t remove right now.");
-      // reload to resync
       await load();
     }
   };
 
   const addFamilyMember = async () => {
-    if (!userId) return;
+    if (!userId || !activeHouseholdId) return;
 
     try {
       const { data, error } = await supabase
         .from("family_members")
-        .insert({ user_id: userId, name: "New person", birth_year: null, relationship: null, about: null })
-        .select("id,user_id,name,birth_year,relationship,about,created_at,updated_at")
+        .insert({ household_id: activeHouseholdId, user_id: userId, name: "New person", birth_year: null, relationship: null, about: null })
+        .select("id,user_id,household_id,name,birth_year,relationship,about,created_at,updated_at")
         .single();
 
       if (error) throw error;
@@ -426,13 +457,13 @@ export default function FamilyClient() {
   };
 
   const addPet = async () => {
-    if (!userId) return;
+    if (!userId || !activeHouseholdId) return;
 
     try {
       const { data, error } = await supabase
         .from("pets")
-        .insert({ user_id: userId, name: "New pet", type: null, notes: null })
-        .select("id,user_id,name,type,notes,created_at,updated_at")
+        .insert({ household_id: activeHouseholdId, user_id: userId, name: "New pet", type: null, notes: null })
+        .select("id,user_id,household_id,name,type,notes,created_at,updated_at")
         .single();
 
       if (error) throw error;
@@ -451,7 +482,6 @@ export default function FamilyClient() {
   return (
     <Page title="Family" subtitle="People (and pets) Life CFO can keep in mind when helping with decisions.">
       <div className="mx-auto w-full max-w-[760px] space-y-6">
-
         <div className="text-xs text-zinc-500">{loading ? "Loading…" : statusLine}</div>
 
         {/* Me */}
@@ -724,7 +754,9 @@ export default function FamilyClient() {
             )}
 
             {others.length > DEFAULT_LIMIT && !showAllFamily ? (
-              <div className="text-xs text-zinc-500">Showing {Math.min(DEFAULT_LIMIT, others.length)} of {others.length}</div>
+              <div className="text-xs text-zinc-500">
+                Showing {Math.min(DEFAULT_LIMIT, others.length)} of {others.length}
+              </div>
             ) : null}
           </CardContent>
         </Card>
@@ -837,16 +869,18 @@ export default function FamilyClient() {
             )}
 
             {sortedPets.length > DEFAULT_LIMIT && !showAllPets ? (
-              <div className="text-xs text-zinc-500">Showing {Math.min(DEFAULT_LIMIT, sortedPets.length)} of {sortedPets.length}</div>
+              <div className="text-xs text-zinc-500">
+                Showing {Math.min(DEFAULT_LIMIT, sortedPets.length)} of {sortedPets.length}
+              </div>
             ) : null}
           </CardContent>
         </Card>
 
         {/* Confirm delete modal */}
         {deleteConfirm.open ? (
-          <div className="fixed inset-0 z-40 flex items-end sm:items-center justify-center bg-black/20 p-4">
+          <div className="fixed inset-0 z-40 flex items-end justify-center bg-black/20 p-4 sm:items-center">
             <div className="w-full max-w-[520px] rounded-2xl border border-zinc-200 bg-white shadow-lg">
-              <div className="p-4 sm:p-5 space-y-2">
+              <div className="space-y-2 p-4 sm:p-5">
                 <div className="text-sm font-semibold text-zinc-900">{deleteConfirm.label}</div>
                 <div className="text-sm text-zinc-600">This can’t be undone.</div>
 
@@ -854,11 +888,7 @@ export default function FamilyClient() {
                   <Chip onClick={() => setDeleteConfirm({ open: false })} title="Cancel">
                     Cancel
                   </Chip>
-                  <Chip
-                    onClick={() => void performDelete()}
-                    title="Confirm remove"
-                    className="border-zinc-900 bg-zinc-900 text-white hover:bg-zinc-800"
-                  >
+                  <Chip onClick={() => void performDelete()} title="Confirm remove" className="border-zinc-900 bg-zinc-900 text-white hover:bg-zinc-800">
                     Remove
                   </Chip>
                 </div>
