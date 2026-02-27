@@ -15,6 +15,14 @@ type MemberRow = {
   is_me?: boolean;
 };
 
+type InviteRow = {
+  id: string;
+  email: string;
+  role: string;
+  status: string;
+  created_at: string;
+};
+
 type DeleteConfirm =
   | { open: true; user_id: string; label: string }
   | { open: false };
@@ -30,6 +38,11 @@ function canEditMembers(role: string | null) {
 }
 
 function canRename(role: string | null) {
+  const r = (role ?? "").toLowerCase();
+  return r === "owner" || r === "editor";
+}
+
+function canInvite(role: string | null) {
   const r = (role ?? "").toLowerCase();
   return r === "owner" || r === "editor";
 }
@@ -59,6 +72,13 @@ export default function HouseholdClient() {
 
   const [showAdvanced, setShowAdvanced] = useState(false);
 
+  // Invites
+  const [invites, setInvites] = useState<InviteRow[]>([]);
+  const [invitesLoading, setInvitesLoading] = useState(false);
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteRole, setInviteRole] = useState<"viewer" | "editor">("viewer");
+  const [inviteSending, setInviteSending] = useState(false);
+
   const active = useMemo(() => {
     if (!activeHouseholdId) return null;
     return households.find((h) => h.id === activeHouseholdId) ?? null;
@@ -79,6 +99,7 @@ export default function HouseholdClient() {
         setHouseholds([]);
         setActiveHouseholdId(null);
         setMembers([]);
+        setInvites([]);
         setStatusLine("Not signed in.");
         return;
       }
@@ -113,6 +134,20 @@ export default function HouseholdClient() {
     }
   };
 
+  const loadInvites = async (householdId: string) => {
+    setInvitesLoading(true);
+    try {
+      const res = await fetch(`/api/households/invites?household_id=${encodeURIComponent(householdId)}`, { method: "GET" });
+      const json = await res.json();
+      if (json?.ok) setInvites(Array.isArray(json.invites) ? json.invites : []);
+      else setInvites([]);
+    } catch {
+      setInvites([]);
+    } finally {
+      setInvitesLoading(false);
+    }
+  };
+
   useEffect(() => {
     void load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -121,6 +156,7 @@ export default function HouseholdClient() {
   useEffect(() => {
     if (!activeHouseholdId) return;
     void loadMembers(activeHouseholdId);
+    void loadInvites(activeHouseholdId);
   }, [activeHouseholdId]);
 
   const startRename = () => {
@@ -211,6 +247,56 @@ export default function HouseholdClient() {
     }
   };
 
+  const sendInvite = async () => {
+    if (!activeHouseholdId) return;
+
+    const email = inviteEmail.trim().toLowerCase();
+    if (!email || !email.includes("@")) {
+      toast({ title: "Email required", description: "Enter a valid email address." });
+      return;
+    }
+
+    setInviteSending(true);
+    try {
+      const res = await fetch("/api/households/invites", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ household_id: activeHouseholdId, email, role: inviteRole }),
+      });
+      const json = await res.json();
+      if (!json?.ok) throw new Error(json?.error ?? "Invite failed");
+
+      setInviteEmail("");
+      setInviteRole("viewer");
+      setStatusLine("Invite sent.");
+      await loadInvites(activeHouseholdId);
+    } catch (e: any) {
+      toast({ title: "Couldn’t send invite", description: e?.message ?? "Please try again." });
+      setStatusLine("Couldn’t send invite.");
+    } finally {
+      setInviteSending(false);
+    }
+  };
+
+  const cancelInvite = async (inviteId: string) => {
+    if (!activeHouseholdId) return;
+    try {
+      const res = await fetch("/api/households/invites", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: inviteId, action: "cancel" }),
+      });
+      const json = await res.json();
+      if (!json?.ok) throw new Error(json?.error ?? "Cancel failed");
+
+      setStatusLine("Invite cancelled.");
+      await loadInvites(activeHouseholdId);
+    } catch (e: any) {
+      toast({ title: "Couldn’t cancel invite", description: e?.message ?? "Please try again." });
+      setStatusLine("Couldn’t cancel invite.");
+    }
+  };
+
   const copyText = async (text: string, label: string) => {
     try {
       await navigator.clipboard.writeText(text);
@@ -223,6 +309,9 @@ export default function HouseholdClient() {
   const myRole = active?.role ?? null;
   const allowRename = canRename(myRole);
   const allowMemberEdits = canEditMembers(myRole);
+  const allowInvites = canInvite(myRole);
+
+  const pendingInvites = invites.filter((i) => (i.status ?? "").toLowerCase() === "pending");
 
   return (
     <Page title="Household" subtitle="Where membership and permissions live.">
@@ -360,6 +449,74 @@ export default function HouseholdClient() {
             )}
 
             {!allowMemberEdits ? <div className="text-xs text-zinc-500">Only owners can change roles or remove members.</div> : null}
+          </CardContent>
+        </Card>
+
+        <Card className="border-zinc-200 bg-white">
+          <CardContent className="space-y-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="text-sm font-semibold text-zinc-900">Invites</div>
+                <div className="text-xs text-zinc-500">Invite someone by email.</div>
+              </div>
+              <div className="text-xs text-zinc-500">{invitesLoading ? "Loading…" : ""}</div>
+            </div>
+
+            {!allowInvites ? (
+              <div className="text-sm text-zinc-600">Only owners/editors can invite.</div>
+            ) : (
+              <div className="rounded-xl border border-zinc-200 p-3 space-y-2">
+                <div className="grid gap-2 sm:grid-cols-[1fr,160px,auto] sm:items-center">
+                  <input
+                    className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800"
+                    value={inviteEmail}
+                    onChange={(e) => setInviteEmail(e.target.value)}
+                    placeholder="Email address"
+                  />
+                  <select
+                    className="rounded-xl border border-zinc-200 bg-white px-2 py-2 text-sm text-zinc-800"
+                    value={inviteRole}
+                    onChange={(e) => setInviteRole((e.target.value as any) ?? "viewer")}
+                  >
+                    <option value="viewer">viewer</option>
+                    <option value="editor">editor</option>
+                  </select>
+                  <Chip onClick={() => void sendInvite()} disabled={inviteSending || !activeHouseholdId}>
+                    Send invite
+                  </Chip>
+                </div>
+
+                <div className="text-xs text-zinc-500">
+                  They’ll accept from the <span className="underline underline-offset-2">Invites</span> page after signing in.
+                </div>
+              </div>
+            )}
+
+            <div className="text-xs text-zinc-500 pt-1">{pendingInvites.length ? "Pending" : ""}</div>
+
+            {pendingInvites.length === 0 ? (
+              <div className="text-sm text-zinc-600">No pending invites.</div>
+            ) : (
+              <div className="grid gap-2">
+                {pendingInvites.map((inv) => (
+                  <div
+                    key={inv.id}
+                    className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-zinc-200 px-3 py-2"
+                  >
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-medium text-zinc-900">{inv.email}</div>
+                      <div className="text-xs text-zinc-500">{inv.role}</div>
+                    </div>
+
+                    {allowInvites ? (
+                      <Chip onClick={() => void cancelInvite(inv.id)}>Cancel</Chip>
+                    ) : (
+                      <div className="text-xs text-zinc-500">—</div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
           </CardContent>
         </Card>
 
