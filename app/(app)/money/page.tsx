@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { Page } from "@/components/Page";
 import { Card, CardContent, Chip, useToast } from "@/components/ui";
@@ -62,8 +62,8 @@ function softDate(isoOrDate: string | null | undefined) {
 
 async function fetchJson<T>(url: string): Promise<T> {
   const res = await fetch(url, { cache: "no-store" });
-  const json = await res.json();
-  if (!res.ok) throw new Error(json?.error ?? "Request failed");
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error((json as any)?.error ?? "Request failed");
   return json as T;
 }
 
@@ -73,8 +73,8 @@ async function postJson<T>(url: string, body: any): Promise<T> {
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body ?? {}),
   });
-  const json = await res.json();
-  if (!res.ok) throw new Error(json?.error ?? "Request failed");
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error((json as any)?.error ?? "Request failed");
   return json as T;
 }
 
@@ -82,11 +82,16 @@ export default function MoneyClient() {
   const { showToast } = useToast();
 
   const [loading, setLoading] = useState(true);
+
+  const [householdId, setHouseholdId] = useState<string | null>(null);
+
   const [accounts, setAccounts] = useState<AccountRow[]>([]);
   const [tx, setTx] = useState<TxRow[]>([]);
   const [q, setQ] = useState("");
 
   const [connecting, setConnecting] = useState(false);
+
+  const searchRef = useRef<HTMLInputElement | null>(null);
 
   const filteredTx = useMemo(() => {
     const query = q.trim().toLowerCase();
@@ -114,10 +119,11 @@ export default function MoneyClient() {
   const refresh = async () => {
     setLoading(true);
     try {
-      const a = await fetchJson<{ ok: boolean; accounts: AccountRow[] }>("/api/money/accounts");
+      const a = await fetchJson<{ ok: boolean; accounts: AccountRow[]; household_id?: string }>("/api/money/accounts");
       const t = await fetchJson<{ ok: boolean; transactions: TxRow[] }>("/api/money/transactions?limit=25");
       setAccounts(a.accounts ?? []);
       setTx(t.transactions ?? []);
+      setHouseholdId(a.household_id ?? null);
     } catch (e: any) {
       showToast({ message: e?.message ?? "Couldn’t load money data." }, 2500);
     } finally {
@@ -131,12 +137,13 @@ export default function MoneyClient() {
     (async () => {
       setLoading(true);
       try {
-        const a = await fetchJson<{ ok: boolean; accounts: AccountRow[] }>("/api/money/accounts");
+        const a = await fetchJson<{ ok: boolean; accounts: AccountRow[]; household_id?: string }>("/api/money/accounts");
         const t = await fetchJson<{ ok: boolean; transactions: TxRow[] }>("/api/money/transactions?limit=25");
 
         if (!alive) return;
         setAccounts(a.accounts ?? []);
         setTx(t.transactions ?? []);
+        setHouseholdId(a.household_id ?? null);
       } catch (e: any) {
         if (!alive) return;
         showToast({ message: e?.message ?? "Couldn’t load money data." }, 2500);
@@ -150,6 +157,23 @@ export default function MoneyClient() {
       alive = false;
     };
   }, [showToast]);
+
+  // Ctrl/Cmd+K focuses the transactions search
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      const isK = e.key.toLowerCase() === "k";
+      if (!isK) return;
+
+      const isMeta = e.metaKey || e.ctrlKey;
+      if (!isMeta) return;
+
+      e.preventDefault();
+      searchRef.current?.focus();
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
 
   const connectAccounts = async () => {
     if (connecting) return;
@@ -172,12 +196,22 @@ export default function MoneyClient() {
 
   const cardClass = "border-zinc-200 bg-white";
 
+  const householdChip = householdId ? (
+    <Chip title="Active household">{`Household • ${householdId.slice(0, 6)}…`}</Chip>
+  ) : null;
+
   return (
     <Page title="Money" subtitle="A calm view of your accounts and activity.">
       <div className="mx-auto w-full max-w-[860px] px-4 sm:px-6">
         {/* Toolbar */}
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex flex-wrap items-center gap-2">
+            {householdChip}
+
+            <Chip title="Refresh" onClick={() => void refresh()}>
+              Refresh
+            </Chip>
+
             <Chip title="Connect accounts (provider layer next)" onClick={() => void connectAccounts()}>
               {connecting ? "Connecting…" : "Connect accounts"}
             </Chip>
@@ -273,6 +307,7 @@ export default function MoneyClient() {
 
               <div className="mt-3 flex items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2">
                 <input
+                  ref={searchRef}
                   value={q}
                   onChange={(e) => setQ(e.target.value)}
                   placeholder="Search transactions…"
