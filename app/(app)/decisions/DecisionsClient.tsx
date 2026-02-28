@@ -56,6 +56,24 @@ type DecisionNote = {
   updated_at: string | null;
 };
 
+/** ✅ sharing */
+type HouseholdOption = {
+  household_id: string;
+  name: string | null;
+  role: string | null;
+};
+
+type DecisionShare = {
+  id?: string;
+  decision_id?: string;
+  household_id: string;
+  household_name?: string | null;
+  permission: "view" | "edit" | string;
+  note?: string | null;
+  created_at?: string | null;
+  shared_by?: string | null;
+};
+
 function safeMs(iso: string | null | undefined) {
   if (!iso) return null;
   const ms = Date.parse(iso);
@@ -468,6 +486,12 @@ function reviewIsoFromPreset(preset: ReviewPreset): string | null {
   return null;
 }
 
+function shortId(id: string) {
+  const s = String(id || "");
+  if (s.length <= 10) return s;
+  return `${s.slice(0, 6)}…${s.slice(-4)}`;
+}
+
 export default function DecisionsClient() {
   const router = useRouter();
   const { showToast } = useToast();
@@ -603,6 +627,16 @@ export default function DecisionsClient() {
   const [editingSummaryId, setEditingSummaryId] = useState<string | null>(null);
   const [editingSummaryDraft, setEditingSummaryDraft] = useState<string>("");
 
+  /** ✅ Sharing state */
+  const [households, setHouseholds] = useState<HouseholdOption[]>([]);
+  const [sharesByDecisionId, setSharesByDecisionId] = useState<Record<string, DecisionShare[]>>({});
+  const [sharesLoadingByDecisionId, setSharesLoadingByDecisionId] = useState<Record<string, boolean>>({});
+  const [sharingExpandedByDecisionId, setSharingExpandedByDecisionId] = useState<Record<string, boolean>>({});
+  const [shareComposerOpenByDecisionId, setShareComposerOpenByDecisionId] = useState<Record<string, boolean>>({});
+  const [shareNoteDraftByDecisionId, setShareNoteDraftByDecisionId] = useState<Record<string, string>>({});
+  const [shareTargetHouseholdByDecisionId, setShareTargetHouseholdByDecisionId] = useState<Record<string, string>>({});
+  const [sharePermissionDraftByDecisionId, setSharePermissionDraftByDecisionId] = useState<Record<string, "view" | "edit">>({});
+
   const scrollToDecisionTop = (id: string) => {
     const anchor = topAnchorRefs.current[id] ?? cardRefs.current[id];
     anchor?.scrollIntoView?.({ behavior: "smooth", block: "start" });
@@ -679,6 +713,148 @@ export default function DecisionsClient() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [desiredUrl]);
 
+  /** ✅ fetch households the user belongs to (best-effort; safe if schema differs) */
+  const loadHouseholds = async (uid: string) => {
+    try {
+      // Preferred shape: household_members -> households join
+      const res = await supabase
+        .from("household_members")
+        .select("household_id,role,households(id,name)")
+        .eq("user_id", uid);
+
+      if (!res.error) {
+        const rows = (res.data ?? []) as any[];
+        const next: HouseholdOption[] = rows
+          .filter((r) => r && r.household_id)
+          .map((r) => ({
+            household_id: String(r.household_id),
+            role: r.role ? String(r.role) : null,
+            name: r.households?.name ? String(r.households.name) : r.households?.id ? String(r.households.id) : null,
+          }));
+        setHouseholds(next);
+        return;
+      }
+
+      // Fallback: just household_members if no join
+      const res2 = await supabase.from("household_members").select("household_id,role").eq("user_id", uid);
+      if (!res2.error) {
+        const rows = (res2.data ?? []) as any[];
+        const next: HouseholdOption[] = rows
+          .filter((r) => r && r.household_id)
+          .map((r) => ({
+            household_id: String(r.household_id),
+            role: r.role ? String(r.role) : null,
+            name: null,
+          }));
+        setHouseholds(next);
+        return;
+      }
+
+      setHouseholds([]);
+    } catch {
+      setHouseholds([]);
+    }
+  };
+
+  const loadDecisionShares = async (decisionId: string) => {
+    if (!decisionId) return;
+
+    setSharesLoadingByDecisionId((p) => ({ ...p, [decisionId]: true }));
+
+    try {
+      const { data, error } = await supabase.rpc("list_decision_shares", { p_decision_id: decisionId });
+
+      if (error) {
+        setSharesByDecisionId((p) => ({ ...p, [decisionId]: [] }));
+        setSharesLoadingByDecisionId((p) => ({ ...p, [decisionId]: false }));
+        return;
+      }
+
+      const rows = Array.isArray(data) ? (data as any[]) : [];
+      const safe: DecisionShare[] = rows
+        .filter((r) => r && r.household_id)
+        .map((r) => ({
+          id: r.id ? String(r.id) : undefined,
+          decision_id: r.decision_id ? String(r.decision_id) : undefined,
+          household_id: String(r.household_id),
+          household_name: r.household_name ? String(r.household_name) : r.household?.name ? String(r.household.name) : null,
+          permission: r.permission ? String(r.permission) : "view",
+          note: r.note ? String(r.note) : null,
+          created_at: r.created_at ? String(r.created_at) : null,
+          shared_by: r.shared_by ? String(r.shared_by) : null,
+        }));
+
+      setSharesByDecisionId((p) => ({ ...p, [decisionId]: safe }));
+      setSharesLoadingByDecisionId((p) => ({ ...p, [decisionId]: false }));
+    } catch {
+      setSharesByDecisionId((p) => ({ ...p, [decisionId]: [] }));
+      setSharesLoadingByDecisionId((p) => ({ ...p, [decisionId]: false }));
+    }
+  };
+
+  const shareDecision = async (decisionId: string) => {
+    if (!decisionId) return;
+
+    const householdId = String(shareTargetHouseholdByDecisionId[decisionId] ?? "").trim();
+    const permission = sharePermissionDraftByDecisionId[decisionId] ?? "view";
+    const note = (shareNoteDraftByDecisionId[decisionId] ?? "").trim();
+
+    if (!householdId) {
+      showToast({ message: "Choose a household first." }, 2200);
+      return;
+    }
+
+    const { error } = await supabase.rpc("share_decision_to_household", {
+      p_decision_id: decisionId,
+      p_household_id: householdId,
+      p_note: note || null,
+      p_permission: permission,
+    });
+
+    if (error) {
+      showToast({ message: `Couldn’t share: ${error.message}` }, 3500);
+      return;
+    }
+
+    showToast({ message: permission === "edit" ? "Shared (edit access)." : "Shared (view access)." }, 1600);
+
+    setShareNoteDraftByDecisionId((p) => ({ ...p, [decisionId]: "" }));
+    setShareComposerOpenByDecisionId((p) => ({ ...p, [decisionId]: false }));
+    setSharingExpandedByDecisionId((p) => ({ ...p, [decisionId]: true }));
+    void loadDecisionShares(decisionId);
+  };
+
+  const updateSharePermission = async (decisionId: string, householdId: string, permission: "view" | "edit") => {
+    const { error } = await supabase.rpc("update_decision_share_permission", {
+      p_decision_id: decisionId,
+      p_household_id: householdId,
+      p_permission: permission,
+    });
+
+    if (error) {
+      showToast({ message: `Couldn’t update: ${error.message}` }, 3500);
+      return;
+    }
+
+    showToast({ message: "Updated." }, 1400);
+    void loadDecisionShares(decisionId);
+  };
+
+  const unshareDecision = async (decisionId: string, householdId: string) => {
+    const { error } = await supabase.rpc("unshare_decision_from_household", {
+      p_decision_id: decisionId,
+      p_household_id: householdId,
+    });
+
+    if (error) {
+      showToast({ message: `Couldn’t unshare: ${error.message}` }, 3500);
+      return;
+    }
+
+    showToast({ message: "Unshared." }, 1400);
+    void loadDecisionShares(decisionId);
+  };
+
   const load = async (opts?: { silent?: boolean }) => {
     const silent = !!opts?.silent;
     if (!silent) setStatusLine("Loading…");
@@ -695,10 +871,10 @@ export default function DecisionsClient() {
     const uid = auth.user.id;
     setUserId(uid);
 
+    // ✅ IMPORTANT: do NOT force user_id filter — let RLS decide (owned + shared)
     let q = supabase
       .from("decisions")
-      .select("id,user_id,title,context,status,created_at,decided_at,review_at,origin,framed_at,attachments", { count: "exact" })
-      .eq("user_id", uid);
+      .select("id,user_id,title,context,status,created_at,decided_at,review_at,origin,framed_at,attachments", { count: "exact" });
 
     if (tab === "active" || tab === "new") q = q.neq("status", "chapter");
     if (tab === "closed") q = q.eq("status", "chapter");
@@ -756,6 +932,7 @@ export default function DecisionsClient() {
     setTotalCount(typeof count === "number" ? count : list.length);
     setStatusLine(list.length === 0 ? "All clear." : "Loaded.");
 
+    // User-scoped domains/constellations remain user_id-based (personal taxonomy)
     const [domRes, conRes] = await Promise.all([
       supabase.from("domains").select("id,name,sort_order").eq("user_id", uid).order("sort_order", { ascending: true }),
       supabase.from("constellations").select("id,name,sort_order").eq("user_id", uid).order("sort_order", { ascending: true }),
@@ -811,6 +988,9 @@ export default function DecisionsClient() {
       setDomainByDecision({});
       setConstellationsByDecision({});
     }
+
+    // ✅ load households once per auth (best-effort)
+    void loadHouseholds(uid);
   };
 
   useEffect(() => {
@@ -831,9 +1011,10 @@ export default function DecisionsClient() {
   useEffect(() => {
     if (!userId) return;
 
+    // ✅ IMPORTANT: do NOT filter to user_id; shared decisions must also refresh
     const channel = supabase
       .channel(`decisions-${tab}-${userId}`)
-      .on("postgres_changes", { event: "*", schema: "public", table: "decisions", filter: `user_id=eq.${userId}` }, () => {
+      .on("postgres_changes", { event: "*", schema: "public", table: "decisions" }, () => {
         scheduleReload();
       })
       .subscribe();
@@ -1075,6 +1256,21 @@ export default function DecisionsClient() {
     setFilesExpandedByDecisionId((p) => (p[openDecision.id] != null ? p : { ...p, [openDecision.id]: false }));
     setReviewExpandedByDecisionId((p) => (p[openDecision.id] != null ? p : { ...p, [openDecision.id]: false }));
     setSummariesExpandedByDecisionId((p) => (p[openDecision.id] != null ? p : { ...p, [openDecision.id]: true }));
+
+    // ✅ sharing init
+    setSharingExpandedByDecisionId((p) => (p[openDecision.id] != null ? p : { ...p, [openDecision.id]: false }));
+    setShareComposerOpenByDecisionId((p) => (p[openDecision.id] != null ? p : { ...p, [openDecision.id]: false }));
+    setSharePermissionDraftByDecisionId((p) => (p[openDecision.id] != null ? p : { ...p, [openDecision.id]: "view" }));
+    // pick a default household (first one you belong to)
+    setShareTargetHouseholdByDecisionId((p) => {
+      if (p[openDecision.id]) return p;
+      const first = households[0]?.household_id ?? "";
+      return { ...p, [openDecision.id]: first };
+    });
+
+    // load shares
+    void loadDecisionShares(openDecision.id);
+
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId, tab, openDecision?.id]);
 
@@ -1248,7 +1444,8 @@ export default function DecisionsClient() {
       await supabase.from("decision_notes").delete().eq("user_id", userId).eq("decision_id", d.id);
     } catch {}
 
-    const { data, error } = await supabase.from("decisions").delete().eq("id", d.id).eq("user_id", userId).select("id");
+    // ✅ allow delete by RLS (shared editors may delete if allowed), but keep extra safety: only attempt by id
+    const { data, error } = await supabase.from("decisions").delete().eq("id", d.id).select("id");
     const deletedCount = Array.isArray(data) ? data.length : 0;
 
     if (error || deletedCount === 0) {
@@ -1268,7 +1465,7 @@ export default function DecisionsClient() {
 
     setItems((p) => p.map((x) => (x.id === d.id ? { ...x, status: "chapter" } : x)));
 
-    const { error } = await supabase.from("decisions").update({ status: "chapter" }).eq("id", d.id).eq("user_id", userId);
+    const { error } = await supabase.from("decisions").update({ status: "chapter" }).eq("id", d.id);
     if (error) {
       showToast({ message: `Couldn’t move: ${error.message}` }, 3500);
       setItems((p) => p.map((x) => (x.id === d.id ? { ...x, status: prev } : x)));
@@ -1294,7 +1491,7 @@ export default function DecisionsClient() {
 
     setItems((p) => p.map((x) => (x.id === d.id ? { ...x, status: "open" } : x)));
 
-    const { error } = await supabase.from("decisions").update({ status: "open" }).eq("id", d.id).eq("user_id", userId);
+    const { error } = await supabase.from("decisions").update({ status: "open" }).eq("id", d.id);
     if (error) {
       showToast({ message: `Couldn’t re-open: ${error.message}` }, 3500);
       scheduleReload();
@@ -1322,7 +1519,7 @@ export default function DecisionsClient() {
 
     setItems((prev) => prev.map((x) => (x.id === d.id ? { ...x, review_at } : x)));
 
-    const { error } = await supabase.from("decisions").update({ review_at }).eq("id", d.id).eq("user_id", userId);
+    const { error } = await supabase.from("decisions").update({ review_at }).eq("id", d.id);
 
     if (error) {
       showToast({ message: `Couldn’t update: ${error.message}` }, 3500);
@@ -1357,6 +1554,7 @@ export default function DecisionsClient() {
           <div className="mt-1 text-xs text-zinc-500">
             Started {softWhen(d.created_at)}
             {d.review_at ? <> • Next review {softWhen(d.review_at)}</> : null}
+            {d.user_id && userId && d.user_id !== userId ? <span className="ml-2">• Shared</span> : null}
           </div>
         </div>
         <div className="shrink-0">
@@ -1452,7 +1650,6 @@ export default function DecisionsClient() {
       expanded?: boolean;
       onToggle?: () => void;
       onPlus?: () => void;
-      rightLabel?: string;
     }) => {
       const { title, meta, count, showPlus, expanded, onToggle, onPlus } = props;
       return (
@@ -1462,7 +1659,6 @@ export default function DecisionsClient() {
             {typeof count === "number" ? <div className="text-xs text-zinc-500">({count})</div> : null}
             {meta ? <div className="text-xs text-zinc-500 truncate">{meta}</div> : null}
 
-            {/* ✅ plus close to heading */}
             {showPlus ? (
               <button
                 type="button"
@@ -1487,6 +1683,22 @@ export default function DecisionsClient() {
       );
     };
 
+    const shares = sharesByDecisionId[d.id] ?? [];
+    const sharesLoading = !!sharesLoadingByDecisionId[d.id];
+    const sharingExpanded = !!sharingExpandedByDecisionId[d.id];
+    const shareComposerOpen = !!shareComposerOpenByDecisionId[d.id];
+    const shareNote = shareNoteDraftByDecisionId[d.id] ?? "";
+    const shareTarget = shareTargetHouseholdByDecisionId[d.id] ?? "";
+    const sharePerm = sharePermissionDraftByDecisionId[d.id] ?? "view";
+
+    const sharedCount = shares.length;
+
+    const availableHouseholds = households.filter((h) => !!h.household_id);
+    const alreadyShared = new Set(shares.map((s) => s.household_id));
+    const shareableHouseholds = availableHouseholds.filter((h) => !alreadyShared.has(h.household_id));
+
+    const shareMeta = sharedCount > 0 ? "Visible to others you’ve shared with." : "Not shared.";
+
     return (
       <div
         ref={(el) => {
@@ -1507,6 +1719,7 @@ export default function DecisionsClient() {
             <div className="mt-1 text-xs text-zinc-500">
               Started {softWhen(d.created_at)}
               {d.review_at ? <> • Next review {softWhen(d.review_at)}</> : null}
+              {d.user_id && userId && d.user_id !== userId ? <span className="ml-2">• Shared</span> : null}
             </div>
           </div>
           <div className="shrink-0 flex items-center gap-2">
@@ -1568,8 +1781,6 @@ export default function DecisionsClient() {
         {isWorking ? (
           <div id="work-through-panel" className="mt-5 rounded-2xl bg-white">
             <div className="p-3 sm:p-4">
-              {/* askedText: use original captured text */}
-              {/* frame: anchor boot message to it */}
               <ConversationPanel
                 decisionId={d.id}
                 decisionTitle={d.title}
@@ -1591,6 +1802,150 @@ export default function DecisionsClient() {
 
         {/* Sections */}
         <div className="mt-5 divide-y divide-zinc-100 rounded-2xl bg-white px-4">
+          {/* ✅ Sharing */}
+          <SectionRow
+            title="Sharing"
+            meta={shareMeta}
+            count={sharedCount}
+            showPlus={true}
+            expanded={sharingExpanded}
+            onToggle={() => {
+              setSharingExpandedByDecisionId((p) => ({ ...p, [d.id]: !sharingExpanded }));
+              if (!sharingExpanded) void loadDecisionShares(d.id);
+            }}
+            onPlus={() => {
+              setShareComposerOpenByDecisionId((p) => ({ ...p, [d.id]: true }));
+              setSharingExpandedByDecisionId((p) => ({ ...p, [d.id]: true }));
+              void loadDecisionShares(d.id);
+
+              // best default target if none set
+              setShareTargetHouseholdByDecisionId((p) => {
+                if (p[d.id]) return p;
+                const first = shareableHouseholds[0]?.household_id ?? households[0]?.household_id ?? "";
+                return { ...p, [d.id]: first };
+              });
+              setSharePermissionDraftByDecisionId((p) => ({ ...p, [d.id]: p[d.id] ?? "view" }));
+            }}
+          />
+
+          {sharingExpanded ? (
+            <div className="pb-4 space-y-3">
+              {sharesLoading ? <div className="text-sm text-zinc-500">Loading sharing…</div> : null}
+
+              {!sharesLoading && shares.length === 0 ? <div className="text-sm text-zinc-600">Not shared yet.</div> : null}
+
+              {!sharesLoading && shares.length > 0 ? (
+                <div className="divide-y divide-zinc-100 rounded-2xl bg-white">
+                  {shares.map((s, idx) => {
+                    const name =
+                      (s.household_name && String(s.household_name)) ||
+                      households.find((h) => h.household_id === s.household_id)?.name ||
+                      null;
+
+                    const perm = (String(s.permission ?? "view") as any) === "edit" ? "edit" : "view";
+                    const stamp = s.created_at ? `Shared ${softWhen(s.created_at)}` : "Shared";
+
+                    return (
+                      <div key={`${s.household_id}-${idx}`} className="px-4 py-3">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="text-sm font-medium text-zinc-900 truncate">{name ? name : `Household ${shortId(s.household_id)}`}</div>
+                            <div className="mt-1 text-xs text-zinc-500">{stamp}</div>
+                            {s.note ? <div className="mt-2 text-sm text-zinc-700 whitespace-pre-wrap">{s.note}</div> : null}
+                          </div>
+
+                          <div className="shrink-0 flex items-center gap-2">
+                            <select
+                              className="h-8 rounded-full border border-zinc-200 bg-white px-3 text-xs text-zinc-700"
+                              value={perm}
+                              onChange={(e) => void updateSharePermission(d.id, s.household_id, (e.target.value as any) === "edit" ? "edit" : "view")}
+                              title="Permission"
+                            >
+                              <option value="view">View</option>
+                              <option value="edit">Edit</option>
+                            </select>
+
+                            <TextAction danger onClick={() => void unshareDecision(d.id, s.household_id)} title="Unshare">
+                              Unshare
+                            </TextAction>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : null}
+
+              {shareComposerOpen ? (
+                <div className="rounded-2xl bg-white p-3 space-y-3">
+                  <div className="text-sm font-semibold text-zinc-900">Share to a household</div>
+
+                  {households.length === 0 ? (
+                    <div className="text-sm text-zinc-600">No households found for your account.</div>
+                  ) : shareableHouseholds.length === 0 ? (
+                    <div className="text-sm text-zinc-600">Already shared to all your households.</div>
+                  ) : (
+                    <>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <select
+                          className="h-9 rounded-full border border-zinc-200 bg-white px-3 text-sm text-zinc-700"
+                          value={shareTarget}
+                          onChange={(e) => setShareTargetHouseholdByDecisionId((p) => ({ ...p, [d.id]: e.target.value }))}
+                          title="Choose household"
+                        >
+                          {shareableHouseholds.map((h) => (
+                            <option key={h.household_id} value={h.household_id}>
+                              {h.name ? h.name : shortId(h.household_id)}
+                            </option>
+                          ))}
+                        </select>
+
+                        <select
+                          className="h-9 rounded-full border border-zinc-200 bg-white px-3 text-sm text-zinc-700"
+                          value={sharePerm}
+                          onChange={(e) =>
+                            setSharePermissionDraftByDecisionId((p) => ({ ...p, [d.id]: (e.target.value as any) === "edit" ? "edit" : "view" }))
+                          }
+                          title="Permission"
+                        >
+                          <option value="view">View</option>
+                          <option value="edit">Edit</option>
+                        </select>
+                      </div>
+
+                      <textarea
+                        value={shareNote}
+                        onChange={(e) => setShareNoteDraftByDecisionId((p) => ({ ...p, [d.id]: e.target.value }))}
+                        placeholder="Optional note…"
+                        className="w-full min-h-[72px] resize-y rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-[14px] leading-relaxed text-zinc-900 outline-none focus:ring-2 focus:ring-zinc-200"
+                      />
+
+                      <div className="flex flex-wrap items-center gap-2">
+                        <TextAction onClick={() => void shareDecision(d.id)} title="Share">
+                          Share
+                        </TextAction>
+                        <TextAction
+                          subtle
+                          onClick={() => {
+                            setShareComposerOpenByDecisionId((p) => ({ ...p, [d.id]: false }));
+                            setShareNoteDraftByDecisionId((p) => ({ ...p, [d.id]: "" }));
+                          }}
+                          title="Close"
+                        >
+                          Close
+                        </TextAction>
+                      </div>
+
+                      <div className="text-xs text-zinc-500">
+                        View = they can read. Edit = they can update the decision and its related items (if your database policies allow).
+                      </div>
+                    </>
+                  )}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+
           {/* Chat summaries (only appear once at least one exists) */}
           {summariesHasAny ? (
             <>
@@ -2216,7 +2571,8 @@ export default function DecisionsClient() {
   return (
     <Page title={pageTitle} subtitle={pageSubtitle} right={null}>
       {/* ✅ wider layout so cards fill the page better */}
-        <div className="mx-auto w-full max-w-[1100px] space-y-6 px-4 sm:px-6 lg:px-8">        <SegTabs
+      <div className="mx-auto w-full max-w-[1100px] space-y-6 px-4 sm:px-6 lg:px-8">
+        <SegTabs
           tab={tab}
           onTab={(t) => {
             if (t === "new") router.push(buildUrl("new"), { scroll: false });
@@ -2492,7 +2848,10 @@ export default function DecisionsClient() {
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
                           <div className="text-[15px] font-semibold text-zinc-900">{d.title}</div>
-                          <div className="mt-1 text-xs text-zinc-500">Started {softWhen(d.created_at)}</div>
+                          <div className="mt-1 text-xs text-zinc-500">
+                            Started {softWhen(d.created_at)}
+                            {d.user_id && userId && d.user_id !== userId ? <span className="ml-2">• Shared</span> : null}
+                          </div>
                         </div>
 
                         <div className="shrink-0 flex items-center gap-2">
