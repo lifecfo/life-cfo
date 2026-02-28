@@ -18,7 +18,7 @@ type InviteItem = {
 export const dynamic = "force-dynamic";
 
 export default function InvitesClient() {
-  const { toast } = useToast();
+  const { showToast } = useToast();
 
   const [loading, setLoading] = useState(true);
   const [statusLine, setStatusLine] = useState("Loading…");
@@ -30,15 +30,17 @@ export default function InvitesClient() {
     try {
       const res = await fetch("/api/households/invites", { method: "GET" });
       const json = await res.json();
+
       if (!json?.ok) {
         setInvites([]);
         setStatusLine("Not signed in.");
         return;
       }
+
       setInvites(Array.isArray(json.invites) ? json.invites : []);
       setStatusLine("Updated.");
     } catch (e: any) {
-      toast({ title: "Couldn’t load invites", description: e?.message ?? "Please try again." });
+      showToast({ message: e?.message ?? "Couldn’t load invites." }, 2500);
       setStatusLine("Couldn’t load right now.");
       setInvites([]);
     } finally {
@@ -58,10 +60,10 @@ export default function InvitesClient() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id, action }),
       });
+
       const json = await res.json();
       if (!json?.ok) throw new Error(json?.error ?? "Update failed");
 
-      // If accepted, set active household immediately
       if (action === "accept" && json?.household_id) {
         await fetch("/api/households/active", {
           method: "POST",
@@ -73,7 +75,7 @@ export default function InvitesClient() {
       setStatusLine(action === "accept" ? "Accepted." : "Declined.");
       await load();
     } catch (e: any) {
-      toast({ title: "Couldn’t update", description: e?.message ?? "Please try again." });
+      showToast({ message: e?.message ?? "Couldn’t update invite." }, 2500);
     }
   };
 
@@ -101,7 +103,10 @@ export default function InvitesClient() {
 
                     <div className="flex items-center gap-2">
                       <Chip onClick={() => void act(inv.id, "decline")}>Decline</Chip>
-                      <Chip className="border-zinc-900 bg-zinc-900 text-white hover:bg-zinc-800" onClick={() => void act(inv.id, "accept")}>
+                      <Chip
+                        className="border-zinc-900 bg-zinc-900 text-white hover:bg-zinc-800"
+                        onClick={() => void act(inv.id, "accept")}
+                      >
                         Accept
                       </Chip>
                     </div>

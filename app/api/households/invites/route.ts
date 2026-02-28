@@ -22,11 +22,12 @@ async function requireUser(supabase: any) {
     data: { user },
     error,
   } = await supabase.auth.getUser();
+
   if (error || !user?.id) return { user: null, error: "Not signed in." as string };
   return { user, error: null as string | null };
 }
 
-async function requireHouseholdRole(supabase: any, userId: string, householdId: string) {
+async function getMembershipRole(supabase: any, userId: string, householdId: string): Promise<string | null> {
   const { data, error } = await supabase
     .from("household_members")
     .select("role")
@@ -35,8 +36,8 @@ async function requireHouseholdRole(supabase: any, userId: string, householdId: 
     .limit(1);
 
   if (error) throw error;
-  const role = (data?.[0]?.role ?? "viewer") as string;
-  return role;
+  if (!data?.length) return null;
+  return String(data[0]?.role ?? "viewer").toLowerCase();
 }
 
 export async function GET(req: Request) {
@@ -49,7 +50,10 @@ export async function GET(req: Request) {
     const household_id = url.searchParams.get("household_id");
 
     if (household_id) {
-      // List invites for a household (members can view; UI restricts actions)
+      // Must be a member to view household invites
+      const myRole = await getMembershipRole(supabase, user.id, household_id);
+      if (!myRole) return NextResponse.json({ ok: false, error: "Not allowed." }, { status: 403 });
+
       const { data, error: invErr } = await supabase
         .from("household_invites")
         .select("id,email,role,status,created_at")
@@ -60,7 +64,7 @@ export async function GET(req: Request) {
       return NextResponse.json({ ok: true, invites: data ?? [] });
     }
 
-    // List invites for current user email (accept/decline from /invites page)
+    // Current user's pending invites (accept/decline)
     const email = (user.email ?? "").toLowerCase();
     if (!email) return NextResponse.json({ ok: true, invites: [] });
 
@@ -106,27 +110,29 @@ export async function POST(req: Request) {
     if (!isRole(role)) return NextResponse.json({ ok: false, error: "Invalid role." }, { status: 400 });
     if (role === "owner") return NextResponse.json({ ok: false, error: "Invites cannot grant owner." }, { status: 400 });
 
-    const myRole = (await requireHouseholdRole(supabase, user.id, household_id)).toLowerCase();
+    const myRole = await getMembershipRole(supabase, user.id, household_id);
     if (!(myRole === "owner" || myRole === "editor")) {
       return NextResponse.json({ ok: false, error: "Not allowed." }, { status: 403 });
     }
 
     const admin = adminSupabase();
     if (!admin) {
-      return NextResponse.json(
-        { ok: false, error: "Missing SUPABASE_SERVICE_ROLE_KEY on server." },
-        { status: 500 }
-      );
+      return NextResponse.json({ ok: false, error: "Missing SUPABASE_SERVICE_ROLE_KEY on server." }, { status: 500 });
     }
 
-    // Avoid duplicates: if already a member, do nothing
-    const { data: existingMember, error: memErr } = await admin
-      .from("household_members")
-      .select("user_id")
+    // Prevent duplicate pending invites (same household + email)
+    const { data: existingInv, error: existErr } = await admin
+      .from("household_invites")
+      .select("id")
       .eq("household_id", household_id)
+      .ilike("email", email)
+      .eq("status", "pending")
       .limit(1);
 
-    if (memErr) throw memErr;
+    if (existErr) throw existErr;
+    if (existingInv?.length) {
+      return NextResponse.json({ ok: true, already_pending: true });
+    }
 
     // Create invite
     const token = crypto.randomBytes(24).toString("hex");
@@ -163,13 +169,9 @@ export async function PATCH(req: Request) {
 
     const admin = adminSupabase();
     if (!admin) {
-      return NextResponse.json(
-        { ok: false, error: "Missing SUPABASE_SERVICE_ROLE_KEY on server." },
-        { status: 500 }
-      );
+      return NextResponse.json({ ok: false, error: "Missing SUPABASE_SERVICE_ROLE_KEY on server." }, { status: 500 });
     }
 
-    // Load invite (admin bypasses RLS)
     const { data: inv, error: invErr } = await admin
       .from("household_invites")
       .select("id,household_id,email,role,status")
@@ -179,14 +181,11 @@ export async function PATCH(req: Request) {
     if (invErr) throw invErr;
     if (!inv?.id) return NextResponse.json({ ok: false, error: "Invite not found." }, { status: 404 });
 
-    const currentStatus = (inv.status ?? "").toLowerCase();
-    if (currentStatus !== "pending") {
-      return NextResponse.json({ ok: false, error: "Invite is not pending." }, { status: 400 });
-    }
+    const currentStatus = String(inv.status ?? "").toLowerCase();
+    if (currentStatus !== "pending") return NextResponse.json({ ok: false, error: "Invite is not pending." }, { status: 400 });
 
     if (action === "cancel") {
-      // Only owner/editor can cancel
-      const myRole = (await requireHouseholdRole(supabase, user.id, inv.household_id)).toLowerCase();
+      const myRole = await getMembershipRole(supabase, user.id, inv.household_id);
       if (!(myRole === "owner" || myRole === "editor")) {
         return NextResponse.json({ ok: false, error: "Not allowed." }, { status: 403 });
       }
@@ -202,7 +201,7 @@ export async function PATCH(req: Request) {
 
     if (action === "accept" || action === "decline") {
       const myEmail = (user.email ?? "").toLowerCase();
-      if (!myEmail || myEmail !== (inv.email ?? "").toLowerCase()) {
+      if (!myEmail || myEmail !== String(inv.email ?? "").toLowerCase()) {
         return NextResponse.json({ ok: false, error: "This invite is not for your email." }, { status: 403 });
       }
 
@@ -216,13 +215,12 @@ export async function PATCH(req: Request) {
         return NextResponse.json({ ok: true });
       }
 
-      // accept
+      // Accept: upsert membership
+      const roleToGrant = (String(inv.role ?? "viewer") as Role) || "viewer";
+
       const { error: upsertErr } = await admin
         .from("household_members")
-        .upsert(
-          { household_id: inv.household_id, user_id: user.id, role: inv.role ?? "viewer" },
-          { onConflict: "household_id,user_id" }
-        );
+        .upsert({ household_id: inv.household_id, user_id: user.id, role: roleToGrant }, { onConflict: "household_id,user_id" });
 
       if (upsertErr) throw upsertErr;
 

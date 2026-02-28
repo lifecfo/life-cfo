@@ -14,6 +14,19 @@ function maskId(id: string) {
   return `${id.slice(0, 6)}…${id.slice(-4)}`;
 }
 
+async function getMyRole(supabase: any, userId: string, householdId: string): Promise<string | null> {
+  const { data, error } = await supabase
+    .from("household_members")
+    .select("role")
+    .eq("user_id", userId)
+    .eq("household_id", householdId)
+    .limit(1);
+
+  if (error) throw error;
+  if (!data?.length) return null;
+  return String(data[0]?.role ?? "viewer").toLowerCase();
+}
+
 export async function GET(req: Request) {
   try {
     const supabase = await supabaseRoute();
@@ -29,10 +42,11 @@ export async function GET(req: Request) {
 
     const url = new URL(req.url);
     const household_id = url.searchParams.get("household_id");
+    if (!household_id) return NextResponse.json({ ok: false, error: "Missing household_id." }, { status: 400 });
 
-    if (!household_id) {
-      return NextResponse.json({ ok: false, error: "Missing household_id." }, { status: 400 });
-    }
+    // Must be a member to view
+    const myRole = await getMyRole(supabase, user.id, household_id);
+    if (!myRole) return NextResponse.json({ ok: false, error: "Not allowed." }, { status: 403 });
 
     const { data: members, error } = await supabase
       .from("household_members")
@@ -83,6 +97,10 @@ export async function PATCH(req: Request) {
     if (!household_id) return NextResponse.json({ ok: false, error: "Missing household_id." }, { status: 400 });
     if (!target_user_id) return NextResponse.json({ ok: false, error: "Missing user_id." }, { status: 400 });
     if (!isRole(role)) return NextResponse.json({ ok: false, error: "Invalid role." }, { status: 400 });
+
+    // Only owners can change roles
+    const myRole = await getMyRole(supabase, user.id, household_id);
+    if (myRole !== "owner") return NextResponse.json({ ok: false, error: "Not allowed." }, { status: 403 });
 
     // Guard: do not demote the last owner
     if (role !== "owner") {
@@ -135,6 +153,10 @@ export async function DELETE(req: Request) {
 
     if (!household_id) return NextResponse.json({ ok: false, error: "Missing household_id." }, { status: 400 });
     if (!target_user_id) return NextResponse.json({ ok: false, error: "Missing user_id." }, { status: 400 });
+
+    // Only owners can remove members
+    const myRole = await getMyRole(supabase, user.id, household_id);
+    if (myRole !== "owner") return NextResponse.json({ ok: false, error: "Not allowed." }, { status: 403 });
 
     // Guard: do not remove the last owner
     const { data: owners, error: ownersErr } = await supabase

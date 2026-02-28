@@ -11,7 +11,7 @@ type MemberRow = {
   user_id: string;
   role: string;
   created_at: string;
-  label?: string; // email for "me", masked id for others
+  label?: string;
   is_me?: boolean;
 };
 
@@ -54,13 +54,14 @@ function maskId(id: string) {
 }
 
 export default function HouseholdClient() {
-  const { toast } = useToast();
+  const { showToast } = useToast();
 
   const [loading, setLoading] = useState(true);
   const [statusLine, setStatusLine] = useState("Loading…");
 
   const [households, setHouseholds] = useState<HouseholdItem[]>([]);
   const [activeHouseholdId, setActiveHouseholdId] = useState<string | null>(null);
+  const [needsHousehold, setNeedsHousehold] = useState(false);
 
   const [members, setMembers] = useState<MemberRow[]>([]);
   const [membersLoading, setMembersLoading] = useState(false);
@@ -71,6 +72,10 @@ export default function HouseholdClient() {
   const [deleteConfirm, setDeleteConfirm] = useState<DeleteConfirm>({ open: false });
 
   const [showAdvanced, setShowAdvanced] = useState(false);
+
+  // Create household (new users)
+  const [createName, setCreateName] = useState("");
+  const [creating, setCreating] = useState(false);
 
   // Invites
   const [invites, setInvites] = useState<InviteRow[]>([]);
@@ -100,6 +105,7 @@ export default function HouseholdClient() {
         setActiveHouseholdId(null);
         setMembers([]);
         setInvites([]);
+        setNeedsHousehold(false);
         setStatusLine("Not signed in.");
         return;
       }
@@ -107,13 +113,14 @@ export default function HouseholdClient() {
       const list: HouseholdItem[] = Array.isArray(json.households) ? json.households : [];
       setHouseholds(list);
       setActiveHouseholdId(json.active_household_id ?? null);
+      setNeedsHousehold(!!json.needs_household);
 
       const activeId = (json.active_household_id ?? null) as string | null;
       const activeName = activeId ? list.find((h) => h.id === activeId)?.name ?? "" : "";
       setNameDraft(activeName);
       setStatusLine("Updated.");
     } catch (e: any) {
-      toast({ title: "Couldn’t load Household", description: e?.message ?? "Please try again." });
+      showToast({ message: e?.message ?? "Couldn’t load Household." }, 2500);
       setStatusLine("Couldn’t load right now.");
     } finally {
       setLoading(false);
@@ -159,6 +166,32 @@ export default function HouseholdClient() {
     void loadInvites(activeHouseholdId);
   }, [activeHouseholdId]);
 
+  const createHousehold = async () => {
+    if (creating) return;
+    setCreating(true);
+
+    try {
+      const name = safeStr(createName).trim();
+
+      const res = await fetch("/api/households/create", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+
+      const json = await res.json();
+      if (!json?.ok) throw new Error(json?.error ?? "Create failed");
+
+      showToast({ message: "Created." }, 1200);
+      setCreateName("");
+      await load();
+    } catch (e: any) {
+      showToast({ message: e?.message ?? "Couldn’t create household." }, 2500);
+    } finally {
+      setCreating(false);
+    }
+  };
+
   const startRename = () => {
     if (!active) return;
     setEditingName(true);
@@ -175,7 +208,7 @@ export default function HouseholdClient() {
 
     const nextName = safeStr(nameDraft).trim();
     if (!nextName) {
-      toast({ title: "Name is required", description: "A simple name is enough." });
+      showToast({ message: "Name is required." }, 2000);
       return;
     }
 
@@ -185,6 +218,7 @@ export default function HouseholdClient() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ household_id: activeHouseholdId, name: nextName }),
       });
+
       const json = await res.json();
       if (!json?.ok) throw new Error(json?.error ?? "Rename failed");
 
@@ -192,7 +226,7 @@ export default function HouseholdClient() {
       setEditingName(false);
       setStatusLine("Saved.");
     } catch (e: any) {
-      toast({ title: "Couldn’t save", description: e?.message ?? "Please try again." });
+      showToast({ message: e?.message ?? "Couldn’t save." }, 2500);
       setStatusLine("Couldn’t save.");
     }
   };
@@ -205,14 +239,14 @@ export default function HouseholdClient() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ household_id: activeHouseholdId, user_id, role }),
       });
+
       const json = await res.json();
       if (!json?.ok) throw new Error(json?.error ?? "Role update failed");
 
       setMembers((prev) => prev.map((m) => (m.user_id === user_id ? { ...m, role } : m)));
       setStatusLine("Saved.");
     } catch (e: any) {
-      const msg = e?.message ?? "Please try again.";
-      toast({ title: "Couldn’t update role", description: msg });
+      showToast({ message: e?.message ?? "Couldn’t update role." }, 2500);
       setStatusLine("Couldn’t save.");
       await loadMembers(activeHouseholdId);
     }
@@ -235,13 +269,14 @@ export default function HouseholdClient() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ household_id: activeHouseholdId, user_id }),
       });
+
       const json = await res.json();
       if (!json?.ok) throw new Error(json?.error ?? "Remove failed");
 
       setMembers((prev) => prev.filter((m) => m.user_id !== user_id));
       setStatusLine("Removed.");
     } catch (e: any) {
-      toast({ title: "Couldn’t remove", description: e?.message ?? "Please try again." });
+      showToast({ message: e?.message ?? "Couldn’t remove." }, 2500);
       setStatusLine("Couldn’t remove.");
       await loadMembers(activeHouseholdId);
     }
@@ -252,7 +287,7 @@ export default function HouseholdClient() {
 
     const email = inviteEmail.trim().toLowerCase();
     if (!email || !email.includes("@")) {
-      toast({ title: "Email required", description: "Enter a valid email address." });
+      showToast({ message: "Enter a valid email address." }, 2000);
       return;
     }
 
@@ -263,6 +298,7 @@ export default function HouseholdClient() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ household_id: activeHouseholdId, email, role: inviteRole }),
       });
+
       const json = await res.json();
       if (!json?.ok) throw new Error(json?.error ?? "Invite failed");
 
@@ -271,7 +307,7 @@ export default function HouseholdClient() {
       setStatusLine("Invite sent.");
       await loadInvites(activeHouseholdId);
     } catch (e: any) {
-      toast({ title: "Couldn’t send invite", description: e?.message ?? "Please try again." });
+      showToast({ message: e?.message ?? "Couldn’t send invite." }, 2500);
       setStatusLine("Couldn’t send invite.");
     } finally {
       setInviteSending(false);
@@ -286,13 +322,14 @@ export default function HouseholdClient() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id: inviteId, action: "cancel" }),
       });
+
       const json = await res.json();
       if (!json?.ok) throw new Error(json?.error ?? "Cancel failed");
 
       setStatusLine("Invite cancelled.");
       await loadInvites(activeHouseholdId);
     } catch (e: any) {
-      toast({ title: "Couldn’t cancel invite", description: e?.message ?? "Please try again." });
+      showToast({ message: e?.message ?? "Couldn’t cancel invite." }, 2500);
       setStatusLine("Couldn’t cancel invite.");
     }
   };
@@ -300,9 +337,9 @@ export default function HouseholdClient() {
   const copyText = async (text: string, label: string) => {
     try {
       await navigator.clipboard.writeText(text);
-      toast({ title: "Copied", description: label });
+      showToast({ message: label }, 1200);
     } catch {
-      toast({ title: "Couldn’t copy", description: "Your browser blocked clipboard access." });
+      showToast({ message: "Your browser blocked clipboard access." }, 2500);
     }
   };
 
@@ -313,8 +350,45 @@ export default function HouseholdClient() {
 
   const pendingInvites = invites.filter((i) => (i.status ?? "").toLowerCase() === "pending");
 
+  // ---------- NEW USER: needs household ----------
+  if (!loading && (needsHousehold || households.length === 0)) {
+    return (
+      <Page title="Household" subtitle="This is who shares your money picture.">
+        <div className="mx-auto w-full max-w-[760px] space-y-6">
+          <Card className="border-zinc-200 bg-white">
+            <CardContent className="space-y-3">
+              <div>
+                <div className="text-sm font-semibold text-zinc-900">Set up your household</div>
+                <div className="mt-0.5 text-xs text-zinc-500">You can change this later.</div>
+              </div>
+
+              <div className="space-y-1">
+                <div className="text-xs text-zinc-500">Name (optional)</div>
+                <input
+                  className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800"
+                  value={createName}
+                  onChange={(e) => setCreateName(e.target.value)}
+                  placeholder="e.g. Em & Ryan"
+                />
+              </div>
+
+              <div className="flex items-center gap-2">
+                <Chip onClick={() => void createHousehold()} disabled={creating}>
+                  {creating ? "Creating…" : "Create household"}
+                </Chip>
+              </div>
+
+              <div className="text-xs text-zinc-500">Once created, it becomes your active household across the app.</div>
+            </CardContent>
+          </Card>
+        </div>
+      </Page>
+    );
+  }
+
+  // ---------- NORMAL HOUSEHOLD UI ----------
   return (
-    <Page title="Household" subtitle="Where membership and permissions live.">
+    <Page title="Household" subtitle="Membership and permissions.">
       <div className="mx-auto w-full max-w-[760px] space-y-6">
         <div className="text-xs text-zinc-500">{loading ? "Loading…" : statusLine}</div>
 
@@ -364,10 +438,7 @@ export default function HouseholdClient() {
 
                 {showAdvanced ? (
                   <div className="text-xs text-zinc-500">
-                    <button
-                      onClick={() => void copyText(active.id, "Household ID copied")}
-                      className="underline underline-offset-2"
-                    >
+                    <button onClick={() => void copyText(active.id, "Household ID copied")} className="underline underline-offset-2">
                       Copy household ID
                     </button>
                   </div>
@@ -407,10 +478,7 @@ export default function HouseholdClient() {
 
                         {showAdvanced ? (
                           <div className="text-xs text-zinc-500">
-                            <button
-                              onClick={() => void copyText(m.user_id, "Member ID copied")}
-                              className="underline underline-offset-2"
-                            >
+                            <button onClick={() => void copyText(m.user_id, "Member ID copied")} className="underline underline-offset-2">
                               Copy member ID
                             </button>
                           </div>
@@ -508,11 +576,7 @@ export default function HouseholdClient() {
                       <div className="text-xs text-zinc-500">{inv.role}</div>
                     </div>
 
-                    {allowInvites ? (
-                      <Chip onClick={() => void cancelInvite(inv.id)}>Cancel</Chip>
-                    ) : (
-                      <div className="text-xs text-zinc-500">—</div>
-                    )}
+                    {allowInvites ? <Chip onClick={() => void cancelInvite(inv.id)}>Cancel</Chip> : <div className="text-xs text-zinc-500">—</div>}
                   </div>
                 ))}
               </div>
@@ -529,10 +593,7 @@ export default function HouseholdClient() {
 
                 <div className="mt-4 flex items-center justify-end gap-2">
                   <Chip onClick={() => setDeleteConfirm({ open: false })}>Cancel</Chip>
-                  <Chip
-                    onClick={() => void performRemove()}
-                    className="border-zinc-900 bg-zinc-900 text-white hover:bg-zinc-800"
-                  >
+                  <Chip onClick={() => void performRemove()} className="border-zinc-900 bg-zinc-900 text-white hover:bg-zinc-800">
                     Remove
                   </Chip>
                 </div>
