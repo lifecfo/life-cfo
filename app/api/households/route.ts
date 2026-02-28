@@ -1,36 +1,24 @@
-// app/api/households/route.ts
 import { NextResponse } from "next/server";
+import { cookies } from "next/headers";
 import { supabaseRoute } from "@/lib/supabaseRoute";
 import { resolveHouseholdIdRoute } from "@/lib/households/resolveHouseholdIdRoute";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-async function getActiveHouseholdId(supabase: any, userId: string): Promise<string | null> {
-  // 1) cookie-first (validated) OR first-membership fallback
-  const cookieOrFirst = await resolveHouseholdIdRoute(supabase, userId);
-  if (cookieOrFirst) return cookieOrFirst;
+const COOKIE_NAME = "lifecfo_household";
 
-  // 2) cross-device preference fallback (validated)
-  const pref = await supabase
-    .from("household_preferences")
-    .select("active_household_id")
-    .eq("user_id", userId)
-    .maybeSingle();
-
-  const prefId = pref?.data?.active_household_id ?? null;
-  if (!prefId) return null;
-
-  const { data } = await supabase
-    .from("household_members")
-    .select("id")
-    .eq("user_id", userId)
-    .eq("household_id", prefId)
-    .limit(1);
-
-  if (data?.length) return prefId;
-
-  return null;
+function setActiveHouseholdCookie(householdId: string) {
+  const cookieStore = cookies();
+  // cookies() in route handlers is sync in Next, but you’re already using await elsewhere—either works.
+  // Keep it simple here:
+  (cookieStore as any).set?.(COOKIE_NAME, householdId, {
+    path: "/",
+    httpOnly: true,
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+    maxAge: 60 * 60 * 24 * 365,
+  });
 }
 
 export async function GET() {
@@ -61,9 +49,31 @@ export async function GET() {
         role: m.role ?? "viewer",
       })) ?? [];
 
-    const active_household_id = await getActiveHouseholdId(supabase, user.id);
+    // If the user has no households, return a clear signal
+    if (!households.length) {
+      return NextResponse.json({ ok: true, households: [], active_household_id: null, needs_household: true });
+    }
 
-    return NextResponse.json({ ok: true, households, active_household_id });
+    // Resolve active household (cookie-first validated, then first membership)
+    const active_household_id = await resolveHouseholdIdRoute(supabase, user.id);
+
+    // If we resolved one, ensure cookie is set (cross-device reliability + less fallback work)
+    if (active_household_id) {
+      // only set if missing or different
+      const cookieStore = await cookies();
+      const current = cookieStore.get(COOKIE_NAME)?.value ?? null;
+      if (current !== active_household_id) {
+        cookieStore.set(COOKIE_NAME, active_household_id, {
+          path: "/",
+          httpOnly: true,
+          sameSite: "lax",
+          secure: process.env.NODE_ENV === "production",
+          maxAge: 60 * 60 * 24 * 365,
+        });
+      }
+    }
+
+    return NextResponse.json({ ok: true, households, active_household_id, needs_household: false });
   } catch (e: any) {
     return NextResponse.json({ ok: false, error: e?.message ?? "Households fetch failed" }, { status: 500 });
   }
@@ -88,6 +98,17 @@ export async function PATCH(req: Request) {
 
     if (!household_id) return NextResponse.json({ ok: false, error: "Missing household_id." }, { status: 400 });
     if (!name) return NextResponse.json({ ok: false, error: "Name is required." }, { status: 400 });
+
+    // Validate membership before allowing rename
+    const { data: mem, error: memErr } = await supabase
+      .from("household_members")
+      .select("id,role")
+      .eq("user_id", user.id)
+      .eq("household_id", household_id)
+      .limit(1);
+
+    if (memErr) throw memErr;
+    if (!mem?.length) return NextResponse.json({ ok: false, error: "Not a member of this household." }, { status: 403 });
 
     const { error } = await supabase.from("households").update({ name }).eq("id", household_id);
     if (error) throw error;
