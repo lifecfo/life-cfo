@@ -482,7 +482,6 @@ export default function BillsPage() {
   const VISIBLE_LIMIT = 5;
 
   const visibleBills = useMemo(() => filteredBills.slice(0, VISIBLE_LIMIT), [filteredBills]);
-
   const hiddenBillsCount = Math.max(0, filteredBills.length - visibleBills.length);
 
   async function addBill() {
@@ -759,342 +758,354 @@ export default function BillsPage() {
     </div>
   );
 
+  const cardClass = "border-zinc-200 bg-white";
+
   return (
     <Page title="Bills" subtitle="Inputs only. Keystone doesn’t guess — it only reminds." right={right}>
-      <div className="grid gap-4">
-        {/* Search bills (escape hatch) */}
-        <Card>
-          <CardContent>
-            <AssistedSearch scope="bills" placeholder="Search bills…" />
-          </CardContent>
-        </Card>
+      <div className="mx-auto w-full max-w-[860px] px-4 sm:px-6">
+        <div className="grid gap-4">
+          {/* Search bills (escape hatch) */}
+          <Card className={cardClass}>
+            <CardContent>
+              <AssistedSearch scope="bills" placeholder="Search bills…" />
+            </CardContent>
+          </Card>
 
-        {/* Summary + calm filters */}
-        <Card>
-          <CardContent>
-            <div className="flex items-center justify-between gap-3 flex-wrap">
-              <div className="flex items-center gap-2 flex-wrap">
-                <Badge>Active: {activeBills.length}</Badge>
-                <Badge>Due 7d: {due7.length}</Badge>
-                <Badge>Due 14d: {due14.length}</Badge>
-                <Badge>Autopay risk: {autopayRiskCount}</Badge>
-              </div>
-
-              <div className="flex items-center gap-2 flex-wrap">
-                {loading ? <Chip>Loading…</Chip> : <Chip>{bills.length} total</Chip>}
-                {error ? <Chip>{error}</Chip> : null}
-                {paymentsError ? <Chip>Receipts: {paymentsError}</Chip> : null}
-              </div>
-            </div>
-
-            <div className="mt-3 flex flex-wrap items-center gap-2">
-              <div className="text-xs text-zinc-500 mr-1">Filter</div>
-              <Chip active={!filter} onClick={() => applyFilter(null)} title="Show all">
-                All
-              </Chip>
-              <Chip active={filter === "due7"} onClick={() => applyFilter("due7")} title="Bills due in 7 days">
-                Due 7d
-              </Chip>
-              <Chip active={filter === "due14"} onClick={() => applyFilter("due14")} title="Bills due in 14 days">
-                Due 14d
-              </Chip>
-              <Chip active={filter === "autopay_risk"} onClick={() => applyFilter("autopay_risk")} title="Due soon and not autopay">
-                Autopay risk
-              </Chip>
-
-              {filterLabel ? (
-                <div className="ml-2 flex items-center gap-2">
-                  <span className="text-xs text-zinc-500">{filterLabel}</span>
-                  <Chip onClick={clearFilter} title="Clear filter">
-                    Clear
-                  </Chip>
-                </div>
-              ) : null}
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Quick add suggestions */}
-        <Card>
-          <CardContent>
-            <div className="flex items-center justify-between gap-3 flex-wrap">
-              <div className="font-semibold">Quick add</div>
-              <div className="text-sm opacity-70">Tap to prefill. You can still edit before saving.</div>
-            </div>
-
-            <div className="mt-3 flex flex-wrap gap-2">
-              {SUGGESTIONS.map((s) => (
-                <Chip key={s.label} onClick={() => applySuggestion(s)} title={`${s.cadence}${s.autopayDefault ? " • autopay" : ""}`}>
-                  {s.label}
-                </Chip>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Add bill form */}
-        <Card>
-          <CardContent>
-            <div className="font-semibold mb-2">Add recurring bill</div>
-
-            <div className="grid gap-3 md:grid-cols-6">
-              <div className="md:col-span-2">
-                <div className="text-sm mb-1 opacity-70">Name</div>
-                <input
-                  className="w-full rounded-md border px-3 py-2 bg-transparent"
-                  placeholder="Rent, Internet, Insurance…"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                />
-              </div>
-
-              <div>
-                <div className="text-sm mb-1 opacity-70">Amount (AUD)</div>
-                <input
-                  className="w-full rounded-md border px-3 py-2 bg-transparent"
-                  placeholder="e.g. $120.00"
-                  value={amount}
-                  onChange={(e) => setAmount(formatCurrencyInput(e.target.value))}
-                  inputMode="decimal"
-                />
-              </div>
-
-              <div>
-                <div className="text-sm mb-1 opacity-70">Cadence</div>
-                <select className="w-full rounded-md border px-3 py-2 bg-transparent" value={cadence} onChange={(e) => setCadence(e.target.value as Cadence)}>
-                  <option value="weekly">Weekly</option>
-                  <option value="fortnightly">Fortnightly</option>
-                  <option value="monthly">Monthly</option>
-                  <option value="yearly">Yearly</option>
-                </select>
-              </div>
-
-              <div className="md:col-span-2">
-                <div className="text-sm mb-1 opacity-70">Next due</div>
-                <input className="w-full rounded-md border px-3 py-2 bg-transparent" type="datetime-local" value={nextDueLocal} onChange={(e) => setNextDueLocal(e.target.value)} />
-              </div>
-
-              <div className="md:col-span-6 flex items-center justify-between gap-3 flex-wrap">
-                <div className="flex items-center gap-3">
-                  <label className="flex items-center gap-2 text-sm">
-                    <input type="checkbox" checked={autopay} onChange={(e) => setAutopay(e.target.checked)} />
-                    Autopay
-                  </label>
-
-                  <label className="flex items-center gap-2 text-sm">
-                    <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} />
-                    Active
-                  </label>
+          {/* Summary + calm filters */}
+          <Card className={cardClass}>
+            <CardContent>
+              <div className="flex items-center justify-between gap-3 flex-wrap">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <Badge>Active: {activeBills.length}</Badge>
+                  <Badge>Due 7d: {due7.length}</Badge>
+                  <Badge>Due 14d: {due14.length}</Badge>
+                  <Badge>Autopay risk: {autopayRiskCount}</Badge>
                 </div>
 
-                <Button disabled={saving || !userId} onClick={addBill}>
-                  {saving ? "Saving…" : "Add bill"}
-                </Button>
+                <div className="flex items-center gap-2 flex-wrap">
+                  {loading ? <Chip>Loading…</Chip> : <Chip>{bills.length} total</Chip>}
+                  {error ? <Chip>{error}</Chip> : null}
+                  {paymentsError ? <Chip>Receipts: {paymentsError}</Chip> : null}
+                </div>
               </div>
-            </div>
-          </CardContent>
-        </Card>
 
-        {/* Bills list */}
-        <Card>
-          <CardContent>
-            <div className="flex items-center justify-between gap-3 flex-wrap mb-2">
-              <div className="font-semibold">Your bills</div>
-              <div className="text-sm opacity-70">Mark paid writes a receipt and bumps the due date.</div>
-            </div>
-
-            <div className="grid gap-2">
-              {visibleBills.length === 0 ? (
-                <div className="opacity-70 text-sm">{bills.length === 0 ? "No bills yet." : "No bills match this filter."}</div>
-              ) : (
-                visibleBills.map((b) => {
-                  const editing = !!drafts[b.id];
-                  const d = drafts[b.id];
-                  const busyPaid = !!markingPaid[b.id];
-                  const lastPaid = lastPaymentByBillId[b.id];
-                  const risk = isAutopayRisk(b);
-
-                  return (
-                    <div key={b.id} className="rounded-lg border p-3">
-                      <div className="flex items-start justify-between gap-3 flex-wrap">
-                        <div className="min-w-[240px] flex-1">
-                          {!editing ? (
-                            <>
-                              <div className="font-semibold flex items-center gap-2 flex-wrap">
-                                {b.name}
-                                {b.active ? <Badge>Active</Badge> : <Badge>Paused</Badge>}
-                                {b.autopay ? <Chip>Autopay</Chip> : null}
-                                <Chip>{b.cadence}</Chip>
-                                {risk ? <Chip title="Due soon and not autopay">Risk</Chip> : null}
-                              </div>
-
-                              <div className="text-sm opacity-75 mt-1">
-                                {formatMoneyFromCents(b.amount_cents, b.currency)} • Next due {fmtDateTime(b.next_due_at)}
-                              </div>
-
-                              {lastPaid ? (
-                                <div className="text-xs text-zinc-600 mt-1">
-                                  Last paid {fmtDateTime(lastPaid.paid_at)} • {formatMoneyFromCents(lastPaid.amount_cents, lastPaid.currency)}
-                                </div>
-                              ) : (
-                                <div className="text-xs text-zinc-500 mt-1">No receipts yet.</div>
-                              )}
-                            </>
-                          ) : (
-                            <div className="grid gap-2 md:grid-cols-6">
-                              <div className="md:col-span-2">
-                                <div className="text-xs opacity-70 mb-1">Name</div>
-                                <input
-                                  className="w-full rounded-md border px-3 py-2 bg-transparent"
-                                  value={String(d?.name ?? "")}
-                                  onChange={(e) => setDrafts((prev) => ({ ...prev, [b.id]: { ...prev[b.id], name: e.target.value } }))}
-                                />
-                              </div>
-
-                              <div>
-                                <div className="text-xs opacity-70 mb-1">Amount</div>
-                                <input
-                                  className="w-full rounded-md border px-3 py-2 bg-transparent"
-                                  value={String(d?.amount_input ?? "")}
-                                  onChange={(e) =>
-                                    setDrafts((prev) => ({
-                                      ...prev,
-                                      [b.id]: { ...prev[b.id], amount_input: formatCurrencyInput(e.target.value) },
-                                    }))
-                                  }
-                                  inputMode="decimal"
-                                />
-                              </div>
-
-                              <div>
-                                <div className="text-xs opacity-70 mb-1">Cadence</div>
-                                <select
-                                  className="w-full rounded-md border px-3 py-2 bg-transparent"
-                                  value={(d?.cadence as Cadence) ?? b.cadence}
-                                  onChange={(e) => setDrafts((prev) => ({ ...prev, [b.id]: { ...prev[b.id], cadence: e.target.value as Cadence } }))}
-                                >
-                                  <option value="weekly">Weekly</option>
-                                  <option value="fortnightly">Fortnightly</option>
-                                  <option value="monthly">Monthly</option>
-                                  <option value="yearly">Yearly</option>
-                                </select>
-                              </div>
-
-                              <div className="md:col-span-2">
-                                <div className="text-xs opacity-70 mb-1">Next due</div>
-                                <input
-                                  className="w-full rounded-md border px-3 py-2 bg-transparent"
-                                  type="datetime-local"
-                                  value={String(d?.next_due_local ?? toLocalInputValue(b.next_due_at))}
-                                  onChange={(e) => setDrafts((prev) => ({ ...prev, [b.id]: { ...prev[b.id], next_due_local: e.target.value } }))}
-                                />
-                              </div>
-
-                              <div className="md:col-span-6 flex items-center gap-4 flex-wrap">
-                                <label className="flex items-center gap-2 text-sm">
-                                  <input
-                                    type="checkbox"
-                                    checked={!!d?.autopay}
-                                    onChange={(e) => setDrafts((prev) => ({ ...prev, [b.id]: { ...prev[b.id], autopay: e.target.checked } }))}
-                                  />
-                                  Autopay
-                                </label>
-
-                                <label className="flex items-center gap-2 text-sm">
-                                  <input
-                                    type="checkbox"
-                                    checked={!!d?.active}
-                                    onChange={(e) => setDrafts((prev) => ({ ...prev, [b.id]: { ...prev[b.id], active: e.target.checked } }))}
-                                  />
-                                  Active
-                                </label>
-                              </div>
-                            </div>
-                          )}
-                        </div>
-
-                        <div className="flex items-center gap-2 flex-wrap">
-                          {!editing ? (
-                            <>
-                              <Chip onClick={() => markPaidWithReceipt(b)} disabled={saving || !userId || busyPaid} title="Writes a receipt + bumps next due date">
-                                {busyPaid ? "Marking…" : "Mark paid"}
-                              </Chip>
-
-                              <Chip onClick={() => toggleActive(b)} disabled={saving} title={b.active ? "Pause bill" : "Activate bill"}>
-                                {b.active ? "Pause" : "Activate"}
-                              </Chip>
-
-                              <Chip onClick={() => beginEdit(b)} disabled={saving} title="Edit bill">
-                                Edit
-                              </Chip>
-                              <Chip
-                                onClick={() => deleteBill(b)}
-                                disabled={saving}
-                                title="Remove bill (undo available)"
-                                className="border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100"
-                              >
-                                Delete
-                              </Chip>
-                            </>
-                          ) : (
-                            <>
-                              <Chip onClick={() => saveEdit(b.id)} disabled={saving} title="Save changes">
-                                Save
-                              </Chip>
-                              <Chip onClick={() => cancelEdit(b.id)} disabled={saving} title="Cancel editing">
-                                Cancel
-                              </Chip>
-                            </>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })
-              )}
-            </div>
-
-            {hiddenBillsCount > 0 ? (
-              <div className="mt-2 text-xs text-zinc-500">{hiddenBillsCount} more hidden — use search to find anything.</div>
-            ) : null}
-          </CardContent>
-        </Card>
-
-        {/* Receipts moved to the bottom (quiet) */}
-        <Card>
-          <CardContent>
-            <div className="flex items-center justify-between gap-3 flex-wrap">
-              <div className="font-semibold">Receipts</div>
-              <div className="flex items-center gap-2">
-                <Chip onClick={() => setReceiptsOpen((v) => !v)} title="Show more or less">
-                  {receiptsOpen ? "Show less" : "Show more"}
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <div className="text-xs text-zinc-500 mr-1">Filter</div>
+                <Chip active={!filter} onClick={() => applyFilter(null)} title="Show all">
+                  All
                 </Chip>
-              </div>
-            </div>
+                <Chip active={filter === "due7"} onClick={() => applyFilter("due7")} title="Bills due in 7 days">
+                  Due 7d
+                </Chip>
+                <Chip active={filter === "due14"} onClick={() => applyFilter("due14")} title="Bills due in 14 days">
+                  Due 14d
+                </Chip>
+                <Chip active={filter === "autopay_risk"} onClick={() => applyFilter("autopay_risk")} title="Due soon and not autopay">
+                  Autopay risk
+                </Chip>
 
-            <div className="mt-1 text-sm opacity-70">A tiny trail — just enough to prove what happened.</div>
-
-            {recentReceipts.length === 0 ? (
-              <div className="mt-2 text-sm text-zinc-600">No receipts yet. Mark a bill paid to create one.</div>
-            ) : (
-              <div className="mt-3 grid gap-2">
-                {recentReceipts.map((p) => (
-                  <div key={p.id} className="rounded-lg border p-3">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div className="font-semibold">
-                        {billNameById[p.bill_id] ?? "Bill"} • {formatMoneyFromCents(p.amount_cents, p.currency)}
-                      </div>
-                      <div className="text-xs text-zinc-500">{fmtDateTime(p.paid_at)}</div>
-                    </div>
-                    <div className="mt-1 text-xs text-zinc-600">
-                      {p.note ? p.note : "—"} • source: {p.source}
-                    </div>
+                {filterLabel ? (
+                  <div className="ml-2 flex items-center gap-2">
+                    <span className="text-xs text-zinc-500">{filterLabel}</span>
+                    <Chip onClick={clearFilter} title="Clear filter">
+                      Clear
+                    </Chip>
                   </div>
+                ) : null}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Quick add suggestions */}
+          <Card className={cardClass}>
+            <CardContent>
+              <div className="flex items-center justify-between gap-3 flex-wrap">
+                <div className="text-sm font-semibold text-zinc-900">Quick add</div>
+                <div className="text-xs text-zinc-500">Tap to prefill. You can still edit before saving.</div>
+              </div>
+
+              <div className="mt-3 flex flex-wrap gap-2">
+                {SUGGESTIONS.map((s) => (
+                  <Chip key={s.label} onClick={() => applySuggestion(s)} title={`${s.cadence}${s.autopayDefault ? " • autopay" : ""}`}>
+                    {s.label}
+                  </Chip>
                 ))}
               </div>
-            )}
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+
+          {/* Add bill form */}
+          <Card className={cardClass}>
+            <CardContent>
+              <div className="text-sm font-semibold text-zinc-900 mb-2">Add recurring bill</div>
+
+              <div className="grid gap-3 md:grid-cols-6">
+                <div className="md:col-span-2">
+                  <div className="text-xs text-zinc-500 mb-1">Name</div>
+                  <input
+                    className="w-full rounded-xl border border-zinc-200 px-3 py-2 bg-transparent text-sm"
+                    placeholder="Rent, Internet, Insurance…"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                  />
+                </div>
+
+                <div>
+                  <div className="text-xs text-zinc-500 mb-1">Amount (AUD)</div>
+                  <input
+                    className="w-full rounded-xl border border-zinc-200 px-3 py-2 bg-transparent text-sm"
+                    placeholder="e.g. $120.00"
+                    value={amount}
+                    onChange={(e) => setAmount(formatCurrencyInput(e.target.value))}
+                    inputMode="decimal"
+                  />
+                </div>
+
+                <div>
+                  <div className="text-xs text-zinc-500 mb-1">Cadence</div>
+                  <select
+                    className="w-full rounded-xl border border-zinc-200 px-3 py-2 bg-transparent text-sm"
+                    value={cadence}
+                    onChange={(e) => setCadence(e.target.value as Cadence)}
+                  >
+                    <option value="weekly">Weekly</option>
+                    <option value="fortnightly">Fortnightly</option>
+                    <option value="monthly">Monthly</option>
+                    <option value="yearly">Yearly</option>
+                  </select>
+                </div>
+
+                <div className="md:col-span-2">
+                  <div className="text-xs text-zinc-500 mb-1">Next due</div>
+                  <input
+                    className="w-full rounded-xl border border-zinc-200 px-3 py-2 bg-transparent text-sm"
+                    type="datetime-local"
+                    value={nextDueLocal}
+                    onChange={(e) => setNextDueLocal(e.target.value)}
+                  />
+                </div>
+
+                <div className="md:col-span-6 flex items-center justify-between gap-3 flex-wrap">
+                  <div className="flex items-center gap-4">
+                    <label className="flex items-center gap-2 text-sm text-zinc-700">
+                      <input type="checkbox" checked={autopay} onChange={(e) => setAutopay(e.target.checked)} />
+                      Autopay
+                    </label>
+
+                    <label className="flex items-center gap-2 text-sm text-zinc-700">
+                      <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} />
+                      Active
+                    </label>
+                  </div>
+
+                  <Button disabled={saving || !userId} onClick={addBill}>
+                    {saving ? "Saving…" : "Add bill"}
+                  </Button>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Bills list */}
+          <Card className={cardClass}>
+            <CardContent>
+              <div className="flex items-center justify-between gap-3 flex-wrap mb-2">
+                <div className="text-sm font-semibold text-zinc-900">Your bills</div>
+                <div className="text-xs text-zinc-500">Mark paid writes a receipt and bumps the due date.</div>
+              </div>
+
+              <div className="grid gap-2">
+                {visibleBills.length === 0 ? (
+                  <div className="text-sm text-zinc-600">{bills.length === 0 ? "No bills yet." : "No bills match this filter."}</div>
+                ) : (
+                  visibleBills.map((b) => {
+                    const editing = !!drafts[b.id];
+                    const d = drafts[b.id];
+                    const busyPaid = !!markingPaid[b.id];
+                    const lastPaid = lastPaymentByBillId[b.id];
+                    const risk = isAutopayRisk(b);
+
+                    return (
+                      <div key={b.id} className="rounded-xl border border-zinc-200 p-3">
+                        <div className="flex items-start justify-between gap-3 flex-wrap">
+                          <div className="min-w-[240px] flex-1">
+                            {!editing ? (
+                              <>
+                                <div className="font-semibold text-zinc-900 flex items-center gap-2 flex-wrap">
+                                  {b.name}
+                                  {b.active ? <Badge>Active</Badge> : <Badge>Paused</Badge>}
+                                  {b.autopay ? <Chip>Autopay</Chip> : null}
+                                  <Chip>{b.cadence}</Chip>
+                                  {risk ? <Chip title="Due soon and not autopay">Risk</Chip> : null}
+                                </div>
+
+                                <div className="text-sm text-zinc-700 mt-1">
+                                  {formatMoneyFromCents(b.amount_cents, b.currency)} • Next due {fmtDateTime(b.next_due_at)}
+                                </div>
+
+                                {lastPaid ? (
+                                  <div className="text-xs text-zinc-500 mt-1">
+                                    Last paid {fmtDateTime(lastPaid.paid_at)} • {formatMoneyFromCents(lastPaid.amount_cents, lastPaid.currency)}
+                                  </div>
+                                ) : (
+                                  <div className="text-xs text-zinc-500 mt-1">No receipts yet.</div>
+                                )}
+                              </>
+                            ) : (
+                              <div className="grid gap-2 md:grid-cols-6">
+                                <div className="md:col-span-2">
+                                  <div className="text-xs text-zinc-500 mb-1">Name</div>
+                                  <input
+                                    className="w-full rounded-xl border border-zinc-200 px-3 py-2 bg-transparent text-sm"
+                                    value={String(d?.name ?? "")}
+                                    onChange={(e) => setDrafts((prev) => ({ ...prev, [b.id]: { ...prev[b.id], name: e.target.value } }))}
+                                  />
+                                </div>
+
+                                <div>
+                                  <div className="text-xs text-zinc-500 mb-1">Amount</div>
+                                  <input
+                                    className="w-full rounded-xl border border-zinc-200 px-3 py-2 bg-transparent text-sm"
+                                    value={String(d?.amount_input ?? "")}
+                                    onChange={(e) =>
+                                      setDrafts((prev) => ({
+                                        ...prev,
+                                        [b.id]: { ...prev[b.id], amount_input: formatCurrencyInput(e.target.value) },
+                                      }))
+                                    }
+                                    inputMode="decimal"
+                                  />
+                                </div>
+
+                                <div>
+                                  <div className="text-xs text-zinc-500 mb-1">Cadence</div>
+                                  <select
+                                    className="w-full rounded-xl border border-zinc-200 px-3 py-2 bg-transparent text-sm"
+                                    value={(d?.cadence as Cadence) ?? b.cadence}
+                                    onChange={(e) => setDrafts((prev) => ({ ...prev, [b.id]: { ...prev[b.id], cadence: e.target.value as Cadence } }))}
+                                  >
+                                    <option value="weekly">Weekly</option>
+                                    <option value="fortnightly">Fortnightly</option>
+                                    <option value="monthly">Monthly</option>
+                                    <option value="yearly">Yearly</option>
+                                  </select>
+                                </div>
+
+                                <div className="md:col-span-2">
+                                  <div className="text-xs text-zinc-500 mb-1">Next due</div>
+                                  <input
+                                    className="w-full rounded-xl border border-zinc-200 px-3 py-2 bg-transparent text-sm"
+                                    type="datetime-local"
+                                    value={String(d?.next_due_local ?? toLocalInputValue(b.next_due_at))}
+                                    onChange={(e) => setDrafts((prev) => ({ ...prev, [b.id]: { ...prev[b.id], next_due_local: e.target.value } }))}
+                                  />
+                                </div>
+
+                                <div className="md:col-span-6 flex items-center gap-4 flex-wrap">
+                                  <label className="flex items-center gap-2 text-sm text-zinc-700">
+                                    <input
+                                      type="checkbox"
+                                      checked={!!d?.autopay}
+                                      onChange={(e) => setDrafts((prev) => ({ ...prev, [b.id]: { ...prev[b.id], autopay: e.target.checked } }))}
+                                    />
+                                    Autopay
+                                  </label>
+
+                                  <label className="flex items-center gap-2 text-sm text-zinc-700">
+                                    <input
+                                      type="checkbox"
+                                      checked={!!d?.active}
+                                      onChange={(e) => setDrafts((prev) => ({ ...prev, [b.id]: { ...prev[b.id], active: e.target.checked } }))}
+                                    />
+                                    Active
+                                  </label>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="flex items-center gap-2 flex-wrap">
+                            {!editing ? (
+                              <>
+                                <Chip onClick={() => markPaidWithReceipt(b)} disabled={saving || !userId || busyPaid} title="Writes a receipt + bumps next due date">
+                                  {busyPaid ? "Marking…" : "Mark paid"}
+                                </Chip>
+
+                                <Chip onClick={() => toggleActive(b)} disabled={saving} title={b.active ? "Pause bill" : "Activate bill"}>
+                                  {b.active ? "Pause" : "Activate"}
+                                </Chip>
+
+                                <Chip onClick={() => beginEdit(b)} disabled={saving} title="Edit bill">
+                                  Edit
+                                </Chip>
+
+                                <Chip
+                                  onClick={() => deleteBill(b)}
+                                  disabled={saving}
+                                  title="Remove bill (undo available)"
+                                  className="border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100"
+                                >
+                                  Delete
+                                </Chip>
+                              </>
+                            ) : (
+                              <>
+                                <Chip onClick={() => saveEdit(b.id)} disabled={saving} title="Save changes">
+                                  Save
+                                </Chip>
+                                <Chip onClick={() => cancelEdit(b.id)} disabled={saving} title="Cancel editing">
+                                  Cancel
+                                </Chip>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+
+              {hiddenBillsCount > 0 ? <div className="mt-2 text-xs text-zinc-500">{hiddenBillsCount} more hidden — use search to find anything.</div> : null}
+            </CardContent>
+          </Card>
+
+          {/* Receipts moved to the bottom (quiet) */}
+          <Card className={cardClass}>
+            <CardContent>
+              <div className="flex items-center justify-between gap-3 flex-wrap">
+                <div className="text-sm font-semibold text-zinc-900">Receipts</div>
+                <div className="flex items-center gap-2">
+                  <Chip onClick={() => setReceiptsOpen((v) => !v)} title="Show more or less">
+                    {receiptsOpen ? "Show less" : "Show more"}
+                  </Chip>
+                </div>
+              </div>
+
+              <div className="mt-1 text-xs text-zinc-500">A tiny trail — just enough to prove what happened.</div>
+
+              {recentReceipts.length === 0 ? (
+                <div className="mt-2 text-sm text-zinc-600">No receipts yet. Mark a bill paid to create one.</div>
+              ) : (
+                <div className="mt-3 grid gap-2">
+                  {recentReceipts.map((p) => (
+                    <div key={p.id} className="rounded-xl border border-zinc-200 p-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="font-semibold text-zinc-900">
+                          {billNameById[p.bill_id] ?? "Bill"} • {formatMoneyFromCents(p.amount_cents, p.currency)}
+                        </div>
+                        <div className="text-xs text-zinc-500">{fmtDateTime(p.paid_at)}</div>
+                      </div>
+                      <div className="mt-1 text-xs text-zinc-500">
+                        {p.note ? p.note : "—"} • source: {p.source}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
       </div>
     </Page>
   );

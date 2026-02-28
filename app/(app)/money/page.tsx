@@ -170,146 +170,149 @@ export default function MoneyClient() {
     }
   };
 
+  const cardClass = "border-zinc-200 bg-white";
+
   return (
     <Page title="Money" subtitle="A calm view of your accounts and activity.">
-      {/* Top actions */}
-      <div className="flex flex-wrap items-center gap-2">
-        <Chip title="Connect accounts (provider layer next)" onClick={() => void connectAccounts()}>
-          {connecting ? "Connecting…" : "Connect accounts"}
-        </Chip>
+      <div className="mx-auto w-full max-w-[860px] px-4 sm:px-6">
+        {/* Toolbar */}
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <Chip title="Connect accounts (provider layer next)" onClick={() => void connectAccounts()}>
+              {connecting ? "Connecting…" : "Connect accounts"}
+            </Chip>
 
-        <Link href="/connections">
-          <Chip>Connections</Chip>
-        </Link>
+            <Link href="/connections">
+              <Chip>Connections</Chip>
+            </Link>
+          </div>
 
-        <Link href="/accounts">
-          <Chip>All accounts</Chip>
-        </Link>
+          <div className="flex flex-wrap items-center gap-2">
+            <Link href="/accounts">
+              <Chip>Accounts</Chip>
+            </Link>
+            <Link href="/transactions">
+              <Chip>Transactions</Chip>
+            </Link>
+          </div>
+        </div>
 
-        <Link href="/transactions">
-          <Chip>All transactions</Chip>
-        </Link>
-      </div>
+        <div className="mt-5 grid gap-4">
+          {/* Totals */}
+          <Card className={cardClass}>
+            <CardContent>
+              <div className="text-sm font-semibold text-zinc-900">Total balance</div>
+              <div className="mt-0.5 text-xs text-zinc-500">Across active accounts</div>
 
-      {/* Totals */}
-      <div className="mt-4">
-        <Card className="border-zinc-200 bg-white">
-          <CardContent>
-            <div className="text-sm font-semibold text-zinc-900">Total balance</div>
-            <div className="mt-1 text-xs text-zinc-500">Across active accounts</div>
-
-            <div className="mt-3 space-y-1">
-              {Array.from(totalBalance.entries()).length === 0 ? (
-                <div className="text-sm text-zinc-600">{loading ? "Loading…" : "No accounts yet."}</div>
-              ) : (
-                Array.from(totalBalance.entries()).map(([cur, cents]) => (
-                  <div key={cur} className="text-lg font-semibold text-zinc-900">
-                    {moneyFromCents(cents, cur)}
-                  </div>
-                ))
-              )}
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Accounts preview */}
-      <div className="mt-4">
-        <Card className="border-zinc-200 bg-white">
-          <CardContent>
-            <div className="flex items-center justify-between gap-3">
-              <div className="min-w-0">
-                <div className="text-sm font-semibold text-zinc-900">Accounts</div>
-                <div className="mt-0.5 text-xs text-zinc-500">
-                  {loading ? "Loading…" : accounts.length ? "Most recent accounts" : "No accounts yet."}
-                </div>
+              <div className="mt-3 space-y-1">
+                {Array.from(totalBalance.entries()).length === 0 ? (
+                  <div className="text-sm text-zinc-600">{loading ? "Loading…" : "No accounts yet."}</div>
+                ) : (
+                  Array.from(totalBalance.entries()).map(([cur, cents]) => (
+                    <div key={cur} className="text-lg font-semibold text-zinc-900">
+                      {moneyFromCents(cents, cur)}
+                    </div>
+                  ))
+                )}
               </div>
-              <Link href="/accounts">
-                <Chip>View</Chip>
-              </Link>
-            </div>
+            </CardContent>
+          </Card>
 
-            <div className="mt-3 divide-y divide-zinc-100">
-              {(accounts ?? [])
-                .filter((a) => !a.archived)
-                .slice(0, 5)
-                .map((a) => {
-                  const cur = safeStr(a.currency) || "AUD";
-                  const cents = typeof a.current_balance_cents === "number" ? a.current_balance_cents : 0;
-                  return (
-                    <div key={a.id} className="flex items-center justify-between gap-3 py-3">
-                      <div className="min-w-0">
-                        <div className="truncate text-sm font-medium text-zinc-900">{safeStr(a.name) || "Untitled account"}</div>
-                        <div className="truncate text-xs text-zinc-500">
-                          {[safeStr(a.provider) || "Manual", a.updated_at ? `Updated ${softDate(a.updated_at)}` : null]
-                            .filter(Boolean)
-                            .join(" • ")}
+          {/* Accounts preview */}
+          <Card className={cardClass}>
+            <CardContent>
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="text-sm font-semibold text-zinc-900">Accounts</div>
+                  <div className="mt-0.5 text-xs text-zinc-500">
+                    {loading ? "Loading…" : accounts.length ? "Most recent accounts" : "No accounts yet."}
+                  </div>
+                </div>
+                <Link href="/accounts">
+                  <Chip>View</Chip>
+                </Link>
+              </div>
+
+              <div className="mt-3 divide-y divide-zinc-100">
+                {(accounts ?? [])
+                  .filter((a) => !a.archived)
+                  .slice(0, 5)
+                  .map((a) => {
+                    const cur = safeStr(a.currency) || "AUD";
+                    const cents = typeof a.current_balance_cents === "number" ? a.current_balance_cents : 0;
+                    return (
+                      <div key={a.id} className="flex items-center justify-between gap-3 py-3">
+                        <div className="min-w-0">
+                          <div className="truncate text-sm font-medium text-zinc-900">{safeStr(a.name) || "Untitled account"}</div>
+                          <div className="truncate text-xs text-zinc-500">
+                            {[safeStr(a.provider) || "Manual", a.updated_at ? `Updated ${softDate(a.updated_at)}` : null]
+                              .filter(Boolean)
+                              .join(" • ")}
+                          </div>
                         </div>
+                        <div className="shrink-0 text-sm font-semibold text-zinc-900">{moneyFromCents(cents, cur)}</div>
                       </div>
-                      <div className="shrink-0 text-sm font-semibold text-zinc-900">{moneyFromCents(cents, cur)}</div>
+                    );
+                  })}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Transactions preview */}
+          <Card className={cardClass}>
+            <CardContent>
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="text-sm font-semibold text-zinc-900">Recent activity</div>
+                  <div className="mt-0.5 text-xs text-zinc-500">{loading ? "Loading…" : tx.length ? "Latest transactions" : "No transactions yet."}</div>
+                </div>
+                <Link href="/transactions">
+                  <Chip>View</Chip>
+                </Link>
+              </div>
+
+              <div className="mt-3 flex items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2">
+                <input
+                  value={q}
+                  onChange={(e) => setQ(e.target.value)}
+                  placeholder="Search transactions…"
+                  className="w-full bg-transparent text-sm text-zinc-900 outline-none placeholder:text-zinc-400"
+                />
+                <span className="select-none text-xs text-zinc-400">⌘K</span>
+              </div>
+
+              <div className="mt-3 divide-y divide-zinc-100">
+                {(filteredTx ?? []).slice(0, 8).map((t) => {
+                  const cur = safeStr(t.currency) || "AUD";
+
+                  const amountText =
+                    typeof t.amount_cents === "number"
+                      ? moneyFromCents(t.amount_cents, cur)
+                      : typeof t.amount === "number"
+                      ? moneyFromAmount(t.amount, cur)
+                      : `${cur} 0.00`;
+
+                  const title = safeStr(t.merchant) || safeStr(t.description) || "Transaction";
+                  const meta = [t.date ? softDate(t.date) : null, safeStr(t.category) || null, t.pending ? "Pending" : null]
+                    .filter(Boolean)
+                    .join(" • ");
+
+                  return (
+                    <div key={t.id} className="flex items-center justify-between gap-3 py-3">
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-medium text-zinc-900">{title}</div>
+                        <div className="truncate text-xs text-zinc-500">{meta}</div>
+                      </div>
+                      <div className="shrink-0 text-sm font-semibold text-zinc-900">{amountText}</div>
                     </div>
                   );
                 })}
-            </div>
-          </CardContent>
-        </Card>
-      </div>
 
-      {/* Transactions preview */}
-      <div className="mt-4">
-        <Card className="border-zinc-200 bg-white">
-          <CardContent>
-            <div className="flex items-center justify-between gap-3">
-              <div className="min-w-0">
-                <div className="text-sm font-semibold text-zinc-900">Recent activity</div>
-                <div className="mt-0.5 text-xs text-zinc-500">{loading ? "Loading…" : tx.length ? "Latest transactions" : "No transactions yet."}</div>
+                {!loading && filteredTx.length === 0 ? <div className="py-3 text-sm text-zinc-500">No matches.</div> : null}
               </div>
-              <Link href="/transactions">
-                <Chip>View</Chip>
-              </Link>
-            </div>
-
-            <div className="mt-3 flex items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2">
-              <input
-                value={q}
-                onChange={(e) => setQ(e.target.value)}
-                placeholder="Search transactions…"
-                className="w-full bg-transparent text-sm text-zinc-900 outline-none placeholder:text-zinc-400"
-              />
-              <span className="text-xs text-zinc-400">⌘K</span>
-            </div>
-
-            <div className="mt-3 divide-y divide-zinc-100">
-              {(filteredTx ?? []).slice(0, 8).map((t) => {
-                const cur = safeStr(t.currency) || "AUD";
-
-                const amountText =
-                  typeof t.amount_cents === "number"
-                    ? moneyFromCents(t.amount_cents, cur)
-                    : typeof t.amount === "number"
-                    ? moneyFromAmount(t.amount, cur)
-                    : `${cur} 0.00`;
-
-                const title = safeStr(t.merchant) || safeStr(t.description) || "Transaction";
-                const meta = [t.date ? softDate(t.date) : null, safeStr(t.category) || null, t.pending ? "Pending" : null]
-                  .filter(Boolean)
-                  .join(" • ");
-
-                return (
-                  <div key={t.id} className="flex items-center justify-between gap-3 py-3">
-                    <div className="min-w-0">
-                      <div className="truncate text-sm font-medium text-zinc-900">{title}</div>
-                      <div className="truncate text-xs text-zinc-500">{meta}</div>
-                    </div>
-                    <div className="shrink-0 text-sm font-semibold text-zinc-900">{amountText}</div>
-                  </div>
-                );
-              })}
-
-              {!loading && filteredTx.length === 0 ? <div className="py-3 text-sm text-zinc-500">No matches.</div> : null}
-            </div>
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+        </div>
       </div>
     </Page>
   );

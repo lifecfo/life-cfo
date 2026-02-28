@@ -63,15 +63,7 @@ export default function AccountsPage() {
     if (!query) return accounts;
 
     return accounts.filter((a) => {
-      const hay = [
-        safeStr(a.name),
-        safeStr(a.provider),
-        safeStr(a.type),
-        safeStr(a.status),
-      ]
-        .join(" ")
-        .toLowerCase();
-
+      const hay = [safeStr(a.name), safeStr(a.provider), safeStr(a.type), safeStr(a.status)].join(" ").toLowerCase();
       return hay.includes(query);
     });
   }, [accounts, q]);
@@ -82,9 +74,7 @@ export default function AccountsPage() {
     (async () => {
       setLoading(true);
       try {
-        const data = await fetchJson<{ ok: boolean; accounts: AccountRow[] }>(
-          "/api/money/accounts"
-        );
+        const data = await fetchJson<{ ok: boolean; accounts: AccountRow[] }>("/api/money/accounts");
 
         if (!alive) return;
         setAccounts(data.accounts ?? []);
@@ -102,93 +92,75 @@ export default function AccountsPage() {
     };
   }, [showToast]);
 
+  const cardClass = "border-zinc-200 bg-white";
+
   return (
     <Page title="Accounts" subtitle="Your active accounts.">
-      {/* Top actions */}
-      <div className="flex flex-wrap items-center gap-2">
-        <Link href="/money">
-          <Chip>Back to Money</Chip>
-        </Link>
+      <div className="mx-auto w-full max-w-[860px] px-4 sm:px-6">
+        {/* Toolbar */}
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <Link href="/money">
+              <Chip>Back to Money</Chip>
+            </Link>
+          </div>
 
-        <Link href="/connections">
-          <Chip>Manage connections</Chip>
-        </Link>
-      </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Link href="/connections">
+              <Chip>Manage connections</Chip>
+            </Link>
+          </div>
+        </div>
 
-      <div className="mt-4">
-        <Card className="border-zinc-200 bg-white">
-          <CardContent>
-            <div className="flex items-center justify-between gap-3">
-              <div className="min-w-0">
-                <div className="text-sm font-semibold text-zinc-900">
-                  Accounts
-                </div>
-                <div className="mt-0.5 text-xs text-zinc-500">
-                  {loading
-                    ? "Loading…"
-                    : accounts.length
-                    ? "All active accounts"
-                    : "No accounts yet."}
+        <div className="mt-5 grid gap-4">
+          <Card className={cardClass}>
+            <CardContent>
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="text-sm font-semibold text-zinc-900">Accounts</div>
+                  <div className="mt-0.5 text-xs text-zinc-500">
+                    {loading ? "Loading…" : accounts.length ? "All active accounts" : "No accounts yet."}
+                  </div>
                 </div>
               </div>
-            </div>
 
-            <div className="mt-3 flex items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2">
-              <input
-                value={q}
-                onChange={(e) => setQ(e.target.value)}
-                placeholder="Search accounts…"
-                className="w-full bg-transparent text-sm text-zinc-900 outline-none placeholder:text-zinc-400"
-              />
-            </div>
+              <div className="mt-3 flex items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2">
+                <input
+                  value={q}
+                  onChange={(e) => setQ(e.target.value)}
+                  placeholder="Search accounts…"
+                  className="w-full bg-transparent text-sm text-zinc-900 outline-none placeholder:text-zinc-400"
+                />
+              </div>
 
-            <div className="mt-3 divide-y divide-zinc-100">
-              {filtered
-                .filter((a) => !a.archived)
-                .map((a) => {
-                  const cur = safeStr(a.currency) || "AUD";
-                  const cents =
-                    typeof a.current_balance_cents === "number"
-                      ? a.current_balance_cents
-                      : 0;
+              <div className="mt-3 divide-y divide-zinc-100">
+                {filtered
+                  .filter((a) => !a.archived)
+                  .map((a) => {
+                    const cur = safeStr(a.currency) || "AUD";
+                    const cents = typeof a.current_balance_cents === "number" ? a.current_balance_cents : 0;
 
-                  return (
-                    <div
-                      key={a.id}
-                      className="flex items-center justify-between gap-3 py-3"
-                    >
-                      <div className="min-w-0">
-                        <div className="truncate text-sm font-medium text-zinc-900">
-                          {safeStr(a.name) || "Untitled account"}
+                    return (
+                      <div key={a.id} className="flex items-center justify-between gap-3 py-3">
+                        <div className="min-w-0">
+                          <div className="truncate text-sm font-medium text-zinc-900">{safeStr(a.name) || "Untitled account"}</div>
+                          <div className="truncate text-xs text-zinc-500">
+                            {[safeStr(a.provider) || "Manual", safeStr(a.type) || null, a.updated_at ? `Updated ${softDate(a.updated_at)}` : null]
+                              .filter(Boolean)
+                              .join(" • ")}
+                          </div>
                         </div>
-                        <div className="truncate text-xs text-zinc-500">
-                          {[
-                            safeStr(a.provider) || "Manual",
-                            safeStr(a.type) || null,
-                            a.updated_at
-                              ? `Updated ${softDate(a.updated_at)}`
-                              : null,
-                          ]
-                            .filter(Boolean)
-                            .join(" • ")}
-                        </div>
-                      </div>
 
-                      <div className="shrink-0 text-sm font-semibold text-zinc-900">
-                        {moneyFromCents(cents, cur)}
+                        <div className="shrink-0 text-sm font-semibold text-zinc-900">{moneyFromCents(cents, cur)}</div>
                       </div>
-                    </div>
-                  );
-                })}
+                    );
+                  })}
 
-              {!loading && filtered.length === 0 ? (
-                <div className="py-3 text-sm text-zinc-500">
-                  No matches.
-                </div>
-              ) : null}
-            </div>
-          </CardContent>
-        </Card>
+                {!loading && filtered.length === 0 ? <div className="py-3 text-sm text-zinc-500">No matches.</div> : null}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
       </div>
     </Page>
   );
