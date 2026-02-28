@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { Page } from "@/components/Page";
 import { Card, CardContent, Button, Chip, Badge, useToast } from "@/components/ui";
@@ -9,13 +9,16 @@ type Cadence = "weekly" | "fortnightly" | "monthly" | "yearly";
 
 type RecurringIncome = {
   id: string;
-  user_id: string;
+  household_id: string;
+  user_id: string; // audit/creator
+
   name: string;
   amount_cents: number;
   currency: string;
   cadence: Cadence;
   next_pay_at: string;
   active: boolean;
+
   created_at: string;
   updated_at: string;
 };
@@ -78,6 +81,20 @@ function cadenceLabel(c: Cadence) {
   return c;
 }
 
+async function fetchJson<T>(url: string): Promise<T> {
+  const res = await fetch(url, { cache: "no-store" });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error((json as any)?.error ?? "Request failed");
+  return json as T;
+}
+
+async function resolveActiveHouseholdId(): Promise<string> {
+  // Reuse money API: already cookie/fallback household logic
+  const data = await fetchJson<{ ok: boolean; household_id: string }>("/api/money/accounts");
+  if (!data?.household_id) throw new Error("User not linked to a household.");
+  return data.household_id;
+}
+
 /* ---------- page ---------- */
 
 export const dynamic = "force-dynamic";
@@ -86,6 +103,8 @@ export default function IncomePage() {
   const { showToast } = useToast();
 
   const [userId, setUserId] = useState<string | null>(null);
+  const [householdId, setHouseholdId] = useState<string | null>(null);
+
   const [items, setItems] = useState<RecurringIncome[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -105,18 +124,15 @@ export default function IncomePage() {
   });
   const [active, setActive] = useState(true);
 
-  /* inline edit drafts */
-  const [drafts, setDrafts] = useState<Record<string, any>>({});
-
   /* ---------- load ---------- */
 
-  async function loadIncome(uid: string, silent = false) {
+  async function loadIncome(hid: string, silent = false) {
     if (!silent) setError(null);
 
     const { data, error } = await supabase
       .from("recurring_income")
       .select("*")
-      .eq("user_id", uid)
+      .eq("household_id", hid)
       .order("active", { ascending: false })
       .order("next_pay_at", { ascending: true });
 
@@ -130,8 +146,8 @@ export default function IncomePage() {
 
   useEffect(() => {
     (async () => {
-      const { data, error } = await supabase.auth.getUser();
-      if (error || !data.user) {
+      const { data, error: authErr } = await supabase.auth.getUser();
+      if (authErr || !data.user) {
         setError("Not signed in.");
         setLoading(false);
         setLiveStatus("offline");
@@ -139,39 +155,49 @@ export default function IncomePage() {
       }
 
       setUserId(data.user.id);
-      await loadIncome(data.user.id);
-      setLoading(false);
+
+      try {
+        const hid = await resolveActiveHouseholdId();
+        setHouseholdId(hid);
+        await loadIncome(hid);
+      } catch (e: any) {
+        setError(e?.message ?? "Failed to load Income.");
+        setLiveStatus("offline");
+      } finally {
+        setLoading(false);
+      }
     })();
   }, []);
 
   /* realtime */
   useEffect(() => {
-    if (!userId) return;
+    if (!householdId) return;
 
     setLiveStatus("connecting");
 
     const channel = supabase
-      .channel(`income-${userId}`)
+      .channel(`income_household_${householdId}`)
       .on(
         "postgres_changes",
-        { event: "*", schema: "public", table: "recurring_income", filter: `user_id=eq.${userId}` },
-        () => loadIncome(userId, true)
+        { event: "*", schema: "public", table: "recurring_income", filter: `household_id=eq.${householdId}` },
+        () => loadIncome(householdId, true)
       )
       .subscribe((status) => {
         if (status === "SUBSCRIBED") setLiveStatus("live");
-        else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") setLiveStatus("offline");
+        else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") setLiveStatus("offline");
+        else setLiveStatus("connecting");
       });
 
     return () => {
       supabase.removeChannel(channel);
       setLiveStatus("offline");
     };
-  }, [userId]);
+  }, [householdId]);
 
   /* ---------- actions ---------- */
 
   async function addIncome() {
-    if (!userId || !name.trim()) {
+    if (!userId || !householdId || !name.trim()) {
       showToast({ message: "Please enter an income name." });
       return;
     }
@@ -179,7 +205,8 @@ export default function IncomePage() {
     setSaving(true);
     try {
       const payload = {
-        user_id: userId,
+        household_id: householdId,
+        user_id: userId, // audit/creator
         name: name.trim(),
         amount_cents: centsFromInput(amount),
         currency: "AUD",
@@ -197,7 +224,7 @@ export default function IncomePage() {
       setActive(true);
 
       showToast({ message: "Income added." });
-      await loadIncome(userId, true);
+      await loadIncome(householdId, true);
     } catch (e: any) {
       showToast({ message: e?.message ?? "Failed to add income." });
     } finally {
@@ -206,7 +233,7 @@ export default function IncomePage() {
   }
 
   async function toggleActive(i: RecurringIncome) {
-    if (!userId) return;
+    if (!householdId) return;
     const next = !i.active;
 
     setItems((prev) => prev.map((x) => (x.id === i.id ? { ...x, active: next } : x)));
@@ -215,7 +242,7 @@ export default function IncomePage() {
       .from("recurring_income")
       .update({ active: next })
       .eq("id", i.id)
-      .eq("user_id", userId);
+      .eq("household_id", householdId);
 
     if (error) {
       setItems((prev) => prev.map((x) => (x.id === i.id ? { ...x, active: i.active } : x)));
@@ -224,7 +251,7 @@ export default function IncomePage() {
   }
 
   async function deleteIncome(i: RecurringIncome) {
-    if (!userId) return;
+    if (!householdId) return;
 
     const snapshot = items;
     setItems((prev) => prev.filter((x) => x.id !== i.id));
@@ -234,11 +261,11 @@ export default function IncomePage() {
       undoLabel: "Undo",
       onUndo: async () => {
         setItems(snapshot);
-        await loadIncome(userId, true);
+        await loadIncome(householdId, true);
       },
     });
 
-    await supabase.from("recurring_income").delete().eq("id", i.id).eq("user_id", userId);
+    await supabase.from("recurring_income").delete().eq("id", i.id).eq("household_id", householdId);
   }
 
   const activeIncome = items.filter((i) => i.active);
@@ -261,7 +288,7 @@ export default function IncomePage() {
           <Chip className={liveChipClass}>
             {liveStatus === "live" ? "Live" : liveStatus === "offline" ? "Offline" : "Connecting"}
           </Chip>
-          <Chip onClick={() => userId && loadIncome(userId)}>Refresh</Chip>
+          <Chip onClick={() => householdId && loadIncome(householdId)}>Refresh</Chip>
         </div>
       }
     >
@@ -270,6 +297,7 @@ export default function IncomePage() {
           <CardContent className="flex items-center justify-between gap-3 flex-wrap">
             <Badge>Active: {activeIncome.length}</Badge>
             <Badge>Total sources: {items.length}</Badge>
+            {loading ? <Chip>Loading…</Chip> : null}
             {error ? <Chip>{error}</Chip> : null}
           </CardContent>
         </Card>
@@ -331,7 +359,7 @@ export default function IncomePage() {
                   Active
                 </label>
 
-                <Button disabled={saving} onClick={addIncome}>
+                <Button disabled={saving || !householdId} onClick={addIncome}>
                   {saving ? "Saving…" : "Add"}
                 </Button>
               </div>

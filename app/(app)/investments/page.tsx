@@ -1,4 +1,3 @@
-// app/(app)/investments/page.tsx
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -12,12 +11,14 @@ export const dynamic = "force-dynamic";
 
 type InvestmentAccount = {
   id: string;
-  user_id: string;
+  household_id: string;
+  user_id: string; // audit/creator
+
   name: string;
-  kind: string | null; // e.g. "brokerage" | "super" | "crypto" | "property" | "other"
-  institution: string | null; // e.g. Vanguard, Stake, Hostplus
-  approx_value: number | null; // AUD by default
-  currency: string | null; // "AUD"
+  kind: string | null;
+  institution: string | null;
+  approx_value: number | null;
+  currency: string | null;
   notes: string | null;
   updated_at: string | null;
   created_at: string | null;
@@ -67,6 +68,19 @@ const KIND_OPTIONS: { value: string; label: string }[] = [
 
 const LOAD_THROTTLE_MS = 1200;
 
+async function fetchJson<T>(url: string): Promise<T> {
+  const res = await fetch(url, { cache: "no-store" });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error((json as any)?.error ?? "Request failed");
+  return json as T;
+}
+
+async function resolveActiveHouseholdId(): Promise<string> {
+  const data = await fetchJson<{ ok: boolean; household_id: string }>("/api/money/accounts");
+  if (!data?.household_id) throw new Error("User not linked to a household.");
+  return data.household_id;
+}
+
 export default function InvestmentsPage() {
   const router = useRouter();
 
@@ -90,6 +104,8 @@ export default function InvestmentsPage() {
   };
 
   const [userId, setUserId] = useState<string | null>(null);
+  const [householdId, setHouseholdId] = useState<string | null>(null);
+
   const [statusLine, setStatusLine] = useState<string>("Loading…");
   const [live, setLive] = useState<LiveState>("connecting");
 
@@ -141,7 +157,7 @@ export default function InvestmentsPage() {
     setNotes(it.notes ?? "");
   };
 
-  async function load(uid: string, opts?: { silent?: boolean }) {
+  async function load(hid: string, opts?: { silent?: boolean }) {
     const silent = !!opts?.silent;
 
     const now = Date.now();
@@ -150,7 +166,7 @@ export default function InvestmentsPage() {
         if (pendingSilentReloadRef.current) window.clearTimeout(pendingSilentReloadRef.current);
         pendingSilentReloadRef.current = window.setTimeout(() => {
           pendingSilentReloadRef.current = null;
-          void load(uid, { silent: true });
+          void load(hid, { silent: true });
         }, LOAD_THROTTLE_MS);
         return;
       }
@@ -173,8 +189,8 @@ export default function InvestmentsPage() {
     try {
       const { data, error } = await supabase
         .from("investment_accounts")
-        .select("id,user_id,name,kind,institution,approx_value,currency,notes,updated_at,created_at")
-        .eq("user_id", uid)
+        .select("id,household_id,user_id,name,kind,institution,approx_value,currency,notes,updated_at,created_at")
+        .eq("household_id", hid)
         .order("updated_at", { ascending: false, nullsFirst: false })
         .order("created_at", { ascending: false });
 
@@ -188,6 +204,7 @@ export default function InvestmentsPage() {
       const rows = (data ?? []) as any[];
       const normalized: InvestmentAccount[] = rows.map((r) => ({
         id: String(r.id),
+        household_id: String(r.household_id),
         user_id: String(r.user_id),
         name: String(r.name ?? ""),
         kind: r.kind ?? null,
@@ -210,7 +227,7 @@ export default function InvestmentsPage() {
       if (!isMountedRef.current) return;
       if (queuedRefetchRef.current) {
         queuedRefetchRef.current = false;
-        void load(uid, { silent: true });
+        void load(hid, { silent: true });
       }
     }
   }
@@ -225,6 +242,7 @@ export default function InvestmentsPage() {
 
       if (authErr || !auth?.user) {
         setUserId(null);
+        setHouseholdId(null);
         setStatusLine("Not signed in.");
         setLive("offline");
         return;
@@ -232,25 +250,34 @@ export default function InvestmentsPage() {
 
       const uid = auth.user.id;
       setUserId(uid);
-      await load(uid);
+
+      try {
+        const hid = await resolveActiveHouseholdId();
+        if (!isMountedRef.current) return;
+        setHouseholdId(hid);
+        await load(hid);
+      } catch (e: any) {
+        setHouseholdId(null);
+        setStatusLine(e?.message ?? "Couldn’t resolve household.");
+        setLive("offline");
+      }
     })();
 
     return () => {
       isMountedRef.current = false;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // ----- realtime -----
   useEffect(() => {
-    if (!userId) return;
+    if (!householdId) return;
 
     setLive("connecting");
 
     const channel = supabase
-      .channel(`investments_${userId}`)
-      .on("postgres_changes", { event: "*", schema: "public", table: "investment_accounts", filter: `user_id=eq.${userId}` }, () =>
-        void load(userId, { silent: true })
+      .channel(`investments_household_${householdId}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "investment_accounts", filter: `household_id=eq.${householdId}` }, () =>
+        void load(householdId, { silent: true })
       )
       .subscribe((status) => {
         if (status === "SUBSCRIBED") setLive("live");
@@ -261,29 +288,30 @@ export default function InvestmentsPage() {
     return () => {
       void supabase.removeChannel(channel);
     };
-  }, [userId]);
+  }, [householdId]);
 
   // focus refresh (silent)
   useEffect(() => {
     const onFocus = () => {
-      if (!userId) return;
-      void load(userId, { silent: true });
+      if (!householdId) return;
+      void load(householdId, { silent: true });
     };
     window.addEventListener("focus", onFocus);
     return () => window.removeEventListener("focus", onFocus);
-  }, [userId]);
+  }, [householdId]);
 
-  const canSave = useMemo(() => !!userId && name.trim().length > 0 && !working, [userId, name, working]);
+  const canSave = useMemo(() => !!userId && !!householdId && name.trim().length > 0 && !working, [userId, householdId, name, working]);
 
   async function save() {
-    if (!userId || !canSave) return;
+    if (!userId || !householdId || !canSave) return;
 
     setWorking(true);
     setStatusLine("Saving…");
 
     try {
       const base = {
-        user_id: userId,
+        household_id: householdId,
+        user_id: userId, // audit/creator
         name: name.trim(),
         kind: kind.trim() || null,
         institution: institution.trim() || null,
@@ -293,7 +321,6 @@ export default function InvestmentsPage() {
         updated_at: new Date().toISOString(),
       };
 
-      // IMPORTANT: don’t send id: undefined
       const payload = editingId ? { id: editingId, ...base } : base;
 
       const { error } = await supabase.from("investment_accounts").upsert(payload as any, { onConflict: "id" });
@@ -302,7 +329,7 @@ export default function InvestmentsPage() {
       setStatusLine(editingId ? "Updated." : "Saved.");
       setComposeOpen(false);
       resetComposer();
-      void load(userId, { silent: true });
+      void load(householdId, { silent: true });
     } catch (e: any) {
       setStatusLine(e?.message ? String(e.message) : "Couldn’t save.");
     } finally {
@@ -311,11 +338,10 @@ export default function InvestmentsPage() {
   }
 
   async function remove(it: InvestmentAccount) {
-    if (!userId || working) return;
+    if (!householdId || working) return;
 
     const snapshot = items;
 
-    // optimistic UI
     setItems((prev) => prev.filter((x) => x.id !== it.id));
     setOpenId((cur) => (cur === it.id ? null : cur));
     setStatusLine("Removed.");
@@ -325,17 +351,17 @@ export default function InvestmentsPage() {
       undoLabel: "Undo",
       onUndo: async () => {
         setItems(snapshot);
-        void load(userId, { silent: true });
+        void load(householdId, { silent: true });
       },
     });
 
     try {
-      const { error } = await supabase.from("investment_accounts").delete().eq("id", it.id).eq("user_id", userId);
+      const { error } = await supabase.from("investment_accounts").delete().eq("id", it.id).eq("household_id", householdId);
       if (error) throw error;
     } catch (e: any) {
       notify({ title: "Error", description: e?.message ?? "Couldn’t remove." });
       setItems(snapshot);
-      void load(userId, { silent: true });
+      void load(householdId, { silent: true });
     }
   }
 
@@ -352,7 +378,6 @@ export default function InvestmentsPage() {
       ? "border border-rose-200 bg-rose-50 text-rose-700"
       : "border border-zinc-200 bg-zinc-50 text-zinc-700";
 
-  // V1 calm list: top 5, show all on demand
   const LIMIT = 5;
   const [showAll, setShowAll] = useState(false);
   const visibleItems = showAll ? items : items.slice(0, LIMIT);
@@ -366,8 +391,8 @@ export default function InvestmentsPage() {
         <div className="flex items-center gap-2">
           <Chip className={liveChipClass}>{live === "live" ? "Live" : live === "offline" ? "Offline" : "Connecting"}</Chip>
           <Chip onClick={() => router.push("/home")}>Back to Home</Chip>
-          {userId ? (
-            <Chip onClick={() => void load(userId)} title="Refresh">
+          {householdId ? (
+            <Chip onClick={() => void load(householdId)} title="Refresh">
               Refresh
             </Chip>
           ) : null}
@@ -387,7 +412,6 @@ export default function InvestmentsPage() {
       }
     >
       <div className="mx-auto w-full max-w-[760px] space-y-4">
-        {/* Recognition-first search (quiet) */}
         <AssistedSearch scope="investments" placeholder="Search investments…" />
 
         <div className="text-xs text-zinc-500">{statusLine}</div>
@@ -402,10 +426,8 @@ export default function InvestmentsPage() {
           </Card>
         ) : null}
 
-        {/* Calm total */}
         {items.length > 0 ? <div className="text-sm text-zinc-700">Approx total: {money(approxTotal, "AUD")}</div> : null}
 
-        {/* Add / edit */}
         {composeOpen ? (
           <Card className="border-zinc-200 bg-white">
             <CardContent>
@@ -510,7 +532,6 @@ export default function InvestmentsPage() {
           </Card>
         ) : null}
 
-        {/* Empty / list */}
         {items.length === 0 ? (
           <Card className="border-zinc-200 bg-white">
             <CardContent>
@@ -525,7 +546,6 @@ export default function InvestmentsPage() {
           </Card>
         ) : (
           <>
-            {/* V1 calm: top 5 + toggle */}
             <div className="flex items-center justify-between gap-2 flex-wrap">
               <div className="text-xs text-zinc-500">
                 {items.length} total
@@ -545,12 +565,7 @@ export default function InvestmentsPage() {
                 return (
                   <Card key={it.id} className="border-zinc-200 bg-white">
                     <CardContent>
-                      <button
-                        type="button"
-                        onClick={() => setOpenId(isOpen ? null : it.id)}
-                        className="w-full text-left"
-                        aria-expanded={isOpen}
-                      >
+                      <button type="button" onClick={() => setOpenId(isOpen ? null : it.id)} className="w-full text-left" aria-expanded={isOpen}>
                         <div className="flex flex-wrap items-start justify-between gap-3">
                           <div className="min-w-[240px] flex-1">
                             <div className="text-base font-semibold text-zinc-900">{it.name}</div>
