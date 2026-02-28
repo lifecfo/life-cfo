@@ -73,9 +73,10 @@ export default function HouseholdClient() {
 
   const [showAdvanced, setShowAdvanced] = useState(false);
 
-  // Create household (new users)
+  // Create household
   const [createName, setCreateName] = useState("");
   const [creating, setCreating] = useState(false);
+  const [showCreateAnother, setShowCreateAnother] = useState(false);
 
   // Invites
   const [invites, setInvites] = useState<InviteRow[]>([]);
@@ -98,7 +99,7 @@ export default function HouseholdClient() {
     setStatusLine("Loading…");
     try {
       const res = await fetch("/api/households", { method: "GET" });
-      const json = await res.json();
+      const json = await res.json().catch(() => null);
 
       if (!json?.ok) {
         setHouseholds([]);
@@ -131,7 +132,7 @@ export default function HouseholdClient() {
     setMembersLoading(true);
     try {
       const res = await fetch(`/api/households/members?household_id=${encodeURIComponent(householdId)}`, { method: "GET" });
-      const json = await res.json();
+      const json = await res.json().catch(() => null);
       if (json?.ok) setMembers(Array.isArray(json.members) ? json.members : []);
       else setMembers([]);
     } catch {
@@ -145,7 +146,7 @@ export default function HouseholdClient() {
     setInvitesLoading(true);
     try {
       const res = await fetch(`/api/households/invites?household_id=${encodeURIComponent(householdId)}`, { method: "GET" });
-      const json = await res.json();
+      const json = await res.json().catch(() => null);
       if (json?.ok) setInvites(Array.isArray(json.invites) ? json.invites : []);
       else setInvites([]);
     } catch {
@@ -173,17 +174,19 @@ export default function HouseholdClient() {
     try {
       const name = safeStr(createName).trim();
 
-      const res = await fetch("/api/households/create", {
+      // ✅ Correct endpoint: POST /api/households
+      const res = await fetch("/api/households", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name }),
       });
 
-      const json = await res.json();
+      const json = await res.json().catch(() => null);
       if (!json?.ok) throw new Error(json?.error ?? "Create failed");
 
       showToast({ message: "Created." }, 1200);
       setCreateName("");
+      setShowCreateAnother(false);
       await load();
     } catch (e: any) {
       showToast({ message: e?.message ?? "Couldn’t create household." }, 2500);
@@ -219,7 +222,7 @@ export default function HouseholdClient() {
         body: JSON.stringify({ household_id: activeHouseholdId, name: nextName }),
       });
 
-      const json = await res.json();
+      const json = await res.json().catch(() => null);
       if (!json?.ok) throw new Error(json?.error ?? "Rename failed");
 
       setHouseholds((prev) => prev.map((h) => (h.id === activeHouseholdId ? { ...h, name: nextName } : h)));
@@ -240,7 +243,7 @@ export default function HouseholdClient() {
         body: JSON.stringify({ household_id: activeHouseholdId, user_id, role }),
       });
 
-      const json = await res.json();
+      const json = await res.json().catch(() => null);
       if (!json?.ok) throw new Error(json?.error ?? "Role update failed");
 
       setMembers((prev) => prev.map((m) => (m.user_id === user_id ? { ...m, role } : m)));
@@ -270,7 +273,7 @@ export default function HouseholdClient() {
         body: JSON.stringify({ household_id: activeHouseholdId, user_id }),
       });
 
-      const json = await res.json();
+      const json = await res.json().catch(() => null);
       if (!json?.ok) throw new Error(json?.error ?? "Remove failed");
 
       setMembers((prev) => prev.filter((m) => m.user_id !== user_id));
@@ -299,7 +302,7 @@ export default function HouseholdClient() {
         body: JSON.stringify({ household_id: activeHouseholdId, email, role: inviteRole }),
       });
 
-      const json = await res.json();
+      const json = await res.json().catch(() => null);
       if (!json?.ok) throw new Error(json?.error ?? "Invite failed");
 
       setInviteEmail("");
@@ -323,7 +326,7 @@ export default function HouseholdClient() {
         body: JSON.stringify({ id: inviteId, action: "cancel" }),
       });
 
-      const json = await res.json();
+      const json = await res.json().catch(() => null);
       if (!json?.ok) throw new Error(json?.error ?? "Cancel failed");
 
       setStatusLine("Invite cancelled.");
@@ -408,11 +411,37 @@ export default function HouseholdClient() {
                   <Chip onClick={cancelRename}>Cancel</Chip>
                 </div>
               ) : (
-                <Chip onClick={startRename} disabled={!allowRename}>
-                  Edit
-                </Chip>
+                <div className="flex items-center gap-2">
+                  <Chip onClick={startRename} disabled={!allowRename}>
+                    Edit
+                  </Chip>
+
+                  {/* ✅ New: Create another household (calm, optional) */}
+                  <Chip onClick={() => setShowCreateAnother((v) => !v)}>
+                    {showCreateAnother ? "Close" : "New household"}
+                  </Chip>
+                </div>
               )}
             </div>
+
+            {/* Create another household */}
+            {showCreateAnother ? (
+              <div className="rounded-xl border border-zinc-200 p-3 space-y-2">
+                <div className="text-xs text-zinc-500">Create a second household (optional)</div>
+                <input
+                  className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800"
+                  value={createName}
+                  onChange={(e) => setCreateName(e.target.value)}
+                  placeholder="e.g. Business / Campbelltown / Ryan"
+                />
+                <div className="flex items-center gap-2">
+                  <Chip onClick={() => void createHousehold()} disabled={creating}>
+                    {creating ? "Creating…" : "Create"}
+                  </Chip>
+                </div>
+                <div className="text-xs text-zinc-500">It will become active immediately.</div>
+              </div>
+            ) : null}
 
             {!active ? (
               <div className="text-sm text-zinc-600">No household selected.</div>
