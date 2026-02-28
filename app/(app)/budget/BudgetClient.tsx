@@ -12,6 +12,7 @@ type BudgetKind = "expense" | "saving" | "sinking";
 
 type BudgetItem = {
   id: string;
+  household_id: string;
   user_id: string;
   name: string;
   kind: BudgetKind;
@@ -121,6 +122,13 @@ const STARTERS: Starter[] = [
 
 const LOAD_THROTTLE_MS = 1200;
 
+async function fetchJson<T>(url: string): Promise<T> {
+  const res = await fetch(url, { cache: "no-store" });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error((json as any)?.error ?? "Request failed");
+  return json as T;
+}
+
 export default function BudgetClient() {
   const router = useRouter();
 
@@ -144,6 +152,8 @@ export default function BudgetClient() {
   };
 
   const [userId, setUserId] = useState<string | null>(null);
+  const [householdId, setHouseholdId] = useState<string | null>(null);
+
   const [statusLine, setStatusLine] = useState("Loading…");
   const [live, setLive] = useState<LiveState>("connecting");
 
@@ -186,7 +196,14 @@ export default function BudgetClient() {
   const queuedRefetchRef = useRef(false);
   const isMountedRef = useRef(true);
 
-  async function loadAll(uid: string, opts?: { silent?: boolean }) {
+  async function resolveActiveHouseholdId(): Promise<string> {
+    // We reuse money API since it already returns household_id using cookie/fallback logic.
+    const data = await fetchJson<{ ok: boolean; household_id: string }>("/api/money/accounts");
+    if (!data?.household_id) throw new Error("User not linked to a household.");
+    return data.household_id;
+  }
+
+  async function loadAll(uid: string, hid: string, opts?: { silent?: boolean }) {
     const silent = !!opts?.silent;
 
     const now = Date.now();
@@ -195,7 +212,7 @@ export default function BudgetClient() {
         if (pendingSilentReloadRef.current) window.clearTimeout(pendingSilentReloadRef.current);
         pendingSilentReloadRef.current = window.setTimeout(() => {
           pendingSilentReloadRef.current = null;
-          void loadAll(uid, { silent: true });
+          void loadAll(uid, hid, { silent: true });
         }, LOAD_THROTTLE_MS);
         return;
       }
@@ -217,7 +234,7 @@ export default function BudgetClient() {
 
     try {
       // 1) Accounts snapshot
-      const accRes = await supabase.from("accounts").select("current_balance_cents,archived").eq("user_id", uid);
+      const accRes = await supabase.from("accounts").select("current_balance_cents,archived").eq("household_id", hid);
       if (!accRes.error) {
         const rows = (accRes.data ?? []) as any as AccountsRow[];
         const activeRows = rows.filter((r) => !r.archived);
@@ -228,7 +245,7 @@ export default function BudgetClient() {
       }
 
       // 2) Monthly income estimate
-      const incomeRes = await supabase.from("recurring_income").select("amount_cents,cadence,active").eq("user_id", uid);
+      const incomeRes = await supabase.from("recurring_income").select("amount_cents,cadence,active").eq("household_id", hid);
       if (!incomeRes.error) {
         const rows = (incomeRes.data ?? []) as any as IncomeRow[];
         const activeRows = rows.filter((r) => r.active !== false);
@@ -239,7 +256,7 @@ export default function BudgetClient() {
       }
 
       // 3) Monthly bills estimate
-      const billsRes = await supabase.from("recurring_bills").select("amount_cents,cadence,active").eq("user_id", uid);
+      const billsRes = await supabase.from("recurring_bills").select("amount_cents,cadence,active").eq("household_id", hid);
       if (!billsRes.error) {
         const rows = (billsRes.data ?? []) as any as BillsRow[];
         const activeRows = rows.filter((r) => r.active !== false);
@@ -249,11 +266,11 @@ export default function BudgetClient() {
         setBillsMonthlyCents(0);
       }
 
-      // 4) Budget plan items
+      // 4) Budget plan items (HOUSEHOLD SCOPED)
       const planRes = await supabase
         .from("budget_items")
-        .select("id,user_id,name,kind,amount_cents,cadence,active,sort_order,created_at,updated_at")
-        .eq("user_id", uid)
+        .select("id,household_id,user_id,name,kind,amount_cents,cadence,active,sort_order,created_at,updated_at")
+        .eq("household_id", hid)
         .order("sort_order", { ascending: true, nullsFirst: true })
         .order("created_at", { ascending: true });
 
@@ -266,6 +283,7 @@ export default function BudgetClient() {
 
       const normalized = (planRes.data ?? []).map((r: any) => ({
         id: String(r.id),
+        household_id: String(r.household_id),
         user_id: String(r.user_id),
         name: String(r.name ?? ""),
         kind: (r.kind === "saving" || r.kind === "sinking" ? r.kind : "expense") as BudgetKind,
@@ -288,7 +306,7 @@ export default function BudgetClient() {
       if (!isMountedRef.current) return;
       if (queuedRefetchRef.current) {
         queuedRefetchRef.current = false;
-        void loadAll(uid, { silent: true });
+        void loadAll(uid, hid, { silent: true });
       }
     }
   }
@@ -303,6 +321,7 @@ export default function BudgetClient() {
 
       if (authError || !auth?.user) {
         setUserId(null);
+        setHouseholdId(null);
         setStatusLine("Not signed in.");
         setLive("offline");
         return;
@@ -310,7 +329,18 @@ export default function BudgetClient() {
 
       const uid = auth.user.id;
       setUserId(uid);
-      await loadAll(uid);
+
+      try {
+        const hid = await resolveActiveHouseholdId();
+        if (!isMountedRef.current) return;
+        setHouseholdId(hid);
+        await loadAll(uid, hid);
+      } catch (e: any) {
+        setHouseholdId(null);
+        setError(e?.message ?? "Couldn’t resolve household.");
+        setStatusLine("Couldn’t load.");
+        setLive("offline");
+      }
     })();
 
     return () => {
@@ -319,18 +349,20 @@ export default function BudgetClient() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // realtime
+  // realtime (HOUSEHOLD SCOPED)
   useEffect(() => {
-    if (!userId) return;
+    if (!userId || !householdId) return;
 
     setLive("connecting");
 
+    const filter = `household_id=eq.${householdId}`;
+
     const ch = supabase
-      .channel(`budget_${userId}`)
-      .on("postgres_changes", { event: "*", schema: "public", table: "budget_items", filter: `user_id=eq.${userId}` }, () => void loadAll(userId, { silent: true }))
-      .on("postgres_changes", { event: "*", schema: "public", table: "recurring_income", filter: `user_id=eq.${userId}` }, () => void loadAll(userId, { silent: true }))
-      .on("postgres_changes", { event: "*", schema: "public", table: "recurring_bills", filter: `user_id=eq.${userId}` }, () => void loadAll(userId, { silent: true }))
-      .on("postgres_changes", { event: "*", schema: "public", table: "accounts", filter: `user_id=eq.${userId}` }, () => void loadAll(userId, { silent: true }))
+      .channel(`budget_household_${householdId}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "budget_items", filter }, () => void loadAll(userId, householdId, { silent: true }))
+      .on("postgres_changes", { event: "*", schema: "public", table: "recurring_income", filter }, () => void loadAll(userId, householdId, { silent: true }))
+      .on("postgres_changes", { event: "*", schema: "public", table: "recurring_bills", filter }, () => void loadAll(userId, householdId, { silent: true }))
+      .on("postgres_changes", { event: "*", schema: "public", table: "accounts", filter }, () => void loadAll(userId, householdId, { silent: true }))
       .subscribe((status) => {
         if (status === "SUBSCRIBED") setLive("live");
         else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") setLive("offline");
@@ -340,17 +372,17 @@ export default function BudgetClient() {
     return () => {
       void supabase.removeChannel(ch);
     };
-  }, [userId]);
+  }, [userId, householdId]);
 
   // focus refresh (silent)
   useEffect(() => {
     const onFocus = () => {
-      if (!userId) return;
-      void loadAll(userId, { silent: true });
+      if (!userId || !householdId) return;
+      void loadAll(userId, householdId, { silent: true });
     };
     window.addEventListener("focus", onFocus);
     return () => window.removeEventListener("focus", onFocus);
-  }, [userId]);
+  }, [userId, householdId]);
 
   // derived: plan totals
   const planMonthlyCents = useMemo(() => {
@@ -410,7 +442,7 @@ export default function BudgetClient() {
   };
 
   async function addItem() {
-    if (!userId) return;
+    if (!userId || !householdId) return;
 
     const cleanName = name.trim();
     if (!cleanName) {
@@ -429,6 +461,7 @@ export default function BudgetClient() {
       const { data, error } = await supabase
         .from("budget_items")
         .insert({
+          household_id: householdId,
           user_id: userId,
           name: cleanName,
           kind,
@@ -436,7 +469,7 @@ export default function BudgetClient() {
           amount_cents: amountCents,
           active: true,
         })
-        .select("id,user_id,name,kind,amount_cents,cadence,active,sort_order,created_at,updated_at")
+        .select("id,household_id,user_id,name,kind,amount_cents,cadence,active,sort_order,created_at,updated_at")
         .single();
 
       if (error) throw error;
@@ -449,7 +482,7 @@ export default function BudgetClient() {
       notify({ title: "Saved", description: "Added to plan." });
     } catch (e: any) {
       notify({ title: "Error", description: e?.message ?? "Couldn’t add item." });
-      void loadAll(userId, { silent: true });
+      void loadAll(userId, householdId, { silent: true });
     } finally {
       setSaving(false);
     }
@@ -479,7 +512,7 @@ export default function BudgetClient() {
   }
 
   async function saveEdit(id: string) {
-    if (!userId) return;
+    if (!userId || !householdId) return;
 
     const d = drafts[id];
     if (!d) return;
@@ -507,7 +540,12 @@ export default function BudgetClient() {
         updated_at: new Date().toISOString(),
       };
 
-      const { error } = await supabase.from("budget_items").update(payload).eq("id", id).eq("user_id", userId);
+      const { error } = await supabase
+        .from("budget_items")
+        .update(payload)
+        .eq("id", id)
+        .eq("household_id", householdId);
+
       if (error) throw error;
 
       setItems((prev) => prev.map((x) => (x.id === id ? { ...x, ...payload } : x)));
@@ -515,14 +553,14 @@ export default function BudgetClient() {
       notify({ title: "Saved", description: "Updated." });
     } catch (e: any) {
       notify({ title: "Error", description: e?.message ?? "Couldn’t save." });
-      void loadAll(userId, { silent: true });
+      void loadAll(userId, householdId, { silent: true });
     } finally {
       setSaving(false);
     }
   }
 
   async function toggleActive(it: BudgetItem) {
-    if (!userId) return;
+    if (!userId || !householdId) return;
 
     const next = !it.active;
     setItems((prev) => prev.map((x) => (x.id === it.id ? { ...x, active: next } : x)));
@@ -531,16 +569,16 @@ export default function BudgetClient() {
       .from("budget_items")
       .update({ active: next, updated_at: new Date().toISOString() })
       .eq("id", it.id)
-      .eq("user_id", userId);
+      .eq("household_id", householdId);
 
     if (error) {
       notify({ title: "Error", description: error.message });
-      void loadAll(userId, { silent: true });
+      void loadAll(userId, householdId, { silent: true });
     }
   }
 
   async function removeItem(it: BudgetItem) {
-    if (!userId) return;
+    if (!userId || !householdId) return;
 
     const snapshot = items;
     setItems((prev) => prev.filter((x) => x.id !== it.id));
@@ -550,11 +588,11 @@ export default function BudgetClient() {
       undoLabel: "Undo",
       onUndo: async () => {
         setItems(snapshot);
-        void loadAll(userId, { silent: true });
+        void loadAll(userId, householdId, { silent: true });
       },
     });
 
-    const { error: delErr } = await supabase.from("budget_items").delete().eq("id", it.id).eq("user_id", userId);
+    const { error: delErr } = await supabase.from("budget_items").delete().eq("id", it.id).eq("household_id", householdId);
     if (delErr) {
       setItems(snapshot);
       notify({ title: "Error", description: delErr.message });
@@ -771,8 +809,8 @@ export default function BudgetClient() {
   const right = (
     <div className="flex items-center gap-2">
       <Chip className={liveChipClass}>{live === "live" ? "Live" : live === "offline" ? "Offline" : "Connecting"}</Chip>
-      {userId ? (
-        <Chip onClick={() => void loadAll(userId)} title="Refresh">
+      {userId && householdId ? (
+        <Chip onClick={() => void loadAll(userId, householdId)} title="Refresh">
           Refresh
         </Chip>
       ) : null}
@@ -877,7 +915,7 @@ export default function BudgetClient() {
           <CardContent>
             <div className="flex items-center justify-between gap-3 flex-wrap">
               <div className="text-sm font-semibold text-zinc-900">Add budget item</div>
-              <div className="text-xs text-zinc-500">Keystone does a monthly conversion so you can compare apples to apples.</div>
+              <div className="text-xs text-zinc-500">Everything converts to a monthly estimate so you can compare apples to apples.</div>
             </div>
 
             <div className="mt-3 grid gap-3 md:grid-cols-6">
@@ -932,12 +970,10 @@ export default function BudgetClient() {
               <div className="md:col-span-6 flex items-center justify-between gap-3 flex-wrap">
                 <div className="text-xs text-zinc-500">
                   Monthly est{" "}
-                  <span className="font-semibold text-zinc-900">
-                    {formatMoneyFromCents(cents(centsFromInput(amount) * monthlyFactor(cadence)))}
-                  </span>
+                  <span className="font-semibold text-zinc-900">{formatMoneyFromCents(cents(centsFromInput(amount) * monthlyFactor(cadence)))}</span>
                 </div>
 
-                <Button disabled={saving || !userId} onClick={() => void addItem()}>
+                <Button disabled={saving || !userId || !householdId} onClick={() => void addItem()}>
                   {saving ? "Saving…" : "Add"}
                 </Button>
               </div>
@@ -982,8 +1018,8 @@ export default function BudgetClient() {
         <Card className="border-zinc-200 bg-white">
           <CardContent>
             <div className="text-xs text-zinc-500 space-y-1">
-              <div>Income + Bills use your inputs. Budget items are your plan. Keystone converts everything to a monthly estimate for comparison.</div>
-              <div>Nothing here is a forecast. It’s a picture of what you told Keystone is true.</div>
+              <div>Income + Bills use your inputs. Budget items are your plan. Everything is converted to a monthly estimate for comparison.</div>
+              <div>Nothing here is a forecast. It’s a picture of what you told Life CFO is true.</div>
             </div>
           </CardContent>
         </Card>
