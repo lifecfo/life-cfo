@@ -64,11 +64,10 @@ export function AppShell({ children }: AppShellProps) {
   const menuRef = useRef<HTMLDivElement | null>(null);
   useOutsideClick(menuRef, () => setMenuOpen(false), menuOpen);
 
-  // Household UI state
+  // Household state (we still load it for: guard + showing active name)
   const [households, setHouseholds] = useState<HouseholdItem[]>([]);
   const [activeHouseholdId, setActiveHouseholdId] = useState<string | null>(null);
   const [householdsLoading, setHouseholdsLoading] = useState(false);
-  const [switchingId, setSwitchingId] = useState<string | null>(null);
   const [needsHousehold, setNeedsHousehold] = useState(false);
 
   useEffect(() => {
@@ -131,33 +130,6 @@ export function AppShell({ children }: AppShellProps) {
     return households.find((h) => h.id === activeHouseholdId)?.name ?? null;
   }, [households, activeHouseholdId]);
 
-  async function switchHousehold(nextId: string) {
-    if (!nextId || nextId === activeHouseholdId) {
-      setMenuOpen(false);
-      return;
-    }
-
-    setSwitchingId(nextId);
-    try {
-      const res = await fetch("/api/households/active", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ household_id: nextId }),
-      });
-
-      const json = await res.json();
-      if (json?.ok) {
-        setActiveHouseholdId(nextId);
-        setMenuOpen(false);
-        router.refresh();
-      }
-    } finally {
-      setSwitchingId(null);
-    }
-  }
-
-  const showHouseholdSwitcher = households.length > 1;
-
   return (
     <div className="min-h-dvh bg-white">
       <div className="sticky top-0 z-40 border-b border-zinc-100 bg-white">
@@ -195,55 +167,25 @@ export function AppShell({ children }: AppShellProps) {
                     >
                       Set up household
                     </Link>
-                  ) : null}
-
-                  {showHouseholdSwitcher ? (
+                  ) : (
                     <div className="border-b border-zinc-100 px-4 py-3">
                       <div className="flex items-center justify-between">
                         <div className="text-xs font-medium text-zinc-500">Household</div>
                         <div className="text-xs text-zinc-500">{householdsLoading ? "Loading…" : ""}</div>
                       </div>
-
                       <div className="mt-1 text-sm font-medium text-zinc-900">{activeHouseholdName ?? "—"}</div>
-
-                      <div className="mt-2 grid gap-1">
-                        {households.map((h) => {
-                          const isActive = h.id === activeHouseholdId;
-                          const isBusy = switchingId === h.id;
-
-                          return (
-                            <button
-                              key={h.id}
-                              type="button"
-                              onClick={() => switchHousehold(h.id)}
-                              className={[
-                                "flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm",
-                                isActive ? "bg-zinc-50 text-zinc-900" : "hover:bg-zinc-50 text-zinc-800",
-                              ].join(" ")}
-                              disabled={isBusy}
-                            >
-                              <span className="truncate">{h.name}</span>
-                              <span className="ml-2 shrink-0 text-xs text-zinc-500">
-                                {isBusy ? "Switching…" : isActive ? "Active" : ""}
-                              </span>
-                            </button>
-                          );
-                        })}
-                      </div>
-
-                      <Link
-                        href="/household"
-                        className="mt-2 block rounded-xl px-3 py-2 text-sm text-zinc-800 hover:bg-zinc-50"
-                        onClick={() => setMenuOpen(false)}
-                      >
-                        Manage household
-                      </Link>
                     </div>
-                  ) : null}
+                  )}
 
-                  <Link href="/household" className="px-4 py-3 text-sm text-zinc-800 hover:bg-zinc-50" onClick={() => setMenuOpen(false)}>
-                    Household
-                  </Link>
+                  {!needsHousehold ? (
+                    <Link
+                      href="/household"
+                      className="px-4 py-3 text-sm text-zinc-800 hover:bg-zinc-50"
+                      onClick={() => setMenuOpen(false)}
+                    >
+                      Household
+                    </Link>
+                  ) : null}
 
                   <Link href="/invites" className="px-4 py-3 text-sm text-zinc-800 hover:bg-zinc-50" onClick={() => setMenuOpen(false)}>
                     Invites
