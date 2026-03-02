@@ -2,7 +2,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { Page } from "@/components/Page";
 import { Card, CardContent, Chip, Badge } from "@/components/ui";
 import { AssistedSearch } from "@/components/AssistedSearch";
@@ -22,13 +22,25 @@ type Tx = {
   updated_at: string | null;
 };
 
-type AccountLite = {
+type AccountRow = {
   id: string;
   name: string | null;
+  provider: string | null;
+  type: string | null;
+  status: string | null;
   archived: boolean | null;
+  currency: string | null;
+  current_balance_cents: number | null;
+  updated_at: string | null;
+  created_at: string | null;
 };
 
 type LiveState = "connecting" | "live" | "offline";
+
+function safeNumber(v: unknown) {
+  const n = typeof v === "number" ? v : Number(v);
+  return Number.isFinite(n) ? n : 0;
+}
 
 function safeDate(iso: string | null | undefined) {
   if (!iso) return null;
@@ -56,10 +68,40 @@ function formatMoneyFromCents(c: number, currency = "AUD") {
   }
 }
 
+function formatMoneyFromAmount(a: number, currency = "AUD") {
+  try {
+    return new Intl.NumberFormat("en-AU", {
+      style: "currency",
+      currency,
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(a);
+  } catch {
+    return `${currency} ${a.toFixed(2)}`;
+  }
+}
+
 function signLabel(amountCents: number) {
   if (amountCents > 0) return "In";
   if (amountCents < 0) return "Out";
   return "Zero";
+}
+
+function todayYmd() {
+  const d = new Date();
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+function addDaysYmd(days: number) {
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
 }
 
 async function fetchJson<T>(url: string): Promise<T> {
@@ -69,18 +111,14 @@ async function fetchJson<T>(url: string): Promise<T> {
   return json as T;
 }
 
-function isoDate(d: Date) {
-  const yyyy = d.getFullYear();
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const dd = String(d.getDate()).padStart(2, "0");
-  return `${yyyy}-${mm}-${dd}`;
-}
-
 export const dynamic = "force-dynamic";
+
+type RangePreset = "7d" | "30d" | "90d" | "all" | "custom";
+type PendingFilter = "all" | "pending" | "posted";
+type DirectionFilter = "all" | "in" | "out";
 
 export default function TransactionsClient() {
   const router = useRouter();
-  const sp = useSearchParams();
 
   const [statusLine, setStatusLine] = useState("Loading…");
   const [error, setError] = useState<string | null>(null);
@@ -89,67 +127,52 @@ export default function TransactionsClient() {
   const [items, setItems] = useState<Tx[]>([]);
   const [openId, setOpenId] = useState<string | null>(null);
 
-  // local filter (separate to AssistedSearch)
+  // Accounts for filter dropdown
+  const [accounts, setAccounts] = useState<AccountRow[]>([]);
+  const [accountsLoaded, setAccountsLoaded] = useState(false);
+
+  // Filters (server-backed)
+  const [accountId, setAccountId] = useState<string>("all");
+  const [rangePreset, setRangePreset] = useState<RangePreset>("30d");
+  const [from, setFrom] = useState<string>(addDaysYmd(-30));
+  const [to, setTo] = useState<string>(todayYmd());
+  const [pendingFilter, setPendingFilter] = useState<PendingFilter>("all");
+  const [direction, setDirection] = useState<DirectionFilter>("all");
+
+  // Local filter (client-only quick needle)
   const [q, setQ] = useState("");
-
-  // server filters
-  const [filtersOpen, setFiltersOpen] = useState(false);
-  const [pendingMode, setPendingMode] = useState<"all" | "pending" | "posted">("all");
-  const [rangeMode, setRangeMode] = useState<"30d" | "90d" | "custom" | "all">("30d");
-  const [from, setFrom] = useState<string>("");
-  const [to, setTo] = useState<string>("");
-  const [accountId, setAccountId] = useState<string>("");
-
-  const [accounts, setAccounts] = useState<AccountLite[]>([]);
 
   const isMountedRef = useRef(true);
 
-  // read ?open=
+  // Keep from/to in sync with preset unless custom
   useEffect(() => {
-    const open = sp?.get("open");
-    if (open) setOpenId(open);
-  }, [sp]);
+    if (rangePreset === "custom") return;
 
-  // fetch accounts (for filter dropdown)
-  useEffect(() => {
-    let alive = true;
-    (async () => {
-      try {
-        const json = await fetchJson<{ ok: boolean; accounts: AccountLite[] }>("/api/money/accounts");
-        if (!alive) return;
-        setAccounts((json.accounts ?? []).filter((a) => !a.archived));
-      } catch {
-        // ignore; filters still work without dropdown
-      }
-    })();
-    return () => {
-      alive = false;
-    };
-  }, []);
+    if (rangePreset === "all") {
+      setFrom("");
+      setTo("");
+      return;
+    }
 
-  function buildTxUrl(limit: number) {
+    const days = rangePreset === "7d" ? -7 : rangePreset === "30d" ? -30 : -90;
+    setFrom(addDaysYmd(days));
+    setTo(todayYmd());
+  }, [rangePreset]);
+
+  function buildApiUrl(limit = 250) {
     const url = new URL("/api/money/transactions", window.location.origin);
     url.searchParams.set("limit", String(limit));
 
-    if (accountId) url.searchParams.set("account_id", accountId);
-
-    if (pendingMode === "pending") url.searchParams.set("pending", "true");
-    if (pendingMode === "posted") url.searchParams.set("pending", "false");
-
-    // range presets
-    if (rangeMode === "30d" || rangeMode === "90d") {
-      const days = rangeMode === "30d" ? 30 : 90;
-      const dTo = new Date();
-      const dFrom = new Date();
-      dFrom.setDate(dFrom.getDate() - days);
-      url.searchParams.set("from", isoDate(dFrom));
-      url.searchParams.set("to", isoDate(dTo));
-    } else if (rangeMode === "custom") {
+    if (accountId !== "all") url.searchParams.set("account_id", accountId);
+    if (rangePreset !== "all") {
       if (from) url.searchParams.set("from", from);
       if (to) url.searchParams.set("to", to);
     }
 
-    return url.pathname + "?" + url.searchParams.toString();
+    if (pendingFilter === "pending") url.searchParams.set("pending", "true");
+    if (pendingFilter === "posted") url.searchParams.set("pending", "false");
+
+    return url.pathname + url.search;
   }
 
   async function load(silent = false) {
@@ -160,19 +183,12 @@ export default function TransactionsClient() {
     }
 
     try {
-      const url = buildTxUrl(250);
-      const json = await fetchJson<{ ok: boolean; transactions: Tx[] }>(url);
-
+      const json = await fetchJson<{ ok: boolean; transactions: Tx[] }>(buildApiUrl(250));
       if (!isMountedRef.current) return;
 
-      const tx = (json.transactions ?? []) as Tx[];
-      setItems(tx);
-      setStatusLine(tx.length ? "Loaded." : "No transactions yet.");
+      setItems((json.transactions ?? []) as Tx[]);
+      setStatusLine((json.transactions?.length ?? 0) ? "Loaded." : "No transactions yet.");
       setLive("live");
-
-      // if ?open= is present, try keep it open (even if item not found, no harm)
-      const open = sp?.get("open");
-      if (open) setOpenId(open);
     } catch (e: any) {
       if (!isMountedRef.current) return;
       setItems([]);
@@ -182,8 +198,25 @@ export default function TransactionsClient() {
     }
   }
 
+  async function loadAccountsOnce() {
+    if (accountsLoaded) return;
+    setAccountsLoaded(true);
+
+    try {
+      const json = await fetchJson<{ ok: boolean; accounts: AccountRow[] }>("/api/money/accounts");
+      if (!isMountedRef.current) return;
+
+      const rows = (json.accounts ?? []).filter((a) => !a.archived);
+      setAccounts(rows);
+    } catch {
+      // non-fatal: account filter will just show "All accounts"
+      setAccounts([]);
+    }
+  }
+
   useEffect(() => {
     isMountedRef.current = true;
+    void loadAccountsOnce();
     void load(false);
     return () => {
       isMountedRef.current = false;
@@ -191,13 +224,14 @@ export default function TransactionsClient() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // reload when filters change (silent)
+  // Reload when server-backed filters change
   useEffect(() => {
+    if (!isMountedRef.current) return;
     void load(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pendingMode, rangeMode, from, to, accountId]);
+  }, [accountId, rangePreset, from, to, pendingFilter]);
 
-  // focus refresh (silent)
+  // Focus refresh (silent)
   useEffect(() => {
     const onFocus = () => void load(true);
     window.addEventListener("focus", onFocus);
@@ -229,13 +263,32 @@ export default function TransactionsClient() {
   }, [items]);
 
   const filtered = useMemo(() => {
+    let next = items;
+
+    // Direction filter is client-side (based on sign)
+    if (direction !== "all") {
+      next = next.filter((t) => {
+        const cents =
+          typeof t.amount_cents === "number"
+            ? t.amount_cents
+            : typeof t.amount === "number"
+            ? Math.round(t.amount * 100)
+            : 0;
+
+        return direction === "in" ? cents > 0 : cents < 0;
+      });
+    }
+
     const needle = q.trim().toLowerCase();
-    if (!needle) return items;
-    return items.filter((t) => {
-      const hay = [t.description ?? "", t.merchant ?? "", t.category ?? "", t.date ?? ""].join(" ").toLowerCase();
+    if (!needle) return next;
+
+    return next.filter((t) => {
+      const hay = [t.description ?? "", t.merchant ?? "", t.category ?? "", t.date ?? "", t.currency ?? ""]
+        .join(" ")
+        .toLowerCase();
       return hay.includes(needle);
     });
-  }, [items, q]);
+  }, [items, q, direction]);
 
   const LIMIT = 20;
   const [showAll, setShowAll] = useState(false);
@@ -257,117 +310,142 @@ export default function TransactionsClient() {
       <div className="mx-auto w-full max-w-[760px] space-y-4">
         <AssistedSearch scope="transactions" placeholder="Search transactions…" />
 
-        <div className="flex flex-wrap items-center gap-2">
-          <Chip onClick={() => setFiltersOpen((v) => !v)}>{filtersOpen ? "Hide filters" : "Filters"}</Chip>
+        {/* Filter bar */}
+        <Card className="border-zinc-200 bg-white">
+          <CardContent>
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <div className="space-y-1">
+                <div className="text-sm font-semibold text-zinc-900">Filters</div>
+                <div className="text-xs text-zinc-500">Tight and quiet. Use this to narrow the feed.</div>
+              </div>
+              <Chip
+                title="Reset"
+                onClick={() => {
+                  setAccountId("all");
+                  setRangePreset("30d");
+                  setPendingFilter("all");
+                  setDirection("all");
+                  setQ("");
+                  setShowAll(false);
+                  setOpenId(null);
+                }}
+              >
+                Reset
+              </Chip>
+            </div>
 
-          {pendingMode !== "all" ? (
-            <Chip onClick={() => setPendingMode("all")} title="Clear pending filter">
-              Pending: {pendingMode}
-            </Chip>
-          ) : null}
+            <div className="mt-3 grid gap-2">
+              {/* Row 1 */}
+              <div className="grid gap-2 sm:grid-cols-3">
+                <div className="rounded-xl border border-zinc-200 bg-white px-3 py-2">
+                  <div className="text-[11px] text-zinc-500">Account</div>
+                  <select
+                    className="mt-1 w-full bg-transparent text-sm text-zinc-900 outline-none"
+                    value={accountId}
+                    onChange={(e) => setAccountId(e.target.value)}
+                  >
+                    <option value="all">All accounts</option>
+                    {accounts.map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {a.name || "Untitled account"}
+                      </option>
+                    ))}
+                  </select>
+                </div>
 
-          {rangeMode !== "30d" ? (
-            <Chip onClick={() => setRangeMode("30d")} title="Reset date range">
-              Range: {rangeMode}
-            </Chip>
-          ) : null}
+                <div className="rounded-xl border border-zinc-200 bg-white px-3 py-2">
+                  <div className="text-[11px] text-zinc-500">Range</div>
+                  <select
+                    className="mt-1 w-full bg-transparent text-sm text-zinc-900 outline-none"
+                    value={rangePreset}
+                    onChange={(e) => setRangePreset(e.target.value as RangePreset)}
+                  >
+                    <option value="7d">Last 7 days</option>
+                    <option value="30d">Last 30 days</option>
+                    <option value="90d">Last 90 days</option>
+                    <option value="all">All time</option>
+                    <option value="custom">Custom</option>
+                  </select>
+                </div>
 
-          {accountId ? (
-            <Chip onClick={() => setAccountId("")} title="Clear account filter">
-              Account filter
-            </Chip>
-          ) : null}
-        </div>
-
-        {filtersOpen ? (
-          <Card className="border-zinc-200 bg-white">
-            <CardContent className="space-y-3">
-              <div className="text-sm font-semibold text-zinc-900">Filters</div>
-              <div className="text-xs text-zinc-500">Quiet helpers. Nothing required.</div>
-
-              <div className="flex flex-wrap gap-2">
-                <Chip onClick={() => setPendingMode("all")} className={pendingMode === "all" ? "border border-zinc-300" : ""}>
-                  Pending: All
-                </Chip>
-                <Chip onClick={() => setPendingMode("pending")} className={pendingMode === "pending" ? "border border-zinc-300" : ""}>
-                  Pending: Yes
-                </Chip>
-                <Chip onClick={() => setPendingMode("posted")} className={pendingMode === "posted" ? "border border-zinc-300" : ""}>
-                  Pending: No
-                </Chip>
+                <div className="rounded-xl border border-zinc-200 bg-white px-3 py-2">
+                  <div className="text-[11px] text-zinc-500">Pending</div>
+                  <select
+                    className="mt-1 w-full bg-transparent text-sm text-zinc-900 outline-none"
+                    value={pendingFilter}
+                    onChange={(e) => setPendingFilter(e.target.value as PendingFilter)}
+                  >
+                    <option value="all">All</option>
+                    <option value="posted">Posted</option>
+                    <option value="pending">Pending</option>
+                  </select>
+                </div>
               </div>
 
-              <div className="flex flex-wrap gap-2">
-                <Chip onClick={() => setRangeMode("30d")} className={rangeMode === "30d" ? "border border-zinc-300" : ""}>
-                  Last 30 days
-                </Chip>
-                <Chip onClick={() => setRangeMode("90d")} className={rangeMode === "90d" ? "border border-zinc-300" : ""}>
-                  Last 90 days
-                </Chip>
-                <Chip onClick={() => setRangeMode("all")} className={rangeMode === "all" ? "border border-zinc-300" : ""}>
-                  All time
-                </Chip>
-                <Chip onClick={() => setRangeMode("custom")} className={rangeMode === "custom" ? "border border-zinc-300" : ""}>
-                  Custom
-                </Chip>
+              {/* Row 2 */}
+              <div className="grid gap-2 sm:grid-cols-3">
+                <div className="rounded-xl border border-zinc-200 bg-white px-3 py-2">
+                  <div className="text-[11px] text-zinc-500">Direction</div>
+                  <select
+                    className="mt-1 w-full bg-transparent text-sm text-zinc-900 outline-none"
+                    value={direction}
+                    onChange={(e) => setDirection(e.target.value as DirectionFilter)}
+                  >
+                    <option value="all">All</option>
+                    <option value="out">Out</option>
+                    <option value="in">In</option>
+                  </select>
+                </div>
+
+                <div className="rounded-xl border border-zinc-200 bg-white px-3 py-2 sm:col-span-2">
+                  <div className="text-[11px] text-zinc-500">Quick filter</div>
+                  <div className="mt-1 flex items-center gap-2">
+                    <input
+                      className="w-full bg-transparent text-sm text-zinc-900 outline-none placeholder:text-zinc-400"
+                      placeholder="Type to filter what’s already loaded…"
+                      value={q}
+                      onChange={(e) => setQ(e.target.value)}
+                    />
+                    {q.trim() ? <Chip onClick={() => setQ("")}>Clear</Chip> : null}
+                  </div>
+                </div>
               </div>
 
-              {rangeMode === "custom" ? (
+              {/* Custom date controls */}
+              {rangePreset === "custom" ? (
                 <div className="grid gap-2 sm:grid-cols-2">
                   <div className="rounded-xl border border-zinc-200 bg-white px-3 py-2">
-                    <div className="text-xs text-zinc-500">From</div>
+                    <div className="text-[11px] text-zinc-500">From</div>
                     <input
                       type="date"
                       value={from}
                       onChange={(e) => setFrom(e.target.value)}
-                      className="w-full bg-transparent text-sm text-zinc-900 outline-none"
+                      className="mt-1 w-full bg-transparent text-sm text-zinc-900 outline-none"
                     />
                   </div>
                   <div className="rounded-xl border border-zinc-200 bg-white px-3 py-2">
-                    <div className="text-xs text-zinc-500">To</div>
+                    <div className="text-[11px] text-zinc-500">To</div>
                     <input
                       type="date"
                       value={to}
                       onChange={(e) => setTo(e.target.value)}
-                      className="w-full bg-transparent text-sm text-zinc-900 outline-none"
+                      className="mt-1 w-full bg-transparent text-sm text-zinc-900 outline-none"
                     />
                   </div>
                 </div>
               ) : null}
+            </div>
 
-              <div className="rounded-xl border border-zinc-200 bg-white px-3 py-2">
-                <div className="text-xs text-zinc-500">Account</div>
-                <select
-                  value={accountId}
-                  onChange={(e) => setAccountId(e.target.value)}
-                  className="w-full bg-transparent text-sm text-zinc-900 outline-none"
-                >
-                  <option value="">All accounts</option>
-                  {accounts.map((a) => (
-                    <option key={a.id} value={a.id}>
-                      {a.name || "Untitled account"}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="flex flex-wrap gap-2 pt-1">
-                <Chip
-                  onClick={() => {
-                    setPendingMode("all");
-                    setRangeMode("30d");
-                    setFrom("");
-                    setTo("");
-                    setAccountId("");
-                  }}
-                >
-                  Reset filters
-                </Chip>
-                <Chip onClick={() => void load(false)}>Refresh</Chip>
-              </div>
-            </CardContent>
-          </Card>
-        ) : null}
+            <div className="mt-3 text-xs text-zinc-500">
+              {filtered.length} shown
+              {items.length !== filtered.length ? ` (from ${items.length} loaded)` : ""}
+              {accountId !== "all" ? " • account scoped" : ""}
+              {rangePreset !== "all" ? " • range scoped" : ""}
+              {pendingFilter !== "all" ? " • pending scoped" : ""}
+              {direction !== "all" ? " • direction filtered" : ""}
+            </div>
+          </CardContent>
+        </Card>
 
         <div className="text-xs text-zinc-500">{statusLine}</div>
 
@@ -399,20 +477,7 @@ export default function TransactionsClient() {
           <CardContent>
             <div className="flex items-center justify-between gap-3 flex-wrap">
               <div className="text-sm font-semibold text-zinc-900">List</div>
-              <div className="text-xs text-zinc-500">{items.length} total</div>
-            </div>
-
-            <div className="mt-3 flex items-center gap-2">
-              <input
-                className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200"
-                placeholder="Filter locally…"
-                value={q}
-                onChange={(e) => setQ(e.target.value)}
-              />
-              {q.trim() ? <Chip onClick={() => setQ("")}>Clear</Chip> : null}
-              {filtered.length > LIMIT ? (
-                <Chip onClick={() => setShowAll((v) => !v)}>{showAll ? "Show less" : "Show all"}</Chip>
-              ) : null}
+              <div className="text-xs text-zinc-500">{items.length} loaded</div>
             </div>
 
             <div className="mt-3 grid gap-2">
@@ -433,6 +498,13 @@ export default function TransactionsClient() {
 
                   const abs = Math.abs(cents);
 
+                  const amountText =
+                    typeof t.amount_cents === "number"
+                      ? formatMoneyFromCents(abs, cur)
+                      : typeof t.amount === "number"
+                      ? formatMoneyFromAmount(Math.abs(t.amount), cur)
+                      : formatMoneyFromCents(0, cur);
+
                   const title = t.merchant || t.description || "Transaction";
                   const meta = [t.date ? softWhen(t.date) : null, t.category ? t.category : null, t.pending ? "Pending" : null]
                     .filter(Boolean)
@@ -452,14 +524,14 @@ export default function TransactionsClient() {
                             <div className="mt-1 text-xs text-zinc-500">{meta || "—"}</div>
                             <div className="mt-2 flex flex-wrap gap-2">
                               <Badge>{signLabel(cents)}</Badge>
-                              <Chip title="Amount">{formatMoneyFromCents(abs, cur)}</Chip>
+                              <Chip title="Amount">{amountText}</Chip>
                               {t.updated_at ? <Chip title="Updated">{softWhen(t.updated_at)}</Chip> : null}
                             </div>
                           </div>
 
                           <div className="text-sm font-semibold text-zinc-900">
                             {cents < 0 ? "− " : cents > 0 ? "+ " : ""}
-                            {formatMoneyFromCents(abs, cur)}
+                            {amountText}
                           </div>
                         </div>
                       </button>
@@ -468,17 +540,7 @@ export default function TransactionsClient() {
                         <div className="mt-3 space-y-2">
                           <div className="text-sm text-zinc-600">No notes.</div>
                           <div className="flex flex-wrap gap-2 pt-1">
-                            <Chip
-                              onClick={() => {
-                                setOpenId(null);
-                                // keep URL clean if it had open=
-                                const u = new URL(window.location.href);
-                                u.searchParams.delete("open");
-                                router.replace(u.pathname + (u.search ? u.search : ""));
-                              }}
-                            >
-                              Done
-                            </Chip>
+                            <Chip onClick={() => setOpenId(null)}>Done</Chip>
                           </div>
                         </div>
                       ) : null}
@@ -487,7 +549,12 @@ export default function TransactionsClient() {
                 })
               )}
 
-              {hidden > 0 ? <div className="text-xs text-zinc-500">{hidden} more hidden — use search to find anything.</div> : null}
+              {filtered.length > LIMIT ? (
+                <div className="flex items-center justify-between pt-1">
+                  <div className="text-xs text-zinc-500">{hidden > 0 ? `${hidden} more hidden — use filters/search.` : ""}</div>
+                  <Chip onClick={() => setShowAll((v) => !v)}>{showAll ? "Show less" : "Show all"}</Chip>
+                </div>
+              ) : null}
             </div>
           </CardContent>
         </Card>
@@ -496,7 +563,7 @@ export default function TransactionsClient() {
           <CardContent>
             <div className="text-xs text-zinc-500 space-y-1">
               <div>This page is intentionally quiet: it’s for orientation, not bookkeeping.</div>
-              <div>Later: provider adapters will keep it live.</div>
+              <div>Later: saved views, export, and rules.</div>
             </div>
           </CardContent>
         </Card>
