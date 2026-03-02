@@ -64,7 +64,7 @@ export function AppShell({ children }: AppShellProps) {
   const menuRef = useRef<HTMLDivElement | null>(null);
   useOutsideClick(menuRef, () => setMenuOpen(false), menuOpen);
 
-  // Household state (we still load it for: guard + showing active name)
+  // Household UI state
   const [households, setHouseholds] = useState<HouseholdItem[]>([]);
   const [activeHouseholdId, setActiveHouseholdId] = useState<string | null>(null);
   const [householdsLoading, setHouseholdsLoading] = useState(false);
@@ -151,7 +151,17 @@ export function AppShell({ children }: AppShellProps) {
             })}
           </div>
 
-          <div ref={menuRef} className="relative flex items-center justify-end">
+          <div ref={menuRef} className="relative flex items-center justify-end gap-3">
+            {/* Quiet always-visible context */}
+            {!needsHousehold && activeHouseholdName ? (
+              <div className="hidden sm:flex flex-col items-end leading-tight">
+                <div className="text-[11px] text-zinc-500">Active household</div>
+                <div className="max-w-[220px] truncate text-sm font-medium text-zinc-900">{activeHouseholdName}</div>
+              </div>
+            ) : householdsLoading ? (
+              <div className="hidden sm:block text-xs text-zinc-500">Loading…</div>
+            ) : null}
+
             <Chip onClick={() => setMenuOpen((v) => !v)}>
               Menu <span className="ml-1 opacity-70">▾</span>
             </Chip>
@@ -168,24 +178,14 @@ export function AppShell({ children }: AppShellProps) {
                       Set up household
                     </Link>
                   ) : (
-                    <div className="border-b border-zinc-100 px-4 py-3">
-                      <div className="flex items-center justify-between">
-                        <div className="text-xs font-medium text-zinc-500">Household</div>
-                        <div className="text-xs text-zinc-500">{householdsLoading ? "Loading…" : ""}</div>
-                      </div>
-                      <div className="mt-1 text-sm font-medium text-zinc-900">{activeHouseholdName ?? "—"}</div>
-                    </div>
-                  )}
-
-                  {!needsHousehold ? (
                     <Link
                       href="/household"
-                      className="px-4 py-3 text-sm text-zinc-800 hover:bg-zinc-50"
+                      className="border-b border-zinc-100 px-4 py-3 text-sm text-zinc-800 hover:bg-zinc-50"
                       onClick={() => setMenuOpen(false)}
                     >
                       Household
                     </Link>
-                  ) : null}
+                  )}
 
                   <Link href="/invites" className="px-4 py-3 text-sm text-zinc-800 hover:bg-zinc-50" onClick={() => setMenuOpen(false)}>
                     Invites
@@ -198,6 +198,8 @@ export function AppShell({ children }: AppShellProps) {
                   <Link href="/family" className="px-4 py-3 text-sm text-zinc-800 hover:bg-zinc-50" onClick={() => setMenuOpen(false)}>
                     Family
                   </Link>
+
+                  <div className="my-1 border-t border-zinc-100" />
 
                   <Link href="/fine-print" className="px-4 py-3 text-sm text-zinc-800 hover:bg-zinc-50" onClick={() => setMenuOpen(false)}>
                     Fine print
