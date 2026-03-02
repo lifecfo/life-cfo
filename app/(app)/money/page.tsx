@@ -304,11 +304,7 @@ export default function MoneyClient() {
               <div className="text-sm font-semibold text-zinc-900">Ask about money</div>
               <div className="text-xs text-zinc-500">Search-first. No pressure, no bookkeeping.</div>
 
-              {/* NOTE: We don't have a "money" scope yet. For now this targets transactions safely. */}
-              <AssistedSearch
-                scope="transactions"
-                placeholder="Search transactions… (soon: unified ‘Money’ search)"
-              />
+              <AssistedSearch scope="money" placeholder="e.g. ‘groceries last week’, ‘Netflix’, ‘recent transfers’, ‘upcoming bills’…" />
             </CardContent>
           </Card>
 
