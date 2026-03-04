@@ -36,7 +36,7 @@ export default function PrivacyPage() {
       <p>
         For questions about this Privacy Policy, contact:
         <br />
-        emily.manungo@gmail.com
+        admin@life-cfo.com
       </p>
     </main>
   );
