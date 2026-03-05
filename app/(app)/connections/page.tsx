@@ -84,10 +84,11 @@ export default function ConnectionsPage() {
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error || "Basiq start failed");
 
-      const url = String(json?.auth_link_url || "");
-      if (!url) throw new Error("Missing auth_link_url");
+      // NEW: API now returns `consent_url` (Basiq Consent UI)
+      const url = String(json?.consent_url || "");
+      if (!url) throw new Error("Missing consent_url");
 
-      // Redirect user into hosted connection flow
+      // Redirect user into hosted consent / connection flow
       window.location.href = url;
     } catch (e: any) {
       toast({ title: "Couldn’t start connection", description: e?.message });
@@ -117,7 +118,7 @@ export default function ConnectionsPage() {
 
       toast({ title: "Starting bank connection…" });
 
-      // 2) Start basiq auth flow + redirect
+      // 2) Start basiq consent flow + redirect
       await startBasiqAuth(connectionId);
     } catch (e: any) {
       toast({ title: "Couldn’t add bank", description: e?.message });
@@ -184,8 +185,8 @@ export default function ConnectionsPage() {
     return "";
   }
 
-  const canShowConnect =
-    (c: Connection) => c.provider === "basiq" && c.status === "needs_auth";
+  const canShowConnect = (c: Connection) =>
+    c.provider === "basiq" && c.status === "needs_auth";
 
   return (
     <Page
@@ -230,9 +231,7 @@ export default function ConnectionsPage() {
               {loading ? (
                 <div className="text-sm text-zinc-600">Loading…</div>
               ) : items.length === 0 ? (
-                <div className="text-sm text-zinc-600">
-                  No connections yet.
-                </div>
+                <div className="text-sm text-zinc-600">No connections yet.</div>
               ) : (
                 items.map((c) => (
                   <div
