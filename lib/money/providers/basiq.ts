@@ -21,36 +21,6 @@ function basiqBasicValue() {
   return v.toLowerCase().startsWith("basic ") ? v.slice(6).trim() : v;
 }
 
-// Normalize any RequestInit.headers into a plain object (lower risk of surprises).
-function headersToObject(h: RequestInit["headers"]): Record<string, string> {
-  if (!h) return {};
-  if (h instanceof Headers) {
-    const obj: Record<string, string> = {};
-    h.forEach((value, key) => {
-      obj[key] = value;
-    });
-    return obj;
-  }
-  if (Array.isArray(h)) {
-    return Object.fromEntries(h.map(([k, v]) => [String(k), String(v)]));
-  }
-  // h is Record<string, string>
-  const obj: Record<string, string> = {};
-  for (const [k, v] of Object.entries(h as Record<string, unknown>)) {
-    if (typeof v === "string") obj[k] = v;
-    else if (v != null) obj[k] = String(v);
-  }
-  return obj;
-}
-
-// Remove Authorization header from user-provided headers so we never forward browser/auth tokens to Basiq.
-// (This is the #1 cause of the “missing equal-sign in Authorization header” 403.)
-function stripAuthorizationHeader(h: Record<string, string>) {
-  for (const key of Object.keys(h)) {
-    if (key.toLowerCase() === "authorization") delete h[key];
-  }
-}
-
 // Simple in-memory token cache (Node runtime). Token is short-lived; refresh before expiry.
 let cachedToken: { token: string; expiresAtMs: number } | null = null;
 
@@ -62,22 +32,17 @@ async function getBasiqBearerToken(): Promise<string> {
     return cachedToken.token;
   }
 
-  // Per Basiq spec:
-  // POST /token
-  // header: basiq-version: 3.0
-  // body: application/x-www-form-urlencoded with scope=SERVER_ACCESS (server-side)
-  // auth: Authorization: Basic <base64>
   const body = new URLSearchParams({ scope: "SERVER_ACCESS" });
+
+  const headers = new Headers();
+  headers.set("Authorization", `Basic ${basiqBasicValue()}`);
+  headers.set("Accept", "application/json");
+  headers.set("Content-Type", "application/x-www-form-urlencoded");
+  headers.set("basiq-version", BASIQ_VERSION);
 
   const res = await fetch(`${BASIQ_BASE_URL}/token`, {
     method: "POST",
-    headers: {
-      // Do not forward any incoming headers here—this must be a clean request to Basiq.
-      Authorization: `Basic ${basiqBasicValue()}`,
-      Accept: "application/json",
-      "Content-Type": "application/x-www-form-urlencoded",
-      "basiq-version": BASIQ_VERSION,
-    },
+    headers,
     body,
     cache: "no-store",
   });
@@ -101,23 +66,37 @@ async function getBasiqBearerToken(): Promise<string> {
   return token;
 }
 
+function mergeHeadersNoAuth(optionsHeaders: RequestInit["headers"]): Headers {
+  // Create Headers from whatever the caller supplied
+  const h = new Headers(optionsHeaders || undefined);
+
+  // CRITICAL: remove ALL authorization variants (case-insensitive)
+  // so we can set exactly one Authorization header.
+  for (const key of Array.from(h.keys())) {
+    if (key.toLowerCase() === "authorization") h.delete(key);
+  }
+
+  return h;
+}
+
 export async function basiqFetch(path: string, options: RequestInit = {}) {
   const bearer = await getBasiqBearerToken();
 
-  // Normalize and sanitize caller headers so we never leak/forward Authorization to Basiq.
-  const callerHeaders = headersToObject(options.headers);
-  stripAuthorizationHeader(callerHeaders);
+  // Never allow caller headers to override/duplicate Authorization
+  const headers = mergeHeadersNoAuth(options.headers);
 
-  // IMPORTANT: set our required headers LAST so they cannot be overridden by caller headers.
+  // Set required headers using Headers.set (overwrites any casing duplicates)
+  headers.set("Accept", "application/json");
+  headers.set("Content-Type", "application/json");
+  headers.set("basiq-version", BASIQ_VERSION);
+  headers.set("Authorization", `Bearer ${bearer}`);
+
+  // Avoid spreading headers from options into an object (can reintroduce duplicates)
+  const { headers: _ignored, ...rest } = options;
+
   const res = await fetch(`${BASIQ_BASE_URL}${path}`, {
-    ...options,
-    headers: {
-      ...callerHeaders,
-      Accept: "application/json",
-      "Content-Type": "application/json",
-      "basiq-version": BASIQ_VERSION,
-      Authorization: `Bearer ${bearer}`,
-    },
+    ...rest,
+    headers,
     cache: "no-store",
   });
 
