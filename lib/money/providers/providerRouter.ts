@@ -1,6 +1,10 @@
 import type { ProviderName } from "./types";
-import { getBasiqAccounts, getBasiqTransactions } from "./basiq";
-import { getManualAccounts, getManualTransactions } from "./manual";
+import {
+  getBasiqAccounts,
+  getBasiqTransactions,
+  getManualAccounts,
+  getManualTransactions,
+} from "./index";
 
 /**
  * NOTE:
