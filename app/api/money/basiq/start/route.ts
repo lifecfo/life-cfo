@@ -25,7 +25,7 @@ function jsonStringifyStable(v: unknown) {
 }
 
 function tryParseBasiqError(rawMsg: string) {
-  // basiq.ts throws: `Basiq API error (403): <text>`
+  // Legacy fallback: if we only have a string message, try to parse JSON inside it.
   const firstBrace = rawMsg.indexOf("{");
   const lastBrace = rawMsg.lastIndexOf("}");
   if (firstBrace >= 0 && lastBrace > firstBrace) {
@@ -61,6 +61,43 @@ function envDiag() {
     vercelEnv: process.env.VERCEL_ENV || "",
     vercelRegion: process.env.VERCEL_REGION || "",
     vercelCommit: process.env.VERCEL_GIT_COMMIT_SHA || "",
+  };
+}
+
+function unwrapBasiq(e: any): {
+  isBasiq: boolean;
+  stage?: string;
+  status?: number;
+  basiq?: { correlationId?: string; code?: string; title?: string; detail?: string };
+  message: string;
+} {
+  const message = e?.message ?? String(e);
+  const stage = typeof e?.stage === "string" ? e.stage : undefined;
+  const status = typeof e?.status === "number" ? e.status : undefined;
+
+  // If basiq.ts throws structured errors, it will attach `basiq`.
+  const basiqObj =
+    e?.basiq && typeof e.basiq === "object"
+      ? {
+          correlationId:
+            typeof e.basiq.correlationId === "string" ? e.basiq.correlationId : undefined,
+          code: typeof e.basiq.code === "string" ? e.basiq.code : undefined,
+          title: typeof e.basiq.title === "string" ? e.basiq.title : undefined,
+          detail: typeof e.basiq.detail === "string" ? e.basiq.detail : undefined,
+        }
+      : undefined;
+
+  const isBasiq = Boolean(stage || status || basiqObj);
+
+  // Fallback parse if we only got a string error message
+  const basiqFallback = basiqObj ?? tryParseBasiqError(message);
+
+  return {
+    isBasiq,
+    stage,
+    status,
+    basiq: basiqFallback,
+    message,
   };
 }
 
@@ -112,7 +149,6 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: "Missing connection_id" }, { status: 400 });
     }
 
-    // Load external connection (must belong to household)
     const { data: conn, error: connErr } = await supabase
       .from("external_connections")
       .select("id, household_id, provider, status, item_id, display_name")
@@ -121,15 +157,15 @@ export async function POST(req: Request) {
       .maybeSingle();
 
     if (connErr) throw connErr;
-    if (!conn) return NextResponse.json({ ok: false, error: "Connection not found." }, { status: 404 });
+    if (!conn) {
+      return NextResponse.json({ ok: false, error: "Connection not found." }, { status: 404 });
+    }
     if (conn.provider !== "basiq") {
       return NextResponse.json({ ok: false, error: "Not a Basiq connection." }, { status: 400 });
     }
 
-    // item_id stores JSON like {"basiq_user_id":"...", "basiq_authlink_id":"..."}
     let payload = safeJsonParse<ItemIdPayload>(conn.item_id) ?? null;
 
-    // Ensure Basiq user exists
     let basiqUserId = payload?.basiq_user_id ?? "";
 
     if (!basiqUserId) {
@@ -150,14 +186,14 @@ export async function POST(req: Request) {
           }),
         });
       } catch (e: any) {
-        const msg = e?.message ?? String(e);
-        const parsed = tryParseBasiqError(msg);
+        const u = unwrapBasiq(e);
         return NextResponse.json(
           {
             ok: false,
-            step: "create_user",
-            error: msg,
-            basiq: parsed,
+            step: u.stage || "create_user",
+            status: u.status,
+            error: u.message,
+            basiq: u.basiq,
             diag,
           },
           { status: 500 }
@@ -167,34 +203,33 @@ export async function POST(req: Request) {
       basiqUserId = String(created?.id || "");
       if (!basiqUserId) {
         return NextResponse.json(
-          { ok: false, step: "create_user", error: "Basiq user create failed (missing id).", diag },
+          {
+            ok: false,
+            step: "create_user",
+            error: "Basiq user create failed (missing id).",
+            diag,
+          },
           { status: 500 }
         );
       }
 
-      // CRITICAL: persist basiq_user_id immediately so repeated clicks don't create spam users
       payload = { basiq_user_id: basiqUserId };
       await persistItemId(supabase, connectionId, householdId, payload, "needs_auth");
     }
 
-    // Create AuthLink (hosted connect flow)
     let authlink: any;
     try {
       authlink = await basiqFetch("/authlink", {
         method: "POST",
         body: JSON.stringify({
-          // Be tolerant to schema differences: send both keys
           userId: basiqUserId,
           user_id: basiqUserId,
           description: `Life CFO (${conn.display_name ?? "Basiq"})`,
-          // redirectUrl: "https://life-cfo.com/money/connect/basiq/callback",
         }),
       });
     } catch (e: any) {
-      const msg = e?.message ?? String(e);
-      const parsed = tryParseBasiqError(msg);
+      const u = unwrapBasiq(e);
 
-      // Persist at least the user id (already done above), keep status "needs_auth"
       if (payload?.basiq_user_id) {
         try {
           await persistItemId(supabase, connectionId, householdId, payload, "needs_auth");
@@ -206,9 +241,10 @@ export async function POST(req: Request) {
       return NextResponse.json(
         {
           ok: false,
-          step: "create_authlink",
-          error: msg,
-          basiq: parsed,
+          step: u.stage || "create_authlink",
+          status: u.status,
+          error: u.message,
+          basiq: u.basiq,
           basiq_user_id: basiqUserId,
           diag,
         },
@@ -220,12 +256,16 @@ export async function POST(req: Request) {
     const authLinkId = String(authlink?.id || "");
     if (!authLinkUrl) {
       return NextResponse.json(
-        { ok: false, step: "create_authlink", error: "Basiq authlink create failed (missing link/url).", diag },
+        {
+          ok: false,
+          step: "create_authlink",
+          error: "Basiq authlink create failed (missing link/url).",
+          diag,
+        },
         { status: 500 }
       );
     }
 
-    // Persist item_id with authlink id too
     const nextPayload: ItemIdPayload = {
       basiq_user_id: basiqUserId,
       basiq_authlink_id: authLinkId || payload?.basiq_authlink_id,
@@ -241,15 +281,15 @@ export async function POST(req: Request) {
       diag,
     });
   } catch (e: any) {
-    const msg = e?.message ?? "Basiq start failed";
-    const parsed = tryParseBasiqError(msg);
+    const u = unwrapBasiq(e);
 
     return NextResponse.json(
       {
         ok: false,
-        step: "unknown",
-        error: msg,
-        basiq: parsed,
+        step: u.stage || "unknown",
+        status: u.status,
+        error: u.message,
+        basiq: u.basiq,
         diag,
       },
       { status: 500 }
