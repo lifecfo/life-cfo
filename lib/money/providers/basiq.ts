@@ -2,7 +2,11 @@
 import type { MoneyProvider } from "./types";
 
 const BASIQ_BASE_URL = (process.env.BASIQ_BASE_URL || "https://au-api.basiq.io").trim();
+
+// This should be the Base64 credential string shown by Basiq (the part AFTER "Basic ").
+// We'll be tolerant if you pasted it with "Basic " prefix.
 const BASIQ_API_KEY_RAW = (process.env.BASIQ_API_KEY || "").trim();
+
 const BASIQ_VERSION = (process.env.BASIQ_VERSION || "3.0").trim();
 
 function assertEnv() {
@@ -10,11 +14,19 @@ function assertEnv() {
 }
 
 function basiqBasicValue() {
+  // Accept either:
+  // - "YmQ2...==" (recommended)
+  // - "Basic YmQ2...==" (we'll normalize)
   const v = BASIQ_API_KEY_RAW;
   return v.toLowerCase().startsWith("basic ") ? v.slice(6).trim() : v;
 }
 
-type ParsedBasiq = { correlationId?: string; code?: string; title?: string; detail?: string };
+type ParsedBasiq = {
+  correlationId?: string;
+  code?: string;
+  title?: string;
+  detail?: string;
+};
 
 function parseBasiqPayload(text: string): ParsedBasiq {
   try {
@@ -46,14 +58,16 @@ export class BasiqError extends Error {
   }
 }
 
-// In-memory token cache
+// Simple in-memory token cache (Node runtime). Token is short-lived; refresh before expiry.
 let cachedToken: { token: string; expiresAtMs: number } | null = null;
 
 async function getBasiqBearerToken(): Promise<string> {
   assertEnv();
 
   const now = Date.now();
-  if (cachedToken && cachedToken.expiresAtMs > now + 30_000) return cachedToken.token;
+  if (cachedToken && cachedToken.expiresAtMs > now + 30_000) {
+    return cachedToken.token;
+  }
 
   const body = new URLSearchParams({ scope: "SERVER_ACCESS" });
 
@@ -86,16 +100,22 @@ async function getBasiqBearerToken(): Promise<string> {
 
   if (!token) throw new Error("Basiq token response missing access_token");
 
-  cachedToken = { token, expiresAtMs: Date.now() + Math.max(60, expiresInSec) * 1000 };
+  cachedToken = {
+    token,
+    expiresAtMs: Date.now() + Math.max(60, expiresInSec) * 1000,
+  };
+
   return token;
 }
 
-function mergeHeadersNoAuth(input: RequestInit["headers"]): Headers {
-  const h = new Headers(input || undefined);
-  // remove ANY authorization header regardless of casing
-  for (const k of Array.from(h.keys())) {
-    if (k.toLowerCase() === "authorization") h.delete(k);
+function mergeHeadersNoAuth(optionsHeaders: RequestInit["headers"]): Headers {
+  const h = new Headers(optionsHeaders || undefined);
+
+  // remove ALL authorization variants (case-insensitive)
+  for (const key of Array.from(h.keys())) {
+    if (key.toLowerCase() === "authorization") h.delete(key);
   }
+
   return h;
 }
 
@@ -103,12 +123,14 @@ export async function basiqFetch(path: string, options: RequestInit = {}) {
   const bearer = await getBasiqBearerToken();
 
   const headers = mergeHeadersNoAuth(options.headers);
+
+  // Set required headers using Headers.set (overwrites any casing duplicates)
   headers.set("Accept", "application/json");
   headers.set("Content-Type", "application/json");
   headers.set("basiq-version", BASIQ_VERSION);
   headers.set("Authorization", `Bearer ${bearer}`);
 
-  // IMPORTANT: do NOT let `options.headers` sneak back in
+  // Avoid spreading headers from options into the final fetch init (can reintroduce duplicates)
   const { headers: _ignored, ...rest } = options;
 
   const res = await fetch(`${BASIQ_BASE_URL}${path}`, {
@@ -127,6 +149,7 @@ export async function basiqFetch(path: string, options: RequestInit = {}) {
   }
 }
 
+// Low-level helpers (expect a BASIQ userId)
 export async function getBasiqAccounts(basiqUserId: string) {
   const data: any = await basiqFetch(`/users/${basiqUserId}/accounts`);
   return data?.data ?? data ?? [];

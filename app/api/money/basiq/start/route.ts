@@ -1,3 +1,4 @@
+// app/api/money/basiq/start/route.ts
 import { NextResponse } from "next/server";
 import { supabaseRoute } from "@/lib/supabaseRoute";
 import { resolveHouseholdIdRoute } from "@/lib/households/resolveHouseholdIdRoute";
@@ -25,7 +26,6 @@ function jsonStringifyStable(v: unknown) {
 }
 
 function tryParseBasiqError(rawMsg: string) {
-  // Legacy fallback: if we only have a string message, try to parse JSON inside it.
   const firstBrace = rawMsg.indexOf("{");
   const lastBrace = rawMsg.lastIndexOf("}");
   if (firstBrace >= 0 && lastBrace > firstBrace) {
@@ -65,7 +65,6 @@ function envDiag() {
 }
 
 function unwrapBasiq(e: any): {
-  isBasiq: boolean;
   stage?: string;
   status?: number;
   basiq?: { correlationId?: string; code?: string; title?: string; detail?: string };
@@ -75,7 +74,6 @@ function unwrapBasiq(e: any): {
   const stage = typeof e?.stage === "string" ? e.stage : undefined;
   const status = typeof e?.status === "number" ? e.status : undefined;
 
-  // If basiq.ts throws structured errors, it will attach `basiq`.
   const basiqObj =
     e?.basiq && typeof e.basiq === "object"
       ? {
@@ -87,16 +85,10 @@ function unwrapBasiq(e: any): {
         }
       : undefined;
 
-  const isBasiq = Boolean(stage || status || basiqObj);
-
-  // Fallback parse if we only got a string error message
-  const basiqFallback = basiqObj ?? tryParseBasiqError(message);
-
   return {
-    isBasiq,
     stage,
     status,
-    basiq: basiqFallback,
+    basiq: basiqObj ?? tryParseBasiqError(message),
     message,
   };
 }
@@ -157,15 +149,14 @@ export async function POST(req: Request) {
       .maybeSingle();
 
     if (connErr) throw connErr;
-    if (!conn) {
-      return NextResponse.json({ ok: false, error: "Connection not found." }, { status: 404 });
-    }
+    if (!conn) return NextResponse.json({ ok: false, error: "Connection not found." }, { status: 404 });
     if (conn.provider !== "basiq") {
       return NextResponse.json({ ok: false, error: "Not a Basiq connection." }, { status: 400 });
     }
 
     let payload = safeJsonParse<ItemIdPayload>(conn.item_id) ?? null;
 
+    // Ensure Basiq user exists
     let basiqUserId = payload?.basiq_user_id ?? "";
 
     if (!basiqUserId) {
@@ -203,69 +194,78 @@ export async function POST(req: Request) {
       basiqUserId = String(created?.id || "");
       if (!basiqUserId) {
         return NextResponse.json(
+          { ok: false, step: "create_user", error: "Basiq user create failed (missing id).", diag },
+          { status: 500 }
+        );
+      }
+
+      // Persist basiq_user_id immediately so repeated clicks don't create spam users
+      payload = { basiq_user_id: basiqUserId };
+      await persistItemId(supabase, connectionId, householdId, payload, "needs_auth");
+    }
+
+    // Create AuthLink (hosted connect flow)
+    // NOTE: Basiq commonly uses a user-scoped endpoint for auth link creation.
+    let authlink: any;
+    try {
+      authlink = await basiqFetch(`/users/${basiqUserId}/auth_link`, {
+        method: "POST",
+        body: JSON.stringify({
+          description: `Life CFO (${conn.display_name ?? "Basiq"})`,
+        }),
+      });
+    } catch (e1: any) {
+      // Fallback path some setups use
+      try {
+        authlink = await basiqFetch(`/users/${basiqUserId}/authlink`, {
+          method: "POST",
+          body: JSON.stringify({
+            description: `Life CFO (${conn.display_name ?? "Basiq"})`,
+          }),
+        });
+      } catch {
+        const u = unwrapBasiq(e1);
+
+        if (payload?.basiq_user_id) {
+          try {
+            await persistItemId(supabase, connectionId, householdId, payload, "needs_auth");
+          } catch {
+            // ignore secondary failure
+          }
+        }
+
+        return NextResponse.json(
           {
             ok: false,
-            step: "create_user",
-            error: "Basiq user create failed (missing id).",
+            step: u.stage || "create_authlink",
+            status: u.status,
+            error: u.message,
+            basiq: u.basiq,
+            basiq_user_id: basiqUserId,
             diag,
           },
           { status: 500 }
         );
       }
-
-      payload = { basiq_user_id: basiqUserId };
-      await persistItemId(supabase, connectionId, householdId, payload, "needs_auth");
     }
 
-    let authlink: any;
-    try {
-      authlink = await basiqFetch("/authlink", {
-        method: "POST",
-        body: JSON.stringify({
-          userId: basiqUserId,
-          user_id: basiqUserId,
-          description: `Life CFO (${conn.display_name ?? "Basiq"})`,
-        }),
-      });
-    } catch (e: any) {
-      const u = unwrapBasiq(e);
-
-      if (payload?.basiq_user_id) {
-        try {
-          await persistItemId(supabase, connectionId, householdId, payload, "needs_auth");
-        } catch {
-          // ignore secondary failure
-        }
-      }
-
-      return NextResponse.json(
-        {
-          ok: false,
-          step: u.stage || "create_authlink",
-          status: u.status,
-          error: u.message,
-          basiq: u.basiq,
-          basiq_user_id: basiqUserId,
-          diag,
-        },
-        { status: 500 }
-      );
-    }
-
-    const authLinkUrl = String(authlink?.link || authlink?.url || "");
-    const authLinkId = String(authlink?.id || "");
+    const authLinkUrl = String(
+      authlink?.link ||
+        authlink?.url ||
+        authlink?.authLinkUrl ||
+        authlink?.data?.link ||
+        authlink?.data?.url ||
+        ""
+    );
+    const authLinkId = String(authlink?.id || authlink?.data?.id || "");
     if (!authLinkUrl) {
       return NextResponse.json(
-        {
-          ok: false,
-          step: "create_authlink",
-          error: "Basiq authlink create failed (missing link/url).",
-          diag,
-        },
+        { ok: false, step: "create_authlink", error: "Basiq authlink create failed (missing link/url).", diag },
         { status: 500 }
       );
     }
 
+    // Persist item_id with authlink id too
     const nextPayload: ItemIdPayload = {
       basiq_user_id: basiqUserId,
       basiq_authlink_id: authLinkId || payload?.basiq_authlink_id,
