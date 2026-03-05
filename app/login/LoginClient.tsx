@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 
@@ -19,7 +19,7 @@ export default function LoginClient({ nextPath }: { nextPath: string }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
 
-  // ✅ Step 2: confirm password on signup
+  // confirm password on signup
   const [confirmPassword, setConfirmPassword] = useState("");
 
   const [showPassword, setShowPassword] = useState(false);
@@ -39,7 +39,6 @@ export default function LoginClient({ nextPath }: { nextPath: string }) {
 
   const passwordsMatch = useMemo(() => {
     if (mode !== "signup") return true;
-    // Only validate when user has typed something
     if (!confirmPassword) return false;
     return password === confirmPassword;
   }, [mode, password, confirmPassword]);
@@ -52,7 +51,6 @@ export default function LoginClient({ nextPath }: { nextPath: string }) {
 
     if (password.length < 6) return false;
 
-    // ✅ Signup requires confirm match
     if (mode === "signup") return password === confirmPassword;
 
     return true;
@@ -63,7 +61,7 @@ export default function LoginClient({ nextPath }: { nextPath: string }) {
     router.refresh();
   };
 
-  const signIn = async (e: React.FormEvent) => {
+  const signIn = async (e: FormEvent) => {
     e.preventDefault();
     if (!canSubmit) return;
 
@@ -88,7 +86,7 @@ export default function LoginClient({ nextPath }: { nextPath: string }) {
     }
   };
 
-  const signUp = async (e: React.FormEvent) => {
+  const signUp = async (e: FormEvent) => {
     e.preventDefault();
     if (!canSubmit) return;
 
@@ -96,7 +94,7 @@ export default function LoginClient({ nextPath }: { nextPath: string }) {
     setStatus("Creating account…");
 
     try {
-      // ✅ Ensure confirmation emails always land on /auth/callback (not "/")
+      // Ensure confirmation emails always land on /auth/callback (not "/")
       const origin = window.location.origin;
 
       const { data, error } = await supabase.auth.signUp({
@@ -114,7 +112,9 @@ export default function LoginClient({ nextPath }: { nextPath: string }) {
 
       // If email confirmations are enabled, session can be null until confirmed.
       if (!data.session) {
-        setStatus("Account created ✅ Check your email to confirm, then come back and sign in.");
+        setStatus(
+          "Account created ✅ Check your email to confirm, then come back and sign in."
+        );
         setMode("signin");
         setShowPassword(false);
         setPassword("");
@@ -140,7 +140,9 @@ export default function LoginClient({ nextPath }: { nextPath: string }) {
 
     try {
       const redirectTo = `${window.location.origin}/auth/reset`;
-      const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo });
+      const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+        redirectTo,
+      });
 
       if (error) {
         setStatus(`Reset failed: ${error.message}`);
@@ -153,7 +155,7 @@ export default function LoginClient({ nextPath }: { nextPath: string }) {
     }
   };
 
-  const onSubmit = (e: React.FormEvent) => {
+  const onSubmit = (e: FormEvent) => {
     if (mode === "signin") return void signIn(e);
     if (mode === "signup") return void signUp(e);
     e.preventDefault();
@@ -186,23 +188,29 @@ export default function LoginClient({ nextPath }: { nextPath: string }) {
         {/* Header / Mini landing */}
         <div className="text-center space-y-3">
           <div className="mx-auto h-11 w-11 rounded-2xl bg-black flex items-center justify-center text-white font-semibold text-lg">
-            K
+            L
           </div>
 
           <h1 className="text-2xl font-semibold tracking-tight">
-            {mode === "signin" ? "Welcome to Keystone" : mode === "signup" ? "Create your account" : "Reset your password"}
+            {mode === "signin"
+              ? "Welcome to Life CFO"
+              : mode === "signup"
+              ? "Create your account"
+              : "Reset your password"}
           </h1>
 
           <p className="text-sm text-neutral-600 leading-relaxed">
             {mode === "reset"
               ? subtitle
-              : "Keystone is a values-first decision and money operating system. Capture what matters, make clear decisions, and review them over time — without noise or guilt."}
+              : "Life CFO is a calm, values-anchored money and decision system for families. Capture what matters, ask clear questions, and move forward — without noise or guilt."}
           </p>
 
           {/* tiny tester hint */}
           {mode !== "reset" ? (
             <p className="text-xs text-neutral-500">
-              Tip: after signing in, open <span className="font-medium">Menu → Demo</span> to load sample data.
+              Tip: after signing in, open{" "}
+              <span className="font-medium">Menu → Demo</span> to load sample
+              data.
             </p>
           ) : null}
         </div>
@@ -211,7 +219,9 @@ export default function LoginClient({ nextPath }: { nextPath: string }) {
         <div className="rounded-2xl border border-neutral-200 bg-white shadow-sm p-6">
           <form onSubmit={onSubmit} className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-neutral-800">Email</label>
+              <label className="block text-sm font-medium text-neutral-800">
+                Email
+              </label>
               <input
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
@@ -225,7 +235,9 @@ export default function LoginClient({ nextPath }: { nextPath: string }) {
             {mode !== "reset" ? (
               <div className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-neutral-800">Password</label>
+                  <label className="block text-sm font-medium text-neutral-800">
+                    Password
+                  </label>
 
                   <div className="mt-1 relative">
                     <input
@@ -233,7 +245,9 @@ export default function LoginClient({ nextPath }: { nextPath: string }) {
                       onChange={(e) => setPassword(e.target.value)}
                       type={showPassword ? "text" : "password"}
                       className="w-full rounded-xl border border-neutral-300 px-3 py-2 pr-14 outline-none focus:ring-2 focus:ring-black/10 focus:border-neutral-400"
-                      autoComplete={mode === "signup" ? "new-password" : "current-password"}
+                      autoComplete={
+                        mode === "signup" ? "new-password" : "current-password"
+                      }
                     />
 
                     <button
@@ -247,13 +261,17 @@ export default function LoginClient({ nextPath }: { nextPath: string }) {
                     </button>
                   </div>
 
-                  <div className="mt-1 text-xs text-neutral-500">Minimum 6 characters.</div>
+                  <div className="mt-1 text-xs text-neutral-500">
+                    Minimum 6 characters.
+                  </div>
                 </div>
 
-                {/* ✅ Confirm password (signup only) */}
+                {/* Confirm password (signup only) */}
                 {mode === "signup" ? (
                   <div>
-                    <label className="block text-sm font-medium text-neutral-800">Confirm password</label>
+                    <label className="block text-sm font-medium text-neutral-800">
+                      Confirm password
+                    </label>
                     <input
                       value={confirmPassword}
                       onChange={(e) => setConfirmPassword(e.target.value)}
@@ -262,9 +280,10 @@ export default function LoginClient({ nextPath }: { nextPath: string }) {
                       autoComplete="new-password"
                     />
 
-                    {/* calm mismatch hint */}
                     {confirmPassword.length > 0 && !passwordsMatch ? (
-                      <div className="mt-1 text-xs text-neutral-500">Passwords don’t match yet.</div>
+                      <div className="mt-1 text-xs text-neutral-500">
+                        Passwords don’t match yet.
+                      </div>
                     ) : null}
                   </div>
                 ) : null}
@@ -278,7 +297,9 @@ export default function LoginClient({ nextPath }: { nextPath: string }) {
                 disabled={!canSubmit}
                 className={[
                   "w-full inline-flex items-center justify-center rounded-xl px-4 py-2 text-sm font-medium transition focus:outline-none focus:ring-2 focus:ring-black/10",
-                  !canSubmit ? "bg-black/40 text-white cursor-not-allowed" : "bg-black text-white hover:bg-black/90",
+                  !canSubmit
+                    ? "bg-black/40 text-white cursor-not-allowed"
+                    : "bg-black text-white hover:bg-black/90",
                 ].join(" ")}
               >
                 {primaryLabel}
@@ -337,7 +358,9 @@ export default function LoginClient({ nextPath }: { nextPath: string }) {
                 </button>
               </div>
 
-              {mode === "reset" ? <div className="text-xs text-neutral-500">Uses the email above</div> : null}
+              {mode === "reset" ? (
+                <div className="text-xs text-neutral-500">Uses the email above</div>
+              ) : null}
             </div>
 
             {status && (
@@ -349,7 +372,9 @@ export default function LoginClient({ nextPath }: { nextPath: string }) {
         </div>
 
         {/* Footer values line */}
-        <p className="text-center text-xs text-neutral-500">Designed for clarity • Built for long-term thinking</p>
+        <p className="text-center text-xs text-neutral-500">
+          Designed for clarity • Built for calm decisions
+        </p>
       </div>
     </main>
   );
