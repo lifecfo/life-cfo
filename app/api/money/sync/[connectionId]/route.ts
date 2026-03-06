@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 
 export async function POST(
   _req: Request,
-  { params }: { params: { connectionId: string } }
+  { params }: { params: Promise<{ connectionId: string }> }
 ) {
   try {
     const supabase = await supabaseRoute();
@@ -30,7 +30,8 @@ export async function POST(
       );
     }
 
-    const connectionId = params?.connectionId;
+    const { connectionId } = await params;
+
     if (!connectionId) {
       return NextResponse.json(
         { ok: false, error: "Missing connection id." },
