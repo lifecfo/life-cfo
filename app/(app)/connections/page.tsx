@@ -42,7 +42,10 @@ type PlaidHandler = {
 type PlaidFactory = {
   create: (options: {
     token: string;
-    onSuccess: (publicToken: string, metadata: PlaidLinkOnSuccessMetadata) => void | Promise<void>;
+    onSuccess: (
+      publicToken: string,
+      metadata: PlaidLinkOnSuccessMetadata
+    ) => void | Promise<void>;
     onExit?: (
       err: { error_message?: string; error_code?: string; error_type?: string } | null,
       metadata: PlaidLinkOnExitMetadata
@@ -139,6 +142,13 @@ function syncLine(c: Connection) {
   return "";
 }
 
+function isOlderThanHours(value: string | null | undefined, hours: number) {
+  if (!value) return false;
+  const ms = Date.parse(value);
+  if (!Number.isFinite(ms)) return false;
+  return Date.now() - ms > hours * 60 * 60 * 1000;
+}
+
 let plaidScriptPromise: Promise<void> | null = null;
 
 function loadPlaidScript(): Promise<void> {
@@ -192,7 +202,8 @@ export default function ConnectionsPage() {
   const [creatingPlaid, setCreatingPlaid] = useState(false);
   const [syncingId, setSyncingId] = useState<string | null>(null);
   const [connectingId, setConnectingId] = useState<string | null>(null);
-  const [showAllPending, setShowAllPending] = useState(false);
+  const [showAllRecentPending, setShowAllRecentPending] = useState(false);
+  const [showOlderPending, setShowOlderPending] = useState(false);
 
   async function load() {
     setLoading(true);
@@ -451,8 +462,35 @@ export default function ConnectionsPage() {
     [items]
   );
 
-  const visiblePending = showAllPending ? pendingItems : pendingItems.slice(0, 3);
-  const hiddenPendingCount = Math.max(0, pendingItems.length - visiblePending.length);
+  const stalePendingItems = useMemo(() => {
+    return pendingItems.filter((c) => {
+      const hasActiveSameProvider = activeItems.some(
+        (a) => a.provider === c.provider && a.status === "active"
+      );
+
+      return hasActiveSameProvider && isOlderThanHours(c.updated_at || c.created_at, 24);
+    });
+  }, [pendingItems, activeItems]);
+
+  const recentPendingItems = useMemo(() => {
+    const staleIds = new Set(stalePendingItems.map((c) => c.id));
+    return pendingItems.filter((c) => !staleIds.has(c.id));
+  }, [pendingItems, stalePendingItems]);
+
+  const visibleRecentPending = showAllRecentPending
+    ? recentPendingItems
+    : recentPendingItems.slice(0, 3);
+
+  const hiddenRecentPendingCount = Math.max(
+    0,
+    recentPendingItems.length - visibleRecentPending.length
+  );
+
+  const visibleOlderPending = showOlderPending ? stalePendingItems : [];
+  const hiddenOlderPendingCount = Math.max(
+    0,
+    stalePendingItems.length - visibleOlderPending.length
+  );
 
   const canShowConnect = (c: Connection) =>
     (c.provider === "basiq" || c.provider === "plaid") && c.status === "needs_auth";
@@ -563,30 +601,109 @@ export default function ConnectionsPage() {
                     </div>
                   ) : null}
 
-                  {visiblePending.length > 0 ? (
+                  {visibleRecentPending.length > 0 ? (
                     <div className="space-y-3 pt-2">
                       <div className="flex items-center justify-between gap-3">
                         <div className="text-xs font-medium uppercase tracking-wide text-zinc-500">
                           Needs attention
                         </div>
 
-                        {pendingItems.length > 3 ? (
+                        {recentPendingItems.length > 3 ? (
                           <button
                             type="button"
-                            onClick={() => setShowAllPending((v) => !v)}
+                            onClick={() => setShowAllRecentPending((v) => !v)}
                             className="text-xs text-zinc-500 hover:text-zinc-700"
                           >
-                            {showAllPending
+                            {showAllRecentPending
                               ? "Show fewer"
-                              : `Show ${hiddenPendingCount} more`}
+                              : `Show ${hiddenRecentPendingCount} more`}
                           </button>
                         ) : null}
                       </div>
 
-                      {visiblePending.map((c) => (
+                      {visibleRecentPending.map((c) => (
                         <div
                           key={c.id}
                           className="rounded-2xl border border-zinc-200 bg-white px-4 py-3"
+                        >
+                          <div className="flex items-start justify-between gap-3 flex-wrap">
+                            <div className="min-w-[240px] flex-1">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <div className="text-sm font-medium text-zinc-900">
+                                  {displayTitle(c)}
+                                </div>
+                                <span
+                                  className={`rounded-full px-2.5 py-1 text-[11px] ${providerChipClass(
+                                    c.provider
+                                  )}`}
+                                >
+                                  {providerLabel(c.provider)}
+                                </span>
+                              </div>
+
+                              <div className="mt-1 text-xs text-zinc-500">
+                                {[
+                                  syncLine(c),
+                                  c.created_at ? `Added ${softDate(c.created_at)}` : null,
+                                ]
+                                  .filter(Boolean)
+                                  .join(" • ")}
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-2">
+                              {canShowConnect(c) && c.provider === "basiq" && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => void startBasiqAuth(c.id)}
+                                  disabled={connectingId === c.id}
+                                >
+                                  {connectingId === c.id ? "Opening…" : "Connect"}
+                                </Button>
+                              )}
+
+                              {canShowConnect(c) && c.provider === "plaid" && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => void startPlaidAuth(c.id)}
+                                  disabled={connectingId === c.id}
+                                >
+                                  {connectingId === c.id ? "Opening…" : "Connect"}
+                                </Button>
+                              )}
+
+                              {statusChip(c.status)}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+
+                  {stalePendingItems.length > 0 ? (
+                    <div className="space-y-3 pt-2">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+                          Older unfinished connections
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => setShowOlderPending((v) => !v)}
+                          className="text-xs text-zinc-500 hover:text-zinc-700"
+                        >
+                          {showOlderPending
+                            ? "Hide older unfinished"
+                            : `Show ${hiddenOlderPendingCount} older`}
+                        </button>
+                      </div>
+
+                      {visibleOlderPending.map((c) => (
+                        <div
+                          key={c.id}
+                          className="rounded-2xl border border-zinc-200 bg-zinc-50/60 px-4 py-3"
                         >
                           <div className="flex items-start justify-between gap-3 flex-wrap">
                             <div className="min-w-[240px] flex-1">
