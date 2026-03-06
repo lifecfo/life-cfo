@@ -135,11 +135,43 @@ function displayTitle(c: Connection) {
 }
 
 function syncLine(c: Connection) {
-  if (c.last_sync_at) return `Synced ${softDate(c.last_sync_at)}`;
+  if (c.status === "active") {
+    if (c.last_sync_at) return `Last synced ${softDate(c.last_sync_at)}`;
+    return "Connected";
+  }
+
   if (c.status === "manual") return "Manual entry";
   if (c.status === "needs_auth") return "Awaiting connection";
   if (c.status === "error") return "Needs review";
   return "";
+}
+
+function connectionSubline(c: Connection) {
+  const parts = [syncLine(c)];
+
+  if (c.status === "active") {
+    parts.push(`Connected via ${providerLabel(c.provider)}`);
+  }
+
+  return parts.filter(Boolean).join(" • ");
+}
+
+function institutionMonogram(name: string) {
+  const words = name
+    .split(/\s+/)
+    .map((w) => w.trim())
+    .filter(Boolean);
+
+  const letters = words.slice(0, 2).map((w) => w[0]?.toUpperCase() || "");
+  return letters.join("") || "B";
+}
+
+function institutionIconClass(provider: string) {
+  const p = coerceStr(provider).toLowerCase();
+  if (p === "plaid") return "bg-sky-50 text-sky-700 border-sky-200";
+  if (p === "basiq") return "bg-teal-50 text-teal-700 border-teal-200";
+  if (p === "manual") return "bg-zinc-50 text-zinc-700 border-zinc-200";
+  return "bg-zinc-50 text-zinc-700 border-zinc-200";
 }
 
 function isOlderThanHours(value: string | null | undefined, hours: number) {
@@ -551,53 +583,62 @@ export default function ConnectionsPage() {
                         Connected
                       </div>
 
-                      {activeItems.map((c) => (
-                        <div
-                          key={c.id}
-                          className="rounded-2xl border border-emerald-200 bg-emerald-50/40 px-4 py-3"
-                        >
-                          <div className="flex items-start justify-between gap-3 flex-wrap">
-                            <div className="min-w-[240px] flex-1">
-                              <div className="flex flex-wrap items-center gap-2">
-                                <div className="text-sm font-medium text-zinc-900">
-                                  {displayTitle(c)}
-                                </div>
-                                <span
-                                  className={`rounded-full px-2.5 py-1 text-[11px] ${providerChipClass(
+                      {activeItems.map((c) => {
+                        const title = displayTitle(c);
+                        return (
+                          <div
+                            key={c.id}
+                            className="rounded-3xl border border-emerald-200 bg-emerald-50/40 px-4 py-4 sm:px-5"
+                          >
+                            <div className="flex items-start justify-between gap-4 flex-wrap">
+                              <div className="flex min-w-[240px] flex-1 items-start gap-3">
+                                <div
+                                  className={`mt-0.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border text-sm font-semibold ${institutionIconClass(
                                     c.provider
                                   )}`}
+                                  aria-hidden="true"
                                 >
-                                  {providerLabel(c.provider)}
-                                </span>
+                                  {institutionMonogram(title)}
+                                </div>
+
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <div className="truncate text-base font-semibold text-zinc-900">
+                                      {title}
+                                    </div>
+                                    <span
+                                      className={`rounded-full px-2.5 py-1 text-[11px] ${providerChipClass(
+                                        c.provider
+                                      )}`}
+                                    >
+                                      {providerLabel(c.provider)}
+                                    </span>
+                                  </div>
+
+                                  <div className="mt-1 text-sm text-zinc-600">
+                                    {connectionSubline(c)}
+                                  </div>
+                                </div>
                               </div>
 
-                              <div className="mt-1 text-xs text-zinc-500">
-                                {[
-                                  syncLine(c),
-                                  c.created_at ? `Added ${softDate(c.created_at)}` : null,
-                                ]
-                                  .filter(Boolean)
-                                  .join(" • ")}
+                              <div className="flex items-center gap-2">
+                                {c.status === "active" && (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => syncConnection(c.id)}
+                                    disabled={syncingId === c.id}
+                                  >
+                                    {syncingId === c.id ? "Syncing…" : "Sync"}
+                                  </Button>
+                                )}
+
+                                {statusChip(c.status)}
                               </div>
-                            </div>
-
-                            <div className="flex items-center gap-2">
-                              {c.status === "active" && (
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() => syncConnection(c.id)}
-                                  disabled={syncingId === c.id}
-                                >
-                                  {syncingId === c.id ? "Syncing…" : "Sync"}
-                                </Button>
-                              )}
-
-                              {statusChip(c.status)}
                             </div>
                           </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   ) : null}
 
