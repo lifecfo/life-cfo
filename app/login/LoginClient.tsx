@@ -19,11 +19,9 @@ export default function LoginClient({ nextPath }: { nextPath: string }) {
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-
   const [confirmPassword, setConfirmPassword] = useState("");
 
   const [showPassword, setShowPassword] = useState(false);
-
   const [working, setWorking] = useState(false);
   const [status, setStatus] = useState<string>("");
 
@@ -49,7 +47,6 @@ export default function LoginClient({ nextPath }: { nextPath: string }) {
     if (mode === "reset") return true;
 
     if (password.length < 6) return false;
-
     if (mode === "signup") return password === confirmPassword;
 
     return true;
@@ -174,22 +171,29 @@ export default function LoginClient({ nextPath }: { nextPath: string }) {
 
   const subtitle =
     mode === "signin"
-      ? "Sign in to continue."
+      ? "Personal financial intelligence for modern families. Clarity. Structure. Better decisions. Launching soon."
       : mode === "signup"
-      ? "Create an account to get started."
+      ? "Create your account to get started."
       : "We’ll email you a reset link.";
 
   return (
-    <main className="min-h-screen bg-gradient-to-b from-brand-teal to-[#184c4a] flex items-center justify-center px-4 py-12">      <div className="w-full max-w-md space-y-6">
+    <main className="relative min-h-screen overflow-hidden bg-gradient-to-b from-brand-teal to-[#174544] flex items-center justify-center px-4 py-12">
+      <div className="pointer-events-none absolute inset-0">
+        <div className="absolute left-1/2 top-[42%] h-[420px] w-[420px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-white/8 blur-3xl" />
+      </div>
+
+      <div className="relative z-10 w-full max-w-md space-y-6">
         <div className="text-center space-y-4">
-          <div className="flex justify-center">
+          <div className="relative flex justify-center">
+            <div className="absolute h-40 w-40 rounded-full bg-white/10 blur-3xl sm:h-48 sm:w-48" />
+
             <Image
-              src="/brand/lifecfo-logo-stacked.svg"
+              src="/brand/life-cfo-logo-stacked-transparent.svg"
               alt="Life CFO"
               width={180}
               height={180}
               priority
-              className="h-auto w-[150px] sm:w-[180px]"
+              className="relative h-auto w-[150px] sm:w-[180px]"
             />
           </div>
 
@@ -203,14 +207,12 @@ export default function LoginClient({ nextPath }: { nextPath: string }) {
             </h1>
 
             <p className="text-sm leading-relaxed text-white/85">
-              {mode === "reset"
-                ? subtitle
-                : "Personal financial intelligence for modern families. Clarity. Structure. Better decisions. Launching soon."}
+              {mode === "reset" ? subtitle : subtitle}
             </p>
           </div>
         </div>
 
-        <div className="rounded-2xl border border-white/20 bg-neutral-surface shadow-sm p-6">
+        <div className="rounded-2xl border border-white/20 bg-neutral-surface p-6 shadow-[0_20px_60px_rgba(0,0,0,0.20),0_6px_16px_rgba(0,0,0,0.10)] backdrop-blur-[2px]">
           <form onSubmit={onSubmit} className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-neutral-text">
@@ -364,7 +366,7 @@ export default function LoginClient({ nextPath }: { nextPath: string }) {
         </div>
 
         <p className="text-center text-xs text-white/70">
-          A intelligent money and decision system for families.
+          An intelligent money and decision system for families.
         </p>
       </div>
     </main>
