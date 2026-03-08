@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
@@ -19,7 +20,6 @@ export default function LoginClient({ nextPath }: { nextPath: string }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
 
-  // confirm password on signup
   const [confirmPassword, setConfirmPassword] = useState("");
 
   const [showPassword, setShowPassword] = useState(false);
@@ -27,7 +27,6 @@ export default function LoginClient({ nextPath }: { nextPath: string }) {
   const [working, setWorking] = useState(false);
   const [status, setStatus] = useState<string>("");
 
-  // Surface auth errors passed back via redirect
   useEffect(() => {
     const err =
       searchParams?.get("err") ||
@@ -94,7 +93,6 @@ export default function LoginClient({ nextPath }: { nextPath: string }) {
     setStatus("Creating account…");
 
     try {
-      // Ensure confirmation emails always land on /auth/callback (not "/")
       const origin = window.location.origin;
 
       const { data, error } = await supabase.auth.signUp({
@@ -110,7 +108,6 @@ export default function LoginClient({ nextPath }: { nextPath: string }) {
         return;
       }
 
-      // If email confirmations are enabled, session can be null until confirmed.
       if (!data.session) {
         setStatus(
           "Account created ✅ Check your email to confirm, then come back and sign in."
@@ -183,50 +180,48 @@ export default function LoginClient({ nextPath }: { nextPath: string }) {
       : "We’ll email you a reset link.";
 
   return (
-    <main className="min-h-screen bg-neutral-50 flex items-center justify-center px-4 py-12">
+    <main className="min-h-screen bg-neutral-bg flex items-center justify-center px-4 py-12">
       <div className="w-full max-w-md space-y-6">
-        {/* Header / Mini landing */}
-        <div className="text-center space-y-3">
-          <div className="mx-auto h-11 w-11 rounded-2xl bg-black flex items-center justify-center text-white font-semibold text-lg">
-            L
+        <div className="text-center space-y-4">
+          <div className="flex justify-center">
+            <Image
+              src="/brand/lifecfo-logo-stacked.svg"
+              alt="Life CFO"
+              width={180}
+              height={180}
+              priority
+              className="h-auto w-[150px] sm:w-[180px]"
+            />
           </div>
 
-          <h1 className="text-2xl font-semibold tracking-tight">
-            {mode === "signin"
-              ? "Welcome to Life CFO"
-              : mode === "signup"
-              ? "Create your account"
-              : "Reset your password"}
-          </h1>
+          <div className="space-y-2">
+            <h1 className="text-2xl font-semibold tracking-tight text-neutral-text">
+              {mode === "signin"
+                ? "Welcome to Life CFO"
+                : mode === "signup"
+                ? "Create your account"
+                : "Reset your password"}
+            </h1>
 
-          <p className="text-sm text-neutral-600 leading-relaxed">
-            {mode === "reset"
-              ? subtitle
-              : "Life CFO is a calm, values-anchored money and decision system for families. Capture what matters, ask clear questions, and move forward — without noise or guilt."}
-          </p>
-
-          {/* tiny tester hint */}
-          {mode !== "reset" ? (
-            <p className="text-xs text-neutral-500">
-              Tip: after signing in, open{" "}
-              <span className="font-medium">Menu → Demo</span> to load sample
-              data.
+            <p className="text-sm text-neutral-text-2 leading-relaxed">
+              {mode === "reset"
+                ? subtitle
+                : "Life CFO is a calm money and decision system for families. Ask clear questions, hold important decisions safely, and move forward with less mental load."}
             </p>
-          ) : null}
+          </div>
         </div>
 
-        {/* Login card */}
-        <div className="rounded-2xl border border-neutral-200 bg-white shadow-sm p-6">
+        <div className="rounded-2xl border border-neutral-border bg-neutral-surface shadow-sm p-6">
           <form onSubmit={onSubmit} className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-neutral-800">
+              <label className="block text-sm font-medium text-neutral-text">
                 Email
               </label>
               <input
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 type="email"
-                className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2 outline-none focus:ring-2 focus:ring-black/10 focus:border-neutral-400"
+                className="mt-1 w-full rounded-xl border border-neutral-border bg-white px-3 py-2 outline-none focus:ring-2 focus:ring-cfo/10 focus:border-cfo"
                 placeholder="you@email.com"
                 autoComplete="email"
               />
@@ -235,7 +230,7 @@ export default function LoginClient({ nextPath }: { nextPath: string }) {
             {mode !== "reset" ? (
               <div className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-neutral-800">
+                  <label className="block text-sm font-medium text-neutral-text">
                     Password
                   </label>
 
@@ -244,7 +239,7 @@ export default function LoginClient({ nextPath }: { nextPath: string }) {
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       type={showPassword ? "text" : "password"}
-                      className="w-full rounded-xl border border-neutral-300 px-3 py-2 pr-14 outline-none focus:ring-2 focus:ring-black/10 focus:border-neutral-400"
+                      className="w-full rounded-xl border border-neutral-border bg-white px-3 py-2 pr-14 outline-none focus:ring-2 focus:ring-cfo/10 focus:border-cfo"
                       autoComplete={
                         mode === "signup" ? "new-password" : "current-password"
                       }
@@ -253,7 +248,7 @@ export default function LoginClient({ nextPath }: { nextPath: string }) {
                     <button
                       type="button"
                       onClick={() => setShowPassword((v) => !v)}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg border border-neutral-200 bg-white px-2 py-1 text-xs text-neutral-600 hover:bg-neutral-50 transition focus:outline-none focus:ring-2 focus:ring-black/10"
+                      className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg border border-neutral-border bg-white px-2 py-1 text-xs text-neutral-text-2 hover:bg-neutral-50 transition focus:outline-none focus:ring-2 focus:ring-cfo/10"
                       aria-label={showPassword ? "Hide password" : "Show password"}
                       title={showPassword ? "Hide password" : "Show password"}
                     >
@@ -261,27 +256,26 @@ export default function LoginClient({ nextPath }: { nextPath: string }) {
                     </button>
                   </div>
 
-                  <div className="mt-1 text-xs text-neutral-500">
+                  <div className="mt-1 text-xs text-neutral-muted">
                     Minimum 6 characters.
                   </div>
                 </div>
 
-                {/* Confirm password (signup only) */}
                 {mode === "signup" ? (
                   <div>
-                    <label className="block text-sm font-medium text-neutral-800">
+                    <label className="block text-sm font-medium text-neutral-text">
                       Confirm password
                     </label>
                     <input
                       value={confirmPassword}
                       onChange={(e) => setConfirmPassword(e.target.value)}
                       type={showPassword ? "text" : "password"}
-                      className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2 outline-none focus:ring-2 focus:ring-black/10 focus:border-neutral-400"
+                      className="mt-1 w-full rounded-xl border border-neutral-border bg-white px-3 py-2 outline-none focus:ring-2 focus:ring-cfo/10 focus:border-cfo"
                       autoComplete="new-password"
                     />
 
                     {confirmPassword.length > 0 && !passwordsMatch ? (
-                      <div className="mt-1 text-xs text-neutral-500">
+                      <div className="mt-1 text-xs text-neutral-muted">
                         Passwords don’t match yet.
                       </div>
                     ) : null}
@@ -290,16 +284,15 @@ export default function LoginClient({ nextPath }: { nextPath: string }) {
               </div>
             ) : null}
 
-            {/* Actions */}
             <div className="pt-1 space-y-3">
               <button
                 type="submit"
                 disabled={!canSubmit}
                 className={[
-                  "w-full inline-flex items-center justify-center rounded-xl px-4 py-2 text-sm font-medium transition focus:outline-none focus:ring-2 focus:ring-black/10",
+                  "w-full inline-flex items-center justify-center rounded-xl px-4 py-2 text-sm font-medium transition focus:outline-none focus:ring-2 focus:ring-cfo/10",
                   !canSubmit
-                    ? "bg-black/40 text-white cursor-not-allowed"
-                    : "bg-black text-white hover:bg-black/90",
+                    ? "bg-btn-primaryDisabled text-btn-primaryText cursor-not-allowed"
+                    : "bg-btn-primary text-btn-primaryText hover:bg-btn-primaryHover",
                 ].join(" ")}
               >
                 {primaryLabel}
@@ -316,7 +309,7 @@ export default function LoginClient({ nextPath }: { nextPath: string }) {
                       setPassword("");
                       setConfirmPassword("");
                     }}
-                    className="inline-flex items-center rounded-full border border-neutral-200 bg-white px-3 py-1 text-sm text-neutral-800 hover:bg-neutral-50 transition focus:outline-none focus:ring-2 focus:ring-black/10"
+                    className="inline-flex items-center rounded-full border border-neutral-border bg-white px-3 py-1 text-sm text-neutral-text hover:bg-neutral-50 transition focus:outline-none focus:ring-2 focus:ring-cfo/10"
                   >
                     Create account
                   </button>
@@ -330,7 +323,7 @@ export default function LoginClient({ nextPath }: { nextPath: string }) {
                       setPassword("");
                       setConfirmPassword("");
                     }}
-                    className="inline-flex items-center rounded-full border border-neutral-200 bg-white px-3 py-1 text-sm text-neutral-800 hover:bg-neutral-50 transition focus:outline-none focus:ring-2 focus:ring-black/10"
+                    className="inline-flex items-center rounded-full border border-neutral-border bg-white px-3 py-1 text-sm text-neutral-text hover:bg-neutral-50 transition focus:outline-none focus:ring-2 focus:ring-cfo/10"
                   >
                     Back to sign in
                   </button>
@@ -352,28 +345,27 @@ export default function LoginClient({ nextPath }: { nextPath: string }) {
                     setPassword("");
                     setConfirmPassword("");
                   }}
-                  className="inline-flex items-center rounded-full border border-neutral-200 bg-white px-3 py-1 text-sm text-neutral-800 hover:bg-neutral-50 transition focus:outline-none focus:ring-2 focus:ring-black/10"
+                  className="inline-flex items-center rounded-full border border-neutral-border bg-white px-3 py-1 text-sm text-neutral-text hover:bg-neutral-50 transition focus:outline-none focus:ring-2 focus:ring-cfo/10"
                 >
                   {mode === "reset" ? "Back" : "Forgot password"}
                 </button>
               </div>
 
               {mode === "reset" ? (
-                <div className="text-xs text-neutral-500">Uses the email above</div>
+                <div className="text-xs text-neutral-muted">Uses the email above</div>
               ) : null}
             </div>
 
             {status && (
-              <div className="rounded-xl bg-neutral-50 border border-neutral-200 p-3 text-sm text-neutral-800">
+              <div className="rounded-xl bg-cfo-soft border border-neutral-border p-3 text-sm text-neutral-text">
                 {safeStr(status)}
               </div>
             )}
           </form>
         </div>
 
-        {/* Footer values line */}
-        <p className="text-center text-xs text-neutral-500">
-          Designed for clarity • Built for calm decisions
+        <p className="text-center text-xs text-neutral-muted">
+          One place. One question. One answer.
         </p>
       </div>
     </main>

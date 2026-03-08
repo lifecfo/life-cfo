@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabaseClient";
@@ -13,13 +14,17 @@ function isPkceError(msg: string) {
   return m.includes("pkce") || m.includes("code verifier");
 }
 
-function KeystoneBrand() {
+function LifeCFOBrand() {
   return (
-    <div className="flex items-center justify-center gap-3">
-      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-zinc-900 text-sm font-semibold text-white">
-        K
-      </div>
-      <div className="text-base font-semibold text-zinc-900">Keystone</div>
+    <div className="flex justify-center">
+      <Image
+        src="/brand/lifecfo-logo-stacked.svg"
+        alt="Life CFO"
+        width={180}
+        height={180}
+        priority
+        className="h-auto w-[150px] sm:w-[180px]"
+      />
     </div>
   );
 }
@@ -99,7 +104,7 @@ export default function ResetPasswordPage() {
         setStage("error");
         setMessage(
           isPkceError(error.message)
-            ? "This reset link is invalid/expired (PKCE verifier missing). Please request a new reset email and open it in the same browser."
+            ? "This reset link is invalid or expired. Please request a new reset email and open it in the same browser."
             : error.message
         );
         return;
@@ -114,20 +119,16 @@ export default function ResetPasswordPage() {
 
   return (
     <Page title="">
-      <div className="mx-auto w-full max-w-xl space-y-4">
-        {/* Brand (like login) */}
-        <div className="pt-2">
-          <KeystoneBrand />
-        </div>
+      <div className="mx-auto w-full max-w-xl space-y-5 py-4">
+        <LifeCFOBrand />
 
-        {/* Heading + signed-in line */}
-        <div className="space-y-1 text-center">
-         <h1 className="text-3xl font-semibold tracking-tight text-zinc-900">
-  Reset password
-</h1>
+        <div className="space-y-2 text-center">
+          <h1 className="text-3xl font-semibold tracking-tight text-neutral-text">
+            Reset password
+          </h1>
 
           {stage === "ready" && (
-            <div className="text-sm text-zinc-700">
+            <div className="text-sm text-neutral-text-2">
               {signedInEmail ? (
                 <span>
                   Signed in as <strong>{signedInEmail}</strong>
@@ -138,23 +139,33 @@ export default function ResetPasswordPage() {
             </div>
           )}
 
-          {stage === "checking" && <div className="text-sm text-zinc-600">Checking reset session…</div>}
+          {stage === "checking" && (
+            <div className="text-sm text-neutral-text-2">Checking reset session…</div>
+          )}
 
-          {stage === "error" && message && <div className="text-sm text-red-700">{message}</div>}
+          {stage === "error" && message && (
+            <div className="text-sm text-alert-errorText">{message}</div>
+          )}
         </div>
 
         <Card>
           <CardContent>
             {stage !== "ready" ? (
               <div className="space-y-3">
-                <div className="text-sm text-zinc-700">{message || "Checking reset session…"}</div>
+                <div className="text-sm text-neutral-text-2">
+                  {message || "Checking reset session…"}
+                </div>
 
                 <div className="flex flex-wrap justify-center gap-2">
                   <Link href="/login">
                     <Button>Request a new reset email</Button>
                   </Link>
 
-                  <Button variant="secondary" onClick={() => window.location.reload()} title="Re-check session">
+                  <Button
+                    variant="secondary"
+                    onClick={() => window.location.reload()}
+                    title="Re-check session"
+                  >
                     Refresh
                   </Button>
                 </div>
@@ -170,35 +181,35 @@ export default function ResetPasswordPage() {
               <div className="space-y-4">
                 <div className="grid gap-3">
                   <div className="space-y-1">
-                    <div className="text-sm font-medium">New password</div>
+                    <div className="text-sm font-medium text-neutral-text">New password</div>
                     <input
                       type="password"
                       value={newPassword}
                       onChange={(e) => setNewPassword(e.target.value)}
                       placeholder="At least 8 characters"
-                      className="w-full rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200"
+                      className="w-full rounded-xl border border-neutral-border bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-cfo/10 focus:border-cfo"
                       autoComplete="new-password"
                     />
                     {newPassword && newPassword.length < 8 && (
-                      <div className="text-xs text-zinc-500">Use at least 8 characters.</div>
+                      <div className="text-xs text-neutral-muted">Use at least 8 characters.</div>
                     )}
                   </div>
 
                   <div className="space-y-1">
-                    <div className="text-sm font-medium">Confirm new password</div>
+                    <div className="text-sm font-medium text-neutral-text">Confirm new password</div>
                     <input
                       type="password"
                       value={confirm}
                       onChange={(e) => setConfirm(e.target.value)}
                       placeholder="Re-type your new password"
-                      className="w-full rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200"
+                      className="w-full rounded-xl border border-neutral-border bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-cfo/10 focus:border-cfo"
                       autoComplete="new-password"
                       onKeyDown={(e) => {
                         if (e.key === "Enter") onSubmit();
                       }}
                     />
                     {confirm && newPassword !== confirm && (
-                      <div className="text-xs text-red-700">Passwords don’t match.</div>
+                      <div className="text-xs text-alert-errorText">Passwords don’t match.</div>
                     )}
                   </div>
                 </div>
@@ -213,7 +224,7 @@ export default function ResetPasswordPage() {
           </CardContent>
         </Card>
 
-        <div className="text-center text-xs text-zinc-500">
+        <div className="text-center text-xs text-neutral-muted">
           Having trouble?{" "}
           <Link className="underline" href="/login">
             Request a new reset link

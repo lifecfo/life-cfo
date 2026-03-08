@@ -1,9 +1,8 @@
-// components/AppShell.tsx
 "use client";
 
-import type { ReactNode } from "react";
+import type { ReactNode, RefObject } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { RefObject } from "react";
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { Chip } from "@/components/ui";
@@ -23,7 +22,11 @@ type HouseholdItem = {
   role: string;
 };
 
-function useOutsideClick(ref: RefObject<HTMLElement | null>, onOutside: () => void, enabled: boolean) {
+function useOutsideClick(
+  ref: RefObject<HTMLElement | null>,
+  onOutside: () => void,
+  enabled: boolean
+) {
   useEffect(() => {
     if (!enabled) return;
 
@@ -34,6 +37,7 @@ function useOutsideClick(ref: RefObject<HTMLElement | null>, onOutside: () => vo
 
     document.addEventListener("mousedown", onDown);
     document.addEventListener("touchstart", onDown);
+
     return () => {
       document.removeEventListener("mousedown", onDown);
       document.removeEventListener("touchstart", onDown);
@@ -64,7 +68,6 @@ export function AppShell({ children }: AppShellProps) {
   const menuRef = useRef<HTMLDivElement | null>(null);
   useOutsideClick(menuRef, () => setMenuOpen(false), menuOpen);
 
-  // Household UI state
   const [households, setHouseholds] = useState<HouseholdItem[]>([]);
   const [activeHouseholdId, setActiveHouseholdId] = useState<string | null>(null);
   const [householdsLoading, setHouseholdsLoading] = useState(false);
@@ -87,7 +90,6 @@ export function AppShell({ children }: AppShellProps) {
           setActiveHouseholdId(json.active_household_id ?? null);
           setNeedsHousehold(!!json.needs_household);
 
-          // Gentle guard: if they need a household, route them to /household
           const p = pathname || "";
           const allow = new Set([
             "/household",
@@ -100,7 +102,9 @@ export function AppShell({ children }: AppShellProps) {
           ]);
 
           const isAllowed =
-            Array.from(allow).some((a) => p === a || p.startsWith(a + "/")) || p.startsWith("/api") || p.startsWith("/auth");
+            Array.from(allow).some((a) => p === a || p.startsWith(a + "/")) ||
+            p.startsWith("/api") ||
+            p.startsWith("/auth");
 
           if (!!json.needs_household && !isAllowed) {
             router.push("/household");
@@ -133,14 +137,25 @@ export function AppShell({ children }: AppShellProps) {
   return (
     <div className="min-h-dvh bg-white">
       <div className="sticky top-0 z-40 border-b border-zinc-100 bg-white">
-        <div className="mx-auto flex w-full max-w-[1100px] items-center justify-between gap-3 px-4 py-3">
-          <div className="flex items-center gap-3">
-            <Link href="/lifecfo-home" className="text-sm font-semibold text-zinc-900">
-              Life CFO
+        <div className="mx-auto flex w-full max-w-[1100px] items-center justify-between gap-2 px-4 py-3">
+          <div className="flex min-w-0 items-center gap-3">
+            <Link
+              href="/lifecfo-home"
+              className="flex items-center"
+              aria-label="Life CFO home"
+            >
+              <Image
+                src="/brand/lifecfo-horizontal-transparent.svg"
+                alt="Life CFO"
+                width={170}
+                height={40}
+                priority
+                className="h-auto w-[140px] sm:w-[170px]"
+              />
             </Link>
           </div>
 
-          <div className="flex flex-1 items-center justify-center gap-2">
+          <div className="hidden flex-1 items-center justify-center gap-2 sm:flex">
             {topNav.map((it) => {
               const active = isActivePath(pathname || "", it.href);
               return (
@@ -152,11 +167,12 @@ export function AppShell({ children }: AppShellProps) {
           </div>
 
           <div ref={menuRef} className="relative flex items-center justify-end gap-3">
-            {/* Quiet always-visible context */}
             {!needsHousehold && activeHouseholdName ? (
               <div className="hidden sm:flex flex-col items-end leading-tight">
                 <div className="text-[11px] text-zinc-500">Active household</div>
-                <div className="max-w-[220px] truncate text-sm font-medium text-zinc-900">{activeHouseholdName}</div>
+                <div className="max-w-[220px] truncate text-sm font-medium text-zinc-900">
+                  {activeHouseholdName}
+                </div>
               </div>
             ) : householdsLoading ? (
               <div className="hidden sm:block text-xs text-zinc-500">Loading…</div>
@@ -169,6 +185,53 @@ export function AppShell({ children }: AppShellProps) {
             {menuOpen ? (
               <div className="absolute right-0 top-full z-50 mt-2 w-[280px] overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-lg">
                 <div className="grid">
+                  <div className="border-b border-zinc-100 px-4 py-3 sm:hidden">
+                    <div className="mb-3">
+                      <Link
+                        href="/lifecfo-home"
+                        className="inline-flex items-center"
+                        onClick={() => setMenuOpen(false)}
+                      >
+                        <Image
+                          src="/brand/lifecfo-logo-horizontal.svg"
+                          alt="Life CFO"
+                          width={150}
+                          height={35}
+                          className="h-auto w-[150px]"
+                        />
+                      </Link>
+                    </div>
+
+                    <div className="grid gap-2">
+                      {topNav.map((it) => {
+                        const active = isActivePath(pathname || "", it.href);
+                        return (
+                          <Link
+                            key={it.href}
+                            href={it.href}
+                            className={`rounded-xl px-3 py-2 text-sm ${
+                              active
+                                ? "bg-zinc-100 font-medium text-zinc-900"
+                                : "text-zinc-800 hover:bg-zinc-50"
+                            }`}
+                            onClick={() => setMenuOpen(false)}
+                          >
+                            {it.label}
+                          </Link>
+                        );
+                      })}
+                    </div>
+
+                    {!needsHousehold && activeHouseholdName ? (
+                      <div className="mt-3 border-t border-zinc-100 pt-3">
+                        <div className="text-[11px] text-zinc-500">Active household</div>
+                        <div className="truncate text-sm font-medium text-zinc-900">
+                          {activeHouseholdName}
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+
                   {needsHousehold ? (
                     <Link
                       href="/household"
@@ -187,21 +250,37 @@ export function AppShell({ children }: AppShellProps) {
                     </Link>
                   )}
 
-                  <Link href="/invites" className="px-4 py-3 text-sm text-zinc-800 hover:bg-zinc-50" onClick={() => setMenuOpen(false)}>
+                  <Link
+                    href="/invites"
+                    className="px-4 py-3 text-sm text-zinc-800 hover:bg-zinc-50"
+                    onClick={() => setMenuOpen(false)}
+                  >
                     Invites
                   </Link>
 
-                  <Link href="/settings" className="px-4 py-3 text-sm text-zinc-800 hover:bg-zinc-50" onClick={() => setMenuOpen(false)}>
+                  <Link
+                    href="/settings"
+                    className="px-4 py-3 text-sm text-zinc-800 hover:bg-zinc-50"
+                    onClick={() => setMenuOpen(false)}
+                  >
                     Settings
                   </Link>
 
-                  <Link href="/family" className="px-4 py-3 text-sm text-zinc-800 hover:bg-zinc-50" onClick={() => setMenuOpen(false)}>
+                  <Link
+                    href="/family"
+                    className="px-4 py-3 text-sm text-zinc-800 hover:bg-zinc-50"
+                    onClick={() => setMenuOpen(false)}
+                  >
                     Family
                   </Link>
 
                   <div className="my-1 border-t border-zinc-100" />
 
-                  <Link href="/fine-print" className="px-4 py-3 text-sm text-zinc-800 hover:bg-zinc-50" onClick={() => setMenuOpen(false)}>
+                  <Link
+                    href="/fine-print"
+                    className="px-4 py-3 text-sm text-zinc-800 hover:bg-zinc-50"
+                    onClick={() => setMenuOpen(false)}
+                  >
                     Fine print
                   </Link>
 

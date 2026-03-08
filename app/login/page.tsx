@@ -1,4 +1,3 @@
-// app/login/page.tsx
 import { Suspense } from "react";
 import LoginClient from "./LoginClient";
 
@@ -15,9 +14,23 @@ export default function LoginPage({
       ? nextParam[0]
       : "/home";
 
-  // Wrap the client component in Suspense to keep Next happy during prerender
   return (
-    <Suspense fallback={<div style={{ padding: 24, fontFamily: "system-ui" }}>Loading…</div>}>
+    <Suspense
+      fallback={
+        <div
+          style={{
+            minHeight: "100vh",
+            display: "grid",
+            placeItems: "center",
+            fontFamily: "system-ui",
+            background: "#F6F4F1",
+            color: "#2B2B2B",
+          }}
+        >
+          Loading…
+        </div>
+      }
+    >
       <LoginClient nextPath={next} />
     </Suspense>
   );

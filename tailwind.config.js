@@ -11,6 +11,13 @@ module.exports = {
   theme: {
     extend: {
       colors: {
+        cfo: {
+          DEFAULT: "#1F5E5C",
+          dark: "#174947",
+          light: "#6FAFB2",
+          soft: "#EAF4F5",
+          text: "#1F5E5C",
+        },
         brand: {
           aqua: "#6FAFB2",
           teal: "#1F5E5C",
