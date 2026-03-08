@@ -180,7 +180,7 @@ export default function LoginClient({ nextPath }: { nextPath: string }) {
       : "We’ll email you a reset link.";
 
   return (
-    <main className="min-h-screen bg-neutral-bg flex items-center justify-center px-4 py-12">
+    <main className="min-h-screen bg-cfo flex items-center justify-center px-4 py-12">
       <div className="w-full max-w-md space-y-6">
         <div className="text-center space-y-4">
           <div className="flex justify-center">
@@ -195,7 +195,7 @@ export default function LoginClient({ nextPath }: { nextPath: string }) {
           </div>
 
           <div className="space-y-2">
-            <h1 className="text-2xl font-semibold tracking-tight text-neutral-text">
+            <h1 className="text-2xl font-semibold tracking-tight text-white">
               {mode === "signin"
                 ? "Welcome to Life CFO"
                 : mode === "signup"
@@ -203,7 +203,7 @@ export default function LoginClient({ nextPath }: { nextPath: string }) {
                 : "Reset your password"}
             </h1>
 
-            <p className="text-sm text-neutral-text-2 leading-relaxed">
+            <p className="text-sm leading-relaxed text-white/85">
               {mode === "reset"
                 ? subtitle
                 : "Life CFO is a calm money and decision system for families. Ask clear questions, hold important decisions safely, and move forward with less mental load."}
@@ -211,7 +211,7 @@ export default function LoginClient({ nextPath }: { nextPath: string }) {
           </div>
         </div>
 
-        <div className="rounded-2xl border border-neutral-border bg-neutral-surface shadow-sm p-6">
+        <div className="rounded-2xl border border-white/20 bg-neutral-surface shadow-sm p-6">
           <form onSubmit={onSubmit} className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-neutral-text">
@@ -352,7 +352,7 @@ export default function LoginClient({ nextPath }: { nextPath: string }) {
               </div>
 
               {mode === "reset" ? (
-                <div className="text-xs text-neutral-muted">Uses the email above</div>
+                <div className="text-xs text-white/70">Uses the email above</div>
               ) : null}
             </div>
 
@@ -364,7 +364,7 @@ export default function LoginClient({ nextPath }: { nextPath: string }) {
           </form>
         </div>
 
-        <p className="text-center text-xs text-neutral-muted">
+        <p className="text-center text-xs text-white/70">
           One place. One question. One answer.
         </p>
       </div>

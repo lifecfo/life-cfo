@@ -5,7 +5,6 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabaseClient";
 import { Button, Card, CardContent, useToast } from "@/components/ui";
-import { Page } from "@/components/Page";
 
 type Stage = "checking" | "ready" | "error";
 
@@ -118,17 +117,17 @@ export default function ResetPasswordPage() {
   };
 
   return (
-    <Page title="">
-      <div className="mx-auto w-full max-w-xl space-y-5 py-4">
+    <main className="min-h-screen bg-cfo flex items-center justify-center px-4 py-12">
+      <div className="w-full max-w-xl space-y-5">
         <LifeCFOBrand />
 
         <div className="space-y-2 text-center">
-          <h1 className="text-3xl font-semibold tracking-tight text-neutral-text">
+          <h1 className="text-3xl font-semibold tracking-tight text-white">
             Reset password
           </h1>
 
           {stage === "ready" && (
-            <div className="text-sm text-neutral-text-2">
+            <div className="text-sm text-white/85">
               {signedInEmail ? (
                 <span>
                   Signed in as <strong>{signedInEmail}</strong>
@@ -140,15 +139,15 @@ export default function ResetPasswordPage() {
           )}
 
           {stage === "checking" && (
-            <div className="text-sm text-neutral-text-2">Checking reset session…</div>
+            <div className="text-sm text-white/85">Checking reset session…</div>
           )}
 
           {stage === "error" && message && (
-            <div className="text-sm text-alert-errorText">{message}</div>
+            <div className="text-sm text-white/90">{message}</div>
           )}
         </div>
 
-        <Card>
+        <Card className="border border-white/20 bg-neutral-surface shadow-sm">
           <CardContent>
             {stage !== "ready" ? (
               <div className="space-y-3">
@@ -224,7 +223,7 @@ export default function ResetPasswordPage() {
           </CardContent>
         </Card>
 
-        <div className="text-center text-xs text-neutral-muted">
+        <div className="text-center text-xs text-white/70">
           Having trouble?{" "}
           <Link className="underline" href="/login">
             Request a new reset link
@@ -232,6 +231,6 @@ export default function ResetPasswordPage() {
           .
         </div>
       </div>
-    </Page>
+    </main>
   );
 }

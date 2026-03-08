@@ -23,8 +23,8 @@ export default function LoginPage({
             display: "grid",
             placeItems: "center",
             fontFamily: "system-ui",
-            background: "#F6F4F1",
-            color: "#2B2B2B",
+            background: "#1F5E5C",
+            color: "#FFFFFF",
           }}
         >
           Loading…
