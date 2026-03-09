@@ -183,7 +183,7 @@ export default function LoginClient({ nextPath }: { nextPath: string }) {
       </div>
 
       <div className="relative z-10 w-full max-w-md space-y-6">
-        <div className="text-center space-y-4">
+        <div className="text-center space-y-3">
           <div className="relative flex justify-center">
             <div className="absolute h-28 w-28 rounded-full bg-white/10 blur-3xl sm:h-36 sm:w-36" />
 
@@ -193,8 +193,7 @@ export default function LoginClient({ nextPath }: { nextPath: string }) {
               width={180}
               height={180}
               priority
-              className="relative h-auto w-[150px] sm:w-[180px]"
-            />
+              className="relative h-auto w-[190px] sm:w-[230px]"            />
           </div>
 
           <div className="space-y-3">
@@ -213,10 +212,12 @@ export default function LoginClient({ nextPath }: { nextPath: string }) {
                 <p className="text-sm leading-relaxed text-white/85">
                   Personal financial intelligence for modern families.
                 </p>
+
                 <p className="text-sm leading-relaxed text-white/85">
                   Clarity. Structure. Better decisions.
                 </p>
-                <p className="pt-2 text-base font-semibold text-white">
+
+                <p className="pt-2 text-sm font-semibold tracking-wide text-white/95">
                   Launching soon.
                 </p>
               </div>
@@ -224,7 +225,7 @@ export default function LoginClient({ nextPath }: { nextPath: string }) {
           </div>
         </div>
 
-        <div className="rounded-2xl border border-white/20 bg-neutral-surface p-6 shadow-[0_20px_60px_rgba(0,0,0,0.20),0_6px_16px_rgba(0,0,0,0.10)] backdrop-blur-[2px]">
+        <div className="rounded-2xl border border-white/20 bg-neutral-surface p-6 shadow-[0_30px_80px_rgba(0,0,0,0.28),0_10px_24px_rgba(0,0,0,0.18)] backdrop-blur-[2px]">
           <form onSubmit={onSubmit} className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-neutral-text">
