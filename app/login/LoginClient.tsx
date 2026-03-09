@@ -188,7 +188,7 @@ export default function LoginClient({ nextPath }: { nextPath: string }) {
             <div className="absolute h-28 w-28 rounded-full bg-white/10 blur-3xl sm:h-36 sm:w-36" />
 
             <Image
-              src="/brand/lifecfo-logo-stacked_transparent.svg"
+              src="/brand/lifecfo-logo-stacked-white-transparent.svg"
               alt="Life CFO"
               width={180}
               height={180}
