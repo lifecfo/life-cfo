@@ -179,12 +179,11 @@ export default function LoginClient({ nextPath }: { nextPath: string }) {
   return (
     <main className="relative min-h-screen overflow-hidden bg-gradient-to-b from-brand-teal to-[#174544] flex items-center justify-center px-4 py-12">
       <div className="pointer-events-none absolute inset-0">
-        <div className="absolute left-1/2 top-[42%] h-[420px] w-[420px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-white/8 blur-3xl" />
+      <div className="absolute left-1/2 top-[42%] h-[420px] w-[420px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-white/8 blur-3xl" />      
       </div>
-
       <div className="relative z-10 w-full max-w-md space-y-6">
-        <div className="text-center space-y-3">
-          <div className="relative flex justify-center">
+        <div className="text-center space-y-2">
+          <div className="relative flex justify-center -mb-1">
             <div className="absolute h-28 w-28 rounded-full bg-white/10 blur-3xl sm:h-36 sm:w-36" />
 
             <Image
