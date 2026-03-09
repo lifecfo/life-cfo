@@ -6,6 +6,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { Chip } from "@/components/ui";
+import { supabase } from "@/lib/supabaseClient";
 
 type AppShellProps = {
   children: ReactNode;
@@ -65,6 +66,7 @@ export function AppShell({ children }: AppShellProps) {
   );
 
   const [menuOpen, setMenuOpen] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
   useOutsideClick(menuRef, () => setMenuOpen(false), menuOpen);
 
@@ -134,6 +136,26 @@ export function AppShell({ children }: AppShellProps) {
     return households.find((h) => h.id === activeHouseholdId)?.name ?? null;
   }, [households, activeHouseholdId]);
 
+  const handleSignOut = async () => {
+    if (signingOut) return;
+    setSigningOut(true);
+
+    try {
+      await supabase.auth.signOut();
+      setMenuOpen(false);
+      router.push("/login");
+      router.refresh();
+    } finally {
+      setSigningOut(false);
+    }
+  };
+
+  const menuItemClass =
+    "block w-full rounded-xl px-4 py-3 text-left text-sm text-zinc-800 transition hover:bg-zinc-50";
+
+  const menuItemActiveClass =
+    "block w-full rounded-xl px-4 py-3 text-left text-sm font-medium text-zinc-900 transition hover:bg-zinc-50";
+
   return (
     <div className="min-h-dvh bg-white">
       <div className="sticky top-0 z-40 border-b border-zinc-100 bg-white">
@@ -183,9 +205,9 @@ export function AppShell({ children }: AppShellProps) {
             </Chip>
 
             {menuOpen ? (
-              <div className="absolute right-0 top-full z-50 mt-2 w-[280px] overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-lg">
-                <div className="grid">
-                  <div className="border-b border-zinc-100 px-4 py-3 sm:hidden">
+              <div className="absolute right-0 top-full z-50 mt-2 w-[280px] rounded-2xl border border-zinc-200 bg-white p-2 shadow-lg">
+                <div className="grid gap-1">
+                  <div className="px-2 py-2 sm:hidden">
                     <div className="mb-3">
                       <Link
                         href="/lifecfo-home"
@@ -193,7 +215,7 @@ export function AppShell({ children }: AppShellProps) {
                         onClick={() => setMenuOpen(false)}
                       >
                         <Image
-                          src="/brand/lifecfo-logo-horizontal.svg"
+                          src="/brand/lifecfo-horizontal-transparent.svg"
                           alt="Life CFO"
                           width={150}
                           height={35}
@@ -202,7 +224,7 @@ export function AppShell({ children }: AppShellProps) {
                       </Link>
                     </div>
 
-                    <div className="grid gap-2">
+                    <div className="grid gap-1">
                       {topNav.map((it) => {
                         const active = isActivePath(pathname || "", it.href);
                         return (
@@ -223,7 +245,7 @@ export function AppShell({ children }: AppShellProps) {
                     </div>
 
                     {!needsHousehold && activeHouseholdName ? (
-                      <div className="mt-3 border-t border-zinc-100 pt-3">
+                      <div className="mt-3 px-1">
                         <div className="text-[11px] text-zinc-500">Active household</div>
                         <div className="truncate text-sm font-medium text-zinc-900">
                           {activeHouseholdName}
@@ -235,7 +257,7 @@ export function AppShell({ children }: AppShellProps) {
                   {needsHousehold ? (
                     <Link
                       href="/household"
-                      className="border-b border-zinc-100 px-4 py-3 text-sm text-zinc-900 hover:bg-zinc-50"
+                      className={menuItemActiveClass}
                       onClick={() => setMenuOpen(false)}
                     >
                       Set up household
@@ -243,7 +265,7 @@ export function AppShell({ children }: AppShellProps) {
                   ) : (
                     <Link
                       href="/household"
-                      className="border-b border-zinc-100 px-4 py-3 text-sm text-zinc-800 hover:bg-zinc-50"
+                      className={menuItemClass}
                       onClick={() => setMenuOpen(false)}
                     >
                       Household
@@ -252,7 +274,7 @@ export function AppShell({ children }: AppShellProps) {
 
                   <Link
                     href="/invites"
-                    className="px-4 py-3 text-sm text-zinc-800 hover:bg-zinc-50"
+                    className={menuItemClass}
                     onClick={() => setMenuOpen(false)}
                   >
                     Invites
@@ -260,7 +282,7 @@ export function AppShell({ children }: AppShellProps) {
 
                   <Link
                     href="/settings"
-                    className="px-4 py-3 text-sm text-zinc-800 hover:bg-zinc-50"
+                    className={menuItemClass}
                     onClick={() => setMenuOpen(false)}
                   >
                     Settings
@@ -268,17 +290,15 @@ export function AppShell({ children }: AppShellProps) {
 
                   <Link
                     href="/family"
-                    className="px-4 py-3 text-sm text-zinc-800 hover:bg-zinc-50"
+                    className={menuItemClass}
                     onClick={() => setMenuOpen(false)}
                   >
                     Family
                   </Link>
 
-                  <div className="my-1 border-t border-zinc-100" />
-
                   <Link
                     href="/fine-print"
-                    className="px-4 py-3 text-sm text-zinc-800 hover:bg-zinc-50"
+                    className={menuItemClass}
                     onClick={() => setMenuOpen(false)}
                   >
                     Fine print
@@ -286,7 +306,7 @@ export function AppShell({ children }: AppShellProps) {
 
                   <Link
                     href="/how-life-cfo-works"
-                    className="px-4 py-3 text-sm text-zinc-800 hover:bg-zinc-50"
+                    className={menuItemClass}
                     onClick={() => setMenuOpen(false)}
                   >
                     How it works
@@ -294,11 +314,20 @@ export function AppShell({ children }: AppShellProps) {
 
                   <Link
                     href="/planned-upgrades"
-                    className="px-4 py-3 text-sm text-zinc-800 hover:bg-zinc-50"
+                    className={menuItemClass}
                     onClick={() => setMenuOpen(false)}
                   >
                     Planned upgrades
                   </Link>
+
+                  <button
+                    type="button"
+                    onClick={() => void handleSignOut()}
+                    disabled={signingOut}
+                    className={menuItemClass}
+                  >
+                    {signingOut ? "Signing out…" : "Sign out"}
+                  </button>
                 </div>
               </div>
             ) : null}
