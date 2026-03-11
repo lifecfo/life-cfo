@@ -150,15 +150,16 @@ export function AskProvider({ children }: { children: ReactNode }) {
           return;
         }
 
-        const res = await fetch("/api/home/ask", {
+        const isMoneyScope = currentScope === "money";
+        const endpoint = isMoneyScope ? "/api/money/ask" : "/api/home/ask";
+        const payload = isMoneyScope
+          ? { q: question }
+          : { userId, question, path: currentPath, scope: currentScope };
+
+        const res = await fetch(endpoint, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            userId,
-            question,
-            path: currentPath,
-            scope: currentScope,
-          }),
+          body: JSON.stringify(payload),
         });
 
         const json = await res.json().catch(() => ({}));
@@ -182,13 +183,37 @@ export function AskProvider({ children }: { children: ReactNode }) {
           none: null,
         };
 
+        let content = typeof json?.answer === "string" ? json.answer : "";
+        let tone: string | null = typeof json?.tone === "string" ? json.tone : null;
+        let verdict: string | null = typeof json?.verdict === "string" ? json.verdict : null;
+
+        if (isMoneyScope && json?.mode === "snapshot") {
+          const headline = typeof json?.explanation?.headline === "string" ? json.explanation.headline : "Money snapshot";
+          const summary = typeof json?.explanation?.summary === "string" ? json.explanation.summary : "";
+          const insights = Array.isArray(json?.explanation?.insights)
+            ? (json.explanation.insights as string[]).filter((s) => typeof s === "string" && s.trim())
+            : [];
+          const lines = [headline, summary, insights.length ? `Insights:\n- ${insights.join("\n- ")}` : null]
+            .filter(Boolean)
+            .join("\n\n");
+          content = lines;
+          tone = tone || "overview";
+          verdict = verdict || null;
+        } else if (isMoneyScope && json?.mode === "search") {
+          const accounts = Array.isArray(json?.results?.accounts) ? json.results.accounts.length : 0;
+          const bills = Array.isArray(json?.results?.bills) ? json.results.bills.length : 0;
+          const txs = Array.isArray(json?.results?.transactions) ? json.results.transactions.length : 0;
+          content = `Search results:\n- Accounts: ${accounts}\n- Bills: ${bills}\n- Transactions: ${txs}`;
+          tone = tone || "overview";
+        }
+
         const assistantMessage: AskMessage = {
           id: makeId(),
           role: "assistant",
-          content: typeof json?.answer === "string" ? json.answer : "",
+          content,
           createdAt: new Date().toISOString(),
-          tone: typeof json?.tone === "string" ? json.tone : null,
-          verdict: typeof json?.verdict === "string" ? json.verdict : null,
+          tone,
+          verdict,
           actionHref: actionMap[String(json?.action ?? "none")] ?? null,
         };
 
