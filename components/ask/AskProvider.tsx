@@ -193,9 +193,23 @@ export function AskProvider({ children }: { children: ReactNode }) {
           const insights = Array.isArray(json?.explanation?.insights)
             ? (json.explanation.insights as string[]).filter((s) => typeof s === "string" && s.trim())
             : [];
-          const lines = [headline, summary, insights.length ? `Insights:\n- ${insights.join("\n- ")}` : null]
+          const pressures = json?.explanation?.pressure || {};
+          const pressureLines = [
+            typeof pressures.structural === "string" ? `Structural: ${pressures.structural}` : null,
+            typeof pressures.discretionary === "string" ? `Discretionary: ${pressures.discretionary}` : null,
+            typeof pressures.timing === "string" ? `Timing: ${pressures.timing}` : null,
+            typeof pressures.stability === "string" ? `Stability: ${pressures.stability}` : null,
+          ].filter(Boolean);
+
+          const lines = [
+            headline,
+            summary,
+            insights.length ? `Insights:\n- ${insights.join("\n- ")}` : null,
+            pressureLines.length ? `Pressure:\n- ${pressureLines.join("\n- ")}` : null,
+          ]
             .filter(Boolean)
             .join("\n\n");
+
           content = lines;
           tone = tone || "overview";
           verdict = verdict || null;
