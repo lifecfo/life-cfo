@@ -12,3 +12,9 @@ When proposing changes:
 - prefer small, reviewable diffs
 - avoid large refactors without planning
 - flag schema assumptions clearly
+
+## Preferred AI workflow
+
+- Use the VS Code Codex extension for local file creation and edits so changes appear directly in the working repo.
+- Use Codex Cloud for analysis, planning, and isolated exploration.
+- Prefer local reviewable diffs before committing.
