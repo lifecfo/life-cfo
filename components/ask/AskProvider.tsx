@@ -244,6 +244,33 @@ export function AskProvider({ children }: { children: ReactNode }) {
           content = lines;
           tone = tone || "overview";
           verdict = verdict || null;
+        } else if (isMoneyScope && json?.mode === "planning") {
+          const planning = json?.planning || {};
+          const headline =
+            typeof planning?.headline === "string" ? planning.headline : "What is coming up";
+          const summary =
+            typeof planning?.summary === "string"
+              ? planning.summary
+              : "Here is the current planning view.";
+
+          const upcoming = Array.isArray(planning?.upcoming)
+            ? (planning.upcoming as string[]).filter((u) => typeof u === "string" && u.trim())
+            : [];
+          const notes = Array.isArray(planning?.notes)
+            ? (planning.notes as string[]).filter((n) => typeof n === "string" && n.trim())
+            : [];
+
+          const lines = [
+            headline,
+            summary,
+            upcoming.length ? `Coming up:\n- ${upcoming.join("\n- ")}` : null,
+            notes.length ? `Notes:\n- ${notes.join("\n- ")}` : null,
+          ]
+            .filter(Boolean)
+            .join("\n\n");
+
+          content = lines;
+          tone = tone || "overview";
         } else if (isMoneyScope && json?.mode === "search") {
           const accounts = Array.isArray(json?.results?.accounts) ? json.results.accounts.length : 0;
           const bills = Array.isArray(json?.results?.bills) ? json.results.bills.length : 0;

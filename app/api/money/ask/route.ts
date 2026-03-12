@@ -32,6 +32,18 @@ const DIAGNOSIS_KEYWORDS = [
   "pressure right now",
 ];
 
+const PLANNING_KEYWORDS = [
+  "what should we plan for this month",
+  "what should we plan for",
+  "plan for this month",
+  "what is coming up",
+  "what's coming up",
+  "coming up",
+  "what do we need to keep in mind financially",
+  "what do we need to keep in mind",
+  "keep in mind financially",
+];
+
 function safeStr(v: unknown) {
   return typeof v === "string" ? v : "";
 }
@@ -40,6 +52,29 @@ function clampInt(v: unknown, min: number, max: number, fallback: number) {
   const n = typeof v === "number" ? v : parseInt(String(v ?? ""), 10);
   if (!Number.isFinite(n)) return fallback;
   return Math.max(min, Math.min(max, n));
+}
+
+function formatMoney(cents: unknown, currency = "AUD") {
+  const n = typeof cents === "number" && Number.isFinite(cents) ? cents : Number(cents);
+  const amount = Number.isFinite(n) ? n / 100 : 0;
+  try {
+    return new Intl.NumberFormat(undefined, { style: "currency", currency }).format(amount);
+  } catch {
+    return `${currency} ${amount.toFixed(2)}`;
+  }
+}
+
+function softDate(isoOrDate: string | null | undefined) {
+  if (!isoOrDate) return "an upcoming date";
+  const ms = Date.parse(isoOrDate);
+  if (!Number.isFinite(ms)) return "an upcoming date";
+  return new Date(ms).toLocaleDateString();
+}
+
+function toMs(value: string | null | undefined): number | null {
+  if (!value) return null;
+  const ms = Date.parse(value);
+  return Number.isFinite(ms) ? ms : null;
 }
 
 async function readCookie(name: string) {
@@ -128,6 +163,7 @@ export async function POST(req: Request) {
       !q ||
       ORIENTATION_KEYWORDS.some((kw) => lowerQ.includes(kw));
     const looksDiagnosis = q && DIAGNOSIS_KEYWORDS.some((kw) => lowerQ.includes(kw));
+    const looksPlanning = q && PLANNING_KEYWORDS.some((kw) => lowerQ.includes(kw));
 
     // Orientation path: empty query or simple keyword match
     if (looksOrientation) {
@@ -180,6 +216,85 @@ export async function POST(req: Request) {
         mode: "diagnosis",
         household_id: householdId,
         diagnosis,
+      });
+    }
+
+    if (looksPlanning) {
+      const truth = await getHouseholdMoneyTruth(supabase, { householdId });
+      const snapshot = buildFinancialSnapshot(truth);
+      const explanation = explainSnapshot(snapshot);
+
+      const nowMs = toMs(truth.windows?.now_iso) ?? toMs(truth.as_of_iso) ?? Date.now();
+      const next30Ms =
+        toMs(truth.windows?.next30_iso) ?? nowMs + 30 * 24 * 60 * 60 * 1000;
+
+      const dueSoon = (truth.recurring_bills ?? [])
+        .map((bill) => ({
+          bill,
+          dueMs: toMs(bill.next_due_at),
+        }))
+        .filter(
+          ({ bill, dueMs }) =>
+            bill.active !== false &&
+            dueMs !== null &&
+            dueMs >= nowMs &&
+            dueMs <= next30Ms
+        )
+        .sort((a, b) => (a.dueMs as number) - (b.dueMs as number));
+
+      const upcoming: string[] = [];
+      upcoming.push(
+        dueSoon.length > 0
+          ? `${dueSoon.length} recurring bill(s) are due in the next 30 days.`
+          : "No recurring bills are due in the next 30 days from the tracked set."
+      );
+      if (snapshot.commitments.billCount > 0) {
+        upcoming.push(
+          `Recurring commitments are about ${formatMoney(
+            snapshot.commitments.recurringMonthlyCents
+          )} per month.`
+        );
+      }
+      dueSoon.slice(0, 2).forEach(({ bill }) => {
+        upcoming.push(
+          `${bill.name || "A bill"} is due around ${softDate(bill.next_due_at)} (${formatMoney(
+            bill.amount_cents,
+            bill.currency || "AUD"
+          )}).`
+        );
+      });
+
+      const notes: string[] = [];
+      if (explanation.pressure.timing) notes.push(explanation.pressure.timing);
+      if (explanation.pressure.structural) notes.push(explanation.pressure.structural);
+      if (snapshot.connections.stale > 0) {
+        notes.push(
+          `${snapshot.connections.stale} of ${snapshot.connections.total} connections are stale, so near-term timing may be incomplete.`
+        );
+      }
+
+      const headline = dueSoon.length
+        ? "Here is what is coming up in your household money."
+        : "Here is the near-term money view.";
+      const summary = [
+        snapshot.commitments.billCount > 0
+          ? `${snapshot.commitments.billCount} recurring commitment(s) are currently tracked.`
+          : "No recurring commitments are currently tracked.",
+        explanation.summary,
+      ]
+        .filter(Boolean)
+        .join(" ");
+
+      return NextResponse.json({
+        ok: true,
+        mode: "planning",
+        household_id: householdId,
+        planning: {
+          headline,
+          summary,
+          upcoming: upcoming.slice(0, 4),
+          notes: notes.slice(0, 3),
+        },
       });
     }
 
