@@ -1,58 +1,45 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Page } from "@/components/Page";
 import { Card, CardContent, Chip, useToast } from "@/components/ui";
 
-type MoneyRow = {
-  currency: string;
-  cents: number;
+type FinancialSnapshot = {
+  asOf: string;
+  liquidity: { availableCashCents: number; accountCount: number };
+  income: { recurringMonthlyCents: number; sourceCount: number };
+  commitments: { recurringMonthlyCents: number; billCount: number };
+  discretionary: { last30DayOutflowCents: number };
+  connections: { total: number; stale: number; maxAgeDays: number };
 };
 
-type UpcomingIncomeRow = {
-  id: string;
-  name: string | null;
-  amount_cents: number | null;
-  currency: string | null;
-  cadence: string | null;
-  next_pay_at: string | null;
-};
-
-type InResponse = {
-  ok: boolean;
-  household_id: string | null;
-  in_flow: {
-    month_total_by_currency: MoneyRow[];
-    recurring_income_count: number;
-    upcoming_income_count_next_30_days: number;
-    upcoming_income_total_by_currency: MoneyRow[];
-    upcoming_income: UpcomingIncomeRow[];
+type SnapshotExplanation = {
+  headline: string;
+  summary: string;
+  insights: string[];
+  pressure: {
+    structural: string;
+    discretionary: string;
+    timing: string;
+    stability: string;
   };
 };
 
-function safeStr(v: unknown) {
-  return typeof v === "string" ? v : "";
-}
+type OverviewResponse = {
+  snapshot: FinancialSnapshot;
+  explanation: SnapshotExplanation;
+};
 
-function moneyFromCents(cents: number, currency: string) {
-  const amt = cents / 100;
+function formatMoney(cents: number | undefined | null, currency = "AUD") {
+  const n = typeof cents === "number" && Number.isFinite(cents) ? cents : 0;
+  const amt = n / 100;
   try {
-    return new Intl.NumberFormat(undefined, {
-      style: "currency",
-      currency,
-    }).format(amt);
+    return new Intl.NumberFormat(undefined, { style: "currency", currency }).format(amt);
   } catch {
     return `${currency} ${amt.toFixed(2)}`;
   }
-}
-
-function renderMoneyRows(rows: MoneyRow[]) {
-  if (!rows.length) return "—";
-  return rows
-    .map((r) => moneyFromCents(r.cents, safeStr(r.currency) || "AUD"))
-    .join(" • ");
 }
 
 function softDate(isoOrDate: string | null | undefined) {
@@ -69,8 +56,17 @@ function softDate(isoOrDate: string | null | undefined) {
 async function fetchJson<T>(url: string): Promise<T> {
   const res = await fetch(url, { cache: "no-store" });
   const json = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error((json as any)?.error ?? "Request failed");
+  const errorText =
+    typeof (json as { error?: unknown })?.error === "string"
+      ? (json as { error?: string }).error
+      : "Request failed";
+  if (!res.ok) throw new Error(errorText);
   return json as T;
+}
+
+function getErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof Error && error.message) return error.message;
+  return fallback;
 }
 
 export default function InClient() {
@@ -78,142 +74,92 @@ export default function InClient() {
   const { showToast } = useToast();
 
   const [loading, setLoading] = useState(true);
-  const [data, setData] = useState<InResponse | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [data, setData] = useState<OverviewResponse | null>(null);
 
-  async function load(silent = false) {
+  const snapshot = data?.snapshot;
+  const explanation = data?.explanation;
+
+  const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
+    setError(null);
 
     try {
-      const result = await fetchJson<InResponse>("/api/money/overview");
+      const result = await fetchJson<OverviewResponse>("/api/money/overview");
       setData(result);
-    } catch (e: any) {
-      if (!silent) {
-        showToast({ message: e?.message ?? "Couldn’t load In view." }, 2500);
-      }
+    } catch (e: unknown) {
+      const message = getErrorMessage(e, "Could not load In view.");
+      setError(message);
+      if (!silent) showToast({ message }, 2500);
     } finally {
       if (!silent) setLoading(false);
     }
-  }
+  }, [showToast]);
 
   useEffect(() => {
     void load(false);
-  }, []);
+  }, [load]);
 
   useEffect(() => {
     const onFocus = () => void load(true);
     window.addEventListener("focus", onFocus);
     return () => window.removeEventListener("focus", onFocus);
-  }, []);
-
-  const flow = data?.in_flow;
-  const upcomingIncome = flow?.upcoming_income ?? [];
+  }, [load]);
 
   const right = (
-    <div className="flex items-center gap-2 flex-wrap">
+    <div className="flex flex-wrap items-center gap-2">
       <Chip onClick={() => void load(false)}>Refresh</Chip>
       <Chip onClick={() => router.push("/money")}>Back to Money</Chip>
     </div>
   );
 
   return (
-    <Page
-      title="In"
-      subtitle="Money coming into the household."
-      right={right}
-    >
-      <div className="mx-auto w-full max-w-[860px] px-4 sm:px-6 space-y-4">
+    <Page title="In" subtitle="Money coming into the household." right={right}>
+      <div className="mx-auto w-full max-w-[860px] space-y-4 px-4 sm:px-6">
+        {error ? <div className="text-sm text-red-600">{error}</div> : null}
+
         <Card className="border-zinc-200 bg-white">
-          <CardContent>
-            <div className="grid gap-4 sm:grid-cols-3">
-              <div>
-                <div className="text-xs text-zinc-500">This month</div>
-                <div className="mt-1 text-lg font-semibold text-zinc-900">
-                  {loading ? "Loading…" : renderMoneyRows(flow?.month_total_by_currency ?? [])}
-                </div>
-              </div>
-
-              <div>
-                <div className="text-xs text-zinc-500">Recurring income</div>
-                <div className="mt-1 text-lg font-semibold text-zinc-900">
-                  {loading ? "Loading…" : flow?.recurring_income_count ?? 0}
-                </div>
-              </div>
-
-              <div>
-                <div className="text-xs text-zinc-500">Upcoming next 30 days</div>
-                <div className="mt-1 text-lg font-semibold text-zinc-900">
-                  {loading ? "Loading…" : flow?.upcoming_income_count_next_30_days ?? 0}
-                </div>
-              </div>
-            </div>
-
-            <div className="mt-4">
-              <div className="text-xs text-zinc-500">Upcoming income total</div>
-              <div className="mt-1 text-sm font-medium text-zinc-900">
-                {loading ? "Loading…" : renderMoneyRows(flow?.upcoming_income_total_by_currency ?? [])}
-              </div>
+          <CardContent className="space-y-2">
+            <div className="text-sm font-semibold text-zinc-900">Income at a glance</div>
+            <ul className="space-y-1 text-xs text-zinc-700">
+              <li>
+                Recurring income: {snapshot ? formatMoney(snapshot.income.recurringMonthlyCents) : loading ? "Loading..." : "-"}
+              </li>
+              <li>
+                Sources tracked: {snapshot ? snapshot.income.sourceCount : loading ? "Loading..." : "-"}
+              </li>
+              <li>{explanation?.pressure.timing || "Income timing notes will appear here."}</li>
+            </ul>
+            <div className="text-xs text-zinc-500">
+              Snapshot date: {snapshot?.asOf ? softDate(snapshot.asOf) : loading ? "Loading..." : "No date"}
             </div>
           </CardContent>
         </Card>
 
         <Card className="border-zinc-200 bg-white">
-          <CardContent>
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <div className="text-sm font-semibold text-zinc-900">Upcoming income</div>
-                <div className="mt-0.5 text-xs text-zinc-500">
-                  Known income expected in the next 30 days.
-                </div>
-              </div>
+          <CardContent className="space-y-3">
+            <div className="text-sm font-semibold text-zinc-900">Quick notes</div>
+            <ul className="space-y-1 text-xs text-zinc-700">
+              {(explanation?.insights ?? []).slice(0, 3).map((line, idx) => (
+                <li key={idx}>{line}</li>
+              ))}
+              {!loading && (!explanation?.insights || explanation.insights.length === 0) ? (
+                <li>No income notes yet.</li>
+              ) : null}
+            </ul>
+            <div className="flex flex-wrap gap-2">
               <Link href="/money">
                 <Chip>Money</Chip>
               </Link>
-            </div>
-
-            <div className="mt-4 divide-y divide-zinc-100">
-              {!loading && upcomingIncome.length === 0 ? (
-                <div className="py-3 text-sm text-zinc-500">
-                  No recurring income added yet.
-                </div>
-              ) : null}
-
-              {upcomingIncome.map((item) => (
-                <div key={item.id} className="flex items-center justify-between gap-3 py-3">
-                  <div className="min-w-0">
-                    <div className="truncate text-sm font-medium text-zinc-900">
-                      {safeStr(item.name) || "Income"}
-                    </div>
-                    <div className="truncate text-xs text-zinc-500">
-                      {[
-                        item.next_pay_at ? `Expected ${softDate(item.next_pay_at)}` : null,
-                        safeStr(item.cadence) || null,
-                      ]
-                        .filter(Boolean)
-                        .join(" • ")}
-                    </div>
-                  </div>
-
-                  <div className="shrink-0 text-sm font-semibold text-zinc-900">
-                    {moneyFromCents(
-                      Number(item.amount_cents || 0),
-                      safeStr(item.currency) || "AUD"
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="border-zinc-200 bg-white">
-          <CardContent>
-            <div className="space-y-1 text-xs text-zinc-500">
-              <div>
-                In is the household’s incoming flow: expected money, recurring income, and near-term timing.
-              </div>
-              <div>
-                This becomes stronger as pay sources, timing, and recurring income are filled out.
-              </div>
+              <Link href="/transactions">
+                <Chip>Transactions</Chip>
+              </Link>
+              <Link href="/accounts">
+                <Chip>Accounts</Chip>
+              </Link>
+              <Link href="/connections">
+                <Chip>Connections</Chip>
+              </Link>
             </div>
           </CardContent>
         </Card>
