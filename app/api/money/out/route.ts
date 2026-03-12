@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseRoute } from "@/lib/supabaseRoute";
 import { resolveHouseholdIdRoute } from "@/lib/households/resolveHouseholdIdRoute";
+import { getHouseholdMoneyTruth } from "@/lib/money/reasoning/getHouseholdMoneyTruth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -27,28 +28,10 @@ function safeNum(v: unknown) {
   return Number.isFinite(n) ? n : 0;
 }
 
-function startOfMonthISO() {
-  const now = new Date();
-  return new Date(now.getFullYear(), now.getMonth(), 1)
-    .toISOString()
-    .slice(0, 10);
-}
-
-function endOfMonthISO() {
-  const now = new Date();
-  return new Date(now.getFullYear(), now.getMonth() + 1, 0)
-    .toISOString()
-    .slice(0, 10);
-}
-
-function nowIso() {
-  return new Date().toISOString();
-}
-
-function plusDaysIso(days: number) {
-  const d = new Date();
-  d.setDate(d.getDate() + days);
-  return d.toISOString();
+function toMs(value: string | null | undefined): number | null {
+  if (!value) return null;
+  const ms = Date.parse(value);
+  return Number.isFinite(ms) ? ms : null;
 }
 
 export async function GET() {
@@ -76,49 +59,13 @@ export async function GET() {
       );
     }
 
-    const monthStart = startOfMonthISO();
-    const monthEnd = endOfMonthISO();
-    const now = nowIso();
-    const next30 = plusDaysIso(30);
-
-    const [monthTxRes, recentTxRes, recurringBillsRes] = await Promise.all([
-      supabase
-        .from("transactions")
-        .select(
-          "id,date,description,merchant,category,pending,amount,amount_cents,currency,account_id,created_at,updated_at"
-        )
-        .eq("household_id", householdId)
-        .gte("date", monthStart)
-        .lte("date", monthEnd)
-        .order("date", { ascending: false })
-        .limit(2000),
-
-      supabase
-        .from("transactions")
-        .select(
-          "id,date,description,merchant,category,pending,amount,amount_cents,currency,account_id,created_at,updated_at"
-        )
-        .eq("household_id", householdId)
-        .order("date", { ascending: false })
-        .order("created_at", { ascending: false })
-        .limit(100),
-
-      supabase
-        .from("recurring_bills")
-        .select("id,name,amount_cents,currency,cadence,next_due_at,autopay,active,notes")
-        .eq("household_id", householdId)
-        .eq("active", true)
-        .order("next_due_at", { ascending: true })
-        .limit(100),
-    ]);
-
-    if (monthTxRes.error) throw monthTxRes.error;
-    if (recentTxRes.error) throw recentTxRes.error;
-    if (recurringBillsRes.error) throw recurringBillsRes.error;
-
-    const monthTransactions = monthTxRes.data ?? [];
-    const recentTransactions = recentTxRes.data ?? [];
-    const recurringBills = recurringBillsRes.data ?? [];
+    const truth = await getHouseholdMoneyTruth(supabase, { householdId });
+    const monthTransactions = truth.month_transactions ?? [];
+    const recentTransactions = truth.recent_transactions ?? [];
+    const recurringBills = truth.recurring_bills ?? [];
+    const nowMs = toMs(truth.windows?.now_iso) ?? toMs(truth.as_of_iso) ?? Date.now();
+    const next30Ms =
+      toMs(truth.windows?.next30_iso) ?? nowMs + 30 * 24 * 60 * 60 * 1000;
 
     const outMonthByCurrency: MoneyByCurrency = {};
     const categorySpend = new Map<string, number>();
@@ -169,8 +116,8 @@ export async function GET() {
       .slice(0, 12);
 
     const upcomingBills = recurringBills.filter((b) => {
-      if (!b.next_due_at) return false;
-      return b.next_due_at >= now && b.next_due_at <= next30;
+      const dueMs = toMs(b.next_due_at);
+      return dueMs !== null && dueMs >= nowMs && dueMs <= next30Ms;
     });
 
     const recurringBillsByCurrency: MoneyByCurrency = {};
