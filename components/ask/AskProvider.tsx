@@ -10,6 +10,7 @@ import {
   type ReactNode,
 } from "react";
 import { usePathname } from "next/navigation";
+import { composeMessage, paragraph, section } from "@/components/ask/moneyAskLanguage";
 
 type AskActionHref = string | null;
 type AskStatus = "idle" | "loading" | "done" | "error";
@@ -201,14 +202,12 @@ export function AskProvider({ children }: { children: ReactNode }) {
             typeof pressures.stability === "string" ? `Stability: ${pressures.stability}` : null,
           ].filter(Boolean);
 
-          const lines = [
+          const lines = composeMessage([
             headline,
             summary,
-            insights.length ? `Insights:\n- ${insights.join("\n- ")}` : null,
-            pressureLines.length ? `Pressure:\n- ${pressureLines.join("\n- ")}` : null,
-          ]
-            .filter(Boolean)
-            .join("\n\n");
+            section("What stands out right now:", insights),
+            section("Where pressure is showing:", pressureLines),
+          ]);
 
           content = lines;
           tone = tone || "overview";
@@ -232,14 +231,12 @@ export function AskProvider({ children }: { children: ReactNode }) {
             typeof sig.stability === "string" ? `Stability: ${sig.stability}` : null,
           ].filter(Boolean);
 
-          const lines = [
+          const lines = composeMessage([
             headline,
             summary,
-            drivers.length ? `Drivers:\n- ${drivers.join("\n- ")}` : null,
-            signalLines.length ? `Signals:\n- ${signalLines.join("\n- ")}` : null,
-          ]
-            .filter(Boolean)
-            .join("\n\n");
+            section("What seems to be driving this:", drivers),
+            section("Pressure pattern in plain language:", signalLines),
+          ]);
 
           content = lines;
           tone = tone || "overview";
@@ -260,14 +257,12 @@ export function AskProvider({ children }: { children: ReactNode }) {
             ? (planning.notes as string[]).filter((n) => typeof n === "string" && n.trim())
             : [];
 
-          const lines = [
+          const lines = composeMessage([
             headline,
             summary,
-            upcoming.length ? `Coming up:\n- ${upcoming.join("\n- ")}` : null,
-            notes.length ? `Notes:\n- ${notes.join("\n- ")}` : null,
-          ]
-            .filter(Boolean)
-            .join("\n\n");
+            section("What to keep in view:", upcoming),
+            section("Context that matters:", notes),
+          ]);
 
           content = lines;
           tone = tone || "overview";
@@ -289,14 +284,12 @@ export function AskProvider({ children }: { children: ReactNode }) {
               ? affordability.caveat
               : null;
 
-          const lines = [
+          const lines = composeMessage([
             headline,
             summary,
-            signals.length ? `Signals:\n- ${signals.join("\n- ")}` : null,
-            caveat ? `Caveat:\n- ${caveat}` : null,
-          ]
-            .filter(Boolean)
-            .join("\n\n");
+            section("What this baseline is showing:", signals),
+            section("What would sharpen this:", caveat ? [caveat] : []),
+          ]);
 
           content = lines;
           tone = tone || "overview";
@@ -318,14 +311,12 @@ export function AskProvider({ children }: { children: ReactNode }) {
               ? scenario.caveat
               : null;
 
-          const lines = [
+          const lines = composeMessage([
             headline,
             summary,
-            watch.length ? `Watch:\n- ${watch.join("\n- ")}` : null,
-            caveat ? `Caveat:\n- ${caveat}` : null,
-          ]
-            .filter(Boolean)
-            .join("\n\n");
+            section("What to watch if this change happens:", watch),
+            section("What would sharpen the scenario:", caveat ? [caveat] : []),
+          ]);
 
           content = lines;
           tone = tone || "overview";
@@ -333,7 +324,15 @@ export function AskProvider({ children }: { children: ReactNode }) {
           const accounts = Array.isArray(json?.results?.accounts) ? json.results.accounts.length : 0;
           const bills = Array.isArray(json?.results?.bills) ? json.results.bills.length : 0;
           const txs = Array.isArray(json?.results?.transactions) ? json.results.transactions.length : 0;
-          content = `Search results:\n- Accounts: ${accounts}\n- Bills: ${bills}\n- Transactions: ${txs}`;
+          content = composeMessage([
+            "Here is what I could find quickly in your money data.",
+            section("Matches:", [
+              `Accounts: ${accounts}`,
+              `Bills: ${bills}`,
+              `Transactions: ${txs}`,
+            ]),
+            paragraph("If this is not what you meant, try naming a merchant, account, or bill."),
+          ]);
           tone = tone || "overview";
         }
 

@@ -312,8 +312,10 @@ export async function POST(req: Request) {
         .map((s) => s.summary);
 
       const diagnosis = {
-        headline: explanation.headline || "Current money pressure overview",
-        summary: explanation.summary || "Here is what the current money signals show.",
+        headline: explanation.headline || "Here is what seems to be creating pressure right now.",
+        summary:
+          explanation.summary ||
+          "This is the current pressure pattern based on your latest household data.",
         drivers,
         signals: {
           structural: signals.structural_pressure.summary,
@@ -352,14 +354,14 @@ export async function POST(req: Request) {
       const caveatNeeded = missingCostDetail || missingPurchaseContext;
 
       const summary = [
-        "This is a baseline affordability view from your current household position.",
+        "This is a grounded affordability baseline from your current household position.",
         explanation.summary,
       ]
         .filter(Boolean)
         .join(" ");
 
       const caveat = caveatNeeded
-        ? "The question is still broad, so this is not a precise affordability call. Cost amount and payment timing would sharpen the answer."
+        ? "The question is still broad, so this is a baseline rather than a precise affordability call. Amount and payment timing would sharpen it."
         : snapshot.connections.stale > 0
           ? `${snapshot.connections.stale} of ${snapshot.connections.total} connections are stale, so affordability confidence may be lower.`
           : undefined;
@@ -433,7 +435,7 @@ export async function POST(req: Request) {
 
       const headline = dueSoon.length
         ? "Here is what is coming up in your household money."
-        : "Here is the near-term money view.";
+        : "Here is your near-term money baseline.";
 
       const summary = [
         snapshot.commitments.billCount > 0
@@ -480,13 +482,13 @@ export async function POST(req: Request) {
 
       const broadPrompt = !isSpecificScenarioPrompt(lowerQ);
       const caveat = broadPrompt
-        ? "This scenario is still broad, so this is a baseline view. Details like amount and timing would sharpen the picture."
+        ? "This scenario is still broad, so this is a baseline view. A little more detail on amount and timing would sharpen the picture."
         : snapshot.connections.stale > 0
           ? `${snapshot.connections.stale} of ${snapshot.connections.total} connections are stale, so scenario confidence may be lower.`
           : undefined;
 
       const summary = [
-        "This is the current baseline before any scenario changes are applied.",
+        "This is the current baseline before any scenario change is layered in.",
         explanation.summary,
       ]
         .filter(Boolean)
