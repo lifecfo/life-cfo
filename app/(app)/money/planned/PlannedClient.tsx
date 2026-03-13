@@ -1,12 +1,16 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Page } from "@/components/Page";
 import { Card, CardContent, Chip, useToast } from "@/components/ui";
 import { supabase } from "@/lib/supabaseClient";
-import { resolveActiveHouseholdIdClient } from "@/lib/households/resolveActiveHouseholdClient";
+import {
+  ACTIVE_HOUSEHOLD_CHANGED_EVENT,
+  ACTIVE_HOUSEHOLD_STORAGE_KEY,
+  resolveActiveHouseholdIdClient,
+} from "@/lib/households/resolveActiveHouseholdClient";
 
 type FinancialSnapshot = {
   asOf: string;
@@ -117,6 +121,7 @@ export default function PlannedClient() {
   const [data, setData] = useState<OverviewResponse | null>(null);
   const [goalsLoading, setGoalsLoading] = useState(true);
   const [goals, setGoals] = useState<MoneyGoal[]>([]);
+  const householdIdRef = useRef<string | null>(null);
 
   const snapshot = data?.snapshot;
   const explanation = data?.explanation;
@@ -149,9 +154,16 @@ export default function PlannedClient() {
 
       const householdId = await resolveActiveHouseholdIdClient(supabase, userId);
       if (!householdId) {
+        if (householdIdRef.current !== null) setGoals([]);
+        householdIdRef.current = null;
         setGoals([]);
         return;
       }
+
+      if (householdIdRef.current !== householdId) {
+        setGoals([]);
+      }
+      householdIdRef.current = householdId;
 
       const res = await supabase.from("money_goals").select("*").eq("household_id", householdId);
       if (res.error) throw res.error;
@@ -176,12 +188,30 @@ export default function PlannedClient() {
   }, [load, loadGoals]);
 
   useEffect(() => {
-    const onFocus = () => {
+    const onActiveHouseholdChanged = () => {
       void load(true);
       void loadGoals(true);
     };
-    window.addEventListener("focus", onFocus);
-    return () => window.removeEventListener("focus", onFocus);
+    const onStorage = (e: StorageEvent) => {
+      if (e.key !== ACTIVE_HOUSEHOLD_STORAGE_KEY) return;
+      void load(true);
+      void loadGoals(true);
+    };
+
+    window.addEventListener("focus", onActiveHouseholdChanged);
+    window.addEventListener(
+      ACTIVE_HOUSEHOLD_CHANGED_EVENT,
+      onActiveHouseholdChanged as EventListener
+    );
+    window.addEventListener("storage", onStorage);
+    return () => {
+      window.removeEventListener("focus", onActiveHouseholdChanged);
+      window.removeEventListener(
+        ACTIVE_HOUSEHOLD_CHANGED_EVENT,
+        onActiveHouseholdChanged as EventListener
+      );
+      window.removeEventListener("storage", onStorage);
+    };
   }, [load, loadGoals]);
 
   const goalsInFocus = useMemo(() => {

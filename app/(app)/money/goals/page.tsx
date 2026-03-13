@@ -1,10 +1,14 @@
 // app/(app)/money/goals/page.tsx
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
-import { resolveActiveHouseholdIdClient } from "@/lib/households/resolveActiveHouseholdClient";
+import {
+  ACTIVE_HOUSEHOLD_CHANGED_EVENT,
+  ACTIVE_HOUSEHOLD_STORAGE_KEY,
+  resolveActiveHouseholdIdClient,
+} from "@/lib/households/resolveActiveHouseholdClient";
 import { Page } from "@/components/Page";
 import { Card, CardContent, Button, Chip, Badge, useToast } from "@/components/ui";
 
@@ -199,6 +203,39 @@ export default function GoalsPage() {
   const [delta, setDelta] = useState("");
   const [deltaNote, setDeltaNote] = useState("");
   const deltaRef = useRef<HTMLInputElement | null>(null);
+  const householdIdRef = useRef<string | null>(null);
+
+  const refreshActiveHousehold = useCallback(async () => {
+    if (!userId) {
+      householdIdRef.current = null;
+      setHouseholdId(null);
+      setGoals([]);
+      setUpdates([]);
+      setSelectedGoalId(null);
+      return;
+    }
+
+    try {
+      const hid = await resolveActiveHouseholdIdClient(supabase, userId);
+      const prev = householdIdRef.current;
+      if (prev !== hid) {
+        setGoals([]);
+        setUpdates([]);
+        setSelectedGoalId(null);
+      }
+      householdIdRef.current = hid;
+      setHouseholdId(hid);
+    } catch {
+      const prev = householdIdRef.current;
+      if (prev !== null) {
+        setGoals([]);
+        setUpdates([]);
+        setSelectedGoalId(null);
+      }
+      householdIdRef.current = null;
+      setHouseholdId(null);
+    }
+  }, [userId]);
 
   // --- Auth ---
   useEffect(() => {
@@ -211,20 +248,13 @@ export default function GoalsPage() {
 
       if (error || !data?.user) {
         setUserId(null);
+        householdIdRef.current = null;
         setHouseholdId(null);
         setAuthStatus("signed_out");
         return;
       }
 
       setUserId(data.user.id);
-      try {
-        const hid = await resolveActiveHouseholdIdClient(supabase, data.user.id);
-        if (!alive) return;
-        setHouseholdId(hid);
-      } catch {
-        if (!alive) return;
-        setHouseholdId(null);
-      }
       setAuthStatus("signed_in");
     })();
 
@@ -232,6 +262,37 @@ export default function GoalsPage() {
       alive = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (!userId) return;
+    void refreshActiveHousehold();
+  }, [userId, refreshActiveHousehold]);
+
+  useEffect(() => {
+    const onActiveHouseholdChanged = () => {
+      void refreshActiveHousehold();
+    };
+    const onStorage = (e: StorageEvent) => {
+      if (e.key !== ACTIVE_HOUSEHOLD_STORAGE_KEY) return;
+      void refreshActiveHousehold();
+    };
+
+    window.addEventListener("focus", onActiveHouseholdChanged);
+    window.addEventListener(
+      ACTIVE_HOUSEHOLD_CHANGED_EVENT,
+      onActiveHouseholdChanged as EventListener
+    );
+    window.addEventListener("storage", onStorage);
+
+    return () => {
+      window.removeEventListener("focus", onActiveHouseholdChanged);
+      window.removeEventListener(
+        ACTIVE_HOUSEHOLD_CHANGED_EVENT,
+        onActiveHouseholdChanged as EventListener
+      );
+      window.removeEventListener("storage", onStorage);
+    };
+  }, [refreshActiveHousehold]);
 
   const sortedGoals = useMemo(() => sortGoals(goals), [goals]);
   const primaryGoal = useMemo(() => sortedGoals.find((g) => !!g.is_primary) ?? null, [sortedGoals]);

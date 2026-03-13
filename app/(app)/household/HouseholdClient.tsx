@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Page } from "@/components/Page";
 import { Card, CardContent, Chip, useToast } from "@/components/ui";
+import { notifyActiveHouseholdChanged } from "@/lib/households/resolveActiveHouseholdClient";
 
 type HouseholdItem = { id: string; name: string; role: string };
 
@@ -316,6 +317,7 @@ export default function HouseholdClient() {
       setEditingName(false);
       setShowAdvanced(false);
       setStatusLine("Updated.");
+      notifyActiveHouseholdChanged(household_id);
 
       await Promise.all([loadMembers(household_id), loadInvites(household_id), loadIncomingInvites()]);
     } catch (e: any) {
@@ -488,6 +490,7 @@ export default function HouseholdClient() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ household_id: json.household_id }),
         }).catch(() => null);
+        notifyActiveHouseholdChanged(String(json.household_id));
       }
 
       const nextDismissed = dismissedIncomingInviteIds.filter((x) => x !== id);

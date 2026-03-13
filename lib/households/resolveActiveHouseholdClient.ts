@@ -1,37 +1,40 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-const COOKIE_NAME = "lifecfo_household";
+export const ACTIVE_HOUSEHOLD_CHANGED_EVENT = "lifecfo:active-household-changed";
+export const ACTIVE_HOUSEHOLD_STORAGE_KEY = "lifecfo:active-household-id";
 
-function readCookie(name: string): string | null {
-  if (typeof document === "undefined") return null;
-  const raw = document.cookie || "";
-  const parts = raw.split(";").map((s) => s.trim());
-  for (const part of parts) {
-    if (!part) continue;
-    const idx = part.indexOf("=");
-    if (idx <= 0) continue;
-    const key = decodeURIComponent(part.slice(0, idx).trim());
-    const value = decodeURIComponent(part.slice(idx + 1).trim());
-    if (key === name) return value || null;
+export function notifyActiveHouseholdChanged(householdId: string | null) {
+  if (typeof window === "undefined") return;
+
+  window.dispatchEvent(
+    new CustomEvent(ACTIVE_HOUSEHOLD_CHANGED_EVENT, { detail: { householdId } })
+  );
+
+  try {
+    window.localStorage.setItem(
+      ACTIVE_HOUSEHOLD_STORAGE_KEY,
+      JSON.stringify({ householdId, at: Date.now() })
+    );
+  } catch {
+    // no-op
   }
-  return null;
 }
 
 export async function resolveActiveHouseholdIdClient(
   supabase: SupabaseClient,
   userId: string
 ): Promise<string | null> {
-  const preferred = readCookie(COOKIE_NAME);
-
-  if (preferred) {
-    const { data: okRows, error: okErr } = await supabase
-      .from("household_members")
-      .select("household_id")
-      .eq("user_id", userId)
-      .eq("household_id", preferred)
-      .limit(1);
-
-    if (!okErr && okRows?.length) return preferred;
+  try {
+    const res = await fetch("/api/households", { method: "GET", cache: "no-store" });
+    const json = await res.json().catch(() => null);
+    if (res.ok && json?.ok) {
+      const activeHouseholdId =
+        typeof json.active_household_id === "string" ? json.active_household_id : null;
+      if (activeHouseholdId) return activeHouseholdId;
+      if (json.needs_household) return null;
+    }
+  } catch {
+    // fallback below
   }
 
   const { data, error } = await supabase
