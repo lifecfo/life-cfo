@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Page } from "@/components/Page";
 import { Card, CardContent, Chip, Button, useToast } from "@/components/ui";
@@ -352,7 +352,7 @@ function ConnectionActionsMenu({
   );
 }
 
-export default function ConnectionsPage() {
+function ConnectionsPageClient() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { toast } = useToast();
@@ -1039,5 +1039,29 @@ export default function ConnectionsPage() {
         </Card>
       </div>
     </Page>
+  );
+}
+
+export default function ConnectionsPage() {
+  return (
+    <Suspense
+      fallback={
+        <Page
+          title="Connections"
+          subtitle="Where your accounts come from."
+          right={<Chip>Back to Money</Chip>}
+        >
+          <div className="mx-auto w-full max-w-[760px]">
+            <Card className="border-zinc-200 bg-white">
+              <CardContent>
+                <div className="text-sm text-zinc-600">Loading…</div>
+              </CardContent>
+            </Card>
+          </div>
+        </Page>
+      }
+    >
+      <ConnectionsPageClient />
+    </Suspense>
   );
 }
