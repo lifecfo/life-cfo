@@ -45,6 +45,7 @@ type SubmitOptions = {
 };
 
 type AskContextValue = AskState & {
+  recentMoneyAsks: string[];
   setDraft: (value: string) => void;
   openAsk: () => void;
   closeAsk: () => void;
@@ -55,6 +56,25 @@ type AskContextValue = AskState & {
 };
 
 const AskContext = createContext<AskContextValue | null>(null);
+const RECENT_MONEY_ASKS_KEY = "lifecfo:money-recent-asks";
+const RECENT_MONEY_ASKS_MAX = 3;
+
+function readRecentMoneyAsksFromStorage() {
+  if (typeof window === "undefined") return [] as string[];
+  try {
+    const raw = window.localStorage.getItem(RECENT_MONEY_ASKS_KEY);
+    if (!raw) return [] as string[];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [] as string[];
+    return parsed
+      .filter((v) => typeof v === "string")
+      .map((v) => v.trim())
+      .filter(Boolean)
+      .slice(0, RECENT_MONEY_ASKS_MAX);
+  } catch {
+    return [] as string[];
+  }
+}
 
 function makeId() {
   try {
@@ -105,6 +125,9 @@ export function AskProvider({ children }: { children: ReactNode }) {
   const [draft, setDraft] = useState("");
   const [messages, setMessages] = useState<AskMessage[]>([]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [recentMoneyAsks, setRecentMoneyAsks] = useState<string[]>(() =>
+    readRecentMoneyAsksFromStorage()
+  );
 
   const lastQuestionRef = useRef<string>("");
 
@@ -121,6 +144,24 @@ export function AskProvider({ children }: { children: ReactNode }) {
     setMessages([]);
     setErrorMessage(null);
     lastQuestionRef.current = "";
+  }, []);
+
+  const rememberRecentMoneyAsk = useCallback((question: string) => {
+    const q = question.trim();
+    if (!q) return;
+
+    setRecentMoneyAsks((prev) => {
+      const deduped = [q, ...prev.filter((item) => item.toLowerCase() !== q.toLowerCase())].slice(
+        0,
+        RECENT_MONEY_ASKS_MAX
+      );
+      try {
+        window.localStorage.setItem(RECENT_MONEY_ASKS_KEY, JSON.stringify(deduped));
+      } catch {
+        // ignore
+      }
+      return deduped;
+    });
   }, []);
 
   const runQuestion = useCallback(
@@ -157,6 +198,9 @@ export function AskProvider({ children }: { children: ReactNode }) {
         }
 
         const isMoneyScope = currentScope === "money";
+        if (isMoneyScope) {
+          rememberRecentMoneyAsk(question);
+        }
         const endpoint = isMoneyScope ? "/api/money/ask" : "/api/home/ask";
         const payload = isMoneyScope
           ? { q: question }
@@ -382,7 +426,7 @@ export function AskProvider({ children }: { children: ReactNode }) {
         setErrorMessage("I couldn’t answer that right now.");
       }
     },
-    [draft, currentPath, currentScope]
+    [draft, currentPath, currentScope, rememberRecentMoneyAsk]
   );
 
   const submitAsk = useCallback(
@@ -407,6 +451,7 @@ export function AskProvider({ children }: { children: ReactNode }) {
       errorMessage,
       currentPath,
       currentScope,
+      recentMoneyAsks,
       setDraft,
       openAsk,
       closeAsk,
@@ -423,6 +468,7 @@ export function AskProvider({ children }: { children: ReactNode }) {
       errorMessage,
       currentPath,
       currentScope,
+      recentMoneyAsks,
       openAsk,
       closeAsk,
       toggleAsk,

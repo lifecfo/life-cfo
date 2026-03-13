@@ -81,7 +81,7 @@ function getErrorMessage(error: unknown, fallback: string) {
 export default function MoneyClientNext() {
   const router = useRouter();
   const { showToast } = useToast();
-  const { openAsk, setDraft } = useAsk();
+  const { openAsk, setDraft, recentMoneyAsks } = useAsk();
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -162,6 +162,19 @@ export default function MoneyClientNext() {
                   <Chip>Connections</Chip>
                 </Link>
               </div>
+              {recentMoneyAsks.length > 0 ? (
+                <div className="space-y-1">
+                  <div className="text-xs text-zinc-500">Recent questions</div>
+                  <div className="flex flex-wrap gap-2">
+                    {recentMoneyAsks.slice(0, 3).map((q) => (
+                      <Chip key={`recent_${q}`} className="text-xs" onClick={() => openWithQuestion(q)} title={q}>
+                        {q}
+                      </Chip>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+              <div className="text-xs text-zinc-500">Try one</div>
               <div className="flex flex-wrap gap-2">
                 {askExamples.map((q) => (
                   <Chip key={q} className="text-xs" onClick={() => openWithQuestion(q)} title={q}>
