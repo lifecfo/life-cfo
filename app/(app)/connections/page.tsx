@@ -66,6 +66,16 @@ function softDate(d: string | null) {
   return new Date(parsed).toLocaleDateString();
 }
 
+function softDateTime(d: string | null) {
+  if (!d) return "";
+  const parsed = Date.parse(d);
+  if (!Number.isFinite(parsed)) return "";
+  return new Date(parsed).toLocaleString(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  });
+}
+
 function coerceStr(v: unknown) {
   return typeof v === "string" ? v : "";
 }
@@ -136,24 +146,39 @@ function displayTitle(c: Connection) {
 
 function syncLine(c: Connection) {
   if (c.status === "active") {
-    if (c.last_sync_at) return `Last synced ${softDate(c.last_sync_at)}`;
-    return "Connected";
+    if (!c.last_sync_at) return "Connected. First update will appear soon.";
+    if (isOlderThanHours(c.last_sync_at, 72)) {
+      return `Last updated ${softDateTime(c.last_sync_at)}. This may be out of date.`;
+    }
+    return `Last updated ${softDateTime(c.last_sync_at)}.`;
   }
 
-  if (c.status === "manual") return "Manual entry";
-  if (c.status === "needs_auth") return "Awaiting connection";
-  if (c.status === "error") return "Needs review";
+  if (c.status === "manual") return "Manual account.";
+  if (c.status === "needs_auth") return "Setup not finished.";
+  if (c.status === "error") return "Update needs review.";
   return "";
 }
 
 function connectionSubline(c: Connection) {
   const parts = [syncLine(c)];
 
-  if (c.status === "active") {
-    parts.push(`Connected via ${providerLabel(c.provider)}`);
+  if (c.status === "active" || c.status === "manual") {
+    parts.push(`Source: ${providerLabel(c.provider)}`);
   }
 
-  return parts.filter(Boolean).join(" • ");
+  return parts.filter(Boolean).join(" | ");
+}
+
+function pendingHelpLine(c: Connection) {
+  if (c.status === "needs_auth") {
+    return "Finish setup to start bringing in balances and transactions.";
+  }
+
+  if (c.status === "error") {
+    return "There was a problem on the last update. Continue setup to resume.";
+  }
+
+  return "";
 }
 
 function institutionMonogram(name: string) {
@@ -302,7 +327,7 @@ function ConnectionActionsMenu({
             disabled={syncing}
             className="flex w-full items-center justify-between px-4 py-3 text-left text-sm text-zinc-800 hover:bg-zinc-50 disabled:opacity-50"
           >
-            <span>{syncing ? "Syncing…" : "Sync now"}</span>
+            <span>{syncing ? "Refreshing…" : "Refresh now"}</span>
           </button>
 
           <button
@@ -479,7 +504,7 @@ function ConnectionsPageClient() {
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error || "Create failed");
 
-      toast({ title: "Connection added" });
+      toast({ title: "Manual account added" });
       await load();
     } catch (e: any) {
       toast({ title: "Couldn’t create", description: e?.message });
@@ -529,7 +554,7 @@ function ConnectionsPageClient() {
       const connectionId = coerceStr(json?.connection?.id);
       if (!connectionId) throw new Error("Missing connection id");
 
-      toast({ title: "Starting bank connection…" });
+      toast({ title: "Starting secure connection…" });
       await startBasiqAuth(connectionId);
     } catch (e: any) {
       toast({ title: "Couldn’t add bank", description: e?.message });
@@ -602,7 +627,7 @@ function ConnectionsPageClient() {
         onExit: (err) => {
           if (err?.error_message) {
             toast({
-              title: "Connection cancelled",
+              title: "Setup closed",
               description: err.error_message,
             });
           }
@@ -637,7 +662,7 @@ function ConnectionsPageClient() {
       const connectionId = coerceStr(json?.connection?.id);
       if (!connectionId) throw new Error("Missing connection id");
 
-      toast({ title: "Starting bank connection…" });
+      toast({ title: "Starting secure connection…" });
       await startPlaidAuth(connectionId);
     } catch (e: any) {
       toast({ title: "Couldn’t add bank", description: e?.message });
@@ -653,7 +678,7 @@ function ConnectionsPageClient() {
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error || "Sync failed");
 
-      toast({ title: "Synced" });
+      toast({ title: "Connection refreshed" });
       await load();
     } catch (e: any) {
       toast({ title: "Couldn’t sync", description: e?.message });
@@ -676,7 +701,7 @@ function ConnectionsPageClient() {
     if (status === "needs_auth") {
       return (
         <span className={`${base} border-amber-200 bg-amber-50 text-amber-700`}>
-          Needs attention
+          Finish setup
         </span>
       );
     }
@@ -684,14 +709,14 @@ function ConnectionsPageClient() {
     if (status === "error") {
       return (
         <span className={`${base} border-rose-200 bg-rose-50 text-rose-700`}>
-          Issue
+          Needs review
         </span>
       );
     }
 
     return (
       <span className={`${base} border-emerald-200 bg-emerald-50 text-emerald-700`}>
-        Active
+        Connected
       </span>
     );
   }
@@ -749,7 +774,7 @@ function ConnectionsPageClient() {
   return (
     <Page
       title="Connections"
-      subtitle="Where your accounts come from."
+      subtitle="Connect your accounts and keep your household data current."
       right={<Chip onClick={() => router.push("/money")}>Back to Money</Chip>}
     >
       <div className="mx-auto w-full max-w-[760px] space-y-6">
@@ -757,9 +782,9 @@ function ConnectionsPageClient() {
           <CardContent>
             <div className="flex items-start justify-between gap-4 flex-wrap">
               <div className="space-y-1">
-                <div className="text-sm font-medium text-zinc-900">Data sources</div>
+                <div className="text-sm font-medium text-zinc-900">Add accounts</div>
                 <div className="text-xs text-zinc-500">
-                  Add manual sources, or connect a bank.
+                  Connect your bank or add a manual account.
                 </div>
               </div>
 
@@ -770,7 +795,7 @@ function ConnectionsPageClient() {
                   variant="ghost"
                   className="rounded-2xl"
                 >
-                  {creatingManual ? "Adding…" : "Add manual"}
+                  {creatingManual ? "Adding…" : "Add manual account"}
                 </Button>
 
                 <Button
@@ -778,7 +803,7 @@ function ConnectionsPageClient() {
                   disabled={creatingBasiq || creatingManual || creatingPlaid}
                   className="rounded-2xl"
                 >
-                  {creatingBasiq ? "Starting…" : "Add Basiq (AU)"}
+                  {creatingBasiq ? "Starting…" : "Connect bank (AU)"}
                 </Button>
 
                 <Button
@@ -786,14 +811,19 @@ function ConnectionsPageClient() {
                   disabled={creatingPlaid || creatingManual || creatingBasiq}
                   className="rounded-2xl"
                 >
-                  {creatingPlaid ? "Starting…" : "Add Plaid (US)"}
+                  {creatingPlaid ? "Starting…" : "Connect bank (US)"}
                 </Button>
               </div>
             </div>
 
+            <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs text-zinc-600">
+              After setup, we import recent balances and transactions. You can refresh any
+              connection at any time.
+            </div>
+
             <div className="mt-6 space-y-3">
               {loading ? (
-                <div className="text-sm text-zinc-600">Loading…</div>
+                <div className="text-sm text-zinc-600">Loading your connections…</div>
               ) : (
                 <>
                   {activeItems.length > 0 ? (
@@ -849,7 +879,7 @@ function ConnectionsPageClient() {
                                       onClick={() => syncConnection(c.id)}
                                       disabled={syncingId === c.id}
                                     >
-                                      {syncingId === c.id ? "Syncing…" : "Sync"}
+                                      {syncingId === c.id ? "Refreshing…" : "Refresh"}
                                     </Button>
 
                                     <ConnectionActionsMenu
@@ -916,8 +946,14 @@ function ConnectionsPageClient() {
                                   c.created_at ? `Added ${softDate(c.created_at)}` : null,
                                 ]
                                   .filter(Boolean)
-                                  .join(" • ")}
+                                  .join(" | ")}
                               </div>
+
+                              {pendingHelpLine(c) ? (
+                                <div className="mt-1 text-xs text-zinc-600">
+                                  {pendingHelpLine(c)}
+                                </div>
+                              ) : null}
                             </div>
 
                             <div className="flex items-center gap-2">
@@ -928,7 +964,7 @@ function ConnectionsPageClient() {
                                   onClick={() => void startBasiqAuth(c.id)}
                                   disabled={connectingId === c.id}
                                 >
-                                  {connectingId === c.id ? "Opening…" : "Connect"}
+                                  {connectingId === c.id ? "Opening…" : "Continue setup"}
                                 </Button>
                               )}
 
@@ -939,7 +975,7 @@ function ConnectionsPageClient() {
                                   onClick={() => void startPlaidAuth(c.id)}
                                   disabled={connectingId === c.id}
                                 >
-                                  {connectingId === c.id ? "Opening…" : "Connect"}
+                                  {connectingId === c.id ? "Opening…" : "Continue setup"}
                                 </Button>
                               )}
 
@@ -955,7 +991,7 @@ function ConnectionsPageClient() {
                     <div className="space-y-3 pt-2">
                       <div className="flex items-center justify-between gap-3">
                         <div className="text-xs font-medium uppercase tracking-wide text-zinc-500">
-                          Older unfinished connections
+                          Older setup attempts
                         </div>
 
                         <button
@@ -964,7 +1000,7 @@ function ConnectionsPageClient() {
                           className="text-xs text-zinc-500 hover:text-zinc-700"
                         >
                           {showOlderPending
-                            ? "Hide older unfinished"
+                            ? "Hide older setup attempts"
                             : `Show ${hiddenOlderPendingCount} older`}
                         </button>
                       </div>
@@ -995,8 +1031,14 @@ function ConnectionsPageClient() {
                                   c.created_at ? `Added ${softDate(c.created_at)}` : null,
                                 ]
                                   .filter(Boolean)
-                                  .join(" • ")}
+                                  .join(" | ")}
                               </div>
+
+                              {pendingHelpLine(c) ? (
+                                <div className="mt-1 text-xs text-zinc-600">
+                                  {pendingHelpLine(c)}
+                                </div>
+                              ) : null}
                             </div>
 
                             <div className="flex items-center gap-2">
@@ -1007,7 +1049,7 @@ function ConnectionsPageClient() {
                                   onClick={() => void startBasiqAuth(c.id)}
                                   disabled={connectingId === c.id}
                                 >
-                                  {connectingId === c.id ? "Opening…" : "Connect"}
+                                  {connectingId === c.id ? "Opening…" : "Continue setup"}
                                 </Button>
                               )}
 
@@ -1018,7 +1060,7 @@ function ConnectionsPageClient() {
                                   onClick={() => void startPlaidAuth(c.id)}
                                   disabled={connectingId === c.id}
                                 >
-                                  {connectingId === c.id ? "Opening…" : "Connect"}
+                                  {connectingId === c.id ? "Opening…" : "Continue setup"}
                                 </Button>
                               )}
 
@@ -1031,7 +1073,10 @@ function ConnectionsPageClient() {
                   ) : null}
 
                   {!loading && activeItems.length === 0 && pendingItems.length === 0 ? (
-                    <div className="text-sm text-zinc-600">No connections yet.</div>
+                    <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-600">
+                      No accounts connected yet. Connect your bank or add a manual account to get
+                      started.
+                    </div>
                   ) : null}
                 </>
               )}
@@ -1049,13 +1094,13 @@ export default function ConnectionsPage() {
       fallback={
         <Page
           title="Connections"
-          subtitle="Where your accounts come from."
+          subtitle="Connect your accounts and keep your household data current."
           right={<Chip>Back to Money</Chip>}
         >
           <div className="mx-auto w-full max-w-[760px]">
             <Card className="border-zinc-200 bg-white">
               <CardContent>
-                <div className="text-sm text-zinc-600">Loading…</div>
+                <div className="text-sm text-zinc-600">Loading your connections…</div>
               </CardContent>
             </Card>
           </div>
