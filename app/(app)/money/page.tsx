@@ -39,6 +39,20 @@ type OverviewResponse = {
   explanation: SnapshotExplanation;
 };
 
+type TransactionRow = {
+  id: string;
+  date: string | null;
+  description: string | null;
+  merchant: string | null;
+  amount_cents: number | null;
+  currency: string | null;
+  provider: string | null;
+};
+
+type TransactionsResponse = {
+  transactions?: TransactionRow[];
+};
+
 function formatMoney(cents: number | undefined | null, currency = "AUD") {
   const n = typeof cents === "number" && Number.isFinite(cents) ? cents : 0;
   const amt = n / 100;
@@ -86,6 +100,7 @@ export default function MoneyClientNext() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<OverviewResponse | null>(null);
+  const [recentTransactions, setRecentTransactions] = useState<TransactionRow[]>([]);
 
   const snapshot = data?.snapshot;
   const explanation = data?.explanation;
@@ -94,8 +109,15 @@ export default function MoneyClientNext() {
     if (!silent) setLoading(true);
     setError(null);
     try {
-      const res = await fetchJson<OverviewResponse>("/api/money/overview");
-      setData(res);
+      const overview = await fetchJson<OverviewResponse>("/api/money/overview");
+      setData(overview);
+
+      try {
+        const tx = await fetchJson<TransactionsResponse>("/api/money/transactions?limit=6");
+        setRecentTransactions((tx.transactions ?? []).slice(0, 6));
+      } catch {
+        setRecentTransactions([]);
+      }
     } catch (e: unknown) {
       const message = getErrorMessage(e, "Unable to load money overview.");
       setError(message);
@@ -126,6 +148,27 @@ export default function MoneyClientNext() {
     setDraft(q);
     openAsk();
   };
+
+  const importedRecent = recentTransactions.filter((t) => {
+    const provider = String(t.provider || "").toLowerCase();
+    return provider !== "" && provider !== "manual";
+  });
+
+  const latestImported = importedRecent[0] ?? null;
+  const latestImportedName =
+    latestImported?.merchant || latestImported?.description || "Recent transaction";
+  const latestImportedAmount = formatMoney(
+    Math.abs(Number(latestImported?.amount_cents ?? 0)),
+    latestImported?.currency || "AUD"
+  );
+
+  const connectionFreshnessLine = snapshot
+    ? snapshot.connections.total === 0
+      ? "No live connections yet."
+      : snapshot.connections.stale === 0
+        ? `All ${snapshot.connections.total} connection(s) look recent.`
+        : `${snapshot.connections.stale} of ${snapshot.connections.total} connection(s) may need a refresh.`
+    : "Connection freshness will show here.";
 
   return (
     <Page title="Money" subtitle="A calm view of money coming in, going out, saved, and planned.">
@@ -207,6 +250,36 @@ export default function MoneyClientNext() {
             </CardContent>
           </Card>
 
+          <Card className="border-zinc-200 bg-white">
+            <CardContent className="space-y-2">
+              <div className="text-sm font-semibold text-zinc-900">Connected data</div>
+              <div className="text-xs text-zinc-600">
+                {latestImported
+                  ? `Latest imported activity: ${latestImportedName} ${softDate(
+                      latestImported.date
+                    )} (${latestImportedAmount}).`
+                  : snapshot?.connections.total
+                    ? "Connected data is available. New imported activity will appear here."
+                    : "Connect a bank to bring in recent account and transaction activity."}
+              </div>
+              <ul className="list-disc space-y-1 pl-4 text-xs text-zinc-600">
+                <li>{connectionFreshnessLine}</li>
+                <li>
+                  Showing {Math.min(6, recentTransactions.length)} recent transaction(s), with{" "}
+                  {importedRecent.length} imported from connected providers.
+                </li>
+              </ul>
+              <div className="flex flex-wrap gap-2">
+                <Link href="/transactions">
+                  <Chip>Open transactions</Chip>
+                </Link>
+                <Link href="/connections">
+                  <Chip>Manage connections</Chip>
+                </Link>
+              </div>
+            </CardContent>
+          </Card>
+
           <div className="grid gap-4 md:grid-cols-2">
             <FlowCard
               title="In"
@@ -231,7 +304,9 @@ export default function MoneyClientNext() {
                 snapshot
                   ? `${snapshot.commitments.billCount} bill(s) mapped.`
                   : "Bill coverage will show here.",
-                `Flexible spending (30 days): ${snapshot ? formatMoney(snapshot.discretionary.last30DayOutflowCents) : loading ? "Loading..." : "-"}`,
+                latestImported
+                  ? `Latest imported outflow cue: ${latestImportedName} (${latestImportedAmount}).`
+                  : `Flexible spending (30 days): ${snapshot ? formatMoney(snapshot.discretionary.last30DayOutflowCents) : loading ? "Loading..." : "-"}`,
               ]}
               note={explanation?.pressure.structural || "Spending pressure notes will appear here."}
               links={[
