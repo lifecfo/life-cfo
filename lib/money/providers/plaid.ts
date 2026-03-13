@@ -131,19 +131,17 @@ async function getContext(connectionId: string) {
 
   return {
     supabase,
-    userId: user.id,
     connection: connection as ConnectionRow,
   };
 }
 
 async function upsertAccounts(params: {
   supabase: any;
-  userId: string;
   householdId: string;
   connectionId: string;
   accounts: PlaidAccount[];
 }) {
-  const { supabase, userId, householdId, connectionId, accounts } = params;
+  const { supabase, householdId, connectionId, accounts } = params;
 
   if (!accounts.length) return { rows: [] as any[], count: 0 };
 
@@ -154,7 +152,6 @@ async function upsertAccounts(params: {
       "USD";
 
     return {
-      user_id: userId,
       household_id: householdId,
       connection_id: connectionId,
       provider: "plaid",
@@ -179,13 +176,12 @@ async function upsertAccounts(params: {
 
   const { data, error } = await supabase
     .from("accounts")
-    .upsert(rows, { onConflict: "user_id,provider,provider_account_id" })
+    .upsert(rows, { onConflict: "household_id,provider,provider_account_id" })
     .select("id, provider_account_id");
 
   if (error) throw error;
 
   const externalRows = rows.map((row) => ({
-    user_id: userId,
     household_id: householdId,
     provider: "plaid",
     connection_id: connectionId,
@@ -205,7 +201,7 @@ async function upsertAccounts(params: {
   const { error: externalErr } = await supabase
     .from("external_accounts")
     .upsert(externalRows, {
-      onConflict: "user_id,provider,provider_account_id",
+      onConflict: "household_id,provider,provider_account_id",
     });
 
   if (externalErr) throw externalErr;
@@ -215,16 +211,14 @@ async function upsertAccounts(params: {
 
 async function buildAccountMap(params: {
   supabase: any;
-  userId: string;
   householdId: string;
   connectionId: string;
 }) {
-  const { supabase, userId, householdId, connectionId } = params;
+  const { supabase, householdId, connectionId } = params;
 
   const { data, error } = await supabase
     .from("accounts")
     .select("id, provider_account_id")
-    .eq("user_id", userId)
     .eq("household_id", householdId)
     .eq("connection_id", connectionId)
     .eq("provider", "plaid")
@@ -245,23 +239,13 @@ async function buildAccountMap(params: {
 async function syncTransactions(params: {
   supabase: any;
   plaid: any;
-  userId: string;
   householdId: string;
   connectionId: string;
   accessToken: string;
   cursor: string | null;
   accountIdMap: Map<string, string>;
 }) {
-  const {
-    supabase,
-    plaid,
-    userId,
-    householdId,
-    connectionId,
-    accessToken,
-    cursor,
-    accountIdMap,
-  } = params;
+  const { supabase, plaid, householdId, connectionId, accessToken, cursor, accountIdMap } = params;
 
   let nextCursor = cursor || undefined;
   let hasMore = true;
@@ -306,7 +290,6 @@ async function syncTransactions(params: {
       const date = pickTransactionDate(tx);
 
       return {
-        user_id: userId,
         household_id: householdId,
         account_id: accountId,
         connection_id: connectionId,
@@ -362,7 +345,7 @@ export const plaidProvider: MoneyProvider = {
   name: "plaid",
 
   async sync(connectionId: string): Promise<ProviderSyncResult> {
-    const { supabase, userId, connection } = await getContext(connectionId);
+    const { supabase, connection } = await getContext(connectionId);
 
     const accessToken = safeStr(connection.encrypted_access_token);
     if (!accessToken) {
@@ -384,7 +367,6 @@ export const plaidProvider: MoneyProvider = {
 
     const accountsResult = await upsertAccounts({
       supabase,
-      userId,
       householdId,
       connectionId,
       accounts: plaidAccounts,
@@ -392,7 +374,6 @@ export const plaidProvider: MoneyProvider = {
 
     const accountIdMap = await buildAccountMap({
       supabase,
-      userId,
       householdId,
       connectionId,
     });
@@ -400,7 +381,6 @@ export const plaidProvider: MoneyProvider = {
     const txResult = await syncTransactions({
       supabase,
       plaid,
-      userId,
       householdId,
       connectionId,
       accessToken,
