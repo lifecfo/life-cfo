@@ -1,293 +1,127 @@
-# Life CFO — Financial Snapshot Engine
+# Life CFO - Financial Snapshot Engine
+Last updated: 2026-03-14
 
-Last updated: 2026-03-11
-
-This document defines the Financial Snapshot Engine used by Life CFO.
-
-The Financial Snapshot Engine converts household financial structure into a compact, current-state representation that can be used by the Ask system.
-
-Its purpose is to make financial reasoning faster, more consistent, and more explainable.
+This document describes the current implemented snapshot engine.
 
 ---
 
 # Purpose
 
-The Ask system should not reason directly over raw transactions for most questions.
+The snapshot engine converts household financial truth into a compact state object used by:
+- Money Hub
+- money flow pages
+- `/api/money/ask`
 
-Instead, it should reason over a structured household financial snapshot.
-
-This allows the system to answer questions such as:
-
-- "Are we okay this month?"
-- "Can we afford this?"
-- "Why does money feel tight?"
-- "What changes if we wait?"
-
-with less prompt complexity and more consistent logic.
+This reduces repeated raw-query reasoning and keeps answers consistent.
 
 ---
 
-# Position in the Architecture
+# Build Path
 
-The Financial Snapshot Engine sits between the money reasoning layer and the Ask system.
+Current path:
+- truth fetch: `getHouseholdMoneyTruth`
+- snapshot build: `buildFinancialSnapshot`
+- explanation build: `explainSnapshot`
 
-The conceptual flow is:
+Main API entry:
+- `/api/money/overview`
 
-provider data  
-↓  
-accounts and transactions  
-↓  
-financial structure  
-↓  
-financial signals  
-↓  
-financial snapshot  
-↓  
-Ask reasoning  
-↓  
-UI output  
+Money Ask also builds snapshot/explanation directly during request handling.
 
 ---
 
-# What a Financial Snapshot Is
+# Current Snapshot Shape
 
-A financial snapshot is a compact representation of the household’s current financial state.
+`FinancialSnapshot` currently contains:
 
-It is not a ledger.
-
-It is not a dashboard.
-
-It is a reasoning-ready state object.
-
-A snapshot should capture the parts of household finances that matter most for decision reasoning at a given moment.
-
----
-
-# What the Snapshot Should Contain
-
-A snapshot may include:
-
-## Balances
-
-Current household financial position, such as:
-
-- available cash
-- savings balances
-- offset balances
-- other liquid reserves
-
-## Income Summary
-
-Current income structure, such as:
-
-- typical monthly household income
-- primary income sources
-- income cadence
-- income stability indicators
-
-## Commitments Summary
-
-Known structural outflows, such as:
-
-- rent or mortgage
-- loan repayments
-- insurance
-- subscriptions
-- school fees
-- recurring essential obligations
-
-## Discretionary Summary
-
-Flexible outflows that may vary without breaking obligations, such as:
-
-- dining
-- shopping
-- entertainment
-- travel
-- non-essential lifestyle spend
-
-## Savings Position
-
-The current saving and reserve posture of the household, such as:
-
-- total saved
-- short-term reserves
-- longer-term savings posture
-- buffer estimates
-
-## Financial Pressure Signals
-
-The key derived signals affecting current financial experience, such as:
-
-- structural pressure
-- discretionary drift
-- timing mismatch
-- stability risk
-
-## Connection Health
-
-The freshness and reliability of the underlying provider data, such as:
-
-- last sync time
-- stale provider state
-- missing data confidence notes
+- `asOf`
+- `liquidity`
+  - `availableCashCents`
+  - `accountCount`
+- `income`
+  - `recurringMonthlyCents`
+  - `sourceCount`
+- `commitments`
+  - `recurringMonthlyCents`
+  - `billCount`
+- `discretionary`
+  - `last30DayOutflowCents`
+- `connections`
+  - `total`
+  - `stale`
+  - `maxAgeDays`
+- `pressure`
+  - `structural_pressure`
+  - `discretionary_drift`
+  - `timing_mismatch`
+  - `stability_risk`
 
 ---
 
-# Snapshot Design Principles
+# Connection Health Rules (Current)
 
-The snapshot should be:
+Connection health uses `external_connections` truth rows.
 
-- compact
+Current logic:
+- `stale` counts connections older than 7 days since `last_sync_at` or `updated_at`
+- `maxAgeDays` is the maximum computed age (or `Infinity` when age cannot be computed)
+
+---
+
+# Explanation Layer (Current)
+
+`explainSnapshot` returns:
+- `headline`
+- `summary`
+- `insights[]`
+- `pressure` text object (`structural`, `discretionary`, `timing`, `stability`)
+
+This is the short human-readable layer used by Money Hub cards and Ask formatting.
+
+---
+
+# Data Inputs Used
+
+Snapshot construction currently depends on:
+- active non-archived household accounts
+- rolling or month transactions
+- active recurring bills
+- active recurring income
+- external connection sync metadata
+
+---
+
+# Recompute Model
+
+Snapshot is recomputed on demand per request in current routes.
+
+Typical triggers:
+- Money Hub load/refresh
+- Money Ask requests
+- user returns to focused tab/window (client-side refresh behavior)
+
+---
+
+# Boundaries
+
+Snapshot is:
 - household-scoped
-- explainable
-- deterministic where possible
-- easy to recompute
-- easy to inspect
+- read-only derived state
+- intentionally compact
 
-The snapshot should avoid unnecessary detail.
-
-Its purpose is to support reasoning, not to replace the transaction ledger.
-
----
-
-# Why the Snapshot Matters
-
-Without a snapshot, the Ask system must reconstruct the financial state from raw transactions every time.
-
-That leads to:
-
-- slower answers
-- higher prompt complexity
-- less consistency
-- more room for reasoning drift
-
-With a snapshot, the Ask system can reason over a stable financial state representation.
-
-This improves:
-
-- speed
-- consistency
-- explainability
-- testability
+Snapshot is not:
+- a full ledger
+- a write path
+- an autonomous action engine
 
 ---
 
-# Example Snapshot Shape
+# Product Tone and Language Guidelines
 
-A conceptual snapshot may include fields such as:
+Snapshot explanations should be:
+- calm
+- plain-English
+- grounded
+- slightly hopeful without sugar-coating
 
-- balances
-- income_summary
-- commitments_summary
-- discretionary_summary
-- savings_position
-- pressure_signals
-- connection_health
-
-The exact implementation may change over time.
-
-The architectural rule is that Ask should reason over a stable state model rather than raw event streams whenever possible.
-
----
-
-# Relationship to Raw Transactions
-
-Raw transactions remain the source of truth.
-
-The snapshot is derived from them.
-
-Ask should use:
-
-- snapshots for primary reasoning
-- transactions for evidence, diagnosis, and drill-down
-
-This means:
-
-- most financial questions are answered from the snapshot
-- transaction-level detail is available when needed
-
-This preserves both simplicity and depth.
-
----
-
-# Relationship to Ask Intents
-
-Different Ask intents may use the snapshot differently.
-
-Examples:
-
-## Orientation
-
-Uses the snapshot heavily.
-
-Primary need:
-- current state
-- pressure
-- stability
-- near-term posture
-
-## Affordability
-
-Uses:
-- current balances
-- commitments
-- savings posture
-- pressure signals
-
-## Diagnosis
-
-Uses:
-- snapshot first
-- transactions second for evidence and explanation
-
-## Comparison / Scenario
-
-Uses:
-- snapshot as baseline
-- scenario assumptions layered on top
-
----
-
-# Recalculation Model
-
-Snapshots should be recalculated when materially relevant data changes.
-
-Examples:
-
-- new provider sync
-- balance changes
-- new transactions imported
-- commitment model changes
-- savings structure changes
-
-Snapshots do not need to be continuously recomputed in an uncontrolled way.
-
-They should be updated intentionally and predictably.
-
----
-
-# Design Goal
-
-The Financial Snapshot Engine should make Ask feel like it understands the household’s financial reality without forcing the model to re-read the entire financial history every time.
-
-This is a core enabling layer for a true financial intelligence system.
-
----
-
-# Long-Term Evolution
-
-Future versions may add:
-
-- richer baseline summaries
-- period-specific snapshots
-- scenario-adjusted snapshots
-- confidence metadata
-- decision-linked snapshots
-
-The engine must always preserve:
-
-- household boundaries
-- explainability
-- analytical framing
-- calm output design
+Even under pressure, wording should show what is still stable and where options may exist.

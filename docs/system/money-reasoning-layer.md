@@ -1,242 +1,153 @@
-# Life CFO — Money Reasoning Layer
+# Life CFO - Money Reasoning Layer
+Last updated: 2026-03-14
 
-Last updated: March 2026
-
-This document defines the financial reasoning layer used by Life CFO.
-
-The reasoning layer sits between raw financial data and the Ask system.
-
-Its purpose is to convert raw financial data into meaningful financial structure that can support financial analysis and decision reasoning.
+This document describes the current money reasoning layer as implemented.
 
 ---
 
-# Three Layer Financial Architecture
+# Scope
 
-Life CFO operates using three financial layers.
+The money reasoning layer turns household-scoped financial truth into decision-ready context for:
+- Money Hub
+- flow pages (In, Out, Saved, Planned)
+- Money Ask
 
-Layer 1 — Financial Truth  
-Layer 2 — Financial Structure  
-Layer 3 — Financial Reasoning  
-
----
-
-# Layer 1 — Financial Truth
-
-This layer contains raw financial data imported from financial providers.
-
-Sources include:
-
-accounts  
-transactions  
-external_connections  
-external_accounts  
-money_goals  
-
-This layer answers the question:
-
-What happened?
-
-Examples:
-
-salary deposit  
-grocery purchase  
-electricity bill  
-subscription charge  
-
-Raw transactions describe events but do not describe financial meaning.
+Core inputs are loaded by `getHouseholdMoneyTruth`.
 
 ---
 
-# Layer 2 — Financial Structure
+# Reasoning Chain (Current)
 
-The financial structure layer converts raw transactions into financial meaning.
+The current reasoning chain is:
 
-This layer organises household finances into a stable financial model.
-
-Life CFO uses four financial flows:
-
-IN  
-OUT  
-SAVED  
-PLANNED  
-
-These flows represent how money moves through a household financial system.
+Truth -> Flow -> Structure -> Time -> Decision -> Scenario -> Memory
 
 ---
 
-## IN
+# 1) Truth
 
-Money entering the household.
+Implemented in `lib/money/reasoning/getHouseholdMoneyTruth.ts`.
 
-Examples:
+Current truth sources include:
+- accounts
+- transactions (recent, month, rolling windows)
+- recurring bills
+- recurring income
+- money goals
+- liabilities
+- external connections
+- selected count metrics (budget items, investment accounts)
 
-salary  
-business income  
-government benefits  
-investment income  
-
----
-
-## OUT
-
-Money leaving the household.
-
-Examples:
-
-groceries  
-subscriptions  
-shopping  
-utilities  
+All reads are household-scoped.
 
 ---
 
-## SAVED
+# 2) Flow
 
-Money intentionally retained or accumulated.
+Money is presented through four user-facing flows:
+- In
+- Out
+- Saved
+- Planned
 
-Examples:
-
-savings accounts  
-investments  
-offset balances  
-long-term reserves  
-
----
-
-## PLANNED
-
-Future financial commitments and planned spending.
-
-Examples:
-
-rent  
-mortgage  
-loan repayments  
-insurance  
-school fees  
-planned purchases  
+Flow surfaces:
+- Money Hub summary cards
+- dedicated flow pages under `app/(app)/money/*`
+- Out route (`/api/money/out`) for outgoing-focused rollups
 
 ---
 
-# Commitments
+# 3) Structure
 
-Within the OUT and PLANNED flows, Life CFO distinguishes **commitments**.
+`buildFinancialSnapshot` compacts truth into stable structures:
+- liquidity
+- recurring income
+- recurring commitments
+- discretionary outflow (last 30 days)
+- connection health
+- pressure signals
 
-Commitments represent financial obligations.
-
-Examples:
-
-rent  
-mortgage  
-loan payments  
-insurance premiums  
-subscriptions  
-
-Commitments are important because they create **structural financial pressure**.
+`explainSnapshot` adds short headline/summary/insight language.
 
 ---
 
-# Discretionary Spending
+# 4) Time
 
-Discretionary spending represents flexible spending that can change without breaking financial obligations.
+Time is explicit in the current model:
+- request windows (`now`, `next30`, month start/end)
+- recurring bill due dates
+- recurring income pay dates
+- transaction windows for month and rolling periods
+- connection age / staleness
 
-Examples:
-
-restaurants  
-entertainment  
-shopping  
-travel  
-
-This distinction allows the system to reason about **financial flexibility**.
+Time is used heavily in planning and timing-mismatch logic.
 
 ---
 
-# Financial Signals
+# 5) Decision
 
-Once structure is established, the system can derive financial signals.
+Decision-support currently appears in money Ask modes:
+- snapshot baseline
+- diagnosis
+- planning
+- affordability
 
-Examples include:
-
-financial pressure  
-surplus capacity  
-spending spikes  
-income instability  
-timing mismatches  
-
-These signals allow the system to answer questions like:
-
-Why does money feel tight?
+These responses are analytical and non-directive.
 
 ---
 
-# Financial Rhythm
+# 6) Scenario
 
-Households operate with financial timing patterns.
+Money Ask has a dedicated `scenario` mode.
 
-Examples:
-
-monthly salary  
-weekly groceries  
-quarterly insurance  
-annual bills  
-
-Understanding rhythm allows the system to reason about timing-based pressure.
+Current behavior:
+- returns baseline conditions from the snapshot
+- highlights watch points
+- includes caveats when prompt detail or data freshness is limited
 
 ---
 
-# Relationship to Ask
+# 7) Memory
 
-The Ask system does not reason directly over raw transactions.
+Current memory-related behavior in money context:
+- recent money asks are stored client-side (`lifecfo:money-recent-asks`)
+- previous questions can be re-opened quickly on Money Hub
 
-Instead it reasons over:
-
-financial structure  
-financial signals  
-household balances  
-known commitments  
-
-This separation ensures:
-
-clean architecture  
-faster reasoning  
-more accurate analysis  
+Broader decision memory exists in home/decisions features and routes.
 
 ---
 
-# Example Flow
+# Pressure Signals in the Layer
 
-transactions imported from provider  
-↓  
-transactions classified into financial flows  
-↓  
-commitments and discretionary spending identified  
-↓  
-financial signals calculated  
-↓  
-Ask reasoning engine evaluates the question  
+`evaluatePressureSignals` currently computes:
+- structural pressure
+- discretionary drift
+- timing mismatch
+- stability risk
+
+These signals are part of snapshot output and are reused by Money Hub and Money Ask.
 
 ---
 
-# Design Principles
+# Household Boundary and Safety
 
-The money reasoning layer should be:
+The reasoning layer is household-scoped and read-only.
 
-explainable  
-deterministic where possible  
-household-scoped  
-provider-agnostic  
-
-This layer converts financial data into **financial understanding**.
+It does not:
+- execute transactions
+- auto-change user financial records
+- perform autonomous decision actions
 
 ---
 
-# Long Term Evolution
+# Product Tone and Language Guidelines
 
-Future capabilities may include:
+All money reasoning explanations should read like an intelligent, money-savvy best friend:
+- calm
+- plain language
+- reassuring
+- slightly hope-leaning
+- never judgemental
+- never corporate
 
-automated commitment detection  
-income stability scoring  
-financial pressure indicators  
-scenario modelling inputs  
-
-This layer is the foundation for advanced financial reasoning in Life CFO.
+When pressure is present, explain clearly while still showing where flexibility or options remain.

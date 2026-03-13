@@ -1,257 +1,211 @@
-# Life CFO – System State
-Last updated: March 2026
+# Life CFO - System State
+Last updated: 2026-03-14
 
-This document describes the current technical state of the Life CFO system so AI tooling (Codex, ChatGPT) and developers can understand the architecture without reading the entire codebase.
+This document reflects the current implemented system state in the repository.
 
 ---
 
 # Core Architecture
 
-Life CFO is a household-scoped financial decision intelligence system.
-
-The product helps households reason through financial decisions using real financial data.
-
-The system is built with a calm UX and a trust-first architecture.
+Life CFO is a household-scoped financial decision intelligence application.
 
 Primary stack:
+- Next.js App Router
+- Supabase (Postgres, Auth, RLS)
+- Vercel
+- Plaid and Basiq provider integrations
 
-Next.js App Router
-Supabase (Postgres + Auth + RLS)
-Vercel hosting
-Plaid + Basiq provider integrations
-
-All financial data is scoped to a household.
-
-household_id is the primary access boundary.
+All money data is scoped by `household_id`.
 
 ---
 
-# Money System Architecture
+# Household-Scoped Data Model
 
-Money is organised around four flows:
+Household scope is enforced by:
+- membership checks in `household_members`
+- active household cookie `lifecfo_household`
+- route-level household resolution in `resolveHouseholdIdRoute`
 
-IN
-OUT
-SAVED
-PLANNED
-
-The Money Hub shows small slices of each.
-
-Drill-downs provide deeper exploration.
-
-Money Hub is not a dashboard.
-
-It is a calm orientation surface.
-
-Lists are intentionally short.
-
-Search and Ask are the primary interaction mechanisms.
+Current behavior:
+- API routes resolve active household from cookie, then validate membership.
+- If cookie is missing/invalid, routes fall back to earliest membership.
+- Household switching is supported via `/api/households/active`.
 
 ---
 
-# AI Interaction Model
+# Money System Overview
 
-Life CFO provides financial analysis and scenario exploration.
+Money Hub lives at `app/(app)/money/page.tsx` and stays compact by design.
 
-It does not provide financial advice.
+Money is organized into four flows:
+- In
+- Out
+- Saved
+- Planned
 
-AI acts as a reasoning layer over household financial data.
-
-AI may:
-
-analyse
-explain
-compare scenarios
-summarise
-generate structured outputs
-
-AI cannot:
-
-move money
-initiate transactions
-make decisions
-change stored data autonomously
-
-All durable state changes require explicit user action.
+Implemented pages:
+- Money Hub: `app/(app)/money/page.tsx`
+- In: `app/(app)/money/in`
+- Out: `app/(app)/money/out`
+- Saved: `app/(app)/money/saved`
+- Planned: `app/(app)/money/planned`
+- Accounts: `app/(app)/accounts`
+- Transactions: `app/(app)/transactions`
+- Connections: `app/(app)/connections`
 
 ---
 
-# Ask Architecture
+# Reasoning Architecture (Current)
 
-Life CFO uses a structured Ask reasoning system.
+Life CFO money reasoning currently follows this chain:
 
-Ask is not a general chatbot.
+Truth -> Flow -> Structure -> Time -> Decision -> Scenario -> Memory
 
-User questions follow a structured reasoning pipeline:
-
-User Question
-↓
-Intent Classification
-↓
-Retrieval Pack Assembly
-↓
-Reasoning Contract
-↓
-Structured Result
-↓
-UI Rendering
-
-Ask supports the following canonical intents:
-
-orientation
-affordability
-diagnosis
-planning
-comparison
-scenario
-memory recall
-output generation
-
-Each intent uses a defined reasoning contract and retrieval pack to ensure consistent, explainable outputs.
-
-The full design is defined in:
-
-docs/system/ask-architecture.md
+How this maps to current code:
+- Truth: `getHouseholdMoneyTruth` reads household-scoped raw data.
+- Flow: Money Hub and flow pages orient users around In, Out, Saved, Planned.
+- Structure: `buildFinancialSnapshot` creates stable balances, income, commitments, discretionary, and connection health fields.
+- Time: windows (`now`, `next30`, month bounds), due dates, next pay dates, and connection age are used in reasoning.
+- Decision: Money Ask modes (`snapshot`, `diagnosis`, `planning`, `affordability`) provide decision-support framing.
+- Scenario: Money Ask `scenario` mode provides baseline what-if reasoning.
+- Memory: recent money asks are stored client-side (`lifecfo:money-recent-asks`), and broader decision memory exists in home/decisions flows.
 
 ---
 
-# Database Tables
+# Financial Snapshot + Pressure Layer
 
-Core financial tables:
+Snapshot pipeline:
+- route: `/api/money/overview`
+- inputs: `getHouseholdMoneyTruth`
+- transform: `buildFinancialSnapshot`
+- explanation: `explainSnapshot`
 
-accounts
-transactions
-external_connections
-external_accounts
-money_goals
+Pressure signals are computed in `pressureSignals.ts`:
+- structural_pressure
+- discretionary_drift
+- timing_mismatch
+- stability_risk
 
-All tables use Row Level Security.
-
-household_id is the access boundary.
-
-RLS allows:
-
-SELECT for household members
-INSERT / UPDATE / DELETE for owner/editor roles
-
-External provider data flows into these tables via sync processes.
+These signals are used by Money Hub and Money Ask responses.
 
 ---
 
-# Provider Integrations
+# Ask System (Current)
 
-Current providers:
+Ask routing is scope-aware in `AskProvider`:
+- Money scope (`/money*`) -> `/api/money/ask`
+- Other app scopes -> `/api/home/ask`
 
-Plaid
-Basiq
+Current money intents/modes in `/api/money/ask`:
+- `snapshot` (orientation)
+- `diagnosis`
+- `planning`
+- `affordability`
+- `scenario`
+- `search` (retrieval fallback)
 
-Plaid is fully implemented in sandbox.
+Current home ask (`/api/home/ask`) combines deterministic handlers and structured AI output for broader app context (decisions, review, chapters, goals, etc.).
 
-Plaid architecture includes:
-
-lib/money/plaidClient.ts
-
-api routes
-
-/api/money/plaid/link
-/api/money/plaid/exchange
-/api/money/sync/[connectionId]
-
-Sync uses:
-
-accountsGet
-transactionsSync
-cursor-based transaction sync
-
-Basiq integration is partially implemented.
-
-Consent flow exists.
-
-basiqProvider.sync() still needs full implementation.
+Ask UI state is managed by:
+- `components/ask/AskProvider.tsx`
+- `components/ask/AskPanel.tsx`
+- `components/ask/moneyAskLanguage.ts`
 
 ---
 
-# Key API Routes
+# Provider Integrations (Current)
 
-Money
+Providers registered in `lib/money/providers`:
+- `manual`
+- `plaid`
+- `basiq`
 
-/api/money/plaid/link
-/api/money/plaid/exchange
-/api/money/sync/[connectionId]
-/api/money/connections
-
-Ask
-
-/api/home/ask
-
----
-
-# Key UI Pages
-
-Money Hub
-
-app/(app)/money/page.tsx
-
-Connections page
-
-app/(app)/connections/page.tsx
-
-Money drill-downs
-
-app/(app)/money/in
-app/(app)/money/out
-app/(app)/money/saved
-app/(app)/money/planned
+Status:
+- Plaid: implemented and syncing accounts + transactions with cursor-based sync.
+- Basiq: implemented consent/start flow and sync path; still less mature than Plaid and treated as partial parity.
+- Manual: no external sync; returns zero upserts.
 
 ---
 
-# Security Model
+# Connection Lifecycle and Sync Flow
 
-Authentication
+Current connection statuses used by routes/UI:
+- `manual`
+- `needs_auth`
+- `active`
+- `error`
 
-Supabase Auth
+Lifecycle:
+1. Create connection via `/api/money/connections`.
+2. Provider auth starts:
+- Plaid: `/api/money/plaid/link` -> Link flow -> `/api/money/plaid/exchange`
+- Basiq: `/api/money/basiq/start` -> consent redirect -> `/api/money/basiq/return`
+3. Sync via `/api/money/sync/[connectionId]`.
+4. Provider `sync()` upserts accounts/transactions and updates connection timestamps/status.
 
-Authorization
-
-Row Level Security
-
-household scoped data access
-
-Infrastructure
-
-Vercel hosting
-Supabase database
-
-External financial providers accessed through server-side API routes.
-
-Access tokens stored securely.
-
-Bank credentials never stored.
+Notes:
+- Basiq reuses existing `needs_auth`/`error` rows when possible.
+- Connections page supports connect/continue setup/refresh flows and separates connected vs needs-attention states.
 
 ---
 
-# Current Development Priorities
+# Security and Safety Model
 
-Priority order:
-
-1. Standardise household-scoped API access for all money operations.
-
-2. Formalise provider connection state machine.
-
-3. Implement Basiq sync parity with Plaid.
-
-4. Reduce oversized files and extract domain modules.
-
-5. Consolidate Supabase client usage patterns.
+- Auth: Supabase Auth
+- Authorization: household membership + role checks + RLS
+- External provider access: server-side route handlers only
+- Bank credentials are not stored directly by Life CFO
+- AI is analysis-only; no autonomous money movement
 
 ---
 
-# Product Direction
+# Product Tone and Language Guidelines
 
-Life CFO is designed to:
+Life CFO should sound like an intelligent, money-savvy best friend.
 
-reduce financial cognitive load
-support better decision making
-provide calm financial clarity
+Communication style must be:
+- calm
+- plain language
+- intelligent but not technical
+- reassuring
+- optimistic and hope-leaning
+- never judgemental
+- never corporate
 
-The goal is to build a trusted "Life CFO" that helps people reason through financial decisions.
+Important tone principle:
+- Explanations should lean slightly positive or hopeful without being unrealistic.
+
+When describing pressure, language should:
+- acknowledge reality
+- explain what is happening
+- highlight what is still okay
+- suggest that improvement or options exist
+
+Examples of desired tone:
+- "A big part of your income is already going toward regular bills. That can make things feel tight sometimes."
+- "Nothing here looks dangerous, but there may be a few ways to create more breathing room."
+- "This is fairly common and often easier to adjust than it first appears."
+
+Avoid tone that feels like:
+- a bank report
+- a finance guru
+- a spreadsheet
+- a lecture
+
+Avoid jargon such as:
+- financial optimisation
+- liquidity management
+- spend discipline
+
+Prefer natural language such as:
+- breathing room
+- pressure
+- flexibility
+- options
+
+Emotional goal:
+When users close the app, they should feel:
+- clearer
+- calmer
+- more hopeful
+- less mentally burdened

@@ -1,345 +1,169 @@
-# Life CFO — Ask Architecture
+# Life CFO - Ask Architecture
+Last updated: 2026-03-14
 
-Last updated: 2026-03-11
-
-This document defines the architecture for the Life CFO Ask system.
-
-Ask is the primary interaction layer that allows users to query their financial situation and reason through financial decisions using real household data.
-
-Ask is not a chatbot.  
-It is a structured financial reasoning system with a conversational interface.
+This document describes the current implemented Ask architecture.
 
 ---
 
-# Purpose of Ask
+# Purpose
 
-Ask allows a household to retrieve grounded financial insight by asking natural language questions such as:
+Ask is the conversational reasoning layer.
 
-- "Are we okay this month?"
-- "Can we afford this?"
-- "Why does money feel tight right now?"
-- "What changes if we wait?"
-- "Compare these two options."
+It is designed to:
+- answer household questions with grounded data
+- keep output calm and plain-English
+- support decisions without giving financial advice
 
-Ask returns calm, analytical answers grounded in the household’s real financial data.
-
-The system provides financial analysis and scenario exploration, not financial advice.
+Ask is not an autonomous system.
+It does not write money data or perform financial actions.
 
 ---
 
-# Core Architectural Principle
+# Runtime Architecture
 
-Ask follows a structured pipeline:
+Ask has two active API paths selected by UI scope:
 
-User Question  
-↓  
-Intent Classification  
-↓  
-Retrieval Pack Assembly  
-↓  
-Reasoning Contract  
-↓  
-Structured Result  
-↓  
-UI Rendering  
+- Money scope (`/money*`) -> `/api/money/ask`
+- Other app scopes -> `/api/home/ask`
 
-This architecture ensures:
-
-- consistent reasoning  
-- bounded AI behaviour  
-- explainable outputs  
-- calm UX  
-- extensibility for deeper analysis  
+Scope selection happens in `components/ask/AskProvider.tsx`.
 
 ---
 
-# Step 1 — Intent Classification
+# Ask Pipeline (Current)
 
-Each question is classified into a canonical intent category.
-
-Intent classification determines:
-
-- which financial data is retrieved  
-- how reasoning is performed  
-- what output structure is used  
-
-## Canonical intents
-
-### Orientation
-
-Quick understanding of the household’s current financial position.
-
-Examples:
-
-- "Are we okay right now?"
-- "How are things looking this month?"
-
-### Affordability
-
-Whether a new cost or decision can be absorbed.
-
-Examples:
-
-- "Can we afford this?"
-- "Could we buy a caravan?"
-- "Could we upgrade the car?"
-
-### Diagnosis
-
-Understanding why financial pressure exists.
-
-Examples:
-
-- "Why does money feel tight?"
-- "Where is our money going?"
-
-### Planning
-
-Forward-looking financial positioning.
-
-Examples:
-
-- "What should we prepare for?"
-- "How should we plan for this?"
-
-### Comparison
-
-Evaluating two or more options.
-
-Examples:
-
-- "Should we buy now or wait?"
-- "Compare these two options."
-
-### Scenario
-
-Exploring hypothetical outcomes.
-
-Examples:
-
-- "What if we increased rent?"
-- "What happens if we move?"
-
-### Memory Recall
-
-Retrieving previously saved decisions or conclusions.
-
-Examples:
-
-- "What did we decide about the renovation?"
-- "Why did we choose that?"
-
-### Output Generation
-
-Creating structured artefacts.
-
-Examples:
-
-- "Export a summary"
-- "Generate a comparison"
+1. User asks in `AskPanel`.
+2. `AskProvider` resolves scope and route.
+3. API route loads signed-in user context and household/user facts.
+4. Route chooses a mode (deterministic branch or AI-structured branch, depending on route).
+5. Route returns structured payload.
+6. `AskProvider` formats response into calm, readable sections using `moneyAskLanguage.ts`.
 
 ---
 
-# Step 2 — Retrieval Packs
+# Money Ask: Implemented Intents/Modes
 
-After intent classification, the system assembles a retrieval pack.
+`/api/money/ask` currently supports:
 
-A retrieval pack contains only the financial data needed for that specific question.
+- `snapshot` (orientation baseline)
+- `diagnosis`
+- `planning`
+- `affordability`
+- `scenario`
+- `search` (retrieval fallback)
 
-This prevents:
+Mode selection is keyword/rule based.
 
-- excessive data use  
-- hallucination risk  
-- slow responses  
-- unnecessary complexity  
+Money Ask data path:
+- `getHouseholdMoneyTruth`
+- `buildFinancialSnapshot`
+- `explainSnapshot`
 
-Example retrieval packs may include:
-
-Orientation pack
-
-- balances  
-- upcoming commitments  
-- recent inflows  
-- recent outflows  
-
-Affordability pack
-
-- balances  
-- income patterns  
-- commitments  
-- savings position  
-
-Diagnosis pack
-
-- spending trends  
-- recurring commitments  
-- spikes or anomalies  
-
-Comparison pack
-
-- baseline financial position  
-- scenario assumptions  
-- structural spending patterns  
+This keeps money Ask grounded in current household snapshot and pressure signals.
 
 ---
 
-# Step 3 — Reasoning Contracts
+# Home Ask: Implemented Behavior
 
-Each intent has a defined reasoning contract.
+`/api/home/ask` handles broader, non-money-only context.
 
-The reasoning contract defines the steps the system should follow when generating an answer.
-
-This prevents unstructured AI responses.
-
-Example reasoning flows:
-
-Orientation reasoning
-
-1. Establish current financial snapshot  
-2. Identify stability or pressure  
-3. Highlight anything notable  
-4. Produce a calm summary  
-
-Affordability reasoning
-
-1. Establish baseline  
-2. Evaluate immediate impact  
-3. Evaluate ongoing cost  
-4. Identify pressure points  
-5. Surface assumptions  
-6. Produce verdict  
-
-Diagnosis reasoning
-
-1. Identify pressure signals  
-2. Determine structural vs temporary causes  
-3. Highlight main drivers  
-4. Produce explanation  
-
-Comparison reasoning
-
-1. Evaluate option A  
-2. Evaluate option B  
-3. Identify trade-offs  
-4. Produce comparison verdict  
+Current behavior includes:
+- deterministic handlers for specific intents (for example review/chapters/goals/buffer/affordability baseline)
+- structured AI output with schema enforcement for general home questions
+- tone and verdict post-processing (`homeTone`, `verdictDecision`)
 
 ---
 
-# Step 4 — Structured Results
+# Output Shaping
 
-Ask returns structured results rather than raw text.
+Money Ask answers are normalized in the client with:
+- `composeMessage`
+- `section`
+- `stableGroundLine`
 
-Example:
+This produces:
+- concise heading/summary
+- short evidence bullets
+- calm grounding line
 
-intent: affordability  
-verdict: not_yet  
-summary: This purchase would create pressure right now  
-
-Results may include:
-
-- verdict  
-- explanation  
-- supporting facts  
-- assumptions  
-- change triggers  
+The UI keeps responses readable and low-cognitive-load.
 
 ---
 
-# Step 5 — UI Rendering
+# Data Boundaries and Safety
 
-The UI renders structured results in a calm, consistent format.
+Money Ask routes enforce:
+- signed-in user checks
+- household membership checks
+- household-scoped reads only
 
-Typical sections may include:
+Ask may:
+- analyze
+- explain
+- compare scenarios
+- summarize
 
-- Snapshot  
-- Verdict  
-- Explanation  
-- Supporting facts  
-- Assumptions  
-- What would change the outcome  
-
-Depth is revealed only when the user chooses to explore further.
-
----
-
-# Progressive Depth Model
-
-Life CFO supports different levels of analytical depth.
-
-Level 1 — Default  
-Short verdict or summary.
-
-Level 2 — Context  
-Explanation of what the answer is based on.
-
-Level 3 — Deeper reasoning  
-Trade-offs and assumptions.
-
-Level 4 — Power-user depth  
-Scenario modelling and structured comparisons.
+Ask must not:
+- move money
+- initiate transactions
+- mutate financial state autonomously
+- present itself as financial advice
 
 ---
 
-# Memory Interaction
+# Current Intent Coverage Notes
 
-Ask may reference stored decision memory when relevant.
+Canonical intent labels used across docs/product include:
+- orientation
+- affordability
+- diagnosis
+- planning
+- comparison
+- scenario
+- memory recall
+- output generation
 
-Examples:
-
-- previous decisions  
-- assumptions used  
-- revisit triggers  
-
-Memory is included only when relevant to the current question.
-
----
-
-# AI Behaviour Constraints
-
-AI may:
-
-- analyse financial data  
-- explain trade-offs  
-- compare scenarios  
-- summarise financial position  
-
-AI must not:
-
-- move money  
-- initiate transactions  
-- change stored data  
-- make decisions autonomously  
-- imply financial advice  
-
-The system provides analysis and reasoning, not prescriptions.
+Current code-level status:
+- money route implements orientation/affordability/diagnosis/planning/scenario plus search
+- broader memory and decision context is primarily handled through home/decisions surfaces
 
 ---
 
-# Design Goals
+# Product Tone and Language Guidelines
 
-Ask should feel:
+Life CFO should sound like an intelligent, money-savvy best friend.
 
-- calm  
-- reliable  
-- grounded in real data  
-- transparent  
-- explainable  
+Communication style:
+- calm
+- plain language
+- intelligent but not technical
+- reassuring
+- optimistic and hope-leaning
+- never judgemental
+- never corporate
 
-Users should feel the system helps them think more clearly.
+Important principle:
+- Lean slightly hopeful without ignoring reality.
 
----
+When pressure exists, responses should:
+- acknowledge what is true
+- explain what is happening
+- point out what is still okay
+- show that options still exist
 
-# Long-Term Evolution
+Preferred examples:
+- "A big part of your income is already going toward regular bills. That can make things feel tight sometimes."
+- "Nothing here looks dangerous, but there may be a few ways to create more breathing room."
+- "This is fairly common and often easier to adjust than it first appears."
 
-Future capabilities may include:
+Avoid:
+- bank-report tone
+- guru tone
+- lecturing
+- heavy jargon like "financial optimisation" or "liquidity management"
 
-- richer scenario modelling  
-- structured decision simulations  
-- exportable reasoning summaries  
-
-The system must always preserve:
-
-- calm UX  
-- explainable outputs  
-- household data boundaries  
-- analytical (not advisory) framing
+Prefer words like:
+- breathing room
+- pressure
+- flexibility
+- options
