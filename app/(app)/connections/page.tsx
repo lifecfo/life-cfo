@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Page } from "@/components/Page";
 import { Card, CardContent, Chip, Button, useToast } from "@/components/ui";
 
@@ -354,6 +354,7 @@ function ConnectionActionsMenu({
 
 export default function ConnectionsPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { toast } = useToast();
 
   const [items, setItems] = useState<Connection[]>([]);
@@ -365,6 +366,9 @@ export default function ConnectionsPage() {
   const [connectingId, setConnectingId] = useState<string | null>(null);
   const [showAllRecentPending, setShowAllRecentPending] = useState(false);
   const [showOlderPending, setShowOlderPending] = useState(false);
+  const basiqReturnConnectionId = coerceStr(searchParams.get("basiq_connection_id"));
+  const cameFromBasiqReturn = searchParams.get("basiq_return") === "1";
+  const basiqReturnError = coerceStr(searchParams.get("basiq_error"));
 
   async function load() {
     setLoading(true);
@@ -386,14 +390,35 @@ export default function ConnectionsPage() {
   }, []);
 
   useEffect(() => {
+    if (cameFromBasiqReturn && basiqReturnError) {
+      toast({
+        title: "Basiq connection needs review",
+        description: basiqReturnError,
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cameFromBasiqReturn, basiqReturnError]);
+
+  useEffect(() => {
     if (loading) return;
     if (connectingId || syncingId) return;
 
-    const candidate = items.find((c) => {
-      if (c.provider !== "basiq" || c.status !== "needs_auth") return false;
-      if (hasBasiqAutoSyncAttempt(c.id)) return false;
-      return !isOlderThanHours(c.updated_at || c.created_at, 6);
-    });
+    const callbackCandidate = basiqReturnConnectionId
+      ? items.find(
+          (c) =>
+            c.id === basiqReturnConnectionId &&
+            c.provider === "basiq" &&
+            c.status === "needs_auth"
+        )
+      : null;
+
+    const candidate =
+      callbackCandidate ??
+      items.find((c) => {
+        if (c.provider !== "basiq" || c.status !== "needs_auth") return false;
+        if (hasBasiqAutoSyncAttempt(c.id)) return false;
+        return !isOlderThanHours(c.updated_at || c.created_at, 6);
+      });
 
     if (!candidate) return;
 
@@ -419,7 +444,12 @@ export default function ConnectionsPage() {
         }
 
         toast({ title: "Basiq connected" });
-        if (!cancelled) await load();
+        if (!cancelled) {
+          await load();
+          if (cameFromBasiqReturn || basiqReturnConnectionId) {
+            router.replace("/connections");
+          }
+        }
       } catch (e: unknown) {
         if (!cancelled) {
           toast({
@@ -435,7 +465,7 @@ export default function ConnectionsPage() {
     return () => {
       cancelled = true;
     };
-  }, [items, loading, connectingId, syncingId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [items, loading, connectingId, syncingId, basiqReturnConnectionId, cameFromBasiqReturn, router]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function createManual() {
     setCreatingManual(true);

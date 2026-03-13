@@ -64,6 +64,22 @@ function envDiag() {
   };
 }
 
+function resolveSiteBaseFromRequest(req: Request) {
+  const preferred = (process.env.NEXT_PUBLIC_SITE_URL || "").trim();
+  if (preferred) {
+    try {
+      return new URL(preferred).origin;
+    } catch {
+      // fallback below
+    }
+  }
+  try {
+    return new URL(req.url).origin;
+  } catch {
+    return "https://life-cfo.com";
+  }
+}
+
 function unwrapBasiq(e: any): {
   stage?: string;
   status?: number;
@@ -228,7 +244,18 @@ export async function POST(req: Request) {
       );
     }
 
-    const consentUrl = `https://consent.basiq.io/home?token=${encodeURIComponent(clientToken)}`;
+    const siteBase = resolveSiteBaseFromRequest(req);
+    const returnUrl = `${siteBase}/api/money/basiq/return?connection_id=${encodeURIComponent(
+      connectionId
+    )}`;
+
+    const consent = new URL("https://consent.basiq.io/home");
+    consent.searchParams.set("token", clientToken);
+    // Different Basiq consent builds have used different callback param names.
+    consent.searchParams.set("redirect_uri", returnUrl);
+    consent.searchParams.set("redirectUri", returnUrl);
+    consent.searchParams.set("returnUrl", returnUrl);
+    const consentUrl = consent.toString();
 
     // Keep connection in needs_auth until we get jobs/connections back from consent journey
     await persistItemId(
