@@ -18,6 +18,7 @@ type Tx = {
   amount_cents: number | null;
   currency: string | null;
   account_id: string | null;
+  provider: string | null;
   created_at: string | null;
   updated_at: string | null;
 };
@@ -79,6 +80,19 @@ function signLabel(amountCents: number) {
   if (amountCents > 0) return "In";
   if (amountCents < 0) return "Out";
   return "Zero";
+}
+
+function providerLabel(provider: string | null | undefined) {
+  const p = (provider || "").trim().toLowerCase();
+  if (!p || p === "manual") return "Manual";
+  if (p === "plaid") return "Plaid";
+  if (p === "basiq") return "Basiq";
+  return p.toUpperCase();
+}
+
+function isImportedProvider(provider: string | null | undefined) {
+  const p = (provider || "").trim().toLowerCase();
+  return p !== "" && p !== "manual";
 }
 
 async function fetchJson<T>(url: string): Promise<T> {
@@ -143,7 +157,11 @@ export default function TransactionsClient() {
       if (!isMountedRef.current) return;
 
       setItems((json.transactions ?? []) as Tx[]);
-      setStatusLine((json.transactions?.length ?? 0) ? "Loaded." : "No transactions yet.");
+      setStatusLine(
+        (json.transactions?.length ?? 0)
+          ? "Recent household activity loaded."
+          : "No transactions yet."
+      );
       setLive("live");
     } catch (e: any) {
       if (!isMountedRef.current) return;
@@ -221,6 +239,24 @@ export default function TransactionsClient() {
     });
   }, [items, q]);
 
+  const importedCount = useMemo(
+    () => items.filter((t) => isImportedProvider(t.provider)).length,
+    [items]
+  );
+  const manualCount = useMemo(
+    () => items.filter((t) => !isImportedProvider(t.provider)).length,
+    [items]
+  );
+  const latestImportedDate = useMemo(() => {
+    const newestMs = items.reduce((best, t) => {
+      if (!isImportedProvider(t.provider)) return best;
+      const ms = Date.parse(t.updated_at || t.created_at || t.date || "");
+      if (!Number.isFinite(ms)) return best;
+      return Math.max(best, ms);
+    }, 0);
+    return newestMs > 0 ? new Date(newestMs).toISOString() : null;
+  }, [items]);
+
   const LIMIT = 20;
   const [showAll, setShowAll] = useState(false);
   const visible = showAll ? filtered : filtered.slice(0, LIMIT);
@@ -253,7 +289,7 @@ export default function TransactionsClient() {
   );
 
   return (
-    <Page title="Transactions" subtitle="Inputs only. Calm, not accounting." right={right}>
+    <Page title="Transactions" subtitle="Recent household activity from connected and manual sources." right={right}>
       <div className="mx-auto w-full max-w-[760px] space-y-4">
         <AssistedSearch scope="transactions" placeholder="Search transactions…" />
 
@@ -350,6 +386,21 @@ export default function TransactionsClient() {
 
         <div className="text-xs text-zinc-500">{statusLine}</div>
 
+        <Card className="border-zinc-200 bg-white">
+          <CardContent>
+            <div className="text-sm font-semibold text-zinc-900">Source context</div>
+            <div className="mt-1 text-xs text-zinc-600">
+              {items.length
+                ? `${importedCount} imported transaction(s), ${manualCount} manual transaction(s). ${
+                    latestImportedDate
+                      ? `Latest imported update ${softWhen(latestImportedDate)}.`
+                      : ""
+                  }`
+                : "Imported and manual activity will appear here once data is available."}
+            </div>
+          </CardContent>
+        </Card>
+
         {error ? (
           <Card className="border-zinc-200 bg-white">
             <CardContent>
@@ -411,9 +462,17 @@ export default function TransactionsClient() {
                       : 0;
 
                   const abs = Math.abs(cents);
+                  const source = providerLabel(t.provider);
+                  const sourceLine =
+                    source === "Manual" ? "Manual entry" : `Imported via ${source}`;
 
                   const title = t.merchant || t.description || "Transaction";
-                  const meta = [t.date ? softWhen(t.date) : null, t.category ? t.category : null, t.pending ? "Pending" : null]
+                  const meta = [
+                    t.date ? softWhen(t.date) : null,
+                    t.category ? t.category : null,
+                    t.pending ? "Pending" : null,
+                    sourceLine,
+                  ]
                     .filter(Boolean)
                     .join(" • ");
 
@@ -431,13 +490,14 @@ export default function TransactionsClient() {
                             <div className="mt-1 text-xs text-zinc-500">{meta || "—"}</div>
                             <div className="mt-2 flex flex-wrap gap-2">
                               <Badge>{signLabel(cents)}</Badge>
+                              <Chip title="Source">{source}</Chip>
                               <Chip title="Amount">{formatMoneyFromCents(abs, cur)}</Chip>
                               {t.updated_at ? <Chip title="Updated">{softWhen(t.updated_at)}</Chip> : null}
                             </div>
                           </div>
 
                           <div className="text-sm font-semibold text-zinc-900">
-                            {cents < 0 ? "− " : cents > 0 ? "+ " : ""}
+                            {cents < 0 ? "- " : cents > 0 ? "+ " : ""}
                             {formatMoneyFromCents(abs, cur)}
                           </div>
                         </div>
@@ -464,8 +524,8 @@ export default function TransactionsClient() {
         <Card className="border-zinc-200 bg-white">
           <CardContent>
             <div className="text-xs text-zinc-500 space-y-1">
-              <div>This page is intentionally quiet: it’s for orientation, not bookkeeping.</div>
-              <div>Later: provider adapters will keep it live.</div>
+              <div>This page is intentionally quiet: it is for orientation, not bookkeeping.</div>
+              <div>Use source labels above to see what is imported versus manual.</div>
             </div>
           </CardContent>
         </Card>
@@ -473,3 +533,4 @@ export default function TransactionsClient() {
     </Page>
   );
 }
+

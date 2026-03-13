@@ -24,6 +24,19 @@ function safeStr(v: unknown) {
   return typeof v === "string" ? v : "";
 }
 
+function providerLabel(provider: string | null | undefined) {
+  const p = safeStr(provider).trim().toLowerCase();
+  if (!p || p === "manual") return "Manual";
+  if (p === "plaid") return "Plaid";
+  if (p === "basiq") return "Basiq";
+  return p.toUpperCase();
+}
+
+function isImportedProvider(provider: string | null | undefined) {
+  const p = safeStr(provider).trim().toLowerCase();
+  return p !== "" && p !== "manual";
+}
+
 function moneyFromCents(cents: number, currency: string) {
   const amt = (typeof cents === "number" ? cents : 0) / 100;
   const cur = safeStr(currency) || "AUD";
@@ -73,6 +86,23 @@ export default function AccountsPage() {
     });
   }, [accounts, q]);
 
+  const importedCount = useMemo(
+    () => accounts.filter((a) => isImportedProvider(a.provider)).length,
+    [accounts]
+  );
+  const manualCount = useMemo(
+    () => accounts.filter((a) => !isImportedProvider(a.provider)).length,
+    [accounts]
+  );
+  const latestUpdated = useMemo(() => {
+    const newestMs = accounts.reduce((best, a) => {
+      const ms = Date.parse(a.updated_at || a.created_at || "");
+      if (!Number.isFinite(ms)) return best;
+      return Math.max(best, ms);
+    }, 0);
+    return newestMs > 0 ? new Date(newestMs).toISOString() : null;
+  }, [accounts]);
+
   useEffect(() => {
     let alive = true;
 
@@ -99,7 +129,7 @@ export default function AccountsPage() {
   const cardClass = "border-zinc-200 bg-white";
 
   return (
-    <Page title="Accounts" subtitle="Your active accounts.">
+    <Page title="Accounts" subtitle="Your connected and manual accounts.">
       <div className="mx-auto w-full max-w-[860px] px-4 sm:px-6">
         {/* Toolbar */}
         <div className="flex flex-wrap items-center justify-between gap-2">
@@ -138,6 +168,16 @@ export default function AccountsPage() {
                 </div>
               </div>
 
+              <div className="mt-3 rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs text-zinc-600">
+                {loading
+                  ? "Checking account sources..."
+                  : accounts.length
+                    ? `${importedCount} connected account(s), ${manualCount} manual account(s). ${
+                        latestUpdated ? `Last updated ${softDate(latestUpdated)}.` : ""
+                      }`
+                    : "Connect a bank or add a manual account to get started."}
+              </div>
+
               <div className="mt-3 flex items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2">
                 <input
                   value={q}
@@ -154,6 +194,9 @@ export default function AccountsPage() {
                   .map((a) => {
                     const cur = safeStr(a.currency) || "AUD";
                     const cents = typeof a.current_balance_cents === "number" ? a.current_balance_cents : 0;
+                    const provider = providerLabel(a.provider);
+                    const sourceLine =
+                      provider === "Manual" ? "Manual entry" : `Connected via ${provider}`;
 
                     return (
                       <div key={a.id} className="flex items-center justify-between gap-3 py-3">
@@ -161,7 +204,7 @@ export default function AccountsPage() {
                           <div className="truncate text-sm font-medium text-zinc-900">{safeStr(a.name) || "Untitled account"}</div>
                           <div className="truncate text-xs text-zinc-500">
                             {[
-                              safeStr(a.provider) || "Manual",
+                              sourceLine,
                               safeStr(a.type) || null,
                               safeStr(a.status) || null,
                               a.updated_at ? `Updated ${softDate(a.updated_at)}` : null,
