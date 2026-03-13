@@ -193,6 +193,44 @@ type BasiqItemIdPayload = {
   basiq_user_id?: string;
 };
 
+type BasiqAccountUpsertRow = {
+  household_id: string;
+  connection_id: string;
+  provider: "basiq";
+  external_id: string;
+  provider_account_id: string;
+  name: string;
+  official_name: string | null;
+  type: string;
+  subtype: string | null;
+  status: "active";
+  currency: string;
+  current_balance_cents: number;
+  available_balance_cents: number | null;
+  mask: string | null;
+  archived: boolean;
+  updated_at: string;
+};
+
+type BasiqTransactionUpsertRow = {
+  household_id: string;
+  account_id: string;
+  connection_id: string;
+  external_connection_id: string;
+  provider: "basiq";
+  external_id: string;
+  date: string;
+  posted_at: string;
+  description: string;
+  merchant: string | null;
+  category: string | null;
+  pending: boolean;
+  amount_cents: number;
+  amount: number;
+  currency: string;
+  updated_at: string;
+};
+
 function safeStr(v: unknown): string {
   return typeof v === "string" ? v.trim() : "";
 }
@@ -346,7 +384,7 @@ async function upsertAccounts(params: {
 
       const currentBalanceRaw = readFirstString(a, ["balance", "current_balance", "currentBalance"]);
 
-      return {
+      const row: BasiqAccountUpsertRow = {
         household_id: householdId,
         connection_id: connectionId,
         provider: "basiq",
@@ -365,8 +403,9 @@ async function upsertAccounts(params: {
         archived: false,
         updated_at: new Date().toISOString(),
       };
+      return row;
     })
-    .filter((row): row is Record<string, unknown> => row !== null);
+    .filter((row): row is BasiqAccountUpsertRow => row !== null);
 
   if (!rows.length) return { count: 0 };
 
@@ -460,7 +499,7 @@ async function upsertTransactions(params: {
         pendingStr.toLowerCase().includes("pending") ||
         tx.pending === true;
 
-      return {
+      const row: BasiqTransactionUpsertRow = {
         household_id: householdId,
         account_id: accountId,
         connection_id: connectionId,
@@ -479,8 +518,9 @@ async function upsertTransactions(params: {
         currency,
         updated_at: new Date().toISOString(),
       };
+      return row;
     })
-    .filter((row): row is Record<string, unknown> => row !== null);
+    .filter((row): row is BasiqTransactionUpsertRow => row !== null);
 
   if (!rows.length) return { count: 0 };
 
