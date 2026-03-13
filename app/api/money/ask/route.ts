@@ -54,6 +54,24 @@ const AFFORDABILITY_KEYWORDS = [
   "would this stretch us",
 ];
 
+const SCENARIO_KEYWORDS = [
+  "what if income drops",
+  "what if our income drops",
+  "what if income goes down",
+  "what if we move",
+  "what if we moved",
+  "what if we add another bill",
+  "what if we add a bill",
+  "what if we add another recurring bill",
+  "what if we pause saving for a while",
+  "what if we pause saving",
+  "what if we stop saving for a while",
+  "what happens if income drops",
+  "what happens if we move",
+  "what happens if we add another bill",
+  "what happens if we pause saving",
+];
+
 function safeStr(v: unknown) {
   return typeof v === "string" ? v : "";
 }
@@ -128,6 +146,38 @@ function hasComingUpPlanningContext(lowerQ: string): boolean {
     "keep in mind",
   ];
   return contextHints.some((hint) => lowerQ.includes(hint));
+}
+
+function hasScenarioTopicHint(lowerQ: string): boolean {
+  const hints = [
+    "income",
+    "move",
+    "moving",
+    "bill",
+    "bills",
+    "saving",
+    "savings",
+    "payment",
+    "rent",
+    "mortgage",
+    "commitment",
+  ];
+  return hints.some((hint) => lowerQ.includes(hint));
+}
+
+function isSpecificScenarioPrompt(lowerQ: string): boolean {
+  const specificHints = [
+    "income drops",
+    "income drop",
+    "income goes down",
+    "move",
+    "moving",
+    "add another bill",
+    "add a bill",
+    "pause saving",
+    "stop saving",
+  ];
+  return specificHints.some((hint) => lowerQ.includes(hint));
 }
 
 async function readCookie(name: string) {
@@ -221,6 +271,11 @@ export async function POST(req: Request) {
       (PLANNING_KEYWORDS.some((kw) => lowerQ.includes(kw)) ||
         hasComingUpPlanningContext(lowerQ));
     const looksAffordability = q && AFFORDABILITY_KEYWORDS.some((kw) => lowerQ.includes(kw));
+    const looksScenario =
+      q &&
+      (SCENARIO_KEYWORDS.some((kw) => lowerQ.includes(kw)) ||
+        ((lowerQ.includes("what if") || lowerQ.includes("what happens if")) &&
+          hasScenarioTopicHint(lowerQ)));
 
     // Orientation path: empty query or simple keyword match
     if (looksOrientation) {
@@ -398,6 +453,54 @@ export async function POST(req: Request) {
           summary,
           upcoming: upcoming.slice(0, 4),
           notes: notes.slice(0, 3),
+        },
+      });
+    }
+
+    if (looksScenario) {
+      const truth = await getHouseholdMoneyTruth(supabase, { householdId });
+      const snapshot = buildFinancialSnapshot(truth);
+      const explanation = explainSnapshot(snapshot);
+
+      const watch: string[] = [
+        `Recurring commitments are about ${formatMoney(
+          snapshot.commitments.recurringMonthlyCents
+        )} per month across ${snapshot.commitments.billCount} tracked bill(s).`,
+        `Available cash is ${formatMoney(snapshot.liquidity.availableCashCents)} across ${
+          snapshot.liquidity.accountCount
+        } account(s).`,
+        `Current pressure: ${explanation.pressure.structural}`,
+      ];
+
+      if (explanation.pressure.timing) {
+        watch.push(`Timing context: ${explanation.pressure.timing}`);
+      } else if (explanation.pressure.stability) {
+        watch.push(`Stability context: ${explanation.pressure.stability}`);
+      }
+
+      const broadPrompt = !isSpecificScenarioPrompt(lowerQ);
+      const caveat = broadPrompt
+        ? "This scenario is still broad, so this is a baseline view. Details like amount and timing would sharpen the picture."
+        : snapshot.connections.stale > 0
+          ? `${snapshot.connections.stale} of ${snapshot.connections.total} connections are stale, so scenario confidence may be lower.`
+          : undefined;
+
+      const summary = [
+        "This is the current baseline before any scenario changes are applied.",
+        explanation.summary,
+      ]
+        .filter(Boolean)
+        .join(" ");
+
+      return NextResponse.json({
+        ok: true,
+        mode: "scenario",
+        household_id: householdId,
+        scenario: {
+          headline: "Here is the baseline for that what-if question.",
+          summary,
+          watch: watch.slice(0, 4),
+          caveat,
         },
       });
     }

@@ -300,6 +300,35 @@ export function AskProvider({ children }: { children: ReactNode }) {
 
           content = lines;
           tone = tone || "overview";
+        } else if (isMoneyScope && json?.mode === "scenario") {
+          const scenario = json?.scenario || {};
+          const headline =
+            typeof scenario?.headline === "string"
+              ? scenario.headline
+              : "Scenario baseline";
+          const summary =
+            typeof scenario?.summary === "string"
+              ? scenario.summary
+              : "Here is the current scenario baseline.";
+          const watch = Array.isArray(scenario?.watch)
+            ? (scenario.watch as string[]).filter((s) => typeof s === "string" && s.trim())
+            : [];
+          const caveat =
+            typeof scenario?.caveat === "string" && scenario.caveat.trim()
+              ? scenario.caveat
+              : null;
+
+          const lines = [
+            headline,
+            summary,
+            watch.length ? `Watch:\n- ${watch.join("\n- ")}` : null,
+            caveat ? `Caveat:\n- ${caveat}` : null,
+          ]
+            .filter(Boolean)
+            .join("\n\n");
+
+          content = lines;
+          tone = tone || "overview";
         } else if (isMoneyScope && json?.mode === "search") {
           const accounts = Array.isArray(json?.results?.accounts) ? json.results.accounts.length : 0;
           const bills = Array.isArray(json?.results?.bills) ? json.results.bills.length : 0;
