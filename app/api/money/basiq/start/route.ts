@@ -12,6 +12,15 @@ type ItemIdPayload = {
   basiq_authlink_id?: string; // legacy; not used now
 };
 
+type BasiqConnectionRow = {
+  id: string;
+  household_id: string;
+  provider: string;
+  status: string;
+  item_id: string | null;
+  display_name: string | null;
+};
+
 function safeJsonParse<T>(input: unknown): T | null {
   if (typeof input !== "string") return null;
   try {
@@ -23,6 +32,20 @@ function safeJsonParse<T>(input: unknown): T | null {
 
 function jsonStringifyStable(v: unknown) {
   return JSON.stringify(v);
+}
+
+function safeStr(v: unknown) {
+  return typeof v === "string" ? v.trim() : "";
+}
+
+function isReusableBasiqStatus(status: unknown) {
+  const s = safeStr(status).toLowerCase();
+  return s === "needs_auth" || s === "error";
+}
+
+function isOwnerOrEditor(role: unknown) {
+  const r = safeStr(role).toLowerCase();
+  return r === "owner" || r === "editor";
 }
 
 function tryParseBasiqError(rawMsg: string) {
@@ -128,6 +151,139 @@ async function persistItemId(
   if (error) throw error;
 }
 
+async function normalizeReusableBasiqConnection(
+  supabase: any,
+  connection: BasiqConnectionRow
+): Promise<BasiqConnectionRow> {
+  if (safeStr(connection.status).toLowerCase() !== "error") {
+    return connection;
+  }
+
+  const { data, error } = await supabase
+    .from("external_connections")
+    .update({
+      status: "needs_auth",
+      last_error: null,
+      last_error_at: null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", connection.id)
+    .eq("household_id", connection.household_id)
+    .select("id, household_id, provider, status, item_id, display_name")
+    .maybeSingle();
+
+  if (error) throw error;
+  return (data ?? connection) as BasiqConnectionRow;
+}
+
+async function findReusableBasiqConnection(
+  supabase: any,
+  householdId: string
+): Promise<BasiqConnectionRow | null> {
+  const { data, error } = await supabase
+    .from("external_connections")
+    .select("id, household_id, provider, status, item_id, display_name")
+    .eq("household_id", householdId)
+    .eq("provider", "basiq")
+    .in("status", ["needs_auth", "error"])
+    .order("updated_at", { ascending: false })
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) throw error;
+  if (!data) return null;
+  return data as BasiqConnectionRow;
+}
+
+async function assertCanCreateConnection(supabase: any, userId: string, householdId: string) {
+  const { data: hm, error: hmErr } = await supabase
+    .from("household_members")
+    .select("role")
+    .eq("user_id", userId)
+    .eq("household_id", householdId)
+    .maybeSingle();
+
+  if (hmErr) throw hmErr;
+
+  const { data: ownerCheck, error: ownerCheckErr } = await supabase.rpc(
+    "is_household_owner_or_editor",
+    {
+      p_household_id: householdId,
+    }
+  );
+
+  if (ownerCheckErr) {
+    throw new Error(ownerCheckErr.message || "Could not verify household permissions.");
+  }
+
+  if (!isOwnerOrEditor(hm?.role) || ownerCheck !== true) {
+    throw new Error("Not allowed to add connections for this household (need owner/editor).");
+  }
+}
+
+async function createBasiqConnection(
+  supabase: any,
+  userId: string,
+  householdId: string
+): Promise<BasiqConnectionRow> {
+  await assertCanCreateConnection(supabase, userId, householdId);
+
+  const { data, error } = await supabase
+    .from("external_connections")
+    .insert({
+      household_id: householdId,
+      user_id: userId,
+      provider: "basiq",
+      status: "needs_auth",
+      display_name: "Bank connection (AU)",
+      provider_connection_id: null,
+      encrypted_access_token: null,
+    })
+    .select("id, household_id, provider, status, item_id, display_name")
+    .maybeSingle();
+
+  if (error) throw error;
+  if (!data) throw new Error("Failed to create Basiq connection.");
+  return data as BasiqConnectionRow;
+}
+
+async function resolveBasiqConnectionForStart(params: {
+  supabase: any;
+  userId: string;
+  householdId: string;
+  requestedConnectionId: string;
+}) {
+  const { supabase, userId, householdId, requestedConnectionId } = params;
+  const requestedId = safeStr(requestedConnectionId);
+
+  if (requestedId) {
+    const { data, error } = await supabase
+      .from("external_connections")
+      .select("id, household_id, provider, status, item_id, display_name")
+      .eq("id", requestedId)
+      .eq("household_id", householdId)
+      .maybeSingle();
+
+    if (error) throw error;
+
+    if (data && safeStr(data.provider).toLowerCase() === "basiq") {
+      const current = data as BasiqConnectionRow;
+      if (isReusableBasiqStatus(current.status)) {
+        return normalizeReusableBasiqConnection(supabase, current);
+      }
+      return current;
+    }
+  }
+
+  const reusable = await findReusableBasiqConnection(supabase, householdId);
+  if (reusable) {
+    return normalizeReusableBasiqConnection(supabase, reusable);
+  }
+
+  return createBasiqConnection(supabase, userId, householdId);
+}
+
 export async function POST(req: Request) {
   const diag = envDiag();
 
@@ -152,25 +308,15 @@ export async function POST(req: Request) {
     }
 
     const body = await req.json().catch(() => ({}));
-    const connectionId = typeof body?.connection_id === "string" ? body.connection_id : "";
-    if (!connectionId) {
-      return NextResponse.json({ ok: false, error: "Missing connection_id" }, { status: 400 });
-    }
-
-    const { data: conn, error: connErr } = await supabase
-      .from("external_connections")
-      .select("id, household_id, provider, status, item_id, display_name")
-      .eq("id", connectionId)
-      .eq("household_id", householdId)
-      .maybeSingle();
-
-    if (connErr) throw connErr;
-    if (!conn) {
-      return NextResponse.json({ ok: false, error: "Connection not found." }, { status: 404 });
-    }
-    if (conn.provider !== "basiq") {
-      return NextResponse.json({ ok: false, error: "Not a Basiq connection." }, { status: 400 });
-    }
+    const requestedConnectionId =
+      typeof body?.connection_id === "string" ? body.connection_id : "";
+    const conn = await resolveBasiqConnectionForStart({
+      supabase,
+      userId: user.id,
+      householdId,
+      requestedConnectionId,
+    });
+    const connectionId = conn.id;
 
     let payload = safeJsonParse<ItemIdPayload>(conn.item_id) ?? null;
 
