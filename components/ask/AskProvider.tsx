@@ -12,6 +12,7 @@ import {
 import { usePathname } from "next/navigation";
 import {
   composeMessage,
+  deriveAskLanguageContext,
   paragraph,
   section,
   stableGroundLine,
@@ -250,13 +251,18 @@ export function AskProvider({ children }: { children: ReactNode }) {
             typeof pressures.timing === "string" ? `Timing: ${pressures.timing}` : null,
             typeof pressures.stability === "string" ? `Stability: ${pressures.stability}` : null,
           ].filter(Boolean);
+          const hasEvidence = insights.length > 0;
+          const languageContext = deriveAskLanguageContext({
+            lines: [headline, summary, ...insights, ...pressureLines],
+            hasEvidence,
+          });
 
           const lines = composeMessage([
             headline,
             summary,
             section("What stands out right now:", insights),
             section("Where it may feel heavy:", pressureLines),
-            stableGroundLine({ mode: "snapshot", hasEvidence: insights.length > 0 }),
+            stableGroundLine({ mode: "snapshot", hasEvidence, context: languageContext }),
           ]);
 
           content = lines;
@@ -280,6 +286,11 @@ export function AskProvider({ children }: { children: ReactNode }) {
             typeof sig.timing === "string" ? `Timing: ${sig.timing}` : null,
             typeof sig.stability === "string" ? `Stability: ${sig.stability}` : null,
           ].filter(Boolean);
+          const hasEvidence = drivers.length > 0 || signalLines.length > 0;
+          const languageContext = deriveAskLanguageContext({
+            lines: [headline, summary, ...drivers, ...signalLines],
+            hasEvidence,
+          });
 
           const lines = composeMessage([
             headline,
@@ -288,7 +299,8 @@ export function AskProvider({ children }: { children: ReactNode }) {
             section("What that pressure looks like right now:", signalLines),
             stableGroundLine({
               mode: "diagnosis",
-              hasEvidence: drivers.length > 0 || signalLines.length > 0,
+              hasEvidence,
+              context: languageContext,
             }),
           ]);
 
@@ -310,6 +322,11 @@ export function AskProvider({ children }: { children: ReactNode }) {
           const notes = Array.isArray(planning?.notes)
             ? (planning.notes as string[]).filter((n) => typeof n === "string" && n.trim())
             : [];
+          const hasEvidence = upcoming.length > 0 || notes.length > 0;
+          const languageContext = deriveAskLanguageContext({
+            lines: [headline, summary, ...upcoming, ...notes],
+            hasEvidence,
+          });
 
           const lines = composeMessage([
             headline,
@@ -318,7 +335,8 @@ export function AskProvider({ children }: { children: ReactNode }) {
             section("A helpful note:", notes),
             stableGroundLine({
               mode: "planning",
-              hasEvidence: upcoming.length > 0 || notes.length > 0,
+              hasEvidence,
+              context: languageContext,
             }),
           ]);
 
@@ -341,6 +359,13 @@ export function AskProvider({ children }: { children: ReactNode }) {
             typeof affordability?.caveat === "string" && affordability.caveat.trim()
               ? affordability.caveat
               : null;
+          const hasEvidence = signals.length > 0;
+          const hasCaveat = !!caveat;
+          const languageContext = deriveAskLanguageContext({
+            lines: [headline, summary, ...signals, caveat],
+            hasEvidence,
+            hasCaveat,
+          });
 
           const lines = composeMessage([
             headline,
@@ -349,8 +374,9 @@ export function AskProvider({ children }: { children: ReactNode }) {
             section("What would make this clearer:", caveat ? [caveat] : []),
             stableGroundLine({
               mode: "affordability",
-              hasCaveat: !!caveat,
-              hasEvidence: signals.length > 0,
+              hasCaveat,
+              hasEvidence,
+              context: languageContext,
             }),
           ]);
 
@@ -373,6 +399,13 @@ export function AskProvider({ children }: { children: ReactNode }) {
             typeof scenario?.caveat === "string" && scenario.caveat.trim()
               ? scenario.caveat
               : null;
+          const hasEvidence = watch.length > 0;
+          const hasCaveat = !!caveat;
+          const languageContext = deriveAskLanguageContext({
+            lines: [headline, summary, ...watch, caveat],
+            hasEvidence,
+            hasCaveat,
+          });
 
           const lines = composeMessage([
             headline,
@@ -381,8 +414,9 @@ export function AskProvider({ children }: { children: ReactNode }) {
             section("What would make this clearer:", caveat ? [caveat] : []),
             stableGroundLine({
               mode: "scenario",
-              hasCaveat: !!caveat,
-              hasEvidence: watch.length > 0,
+              hasCaveat,
+              hasEvidence,
+              context: languageContext,
             }),
           ]);
 
@@ -392,8 +426,14 @@ export function AskProvider({ children }: { children: ReactNode }) {
           const accounts = Array.isArray(json?.results?.accounts) ? json.results.accounts.length : 0;
           const bills = Array.isArray(json?.results?.bills) ? json.results.bills.length : 0;
           const txs = Array.isArray(json?.results?.transactions) ? json.results.transactions.length : 0;
+          const hasEvidence = accounts + bills + txs > 0;
+          const searchIntro = "Here is what I could find quickly in your money data.";
+          const languageContext = deriveAskLanguageContext({
+            lines: [searchIntro, `Accounts: ${accounts}`, `Bills: ${bills}`, `Transactions: ${txs}`],
+            hasEvidence,
+          });
           content = composeMessage([
-            "Here is what I could find quickly in your money data.",
+            searchIntro,
             section("Matches:", [
               `Accounts: ${accounts}`,
               `Bills: ${bills}`,
@@ -402,7 +442,8 @@ export function AskProvider({ children }: { children: ReactNode }) {
             paragraph("If this is not what you meant, try naming a merchant, account, or bill."),
             stableGroundLine({
               mode: "search",
-              hasEvidence: accounts + bills + txs > 0,
+              hasEvidence,
+              context: languageContext,
             }),
           ]);
           tone = tone || "overview";
