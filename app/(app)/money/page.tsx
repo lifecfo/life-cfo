@@ -117,8 +117,9 @@ export default function MoneyClientNext() {
 
   const askExamples = [
     "Are we okay this month?",
-    "What changed recently?",
-    "What bills are coming up?",
+    "Why does money feel tight right now?",
+    "What is coming up this month?",
+    "Can we afford this?",
   ];
 
   const openWithQuestion = (q: string) => {
@@ -142,6 +143,35 @@ export default function MoneyClientNext() {
         {error ? <div className="mt-4 text-sm text-red-600">{error}</div> : null}
 
         <div className="mt-5 grid gap-4">
+          <Card className="border-zinc-200 bg-white">
+            <CardContent className="space-y-3">
+              <div className="space-y-1">
+                <div className="text-sm font-semibold text-zinc-900">Start with a money question</div>
+                <div className="text-xs text-zinc-500">
+                  Ask first for a quick read, then use In, Out, Saved, and Planned below for detail.
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button onClick={openAsk} className="rounded-2xl">
+                  Ask about money
+                </Button>
+                <Link href="/money/planned">
+                  <Chip>Planned</Chip>
+                </Link>
+                <Link href="/connections">
+                  <Chip>Connections</Chip>
+                </Link>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {askExamples.map((q) => (
+                  <Chip key={q} className="text-xs" onClick={() => openWithQuestion(q)} title={q}>
+                    {q}
+                  </Chip>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+
           <Card className="border-zinc-200 bg-white">
             <CardContent className="space-y-2">
               <div className="text-sm font-semibold text-zinc-900">
@@ -233,35 +263,6 @@ export default function MoneyClientNext() {
               ]}
             />
           </div>
-
-          <Card className="border-zinc-200 bg-white">
-            <CardContent className="space-y-3">
-              <div className="space-y-1">
-                <div className="text-sm font-semibold text-zinc-900">Ask about your money</div>
-                <div className="text-xs text-zinc-500">
-                  Ask a question when you want deeper context or a quick check.
-                </div>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <Button onClick={openAsk} className="rounded-2xl">
-                  Open Ask
-                </Button>
-                <Link href="/connections">
-                  <Chip>Connections</Chip>
-                </Link>
-                <Link href="/money/planned">
-                  <Chip>Planned</Chip>
-                </Link>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {askExamples.map((q) => (
-                  <Chip key={q} className="text-xs" onClick={() => openWithQuestion(q)} title={q}>
-                    {q}
-                  </Chip>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
         </div>
       </div>
     </Page>
