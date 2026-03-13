@@ -10,7 +10,12 @@ import {
   type ReactNode,
 } from "react";
 import { usePathname } from "next/navigation";
-import { composeMessage, paragraph, section } from "@/components/ask/moneyAskLanguage";
+import {
+  composeMessage,
+  paragraph,
+  section,
+  stableGroundLine,
+} from "@/components/ask/moneyAskLanguage";
 
 type AskActionHref = string | null;
 type AskStatus = "idle" | "loading" | "done" | "error";
@@ -207,6 +212,7 @@ export function AskProvider({ children }: { children: ReactNode }) {
             summary,
             section("What stands out right now:", insights),
             section("Where pressure is showing:", pressureLines),
+            stableGroundLine({ mode: "snapshot", hasEvidence: insights.length > 0 }),
           ]);
 
           content = lines;
@@ -236,6 +242,10 @@ export function AskProvider({ children }: { children: ReactNode }) {
             summary,
             section("What seems to be driving this:", drivers),
             section("Pressure pattern in plain language:", signalLines),
+            stableGroundLine({
+              mode: "diagnosis",
+              hasEvidence: drivers.length > 0 || signalLines.length > 0,
+            }),
           ]);
 
           content = lines;
@@ -262,6 +272,10 @@ export function AskProvider({ children }: { children: ReactNode }) {
             summary,
             section("What to keep in view:", upcoming),
             section("Context that matters:", notes),
+            stableGroundLine({
+              mode: "planning",
+              hasEvidence: upcoming.length > 0 || notes.length > 0,
+            }),
           ]);
 
           content = lines;
@@ -289,6 +303,11 @@ export function AskProvider({ children }: { children: ReactNode }) {
             summary,
             section("What this baseline is showing:", signals),
             section("What would sharpen this:", caveat ? [caveat] : []),
+            stableGroundLine({
+              mode: "affordability",
+              hasCaveat: !!caveat,
+              hasEvidence: signals.length > 0,
+            }),
           ]);
 
           content = lines;
@@ -316,6 +335,11 @@ export function AskProvider({ children }: { children: ReactNode }) {
             summary,
             section("What to watch if this change happens:", watch),
             section("What would sharpen the scenario:", caveat ? [caveat] : []),
+            stableGroundLine({
+              mode: "scenario",
+              hasCaveat: !!caveat,
+              hasEvidence: watch.length > 0,
+            }),
           ]);
 
           content = lines;
@@ -332,6 +356,10 @@ export function AskProvider({ children }: { children: ReactNode }) {
               `Transactions: ${txs}`,
             ]),
             paragraph("If this is not what you meant, try naming a merchant, account, or bill."),
+            stableGroundLine({
+              mode: "search",
+              hasEvidence: accounts + bills + txs > 0,
+            }),
           ]);
           tone = tone || "overview";
         }
