@@ -107,6 +107,173 @@ function hasExplicitCostDetail(lowerQ: string): boolean {
   return /(\$|aud|usd|dollars?|cents?|\d)/i.test(lowerQ);
 }
 
+function normalizeQuestionForParsing(input: string): string {
+  return String(input || "")
+    .toLowerCase()
+    .replace(/(\d),(?=\d)/g, "$1")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function toCents(amountRaw: string): number | null {
+  const value = Number(amountRaw);
+  if (!Number.isFinite(value) || value <= 0) return null;
+  return Math.round(value * 100);
+}
+
+function extractCurrencyAmountCents(lowerQ: string): number | null {
+  const q = normalizeQuestionForParsing(lowerQ);
+  const dollarPrefixed = q.match(/\$\s*(\d+(?:\.\d{1,2})?)/i);
+  if (dollarPrefixed?.[1]) {
+    return toCents(dollarPrefixed[1]);
+  }
+
+  const codePrefixed = q.match(/\b(?:aud|usd|cad|eur|gbp|nzd)\s*(\d+(?:\.\d{1,2})?)\b/i);
+  if (codePrefixed?.[1]) {
+    return toCents(codePrefixed[1]);
+  }
+
+  const codeSuffixed = q.match(/\b(\d+(?:\.\d{1,2})?)\s*(?:aud|usd|cad|eur|gbp|nzd|dollars?|bucks)\b/i);
+  if (codeSuffixed?.[1]) {
+    return toCents(codeSuffixed[1]);
+  }
+
+  return null;
+}
+
+function looksRecurringAmount(lowerQ: string): boolean {
+  const q = normalizeQuestionForParsing(lowerQ);
+  return (
+    /(per\s*(month|week|fortnight|year)|monthly|weekly|fortnightly|annual|yearly|every month)/i.test(
+      q
+    ) ||
+    /\b(payment|repayment|rent|mortgage|subscription|bill)\b/i.test(q)
+  );
+}
+
+function extractRecurringAmountCents(lowerQ: string): number | null {
+  if (!looksRecurringAmount(lowerQ)) return null;
+  return extractCurrencyAmountCents(lowerQ);
+}
+
+function hasIncomeDropContext(lowerQ: string): boolean {
+  const q = normalizeQuestionForParsing(lowerQ);
+  return /(income\s+drops?|income\s+goes\s+down|pay\s+drops?|salary\s+drops?)/i.test(q);
+}
+
+function extractIncomeDropPercent(lowerQ: string): number | null {
+  if (!hasIncomeDropContext(lowerQ)) return null;
+  const q = normalizeQuestionForParsing(lowerQ);
+  const match = q.match(/(\d+(?:\.\d+)?)\s*(?:%|percent)/i);
+  if (!match?.[1]) return null;
+  const value = Number(match[1]);
+  if (!Number.isFinite(value) || value <= 0 || value > 100) return null;
+  return value;
+}
+
+function extractIncomeDropAmountCents(lowerQ: string): number | null {
+  if (!hasIncomeDropContext(lowerQ)) return null;
+  return extractCurrencyAmountCents(lowerQ);
+}
+
+function buildAffordabilityParsedLine(params: {
+  snapshot: ReturnType<typeof buildFinancialSnapshot>;
+  oneOffAmountCents: number | null;
+  recurringAmountCents: number | null;
+  ambiguous: boolean;
+}): string | null {
+  const { snapshot, oneOffAmountCents, recurringAmountCents, ambiguous } = params;
+
+  if (typeof recurringAmountCents === "number" && recurringAmountCents > 0) {
+    const newCommitments = snapshot.commitments.recurringMonthlyCents + recurringAmountCents;
+    const income = snapshot.income.recurringMonthlyCents;
+    if (income > 0) {
+      const ratio = Math.round((newCommitments / income) * 100);
+      return `As a baseline, adding ${formatMoney(
+        recurringAmountCents
+      )} per month would move recurring commitments to about ${formatMoney(
+        newCommitments
+      )} per month (around ${ratio}% of recurring income).`;
+    }
+    return `As a baseline, adding ${formatMoney(
+      recurringAmountCents
+    )} per month would raise recurring commitments to about ${formatMoney(
+      newCommitments
+    )} per month. Recurring income is not fully mapped yet, so this read stays cautious.`;
+  }
+
+  if (typeof oneOffAmountCents === "number" && oneOffAmountCents > 0) {
+    const availableCash = snapshot.liquidity.availableCashCents;
+    if (availableCash > 0) {
+      const share = Math.round((oneOffAmountCents / availableCash) * 100);
+      return ambiguous
+        ? `As a baseline, ${formatMoney(
+            oneOffAmountCents
+          )} is around ${share}% of available cash (${formatMoney(
+            availableCash
+          )}). If this is a monthly amount rather than one-off, the baseline would be tighter.`
+        : `As a baseline, ${formatMoney(
+            oneOffAmountCents
+          )} is around ${share}% of available cash (${formatMoney(
+            availableCash
+          )}). This would likely be easier to absorb if timing is flexible.`;
+    }
+    return `As a baseline, ${formatMoney(
+      oneOffAmountCents
+    )} can be compared against current cash once available balances are clearer.`;
+  }
+
+  return null;
+}
+
+function buildScenarioParsedLine(params: {
+  snapshot: ReturnType<typeof buildFinancialSnapshot>;
+  incomeDropPercent: number | null;
+  incomeDropAmountCents: number | null;
+}): string | null {
+  const { snapshot, incomeDropPercent, incomeDropAmountCents } = params;
+  if (incomeDropPercent === null && incomeDropAmountCents === null) {
+    return null;
+  }
+
+  const income = snapshot.income.recurringMonthlyCents;
+  const commitments = snapshot.commitments.recurringMonthlyCents;
+
+  if (income <= 0) {
+    return "As a baseline, recurring income is not fully mapped yet, so income-drop sizing stays approximate.";
+  }
+
+  if (typeof incomeDropPercent === "number" && incomeDropPercent > 0) {
+    const dropCents = Math.round((income * incomeDropPercent) / 100);
+    const postDropIncome = Math.max(0, income - dropCents);
+    return `As a baseline, a ${incomeDropPercent}% income drop is about ${formatMoney(
+      dropCents
+    )} per month. This would likely leave about ${formatMoney(
+      postDropIncome
+    )} against recurring commitments of ${formatMoney(commitments)} per month.`;
+  }
+
+  if (typeof incomeDropAmountCents === "number" && incomeDropAmountCents > 0) {
+    const postDropIncome = Math.max(0, income - incomeDropAmountCents);
+    return `As a baseline, an income drop of ${formatMoney(
+      incomeDropAmountCents
+    )} per month would likely leave about ${formatMoney(
+      postDropIncome
+    )} against recurring commitments of ${formatMoney(commitments)} per month.`;
+  }
+
+  return null;
+}
+
+function isParsingAmbiguous(lowerQ: string): boolean {
+  const q = normalizeQuestionForParsing(lowerQ);
+  const hasAmount = /\d/.test(q);
+  if (!hasAmount) return false;
+  const recurring = looksRecurringAmount(q);
+  const oneOffHints = /\b(this|that|it|cost|price|buy|purchase)\b/i.test(q);
+  return !recurring && !oneOffHints;
+}
+
 function hasConcretePurchaseContext(lowerQ: string): boolean {
   const contextHints = [
     "house",
@@ -289,6 +456,7 @@ export async function POST(req: Request) {
     const { role } = await ensureHouseholdMember(supabase, user.id, householdId);
 
     const lowerQ = q.toLowerCase();
+    const parseQ = normalizeQuestionForParsing(q);
     const looksOrientation =
       !q ||
       ORIENTATION_KEYWORDS.some((kw) => lowerQ.includes(kw));
@@ -366,6 +534,10 @@ export async function POST(req: Request) {
       const snapshot = buildFinancialSnapshot(truth);
       const explanation = explainSnapshot(snapshot);
       const interpretation = explanation.interpretation;
+      const recurringAmountCents = extractRecurringAmountCents(parseQ);
+      const oneOffAmountCents =
+        recurringAmountCents === null ? extractCurrencyAmountCents(parseQ) : null;
+      const parsingAmbiguous = isParsingAmbiguous(parseQ);
 
       const signals: string[] = [
         `Available cash is ${formatMoney(snapshot.liquidity.availableCashCents)}.`,
@@ -376,6 +548,15 @@ export async function POST(req: Request) {
       ];
       if (explanation.pressure.timing) {
         signals.push(`Timing context: ${explanation.pressure.timing}`);
+      }
+      const parsedAffordabilityLine = buildAffordabilityParsedLine({
+        snapshot,
+        oneOffAmountCents,
+        recurringAmountCents,
+        ambiguous: parsingAmbiguous,
+      });
+      if (parsedAffordabilityLine) {
+        signals.push(parsedAffordabilityLine);
       }
 
       const missingCostDetail = !hasExplicitCostDetail(lowerQ);
@@ -391,6 +572,8 @@ export async function POST(req: Request) {
 
       const caveat = caveatNeeded
         ? "The question is still broad, so this is a baseline rather than a precise affordability call. Amount and payment timing would sharpen it."
+        : parsingAmbiguous
+          ? "There is an amount in the question, but it is not clear whether it is one-off or monthly, so this remains a cautious baseline."
         : snapshot.connections.stale > 0
           ? `${snapshot.connections.stale} of ${snapshot.connections.total} connections are stale, so affordability confidence may be lower.`
           : undefined;
@@ -496,6 +679,9 @@ export async function POST(req: Request) {
       const snapshot = buildFinancialSnapshot(truth);
       const explanation = explainSnapshot(snapshot);
       const interpretation = explanation.interpretation;
+      const incomeDropPercent = extractIncomeDropPercent(parseQ);
+      const incomeDropAmountCents =
+        incomeDropPercent === null ? extractIncomeDropAmountCents(parseQ) : null;
 
       const watch: string[] = [
         `Recurring commitments are about ${formatMoney(
@@ -511,6 +697,14 @@ export async function POST(req: Request) {
         watch.push(`Timing context: ${explanation.pressure.timing}`);
       } else if (explanation.pressure.stability) {
         watch.push(`Stability context: ${explanation.pressure.stability}`);
+      }
+      const parsedScenarioLine = buildScenarioParsedLine({
+        snapshot,
+        incomeDropPercent,
+        incomeDropAmountCents,
+      });
+      if (parsedScenarioLine) {
+        watch.push(parsedScenarioLine);
       }
 
       const broadPrompt = !isSpecificScenarioPrompt(lowerQ);
