@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { Page } from "@/components/Page";
 import { Card, CardContent, Chip, Badge } from "@/components/ui";
 import { AssistedSearch } from "@/components/AssistedSearch";
+import { formatMoneyFromCents as formatMoneyFromCentsShared } from "@/lib/money/formatMoney";
 
 type Tx = {
   id: string;
@@ -32,11 +33,6 @@ type AccountRow = {
 
 type LiveState = "connecting" | "live" | "offline";
 
-function safeNumber(v: unknown) {
-  const n = typeof v === "number" ? v : Number(v);
-  return Number.isFinite(n) ? n : 0;
-}
-
 function safeDate(iso: string | null | undefined) {
   if (!iso) return null;
   const ms = Date.parse(iso);
@@ -50,30 +46,7 @@ function softWhen(iso: string | null | undefined) {
 }
 
 function formatMoneyFromCents(c: number, currency = "AUD") {
-  const value = (c || 0) / 100;
-  try {
-    return new Intl.NumberFormat("en-AU", {
-      style: "currency",
-      currency,
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    }).format(value);
-  } catch {
-    return `${currency} ${value.toFixed(2)}`;
-  }
-}
-
-function formatMoneyFromAmount(a: number, currency = "AUD") {
-  try {
-    return new Intl.NumberFormat("en-AU", {
-      style: "currency",
-      currency,
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    }).format(a);
-  } catch {
-    return `${currency} ${a.toFixed(2)}`;
-  }
+  return formatMoneyFromCentsShared(c, currency);
 }
 
 function signLabel(amountCents: number) {
@@ -97,8 +70,12 @@ function isImportedProvider(provider: string | null | undefined) {
 
 async function fetchJson<T>(url: string): Promise<T> {
   const res = await fetch(url, { cache: "no-store" });
-  const json = await res.json().catch(() => ({} as any));
-  if (!res.ok) throw new Error((json as any)?.error ?? "Request failed");
+  const json = await res.json().catch(() => ({}));
+  const errorText =
+    typeof (json as { error?: unknown })?.error === "string"
+      ? (json as { error?: string }).error
+      : "Request failed";
+  if (!res.ok) throw new Error(errorText);
   return json as T;
 }
 
@@ -109,7 +86,7 @@ type PendingFilter = "any" | "pending" | "cleared";
 export default function TransactionsClient() {
   const router = useRouter();
 
-  const [statusLine, setStatusLine] = useState("Loading…");
+  const [statusLine, setStatusLine] = useState("Loading...");
   const [error, setError] = useState<string | null>(null);
   const [live, setLive] = useState<LiveState>("connecting");
 
@@ -144,7 +121,7 @@ export default function TransactionsClient() {
 
   async function load(silent = false) {
     if (!silent) {
-      setStatusLine("Loading…");
+      setStatusLine("Loading...");
       setError(null);
       setLive("connecting");
     }
@@ -163,10 +140,11 @@ export default function TransactionsClient() {
           : "No transactions yet."
       );
       setLive("live");
-    } catch (e: any) {
+    } catch (e: unknown) {
       if (!isMountedRef.current) return;
       setItems([]);
-      setError(e?.message ?? "Couldn’t load transactions.");
+      const message = e instanceof Error && e.message ? e.message : "Couldn't load transactions.";
+      setError(message);
       setStatusLine("Load failed.");
       setLive("offline");
     }
@@ -277,7 +255,7 @@ export default function TransactionsClient() {
       <Chip className={liveChipClass}>{live === "live" ? "Live" : live === "offline" ? "Offline" : "Connecting"}</Chip>
 
       <Chip onClick={() => setFiltersOpen((v) => !v)} title="Filters">
-        Filters{activeFiltersCount ? ` • ${activeFiltersCount}` : ""}
+        Filters{activeFiltersCount ? ` | ${activeFiltersCount}` : ""}
       </Chip>
 
       <Chip onClick={() => void load(false)} title="Refresh">
@@ -291,7 +269,7 @@ export default function TransactionsClient() {
   return (
     <Page title="Transactions" subtitle="Recent household activity from connected and manual sources." right={right}>
       <div className="mx-auto w-full max-w-[760px] space-y-4">
-        <AssistedSearch scope="transactions" placeholder="Search transactions…" />
+        <AssistedSearch scope="transactions" placeholder="Search transactions..." />
 
         {filtersOpen ? (
           <Card className="border-zinc-200 bg-white">
@@ -405,7 +383,7 @@ export default function TransactionsClient() {
           <Card className="border-zinc-200 bg-white">
             <CardContent>
               <div className="text-sm font-semibold text-zinc-900">Setup needed</div>
-              <div className="mt-1 text-sm text-zinc-600">Keystone can’t read transactions yet.</div>
+              <div className="mt-1 text-sm text-zinc-600">Keystone cannot read transactions yet.</div>
               <div className="mt-2 text-xs text-zinc-500">{error}</div>
             </CardContent>
           </Card>
@@ -435,7 +413,7 @@ export default function TransactionsClient() {
             <div className="mt-3 flex items-center gap-2">
               <input
                 className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200"
-                placeholder="Filter locally…"
+                placeholder="Filter locally..."
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
               />
@@ -474,7 +452,7 @@ export default function TransactionsClient() {
                     sourceLine,
                   ]
                     .filter(Boolean)
-                    .join(" • ");
+                    .join(" | ");
 
                   return (
                     <div key={t.id} className="rounded-xl border border-zinc-200 bg-white p-3">
@@ -487,7 +465,7 @@ export default function TransactionsClient() {
                         <div className="flex items-start justify-between gap-3 flex-wrap">
                           <div className="min-w-[240px] flex-1">
                             <div className="text-sm font-semibold text-zinc-900">{title}</div>
-                            <div className="mt-1 text-xs text-zinc-500">{meta || "—"}</div>
+                            <div className="mt-1 text-xs text-zinc-500">{meta || "-"}</div>
                             <div className="mt-2 flex flex-wrap gap-2">
                               <Badge>{signLabel(cents)}</Badge>
                               <Chip title="Source">{source}</Chip>
@@ -516,7 +494,7 @@ export default function TransactionsClient() {
                 })
               )}
 
-              {hidden > 0 ? <div className="text-xs text-zinc-500">{hidden} more hidden — use search to find anything.</div> : null}
+              {hidden > 0 ? <div className="text-xs text-zinc-500">{hidden} more hidden - use search to find anything.</div> : null}
             </div>
           </CardContent>
         </Card>

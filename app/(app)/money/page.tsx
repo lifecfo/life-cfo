@@ -7,6 +7,7 @@ import { Page } from "@/components/Page";
 import { Button, Card, CardContent, Chip, useToast } from "@/components/ui";
 import { useAsk } from "@/components/ask/AskProvider";
 import type { PressureInterpretation } from "@/lib/money/reasoning/interpretPressure";
+import { formatMoneyFromCents } from "@/lib/money/formatMoney";
 
 type FinancialSnapshot = {
   asOf: string;
@@ -56,13 +57,7 @@ type TransactionsResponse = {
 };
 
 function formatMoney(cents: number | undefined | null, currency = "AUD") {
-  const n = typeof cents === "number" && Number.isFinite(cents) ? cents : 0;
-  const amt = n / 100;
-  try {
-    return new Intl.NumberFormat(undefined, { style: "currency", currency }).format(amt);
-  } catch {
-    return `${currency} ${amt.toFixed(2)}`;
-  }
+  return formatMoneyFromCents(cents, currency);
 }
 
 function softDate(isoOrDate: string | null | undefined) {

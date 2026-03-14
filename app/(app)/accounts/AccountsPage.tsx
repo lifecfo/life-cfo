@@ -6,6 +6,7 @@ import Link from "next/link";
 import { Page } from "@/components/Page";
 import { Card, CardContent, Chip, useToast } from "@/components/ui";
 import { AssistedSearch } from "@/components/AssistedSearch";
+import { formatMoneyFromCents } from "@/lib/money/formatMoney";
 
 type AccountRow = {
   id: string;
@@ -38,13 +39,7 @@ function isImportedProvider(provider: string | null | undefined) {
 }
 
 function moneyFromCents(cents: number, currency: string) {
-  const amt = (typeof cents === "number" ? cents : 0) / 100;
-  const cur = safeStr(currency) || "AUD";
-  try {
-    return new Intl.NumberFormat(undefined, { style: "currency", currency: cur }).format(amt);
-  } catch {
-    return `${cur} ${amt.toFixed(2)}`;
-  }
+  return formatMoneyFromCents(cents, safeStr(currency) || "AUD");
 }
 
 function softDate(isoOrDate: string | null | undefined) {
@@ -61,7 +56,11 @@ function softDate(isoOrDate: string | null | undefined) {
 async function fetchJson<T>(url: string): Promise<T> {
   const res = await fetch(url, { cache: "no-store" });
   const json = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error((json as any)?.error ?? "Request failed");
+  const errorText =
+    typeof (json as { error?: unknown })?.error === "string"
+      ? (json as { error?: string }).error
+      : "Request failed";
+  if (!res.ok) throw new Error(errorText);
   return json as T;
 }
 
@@ -112,9 +111,10 @@ export default function AccountsPage() {
         const data = await fetchJson<{ ok: boolean; accounts: AccountRow[]; household_id?: string }>("/api/money/accounts");
         if (!alive) return;
         setAccounts(data.accounts ?? []);
-      } catch (e: any) {
+      } catch (e: unknown) {
         if (!alive) return;
-        showToast({ message: e?.message ?? "Couldn’t load accounts." }, 2500);
+        const message = e instanceof Error && e.message ? e.message : "Couldn't load accounts.";
+        showToast({ message }, 2500);
       } finally {
         if (!alive) return;
         setLoading(false);
@@ -152,7 +152,7 @@ export default function AccountsPage() {
             <CardContent className="space-y-2">
               <div className="text-sm font-semibold text-zinc-900">Find anything</div>
               <div className="text-xs text-zinc-500">Search-first. No scrolling.</div>
-              <AssistedSearch scope="accounts" placeholder="Search accounts…" />
+              <AssistedSearch scope="accounts" placeholder="Search accounts..." />
             </CardContent>
           </Card>
 
@@ -163,7 +163,7 @@ export default function AccountsPage() {
                 <div className="min-w-0">
                   <div className="text-sm font-semibold text-zinc-900">Accounts</div>
                   <div className="mt-0.5 text-xs text-zinc-500">
-                    {loading ? "Loading…" : accounts.length ? "All active accounts" : "No accounts yet."}
+                    {loading ? "Loading..." : accounts.length ? "All active accounts" : "No accounts yet."}
                   </div>
                 </div>
               </div>
@@ -182,7 +182,7 @@ export default function AccountsPage() {
                 <input
                   value={q}
                   onChange={(e) => setQ(e.target.value)}
-                  placeholder="Filter locally…"
+                  placeholder="Filter locally..."
                   className="w-full bg-transparent text-sm text-zinc-900 outline-none placeholder:text-zinc-400"
                 />
                 {q.trim() ? <Chip onClick={() => setQ("")}>Clear</Chip> : null}
@@ -210,7 +210,7 @@ export default function AccountsPage() {
                               a.updated_at ? `Updated ${softDate(a.updated_at)}` : null,
                             ]
                               .filter(Boolean)
-                              .join(" • ")}
+                              .join(" | ")}
                           </div>
                         </div>
 

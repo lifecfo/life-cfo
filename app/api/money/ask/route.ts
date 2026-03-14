@@ -6,6 +6,7 @@ import { getHouseholdMoneyTruth } from "@/lib/money/reasoning/getHouseholdMoneyT
 import { buildFinancialSnapshot } from "@/lib/money/reasoning/buildFinancialSnapshot";
 import { explainSnapshot } from "@/lib/money/reasoning/explainSnapshot";
 import { PressureInterpretation } from "@/lib/money/reasoning/interpretPressure";
+import { formatMoneyFromCents } from "@/lib/money/formatMoney";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -86,12 +87,7 @@ function clampInt(v: unknown, min: number, max: number, fallback: number) {
 
 function formatMoney(cents: unknown, currency = "AUD") {
   const n = typeof cents === "number" && Number.isFinite(cents) ? cents : Number(cents);
-  const amount = Number.isFinite(n) ? n / 100 : 0;
-  try {
-    return new Intl.NumberFormat(undefined, { style: "currency", currency }).format(amount);
-  } catch {
-    return `${currency} ${amount.toFixed(2)}`;
-  }
+  return formatMoneyFromCents(Number.isFinite(n) ? n : 0, currency);
 }
 
 function softDate(isoOrDate: string | null | undefined) {

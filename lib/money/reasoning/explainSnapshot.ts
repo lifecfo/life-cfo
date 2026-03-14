@@ -1,6 +1,7 @@
 import { FinancialSnapshot } from "./buildFinancialSnapshot";
 import { PressureSignals } from "./pressureSignals";
 import { interpretPressure, PressureInterpretation } from "./interpretPressure";
+import { formatMoneyFromCents } from "../formatMoney";
 
 export type SnapshotExplanation = {
   headline: string;
@@ -185,9 +186,7 @@ function pct(part: number, whole: number): number {
 }
 
 function formatCurrency(cents: number): string {
-  const n = Number.isFinite(cents) ? cents : 0;
-  const dollars = n / 100;
-  return `$${Math.round(dollars).toLocaleString("en-US")}`;
+  return formatMoneyFromCents(cents, "AUD");
 }
 
 function formatNumber(n: number): string {

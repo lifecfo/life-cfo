@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Page } from "@/components/Page";
 import { Card, CardContent, Chip, useToast } from "@/components/ui";
+import { formatMoneyFromCents } from "@/lib/money/formatMoney";
 
 type MoneyRow = {
   currency: string;
@@ -64,12 +65,7 @@ function safeStr(v: unknown) {
 }
 
 function moneyFromCents(cents: number, currency: string) {
-  const amt = cents / 100;
-  try {
-    return new Intl.NumberFormat(undefined, { style: "currency", currency }).format(amt);
-  } catch {
-    return `${currency} ${amt.toFixed(2)}`;
-  }
+  return formatMoneyFromCents(cents, currency);
 }
 
 function renderMoneyRows(rows: MoneyRow[]) {
