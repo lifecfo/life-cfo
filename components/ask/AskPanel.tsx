@@ -24,18 +24,39 @@ function toneLabel(tone?: string | null, verdict?: string | null) {
   return "Life CFO";
 }
 
-function scopeLabel(scope: string | null) {
-  if (!scope) return "App context";
-  if (scope === "money") return "Money context";
-  if (scope === "accounts") return "Accounts context";
-  if (scope === "transactions") return "Transactions context";
-  if (scope === "connections") return "Connections context";
-  if (scope === "decisions") return "Decisions context";
-  if (scope === "family") return "Family context";
-  if (scope === "household") return "Household context";
-  if (scope === "settings") return "Settings context";
-  if (scope === "home") return "Home context";
-  return "App context";
+function friendlyScopeLabel(scope: string | null) {
+  if (!scope) return "Home";
+  if (scope === "money") return "Money";
+  if (scope === "accounts") return "Money -> Accounts";
+  if (scope === "transactions") return "Money -> Transactions";
+  if (scope === "connections") return "Money -> Connections";
+  if (scope === "decisions") return "Decisions";
+  if (scope === "family") return "Family";
+  if (scope === "household") return "Household";
+  if (scope === "settings") return "Settings";
+  if (scope === "home") return "Home";
+  return "Home";
+}
+
+function routeLabel(pathname: string | null, scope: string | null) {
+  const path = pathname || "";
+
+  if (path === "/lifecfo-home" || path === "/home") return "Home";
+  if (path === "/money") return "Money";
+  if (path === "/money/in" || path.startsWith("/money/in/")) return "Money -> In";
+  if (path === "/money/out" || path.startsWith("/money/out/")) return "Money -> Out";
+  if (path === "/money/saved" || path.startsWith("/money/saved/")) return "Money -> Saved";
+  if (path === "/money/planned" || path.startsWith("/money/planned/")) return "Money -> Planned";
+  if (path === "/money/goals" || path.startsWith("/money/goals/")) return "Money -> Goals";
+  if (path === "/accounts" || path.startsWith("/accounts/")) return "Money -> Accounts";
+  if (path === "/transactions" || path.startsWith("/transactions/")) return "Money -> Transactions";
+  if (path === "/connections" || path.startsWith("/connections/")) return "Money -> Connections";
+  if (path === "/decisions" || path.startsWith("/decisions/")) return "Decisions";
+  if (path === "/family" || path.startsWith("/family/")) return "Family";
+  if (path === "/household" || path.startsWith("/household/")) return "Household";
+  if (path === "/settings" || path.startsWith("/settings/")) return "Settings";
+
+  return friendlyScopeLabel(scope);
 }
 
 export function AskPanel({ mode = "overlay" }: { mode?: AskPanelMode }) {
@@ -52,6 +73,7 @@ export function AskPanel({ mode = "overlay" }: { mode?: AskPanelMode }) {
     retryLast,
     clearAsk,
     currentScope,
+    currentPath,
     shellSplitHostActive,
   } = useAsk();
 
@@ -108,6 +130,10 @@ export function AskPanel({ mode = "overlay" }: { mode?: AskPanelMode }) {
     if (latestAssistant) return toneLabel(latestAssistant.tone, latestAssistant.verdict);
     return "Ask Life CFO";
   }, [status, latestAssistant]);
+  const currentViewLabel = useMemo(
+    () => routeLabel(currentPath, currentScope),
+    [currentPath, currentScope]
+  );
   const hasScrollableContentAboveInput =
     messages.length > 0 ||
     status === "loading" ||
@@ -122,7 +148,7 @@ export function AskPanel({ mode = "overlay" }: { mode?: AskPanelMode }) {
       <div className="shrink-0 flex items-center justify-between gap-3 border-b border-zinc-100 px-4 py-4">
         <div className="min-w-0">
           <div className="text-sm font-semibold text-zinc-900">{title}</div>
-          <div className="text-xs text-zinc-500">{scopeLabel(currentScope)}.</div>
+          <div className="text-xs text-zinc-500">Looking at: {currentViewLabel}</div>
         </div>
 
         <div className="flex items-center gap-2">
