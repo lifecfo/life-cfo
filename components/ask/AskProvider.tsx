@@ -17,6 +17,7 @@ import {
   section,
   stableGroundLine,
 } from "@/components/ask/moneyAskLanguage";
+import type { PressureInterpretation } from "@/lib/money/reasoning/interpretPressure";
 
 type AskActionHref = string | null;
 type AskStatus = "idle" | "loading" | "done" | "error";
@@ -117,6 +118,33 @@ async function getSignedInUserId(): Promise<string | null> {
 type RunQuestionOptions = {
   appendUserMessage?: boolean;
 };
+
+function buildInterpretationLines(
+  interpretation: PressureInterpretation | null | undefined
+): {
+  main: string[];
+  next: string[];
+  confidence: string[];
+} {
+  if (!interpretation) return { main: [], next: [], confidence: [] };
+
+  const main = [
+    interpretation.main_pressure.summary,
+    interpretation.main_pressure.why_now,
+    interpretation.secondary_pressure?.summary ?? null,
+  ].filter((line): line is string => typeof line === "string" && line.trim().length > 0);
+
+  const next = (interpretation.what_to_ask_next ?? [])
+    .filter((line): line is string => typeof line === "string" && line.trim().length > 0)
+    .slice(0, 3);
+
+  const confidence =
+    interpretation.confidence?.note && interpretation.confidence.note.trim()
+      ? [interpretation.confidence.note]
+      : [];
+
+  return { main, next, confidence };
+}
 
 export function AskProvider({ children }: { children: ReactNode }) {
   const pathname = usePathname();
@@ -220,7 +248,7 @@ export function AskProvider({ children }: { children: ReactNode }) {
           setErrorMessage(
             typeof json?.error === "string"
               ? json.error
-              : "I couldn’t answer that right now."
+              : "I couldn't answer that right now."
           );
           return;
         }
@@ -237,6 +265,10 @@ export function AskProvider({ children }: { children: ReactNode }) {
         let content = typeof json?.answer === "string" ? json.answer : "";
         let tone: string | null = typeof json?.tone === "string" ? json.tone : null;
         let verdict: string | null = typeof json?.verdict === "string" ? json.verdict : null;
+        const interpretation =
+          (json?.interpretation as PressureInterpretation | undefined) ||
+          (json?.explanation?.interpretation as PressureInterpretation | undefined);
+        const interpretationLines = buildInterpretationLines(interpretation);
 
         if (isMoneyScope && json?.mode === "snapshot") {
           const headline = typeof json?.explanation?.headline === "string" ? json.explanation.headline : "Money snapshot";
@@ -244,16 +276,15 @@ export function AskProvider({ children }: { children: ReactNode }) {
           const insights = Array.isArray(json?.explanation?.insights)
             ? (json.explanation.insights as string[]).filter((s) => typeof s === "string" && s.trim())
             : [];
-          const pressures = json?.explanation?.pressure || {};
-          const pressureLines = [
-            typeof pressures.structural === "string" ? `Structural: ${pressures.structural}` : null,
-            typeof pressures.discretionary === "string" ? `Discretionary: ${pressures.discretionary}` : null,
-            typeof pressures.timing === "string" ? `Timing: ${pressures.timing}` : null,
-            typeof pressures.stability === "string" ? `Stability: ${pressures.stability}` : null,
-          ].filter(Boolean);
           const hasEvidence = insights.length > 0;
           const languageContext = deriveAskLanguageContext({
-            lines: [headline, summary, ...insights, ...pressureLines],
+            lines: [
+              headline,
+              summary,
+              ...insights,
+              ...interpretationLines.main,
+              ...interpretationLines.confidence,
+            ],
             hasEvidence,
           });
 
@@ -261,7 +292,9 @@ export function AskProvider({ children }: { children: ReactNode }) {
             headline,
             summary,
             section("What stands out right now:", insights),
-            section("Where it may feel heavy:", pressureLines),
+            section("Main pressure right now:", interpretationLines.main),
+            section("What to ask next:", interpretationLines.next),
+            section("Confidence note:", interpretationLines.confidence),
             stableGroundLine({ mode: "snapshot", hasEvidence, context: languageContext }),
           ]);
 
@@ -279,16 +312,18 @@ export function AskProvider({ children }: { children: ReactNode }) {
             ? (diag.drivers as string[]).filter((d) => typeof d === "string" && d.trim())
             : [];
 
-          const sig = diag?.signals || {};
-          const signalLines = [
-            typeof sig.structural === "string" ? `Structural: ${sig.structural}` : null,
-            typeof sig.discretionary === "string" ? `Discretionary: ${sig.discretionary}` : null,
-            typeof sig.timing === "string" ? `Timing: ${sig.timing}` : null,
-            typeof sig.stability === "string" ? `Stability: ${sig.stability}` : null,
-          ].filter(Boolean);
-          const hasEvidence = drivers.length > 0 || signalLines.length > 0;
+          const hasEvidence =
+            drivers.length > 0 ||
+            interpretationLines.next.length > 0 ||
+            interpretationLines.confidence.length > 0;
           const languageContext = deriveAskLanguageContext({
-            lines: [headline, summary, ...drivers, ...signalLines],
+            lines: [
+              headline,
+              summary,
+              ...drivers,
+              ...interpretationLines.next,
+              ...interpretationLines.confidence,
+            ],
             hasEvidence,
           });
 
@@ -296,7 +331,8 @@ export function AskProvider({ children }: { children: ReactNode }) {
             headline,
             summary,
             section("What seems to be driving this:", drivers),
-            section("What that pressure looks like right now:", signalLines),
+            section("What to ask next:", interpretationLines.next),
+            section("Confidence note:", interpretationLines.confidence),
             stableGroundLine({
               mode: "diagnosis",
               hasEvidence,
@@ -322,9 +358,19 @@ export function AskProvider({ children }: { children: ReactNode }) {
           const notes = Array.isArray(planning?.notes)
             ? (planning.notes as string[]).filter((n) => typeof n === "string" && n.trim())
             : [];
-          const hasEvidence = upcoming.length > 0 || notes.length > 0;
+          const hasEvidence =
+            upcoming.length > 0 ||
+            notes.length > 0 ||
+            interpretationLines.next.length > 0;
           const languageContext = deriveAskLanguageContext({
-            lines: [headline, summary, ...upcoming, ...notes],
+            lines: [
+              headline,
+              summary,
+              ...upcoming,
+              ...notes,
+              ...interpretationLines.next,
+              ...interpretationLines.confidence,
+            ],
             hasEvidence,
           });
 
@@ -333,6 +379,8 @@ export function AskProvider({ children }: { children: ReactNode }) {
             summary,
             section("What is coming up:", upcoming),
             section("A helpful note:", notes),
+            section("What to ask next:", interpretationLines.next),
+            section("Confidence note:", interpretationLines.confidence),
             stableGroundLine({
               mode: "planning",
               hasEvidence,
@@ -362,7 +410,14 @@ export function AskProvider({ children }: { children: ReactNode }) {
           const hasEvidence = signals.length > 0;
           const hasCaveat = !!caveat;
           const languageContext = deriveAskLanguageContext({
-            lines: [headline, summary, ...signals, caveat],
+            lines: [
+              headline,
+              summary,
+              ...signals,
+              caveat,
+              ...interpretationLines.next,
+              ...interpretationLines.confidence,
+            ],
             hasEvidence,
             hasCaveat,
           });
@@ -372,6 +427,8 @@ export function AskProvider({ children }: { children: ReactNode }) {
             summary,
             section("What this is showing right now:", signals),
             section("What would make this clearer:", caveat ? [caveat] : []),
+            section("What to ask next:", interpretationLines.next),
+            section("Confidence note:", hasCaveat ? [] : interpretationLines.confidence),
             stableGroundLine({
               mode: "affordability",
               hasCaveat,
@@ -402,7 +459,14 @@ export function AskProvider({ children }: { children: ReactNode }) {
           const hasEvidence = watch.length > 0;
           const hasCaveat = !!caveat;
           const languageContext = deriveAskLanguageContext({
-            lines: [headline, summary, ...watch, caveat],
+            lines: [
+              headline,
+              summary,
+              ...watch,
+              caveat,
+              ...interpretationLines.next,
+              ...interpretationLines.confidence,
+            ],
             hasEvidence,
             hasCaveat,
           });
@@ -412,6 +476,8 @@ export function AskProvider({ children }: { children: ReactNode }) {
             summary,
             section("If this changes, keep an eye on:", watch),
             section("What would make this clearer:", caveat ? [caveat] : []),
+            section("What to ask next:", interpretationLines.next),
+            section("Confidence note:", hasCaveat ? [] : interpretationLines.confidence),
             stableGroundLine({
               mode: "scenario",
               hasCaveat,
@@ -464,7 +530,7 @@ export function AskProvider({ children }: { children: ReactNode }) {
         setErrorMessage(null);
       } catch {
         setStatus("error");
-        setErrorMessage("I couldn’t answer that right now.");
+        setErrorMessage("I couldn't answer that right now.");
       }
     },
     [draft, currentPath, currentScope, rememberRecentMoneyAsk]
@@ -472,6 +538,7 @@ export function AskProvider({ children }: { children: ReactNode }) {
 
   const submitAsk = useCallback(
     async (question?: string, _options?: SubmitOptions) => {
+      void _options;
       await runQuestion(question, { appendUserMessage: true });
     },
     [runQuestion]
@@ -527,3 +594,4 @@ export function useAsk() {
   if (!ctx) throw new Error("useAsk must be used inside AskProvider");
   return ctx;
 }
+

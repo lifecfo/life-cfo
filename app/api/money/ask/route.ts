@@ -5,6 +5,7 @@ import { supabaseRoute } from "@/lib/supabaseRoute";
 import { getHouseholdMoneyTruth } from "@/lib/money/reasoning/getHouseholdMoneyTruth";
 import { buildFinancialSnapshot } from "@/lib/money/reasoning/buildFinancialSnapshot";
 import { explainSnapshot } from "@/lib/money/reasoning/explainSnapshot";
+import { PressureInterpretation } from "@/lib/money/reasoning/interpretPressure";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -15,6 +16,7 @@ type AskBody = {
   q?: string;
   limit?: number;
 };
+type RouteSupabase = Awaited<ReturnType<typeof supabaseRoute>>;
 
 const ORIENTATION_KEYWORDS = [
   "are we okay",
@@ -180,6 +182,35 @@ function isSpecificScenarioPrompt(lowerQ: string): boolean {
   return specificHints.some((hint) => lowerQ.includes(hint));
 }
 
+function buildDiagnosisDrivers(
+  rankedSignals: Array<{ name: string; summary: string; score: number }>,
+  interpretation: PressureInterpretation
+): string[] {
+  const lines: string[] = [];
+
+  if (interpretation.main_pressure.key !== "none") {
+    lines.push(interpretation.main_pressure.summary);
+    if (interpretation.main_pressure.why_now) {
+      lines.push(interpretation.main_pressure.why_now);
+    }
+  }
+
+  if (interpretation.secondary_pressure?.summary) {
+    lines.push(interpretation.secondary_pressure.summary);
+  }
+
+  if (interpretation.confidence.note) {
+    lines.push(interpretation.confidence.note);
+  }
+
+  if (lines.length) return lines.slice(0, 4);
+
+  return rankedSignals
+    .filter((s) => s.score >= 0.15)
+    .slice(0, 4)
+    .map((s) => s.summary);
+}
+
 async function readCookie(name: string) {
   // Next.js cookies() is async
   const jar = await cookies();
@@ -187,7 +218,7 @@ async function readCookie(name: string) {
 }
 
 async function resolveActiveHouseholdId(
-  supabase: any,
+  supabase: RouteSupabase,
   userId: string
 ): Promise<string | null> {
   // cookie-first (must be a valid membership)
@@ -217,7 +248,7 @@ async function resolveActiveHouseholdId(
 }
 
 async function ensureHouseholdMember(
-  supabase: any,
+  supabase: RouteSupabase,
   userId: string,
   householdId: string
 ) {
@@ -282,6 +313,7 @@ export async function POST(req: Request) {
       const truth = await getHouseholdMoneyTruth(supabase, { householdId });
       const snapshot = buildFinancialSnapshot(truth);
       const explanation = explainSnapshot(snapshot);
+      const interpretation = explanation.interpretation;
 
       return NextResponse.json({
         ok: true,
@@ -289,6 +321,7 @@ export async function POST(req: Request) {
         household_id: householdId,
         snapshot,
         explanation,
+        interpretation,
       });
     }
 
@@ -296,6 +329,7 @@ export async function POST(req: Request) {
       const truth = await getHouseholdMoneyTruth(supabase, { householdId });
       const snapshot = buildFinancialSnapshot(truth);
       const explanation = explainSnapshot(snapshot);
+      const interpretation = explanation.interpretation;
 
       const signals = snapshot.pressure;
 
@@ -306,10 +340,7 @@ export async function POST(req: Request) {
         { name: "stability", summary: signals.stability_risk.summary, score: signals.stability_risk.score },
       ].sort((a, b) => b.score - a.score);
 
-      const drivers = rankedSignals
-        .filter((s) => s.score >= 0.15)
-        .slice(0, 4)
-        .map((s) => s.summary);
+      const drivers = buildDiagnosisDrivers(rankedSignals, interpretation);
 
       const diagnosis = {
         headline: explanation.headline || "Here is what seems to be creating pressure right now.",
@@ -330,6 +361,7 @@ export async function POST(req: Request) {
         mode: "diagnosis",
         household_id: householdId,
         diagnosis,
+        interpretation,
       });
     }
 
@@ -337,6 +369,7 @@ export async function POST(req: Request) {
       const truth = await getHouseholdMoneyTruth(supabase, { householdId });
       const snapshot = buildFinancialSnapshot(truth);
       const explanation = explainSnapshot(snapshot);
+      const interpretation = explanation.interpretation;
 
       const signals: string[] = [
         `Available cash is ${formatMoney(snapshot.liquidity.availableCashCents)}.`,
@@ -370,6 +403,7 @@ export async function POST(req: Request) {
         ok: true,
         mode: "affordability",
         household_id: householdId,
+        interpretation,
         affordability: {
           headline: "Here is your current affordability baseline.",
           summary,
@@ -383,6 +417,7 @@ export async function POST(req: Request) {
       const truth = await getHouseholdMoneyTruth(supabase, { householdId });
       const snapshot = buildFinancialSnapshot(truth);
       const explanation = explainSnapshot(snapshot);
+      const interpretation = explanation.interpretation;
 
       const nowMs = toMs(truth.windows?.now_iso) ?? toMs(truth.as_of_iso) ?? Date.now();
       const next30Ms =
@@ -450,6 +485,7 @@ export async function POST(req: Request) {
         ok: true,
         mode: "planning",
         household_id: householdId,
+        interpretation,
         planning: {
           headline,
           summary,
@@ -463,6 +499,7 @@ export async function POST(req: Request) {
       const truth = await getHouseholdMoneyTruth(supabase, { householdId });
       const snapshot = buildFinancialSnapshot(truth);
       const explanation = explainSnapshot(snapshot);
+      const interpretation = explanation.interpretation;
 
       const watch: string[] = [
         `Recurring commitments are about ${formatMoney(
@@ -498,6 +535,7 @@ export async function POST(req: Request) {
         ok: true,
         mode: "scenario",
         household_id: householdId,
+        interpretation,
         scenario: {
           headline: "Here is the baseline for that what-if question.",
           summary,
@@ -509,7 +547,7 @@ export async function POST(req: Request) {
 
     const like = `%${q}%`;
 
-    // NOTE: keep this as retrieval-only (no “AI answers” here)
+    // NOTE: keep this as retrieval-only (no "AI answers" here)
     const [accountsRes, billsRes, txRes] = await Promise.all([
       supabase
         .from("accounts")
@@ -564,7 +602,9 @@ export async function POST(req: Request) {
         transactions: txRes.data ?? [],
       },
     });
-  } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message ?? "Ask failed." }, { status: 500 });
+  } catch (e: unknown) {
+    const message = e instanceof Error && e.message ? e.message : "Ask failed.";
+    return NextResponse.json({ ok: false, error: message }, { status: 500 });
   }
 }
+

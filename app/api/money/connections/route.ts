@@ -26,6 +26,11 @@ function isOwnerOrEditor(role: unknown) {
   return r === "owner" || r === "editor";
 }
 
+function isReusableBasiqStatus(status: unknown) {
+  const s = typeof status === "string" ? status.trim().toLowerCase() : "";
+  return s === "needs_auth" || s === "error";
+}
+
 export async function GET() {
   try {
     const supabase = await supabaseRoute();
@@ -149,6 +154,58 @@ export async function POST(req: Request) {
         ? body.display_name
         : defaultDisplayName(provider);
     const currency = typeof body?.currency === "string" ? body.currency : "AUD";
+
+    if (provider === "basiq") {
+      const { data: existingRows, error: existingErr } = await supabase
+        .from("external_connections")
+        .select("id,household_id,user_id,provider,status,display_name,created_at,updated_at")
+        .eq("household_id", householdId)
+        .eq("provider", "basiq")
+        .in("status", ["needs_auth", "error"])
+        .order("updated_at", { ascending: false })
+        .order("created_at", { ascending: false })
+        .limit(1);
+
+      if (existingErr) throw existingErr;
+
+      const reusable = (existingRows ?? []).find((row: any) =>
+        isReusableBasiqStatus(row?.status)
+      );
+
+      if (reusable) {
+        if (reusable.status !== "needs_auth") {
+          const { error: reuseUpdateErr } = await supabase
+            .from("external_connections")
+            .update({
+              status: "needs_auth",
+              display_name: display_name ?? reusable.display_name ?? defaultDisplayName("basiq"),
+              updated_at: new Date().toISOString(),
+              last_error: null,
+              last_error_at: null,
+            })
+            .eq("id", reusable.id)
+            .eq("household_id", householdId);
+
+          if (reuseUpdateErr) throw reuseUpdateErr;
+        }
+
+        const { data: refreshedReusable, error: refreshedErr } = await supabase
+          .from("external_connections")
+          .select("id,household_id,user_id,provider,status,display_name,created_at")
+          .eq("id", reusable.id)
+          .eq("household_id", householdId)
+          .maybeSingle();
+
+        if (refreshedErr) throw refreshedErr;
+
+        return NextResponse.json({
+          ok: true,
+          household_id: householdId,
+          connection: refreshedReusable ?? reusable,
+          seeded_accounts: [],
+        });
+      }
+    }
 
     const { data: connection, error: connErr } = await supabase
       .from("external_connections")

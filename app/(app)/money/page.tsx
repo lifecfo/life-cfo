@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { Page } from "@/components/Page";
 import { Button, Card, CardContent, Chip, useToast } from "@/components/ui";
 import { useAsk } from "@/components/ask/AskProvider";
+import type { PressureInterpretation } from "@/lib/money/reasoning/interpretPressure";
 
 type FinancialSnapshot = {
   asOf: string;
@@ -32,6 +33,7 @@ type SnapshotExplanation = {
     timing: string;
     stability: string;
   };
+  interpretation?: PressureInterpretation;
 };
 
 type OverviewResponse = {
@@ -92,6 +94,15 @@ function getErrorMessage(error: unknown, fallback: string) {
   return fallback;
 }
 
+function uniquePush(list: string[], seen: Set<string>, value: string) {
+  const v = value.trim();
+  if (!v) return;
+  const key = v.toLowerCase();
+  if (seen.has(key)) return;
+  seen.add(key);
+  list.push(v);
+}
+
 export default function MoneyClientNext() {
   const router = useRouter();
   const { showToast } = useToast();
@@ -104,6 +115,7 @@ export default function MoneyClientNext() {
 
   const snapshot = data?.snapshot;
   const explanation = data?.explanation;
+  const interpretation = explanation?.interpretation;
 
   const refresh = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
@@ -137,13 +149,6 @@ export default function MoneyClientNext() {
     return () => window.removeEventListener("focus", onFocus);
   }, [refresh]);
 
-  const askExamples = [
-    "Are we okay this month?",
-    "Why does money feel tight right now?",
-    "What is coming up this month?",
-    "Can we afford this?",
-  ];
-
   const openWithQuestion = (q: string) => {
     setDraft(q);
     openAsk();
@@ -170,6 +175,68 @@ export default function MoneyClientNext() {
         : `${snapshot.connections.stale} of ${snapshot.connections.total} connection(s) may need a refresh.`
     : "Connection freshness will show here.";
 
+  const dynamicAskExamples = (() => {
+    const fallback = [
+      "Are we okay this month?",
+      "Why does money feel tight right now?",
+      "What is coming up this month?",
+      "Can we afford this?",
+    ];
+
+    if (!snapshot) return fallback;
+
+    const prompts: string[] = [];
+    const seen = new Set<string>();
+    const interpretationPrompts = interpretation?.what_to_ask_next ?? [];
+    const hasConnectedData = snapshot.connections.total > 0;
+    const hasStaleData = snapshot.connections.stale > 0;
+    const hasImportedData = importedRecent.length > 0;
+    const hasIncome = snapshot.income.recurringMonthlyCents > 0;
+    const committedShare = hasIncome
+      ? snapshot.commitments.recurringMonthlyCents / snapshot.income.recurringMonthlyCents
+      : null;
+
+    interpretationPrompts.forEach((q) => uniquePush(prompts, seen, q));
+
+    if (!hasConnectedData) {
+      uniquePush(prompts, seen, "What will become clearer after we connect accounts?");
+    } else if (hasStaleData) {
+      uniquePush(prompts, seen, "How much could stale connection data be affecting this view?");
+    }
+
+    if (hasImportedData) {
+      uniquePush(prompts, seen, "What changed in our recent imported spending?");
+    }
+
+    if (committedShare !== null && committedShare >= 0.7) {
+      uniquePush(prompts, seen, "Why does money feel tight right now, and what is driving it?");
+    } else {
+      uniquePush(prompts, seen, "Are we okay this month after commitments?");
+    }
+
+    uniquePush(prompts, seen, "What is coming up before the next income?");
+    uniquePush(prompts, seen, "Can we afford this?");
+
+    fallback.forEach((q) => uniquePush(prompts, seen, q));
+    return prompts.slice(0, 4);
+  })();
+
+  const askNextLine = snapshot
+    ? interpretation?.confidence.note ||
+      (snapshot.connections.total === 0
+        ? "Suggestions are based on your current setup. Connect accounts for a fuller read."
+        : snapshot.connections.stale > 0
+          ? `${snapshot.connections.stale} connection(s) may be out of date, so suggestions include a freshness check.`
+          : "Suggestions are based on your latest connected household data.")
+    : "Suggestions will adapt once your current money picture loads.";
+
+  const askAboutDataQuestion =
+    snapshot?.connections.total && snapshot.connections.stale > 0
+      ? "How much could stale connection data be affecting this view?"
+      : latestImported
+        ? "What changed in our recent imported spending?"
+        : "Are we okay this month?";
+
   return (
     <Page title="Money" subtitle="A calm view of money coming in, going out, saved, and planned.">
       <div className="mx-auto w-full max-w-[980px] px-4 sm:px-6">
@@ -191,7 +258,7 @@ export default function MoneyClientNext() {
               <div className="space-y-1">
                 <div className="text-sm font-semibold text-zinc-900">Start with a money question</div>
                 <div className="text-xs text-zinc-500">
-                  Ask first for a quick read, then use In, Out, Saved, and Planned below for detail.
+                  Ask first for a quick read. Suggestions below use your current money picture.
                 </div>
               </div>
               <div className="flex flex-wrap gap-2">
@@ -217,9 +284,12 @@ export default function MoneyClientNext() {
                   </div>
                 </div>
               ) : null}
-              <div className="text-xs text-zinc-500">Try one</div>
+              <div className="space-y-1">
+                <div className="text-xs text-zinc-500">What to ask next</div>
+                <div className="text-xs text-zinc-500">{askNextLine}</div>
+              </div>
               <div className="flex flex-wrap gap-2">
-                {askExamples.map((q) => (
+                {dynamicAskExamples.map((q) => (
                   <Chip key={q} className="text-xs" onClick={() => openWithQuestion(q)} title={q}>
                     {q}
                   </Chip>
@@ -239,6 +309,11 @@ export default function MoneyClientNext() {
                     ? "Loading..."
                     : "This page gives a short view of your household money right now.")}
               </div>
+              {interpretation ? (
+                <div className="text-xs leading-relaxed text-zinc-600">
+                  {`Main pressure now: ${interpretation.main_pressure.summary} ${interpretation.main_pressure.why_now}`}
+                </div>
+              ) : null}
               <ul className="list-disc space-y-1 pl-4 text-xs text-zinc-600">
                 {(explanation?.insights ?? []).slice(0, 3).map((line, idx) => (
                   <li key={idx}>{line}</li>
@@ -270,6 +345,9 @@ export default function MoneyClientNext() {
                 </li>
               </ul>
               <div className="flex flex-wrap gap-2">
+                <Chip onClick={() => openWithQuestion(askAboutDataQuestion)}>
+                  Ask about this data
+                </Chip>
                 <Link href="/transactions">
                   <Chip>Open transactions</Chip>
                 </Link>

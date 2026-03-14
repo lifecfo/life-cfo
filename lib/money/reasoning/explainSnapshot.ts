@@ -1,5 +1,6 @@
 import { FinancialSnapshot } from "./buildFinancialSnapshot";
 import { PressureSignals } from "./pressureSignals";
+import { interpretPressure, PressureInterpretation } from "./interpretPressure";
 
 export type SnapshotExplanation = {
   headline: string;
@@ -11,6 +12,7 @@ export type SnapshotExplanation = {
     timing: string;
     stability: string;
   };
+  interpretation: PressureInterpretation;
 };
 
 export function explainSnapshot(snapshot: FinancialSnapshot): SnapshotExplanation {
@@ -37,6 +39,7 @@ export function explainSnapshot(snapshot: FinancialSnapshot): SnapshotExplanatio
     discretionaryCents: discretionary.last30DayOutflowCents,
     connections,
   });
+  const interpretation = interpretPressure(snapshot);
 
   return {
     headline,
@@ -48,6 +51,7 @@ export function explainSnapshot(snapshot: FinancialSnapshot): SnapshotExplanatio
       timing: pressure.timing_mismatch.summary,
       stability: pressure.stability_risk.summary,
     },
+    interpretation,
   };
 }
 

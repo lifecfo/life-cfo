@@ -8,6 +8,11 @@ import { explainSnapshot } from "@/lib/money/reasoning/explainSnapshot";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+function errorMessage(error: unknown, fallback: string): string {
+  if (error instanceof Error && error.message) return error.message;
+  return fallback;
+}
+
 export async function GET() {
   try {
     const supabase = await supabaseRoute();
@@ -38,9 +43,9 @@ export async function GET() {
     const explanation = explainSnapshot(snapshot);
 
     return NextResponse.json({ snapshot, explanation });
-  } catch (e: any) {
+  } catch (e: unknown) {
     return NextResponse.json(
-      { ok: false, error: e?.message ?? "Money overview fetch failed" },
+      { ok: false, error: errorMessage(e, "Money overview fetch failed") },
       { status: 500 }
     );
   }
