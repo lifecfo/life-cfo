@@ -21,7 +21,7 @@ function toneLabel(tone?: string | null, verdict?: string | null) {
   if (verdict === "NEEDS_ATTENTION") return "Needs attention";
   if (tone === "attention") return "Needs attention";
   if (tone === "tight") return "A bit tight";
-  return "Answer";
+  return "Life CFO";
 }
 
 function scopeLabel(scope: string | null) {
@@ -149,9 +149,9 @@ export function AskPanel({ mode = "overlay" }: { mode?: AskPanelMode }) {
                   <div
                     key={message.id}
                     className={[
-                      "max-w-[75%] rounded-2xl border p-3",
+                      "ask-bubble rounded-2xl border p-3",
                       isUser
-                        ? "ml-8 border-zinc-200 bg-zinc-50"
+                        ? "ml-8 max-w-[75%] border-zinc-200 bg-zinc-50"
                         : "mr-8 border-zinc-200 bg-white",
                     ].join(" ")}
                   >
@@ -259,7 +259,7 @@ export function AskPanel({ mode = "overlay" }: { mode?: AskPanelMode }) {
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             placeholder="Ask anything about money, decisions, pressure points, or what to do next..."
-            className="mt-2 min-h-[110px] w-full resize-y rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-[14px] leading-relaxed text-zinc-800 outline-none focus:ring-2 focus:ring-zinc-200"
+            className="mt-2 min-h-[90px] w-full resize-y rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-[14px] leading-relaxed text-zinc-800 outline-none focus:ring-2 focus:ring-zinc-200"
             onKeyDown={(e) => {
               const isMac =
                 typeof navigator !== "undefined" &&
@@ -303,6 +303,22 @@ export function AskPanel({ mode = "overlay" }: { mode?: AskPanelMode }) {
           </div>
         </div>
       </div>
+      <style jsx>{`
+        .ask-bubble {
+          animation: askBubbleFadeIn 180ms ease-out;
+        }
+
+        @keyframes askBubbleFadeIn {
+          from {
+            opacity: 0;
+            transform: translateY(2px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+      `}</style>
     </div>
   );
 
