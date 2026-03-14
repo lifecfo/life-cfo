@@ -111,7 +111,7 @@ export function AskPanel({ mode = "overlay" }: { mode?: AskPanelMode }) {
   if (!effectiveOpen) return null;
 
   const panelContent = (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full w-full flex-col">
       <div className="flex items-center justify-between gap-3 border-b border-zinc-100 px-4 py-4">
         <div className="min-w-0">
           <div className="text-sm font-semibold text-zinc-900">{title}</div>
