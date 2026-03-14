@@ -344,7 +344,7 @@ export function AppShell({ children }: AppShellProps) {
       >
         {askOpen ? (
           <>
-            <div className="hidden md:grid md:h-[calc(100dvh-110px)] md:grid-cols-[minmax(0,1fr)_440px] md:gap-4">
+            <div className="hidden md:grid md:h-[calc(100dvh-110px)] md:grid-cols-[minmax(0,2fr)_minmax(360px,1fr)] md:gap-4">
               <div className="min-h-0 overflow-y-auto pr-1">{children}</div>
               <div className="min-h-0">
                 <AskPanel mode="split" />
