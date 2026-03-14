@@ -213,7 +213,7 @@ export function AppShell({ children }: AppShellProps) {
     "block w-full rounded-xl px-4 py-3 text-left text-sm font-medium text-zinc-900 transition hover:bg-zinc-50";
 
   return (
-    <div className="min-h-dvh bg-white">
+    <div className="min-h-dvh bg-white md:flex md:h-dvh md:flex-col md:overflow-hidden">
       <div className="sticky top-0 z-40 border-b border-zinc-100 bg-white">
         <div className={["mx-auto flex w-full items-center justify-between gap-2 px-4 py-3", askOpen ? "max-w-[1720px]" : "max-w-[1320px]"].join(" ")}>
           <div className="flex min-w-0 items-center gap-3">
@@ -385,14 +385,14 @@ export function AppShell({ children }: AppShellProps) {
 
       <div
         className={[
-          "mx-auto w-full px-4 py-6",
+          "mx-auto w-full px-4 py-6 md:min-h-0 md:flex-1 md:py-4",
           askOpen ? "max-w-[1720px]" : "max-w-[1320px]",
         ].join(" ")}
       >
-        <div className="md:flex md:items-start md:gap-4">
+        <div className="md:flex md:h-full md:min-h-0 md:items-stretch md:gap-4">
           <aside
             className={[
-              "hidden md:flex md:shrink-0 md:flex-col md:gap-3 md:rounded-2xl md:border md:border-zinc-200 md:bg-white md:p-3",
+              "hidden md:flex md:h-full md:min-h-0 md:shrink-0 md:flex-col md:gap-3 md:overflow-y-auto md:rounded-2xl md:border md:border-zinc-200 md:bg-white md:p-3",
               sidebarCollapsed ? "md:w-[76px]" : "md:w-[240px]",
             ].join(" ")}
             aria-label="Primary navigation"
@@ -450,10 +450,10 @@ export function AppShell({ children }: AppShellProps) {
             </nav>
           </aside>
 
-          <div className="min-w-0 flex-1">
+          <div className="min-w-0 flex-1 md:min-h-0">
             {askOpen ? (
               <>
-                <div className="hidden md:grid md:h-[calc(100dvh-110px)] md:grid-cols-[minmax(0,2fr)_minmax(360px,1fr)] md:gap-4">
+                <div className="hidden md:grid md:h-full md:min-h-0 md:grid-cols-[minmax(0,2fr)_minmax(360px,1fr)] md:gap-4">
                   <div className="min-h-0 overflow-y-auto pr-1">{children}</div>
                   <div className="min-h-0">
                     <AskPanel mode="split" />
@@ -462,7 +462,7 @@ export function AppShell({ children }: AppShellProps) {
                 <div className="md:hidden">{children}</div>
               </>
             ) : (
-              children
+              <div className="md:h-full md:min-h-0 md:overflow-y-auto">{children}</div>
             )}
           </div>
         </div>
