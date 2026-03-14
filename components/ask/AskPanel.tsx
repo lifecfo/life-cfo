@@ -128,7 +128,7 @@ export function AskPanel({ mode = "overlay" }: { mode?: AskPanelMode }) {
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-4">
         <div className="space-y-4">
           {messages.length > 0 ? (
-            <div className="space-y-3">
+            <div className="space-y-4">
               {messages.map((message) => {
                 const isUser = message.role === "user";
 
@@ -136,7 +136,7 @@ export function AskPanel({ mode = "overlay" }: { mode?: AskPanelMode }) {
                   <div
                     key={message.id}
                     className={[
-                      "rounded-2xl border p-3",
+                      "max-w-[75%] rounded-2xl border p-3",
                       isUser
                         ? "ml-8 border-zinc-200 bg-zinc-50"
                         : "mr-8 border-zinc-200 bg-white",
@@ -214,38 +214,26 @@ export function AskPanel({ mode = "overlay" }: { mode?: AskPanelMode }) {
                   </div>
                 )}
               </div>
-            ) : (
-              <div>
-                {!examplesExpanded ? (
+            ) : examplesExpanded ? (
+              <div className="rounded-2xl border border-zinc-200 bg-white p-3">
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <div className="text-sm text-zinc-700">Ask things like</div>
                   <button
                     type="button"
-                    onClick={() => setExamplesExpanded(true)}
+                    onClick={() => setExamplesExpanded(false)}
                     className="text-xs text-zinc-500 hover:text-zinc-700"
                   >
-                    Need ideas? Show examples
+                    Hide
                   </button>
-                ) : (
-                  <div className="rounded-2xl border border-zinc-200 bg-white p-3">
-                    <div className="mb-2 flex items-center justify-between gap-2">
-                      <div className="text-sm text-zinc-700">Ask things like</div>
-                      <button
-                        type="button"
-                        onClick={() => setExamplesExpanded(false)}
-                        className="text-xs text-zinc-500 hover:text-zinc-700"
-                      >
-                        Hide
-                      </button>
-                    </div>
-                    <div className="space-y-1 text-sm text-zinc-600">
-                      <div>• Are we okay this month?</div>
-                      <div>• What bills are coming up?</div>
-                      <div>• Where is our money leaking?</div>
-                      <div>• Can we afford this?</div>
-                    </div>
-                  </div>
-                )}
+                </div>
+                <div className="space-y-1 text-sm text-zinc-600">
+                  <div>• Are we okay this month?</div>
+                  <div>• What bills are coming up?</div>
+                  <div>• Where is our money leaking?</div>
+                  <div>• Can we afford this?</div>
+                </div>
               </div>
-            )
+            ) : null
           ) : null}
         </div>
       </div>
@@ -279,14 +267,26 @@ export function AskPanel({ mode = "overlay" }: { mode?: AskPanelMode }) {
           />
 
           <div className="mt-3 flex items-center justify-between gap-2">
-            <div className="text-xs text-zinc-500">Answer-first. Save later.</div>
-            <Button
-              onClick={() => void submitAsk()}
-              disabled={!draft.trim() || status === "loading"}
-              className="rounded-2xl"
-            >
-              {status === "loading" ? "Thinking..." : "Get answer"}
-            </Button>
+            {mode === "overlay" && messages.length === 0 && !examplesExpanded ? (
+              <button
+                type="button"
+                onClick={() => setExamplesExpanded(true)}
+                className="text-xs text-zinc-500 hover:text-zinc-700"
+              >
+                Need ideas? Show examples
+              </button>
+            ) : (
+              <div />
+            )}
+            <div className="ml-auto">
+              <Button
+                onClick={() => void submitAsk()}
+                disabled={!draft.trim() || status === "loading"}
+                className="rounded-2xl"
+              >
+                {status === "loading" ? "Thinking..." : "Get answer"}
+              </Button>
+            </div>
           </div>
         </div>
       </div>
