@@ -136,7 +136,7 @@ export function AskPanel({ mode = "overlay" }: { mode?: AskPanelMode }) {
         className={
           hasScrollableContentAboveInput
             ? "flex-1 overflow-y-auto px-4 py-4"
-            : "px-4 py-4"
+            : "px-4 py-0"
         }
       >
         <div className="space-y-4">
