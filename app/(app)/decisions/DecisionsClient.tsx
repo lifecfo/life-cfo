@@ -1605,6 +1605,9 @@ export default function DecisionsClient() {
     const summariesHasAny = summaries.length > 0;
     const notesCount = notes.length;
     const filesCount = allAtt.length;
+    const latestSummary = summaries[0] ?? null;
+    const statusLabel = d.status === "chapter" ? "Closed" : d.status === "open" ? "Active" : d.status || "Active";
+    const decisionReason = (ctx.captured || ctx.notes || "").trim();
 
     const summariesExpanded = !!summariesExpandedByDecisionId[d.id];
     const notesExpanded = !!notesExpandedByDecisionId[d.id];
@@ -1750,55 +1753,36 @@ export default function DecisionsClient() {
           </div>
         </div>
 
-        {/* Primary action */}
-        {!isWorking ? (
-          <div className="mt-4">
-            <PrimaryActionButton
-              onClick={() => {
-                setWorkForId(d.id);
-                router.push(
-                  buildUrl("active", {
-                    open: d.id,
-                    work: true,
-                    q: searchDebounced,
-                    sort: sortKey,
-                    domain: activeDomainId,
-                    group: activeConstellationId,
-                    hasReview: hasReviewDateOnly,
-                    reviewDue: reviewDueOnly,
-                  }),
-                  { scroll: false }
-                );
-              }}
-              title="Open the conversation"
-            >
-              Let’s work this through…
-            </PrimaryActionButton>
+        {/* Durable decision record */}
+        <div className="mt-4 rounded-2xl bg-white p-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="inline-flex items-center rounded-full bg-zinc-100 px-3 py-1 text-xs text-zinc-700">{statusLabel}</span>
+            {d.review_at ? (
+              <span className="text-xs text-zinc-600">Next review {softWhen(d.review_at)}</span>
+            ) : (
+              <span className="text-xs text-zinc-500">No review date set</span>
+            )}
           </div>
-        ) : null}
 
-        {/* Conversation */}
-        {isWorking ? (
-          <div id="work-through-panel" className="mt-5 rounded-2xl bg-white">
-            <div className="p-3 sm:p-4">
-              <ConversationPanel
-                decisionId={d.id}
-                decisionTitle={d.title}
-                askedText={capturedForChat || ""}
-                frame={{ decision_statement: capturedForChat || d.title }}
-                autoFocusToken={1}
-                autoStartToken={1}
-                onClose={() => {}}
-                onSummarySaved={() => void reloadSummaries(d.id)}
-              />
-              <div className="mt-3 flex items-center justify-between">
-                <TextAction onClick={closeChat} title="Close chat">
-                  Close chat
-                </TextAction>
+          <div className="mt-3 space-y-3">
+            <div>
+              <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Why this decision exists</div>
+              <div className="mt-1 whitespace-pre-wrap text-sm leading-relaxed text-zinc-800">
+                {decisionReason || "No rationale captured yet."}
               </div>
             </div>
+
+            {summariesHasAny ? (
+              <div>
+                <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Durable reasoning</div>
+                <div className="mt-1 text-sm text-zinc-800">{summaryHeadingFrom(latestSummary?.summary_text ?? "", d.title)}</div>
+                <div className="mt-1 text-xs text-zinc-500">
+                  {summaries.length === 1 ? "1 saved summary" : `${summaries.length} saved summaries`}
+                </div>
+              </div>
+            ) : null}
           </div>
-        ) : null}
+        </div>
 
         {/* Sections */}
         <div className="mt-5 divide-y divide-zinc-100 rounded-2xl bg-white px-4">
@@ -2333,6 +2317,57 @@ export default function DecisionsClient() {
           ) : null}
         </div>
 
+        {/* Conversation (secondary) */}
+        <div className="mt-4 rounded-2xl bg-white p-4">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <div className="text-sm font-semibold text-zinc-900">Conversation</div>
+              <div className="text-xs text-zinc-500">Optional workspace for thinking this through.</div>
+            </div>
+            {!isWorking ? (
+              <TextAction
+                onClick={() => {
+                  setWorkForId(d.id);
+                  router.push(
+                    buildUrl("active", {
+                      open: d.id,
+                      work: true,
+                      q: searchDebounced,
+                      sort: sortKey,
+                      domain: activeDomainId,
+                      group: activeConstellationId,
+                      hasReview: hasReviewDateOnly,
+                      reviewDue: reviewDueOnly,
+                    }),
+                    { scroll: false }
+                  );
+                }}
+                title="Open conversation"
+              >
+                Open conversation
+              </TextAction>
+            ) : (
+              <TextAction onClick={closeChat} title="Close conversation">
+                Close conversation
+              </TextAction>
+            )}
+          </div>
+
+          {isWorking ? (
+            <div id="work-through-panel" className="mt-4 rounded-2xl bg-zinc-50 p-3 sm:p-4">
+              <ConversationPanel
+                decisionId={d.id}
+                decisionTitle={d.title}
+                askedText={capturedForChat || ""}
+                frame={{ decision_statement: capturedForChat || d.title }}
+                autoFocusToken={1}
+                autoStartToken={1}
+                onClose={() => {}}
+                onSummarySaved={() => void reloadSummaries(d.id)}
+              />
+            </div>
+          ) : null}
+        </div>
         {/* Bottom actions */}
         {confirmDeleteForId === d.id ? (
           <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-zinc-100 px-4 py-3">
