@@ -4,10 +4,11 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Page } from "@/components/Page";
-import { Button, Card, CardContent, Chip, MeterBar, useToast } from "@/components/ui";
+import { Button, Card, CardContent, Chip, MeterBar, MiniSignal, useToast } from "@/components/ui";
 import { useAsk } from "@/components/ask/AskProvider";
 import type { PressureInterpretation } from "@/lib/money/reasoning/interpretPressure";
 import { formatMoneyFromCents } from "@/lib/money/formatMoney";
+import type { MiniSignalLevel } from "@/components/ui/MiniSignal";
 
 type FinancialSnapshot = {
   asOf: string;
@@ -17,10 +18,10 @@ type FinancialSnapshot = {
   discretionary: { last30DayOutflowCents: number };
   connections: { total: number; stale: number; maxAgeDays: number };
   pressure: {
-    structural_pressure: { summary: string };
-    discretionary_drift: { summary: string };
-    timing_mismatch: { summary: string };
-    stability_risk: { summary: string };
+    structural_pressure: { level: "none" | "low" | "medium" | "high"; summary: string };
+    discretionary_drift: { level: "none" | "low" | "medium" | "high"; summary: string };
+    timing_mismatch: { level: "none" | "low" | "medium" | "high"; summary: string };
+    stability_risk: { level: "none" | "low" | "medium" | "high"; summary: string };
   };
 };
 
@@ -96,6 +97,13 @@ function uniquePush(list: string[], seen: Set<string>, value: string) {
   if (seen.has(key)) return;
   seen.add(key);
   list.push(v);
+}
+
+function toMiniSignalLevel(level: "none" | "low" | "medium" | "high"): MiniSignalLevel {
+  if (level === "none") return "steady";
+  if (level === "low") return "low";
+  if (level === "medium") return "moderate";
+  return "high";
 }
 
 export default function MoneyClientNext() {
@@ -325,6 +333,30 @@ export default function MoneyClientNext() {
                   ? "Monthly commitments use 0% of recurring income"
                   : `Monthly commitments use ${committedIncomePercent}% of recurring income`}
               </div>
+              {snapshot ? (
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <MiniSignal
+                    label="Structural pressure"
+                    level={toMiniSignalLevel(snapshot.pressure.structural_pressure.level)}
+                    summary={snapshot.pressure.structural_pressure.summary}
+                  />
+                  <MiniSignal
+                    label="Discretionary pressure"
+                    level={toMiniSignalLevel(snapshot.pressure.discretionary_drift.level)}
+                    summary={snapshot.pressure.discretionary_drift.summary}
+                  />
+                  <MiniSignal
+                    label="Timing pressure"
+                    level={toMiniSignalLevel(snapshot.pressure.timing_mismatch.level)}
+                    summary={snapshot.pressure.timing_mismatch.summary}
+                  />
+                  <MiniSignal
+                    label="Income stability"
+                    level={toMiniSignalLevel(snapshot.pressure.stability_risk.level)}
+                    summary={snapshot.pressure.stability_risk.summary}
+                  />
+                </div>
+              ) : null}
               {interpretation ? (
                 <div className="text-xs leading-relaxed text-zinc-600">
                   {`Main pressure now: ${interpretation.main_pressure.summary} ${interpretation.main_pressure.why_now}`}
