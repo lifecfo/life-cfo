@@ -7,6 +7,7 @@ import { buildFinancialSnapshot } from "@/lib/money/reasoning/buildFinancialSnap
 import { explainSnapshot } from "@/lib/money/reasoning/explainSnapshot";
 import { PressureInterpretation } from "@/lib/money/reasoning/interpretPressure";
 import { formatMoneyFromCents } from "@/lib/money/formatMoney";
+import { extractMoneyAskCandidates } from "@/lib/memory/candidateExtraction";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -519,6 +520,15 @@ export async function POST(req: Request) {
           stability: signals.stability_risk.summary,
         },
       };
+      const candidates = extractMoneyAskCandidates({
+        userId: user.id,
+        householdId,
+        question: q,
+        mode: "diagnosis",
+        headline: diagnosis.headline,
+        summary: diagnosis.summary,
+        drivers: diagnosis.drivers,
+      });
 
       return NextResponse.json({
         ok: true,
@@ -526,6 +536,7 @@ export async function POST(req: Request) {
         household_id: householdId,
         diagnosis,
         interpretation,
+        candidates,
       });
     }
 
@@ -577,18 +588,30 @@ export async function POST(req: Request) {
         : snapshot.connections.stale > 0
           ? `${snapshot.connections.stale} of ${snapshot.connections.total} connections are stale, so affordability confidence may be lower.`
           : undefined;
+      const affordability = {
+        headline: "Here is your current affordability baseline.",
+        summary,
+        signals: signals.slice(0, 4),
+        caveat,
+      };
+      const candidates = extractMoneyAskCandidates({
+        userId: user.id,
+        householdId,
+        question: q,
+        mode: "affordability",
+        headline: affordability.headline,
+        summary: affordability.summary,
+        signals: affordability.signals,
+        caveat: affordability.caveat,
+      });
 
       return NextResponse.json({
         ok: true,
         mode: "affordability",
         household_id: householdId,
         interpretation,
-        affordability: {
-          headline: "Here is your current affordability baseline.",
-          summary,
-          signals: signals.slice(0, 4),
-          caveat,
-        },
+        affordability,
+        candidates,
       });
     }
 
@@ -659,18 +682,29 @@ export async function POST(req: Request) {
       ]
         .filter(Boolean)
         .join(" ");
+      const planning = {
+        headline,
+        summary,
+        upcoming: upcoming.slice(0, 4),
+        notes: notes.slice(0, 3),
+      };
+      const candidates = extractMoneyAskCandidates({
+        userId: user.id,
+        householdId,
+        question: q,
+        mode: "planning",
+        headline: planning.headline,
+        summary: planning.summary,
+        upcoming: planning.upcoming,
+      });
 
       return NextResponse.json({
         ok: true,
         mode: "planning",
         household_id: householdId,
         interpretation,
-        planning: {
-          headline,
-          summary,
-          upcoming: upcoming.slice(0, 4),
-          notes: notes.slice(0, 3),
-        },
+        planning,
+        candidates,
       });
     }
 
@@ -720,18 +754,30 @@ export async function POST(req: Request) {
       ]
         .filter(Boolean)
         .join(" ");
+      const scenario = {
+        headline: "Here is the baseline for that what-if question.",
+        summary,
+        watch: watch.slice(0, 4),
+        caveat,
+      };
+      const candidates = extractMoneyAskCandidates({
+        userId: user.id,
+        householdId,
+        question: q,
+        mode: "scenario",
+        headline: scenario.headline,
+        summary: scenario.summary,
+        signals: scenario.watch,
+        caveat: scenario.caveat,
+      });
 
       return NextResponse.json({
         ok: true,
         mode: "scenario",
         household_id: householdId,
         interpretation,
-        scenario: {
-          headline: "Here is the baseline for that what-if question.",
-          summary,
-          watch: watch.slice(0, 4),
-          caveat,
-        },
+        scenario,
+        candidates,
       });
     }
 
