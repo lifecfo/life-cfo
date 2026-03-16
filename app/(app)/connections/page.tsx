@@ -313,7 +313,7 @@ function ConnectionActionsMenu({
         onClick={() => setOpen((v) => !v)}
         className="flex h-9 w-9 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-500 hover:bg-zinc-50 hover:text-zinc-700"
       >
-        •••
+        ...
       </button>
 
       {open ? (
@@ -327,7 +327,7 @@ function ConnectionActionsMenu({
             disabled={syncing}
             className="flex w-full items-center justify-between px-4 py-3 text-left text-sm text-zinc-800 hover:bg-zinc-50 disabled:opacity-50"
           >
-            <span>{syncing ? "Refreshing…" : "Refresh now"}</span>
+            <span>{syncing ? "Refreshing..." : "Refresh now"}</span>
           </button>
 
           <button
@@ -403,7 +403,7 @@ function ConnectionsPageClient() {
       if (!res.ok) throw new Error(json?.error || "Load failed");
       setItems(sortConnections(json.connections ?? []));
     } catch (e: any) {
-      toast({ title: "Couldn’t load", description: e?.message });
+      toast({ title: "Couldn't load", description: e?.message });
       setItems([]);
     } finally {
       setLoading(false);
@@ -461,7 +461,7 @@ function ConnectionsPageClient() {
           const looksNotReady = err.includes("no linked basiq accounts");
           if (!looksNotReady) {
             toast({
-              title: "Couldn’t finish Basiq connection",
+              title: "Couldn't finish Basiq connection",
               description: coerceStr(json?.error) || "Sync failed",
             });
           }
@@ -478,7 +478,7 @@ function ConnectionsPageClient() {
       } catch (e: unknown) {
         if (!cancelled) {
           toast({
-            title: "Couldn’t finish Basiq connection",
+            title: "Couldn't finish Basiq connection",
             description: e instanceof Error ? e.message : "Sync failed",
           });
         }
@@ -507,7 +507,7 @@ function ConnectionsPageClient() {
       toast({ title: "Manual account added" });
       await load();
     } catch (e: any) {
-      toast({ title: "Couldn’t create", description: e?.message });
+      toast({ title: "Couldn't create", description: e?.message });
     } finally {
       setCreatingManual(false);
     }
@@ -530,7 +530,7 @@ function ConnectionsPageClient() {
 
       window.location.assign(url);
     } catch (e: any) {
-      toast({ title: "Couldn’t start connection", description: e?.message });
+      toast({ title: "Couldn't start connection", description: e?.message });
       setConnectingId(null);
     }
   }
@@ -554,10 +554,10 @@ function ConnectionsPageClient() {
       const connectionId = coerceStr(json?.connection?.id);
       if (!connectionId) throw new Error("Missing connection id");
 
-      toast({ title: "Starting secure connection…" });
+      toast({ title: "Starting secure connection..." });
       await startBasiqAuth(connectionId);
     } catch (e: any) {
-      toast({ title: "Couldn’t add bank", description: e?.message });
+      toast({ title: "Couldn't add bank", description: e?.message });
     } finally {
       setCreatingBasiq(false);
     }
@@ -618,7 +618,7 @@ function ConnectionsPageClient() {
             await load();
             router.refresh();
           } catch (e: any) {
-            toast({ title: "Couldn’t finish connection", description: e?.message });
+            toast({ title: "Couldn't finish connection", description: e?.message });
           } finally {
             setConnectingId(null);
             handler.destroy?.();
@@ -638,7 +638,7 @@ function ConnectionsPageClient() {
 
       handler.open();
     } catch (e: any) {
-      toast({ title: "Couldn’t start connection", description: e?.message });
+      toast({ title: "Couldn't start connection", description: e?.message });
       setConnectingId(null);
     }
   }
@@ -662,10 +662,10 @@ function ConnectionsPageClient() {
       const connectionId = coerceStr(json?.connection?.id);
       if (!connectionId) throw new Error("Missing connection id");
 
-      toast({ title: "Starting secure connection…" });
+      toast({ title: "Starting secure connection..." });
       await startPlaidAuth(connectionId);
     } catch (e: any) {
-      toast({ title: "Couldn’t add bank", description: e?.message });
+      toast({ title: "Couldn't add bank", description: e?.message });
     } finally {
       setCreatingPlaid(false);
     }
@@ -681,7 +681,7 @@ function ConnectionsPageClient() {
       toast({ title: "Connection refreshed" });
       await load();
     } catch (e: any) {
-      toast({ title: "Couldn’t sync", description: e?.message });
+      toast({ title: "Couldn't sync", description: e?.message });
     } finally {
       setSyncingId(null);
     }
@@ -726,9 +726,71 @@ function ConnectionsPageClient() {
     [items]
   );
 
+  const hasActiveBasiq = useMemo(
+    () =>
+      activeItems.some(
+        (c) => coerceStr(c.provider).toLowerCase() === "basiq" && c.status === "active"
+      ),
+    [activeItems]
+  );
+
+  const basiqNeedsAuthRows = useMemo(() => {
+    return items
+      .filter(
+        (c) =>
+          coerceStr(c.provider).toLowerCase() === "basiq" &&
+          c.status === "needs_auth"
+      )
+      .sort((a, b) => {
+        const aTime = Date.parse(a.updated_at || a.created_at || "");
+        const bTime = Date.parse(b.updated_at || b.created_at || "");
+        const safeA = Number.isFinite(aTime) ? aTime : 0;
+        const safeB = Number.isFinite(bTime) ? bTime : 0;
+        return safeB - safeA;
+      });
+  }, [items]);
+
+  const retainedBasiqNeedsAuthId = useMemo(() => {
+    if (!hasActiveBasiq) return null;
+
+    const basiqIds = new Set(basiqNeedsAuthRows.map((c) => c.id));
+    if (!basiqIds.size) return null;
+
+    const preferred = [basiqReturnConnectionId, connectingId, syncingId].find(
+      (id) => typeof id === "string" && id && basiqIds.has(id)
+    );
+    if (preferred) return preferred;
+
+    const newest = basiqNeedsAuthRows[0];
+    if (!newest) return null;
+
+    const newestMs = Date.parse(newest.updated_at || newest.created_at || "");
+    if (!Number.isFinite(newestMs)) return null;
+
+    const ageMs = Date.now() - newestMs;
+    const ACTIONABLE_WINDOW_MS = 6 * 60 * 60 * 1000;
+    return ageMs <= ACTIONABLE_WINDOW_MS ? newest.id : null;
+  }, [
+    hasActiveBasiq,
+    basiqNeedsAuthRows,
+    basiqReturnConnectionId,
+    connectingId,
+    syncingId,
+  ]);
+
   const pendingItems = useMemo(
-    () => items.filter((c) => c.status === "needs_auth" || c.status === "error"),
-    [items]
+    () =>
+      items.filter((c) => {
+        if (c.status !== "needs_auth" && c.status !== "error") return false;
+
+        const isBasiqNeedsAuth =
+          c.status === "needs_auth" &&
+          coerceStr(c.provider).toLowerCase() === "basiq";
+
+        if (!isBasiqNeedsAuth || !hasActiveBasiq) return true;
+        return retainedBasiqNeedsAuthId !== null && c.id === retainedBasiqNeedsAuthId;
+      }),
+    [items, hasActiveBasiq, retainedBasiqNeedsAuthId]
   );
 
   const stalePendingItems = useMemo(() => {
@@ -767,7 +829,7 @@ function ConnectionsPageClient() {
   function handleComingSoon(label: string) {
     toast({
       title: `${label} coming next`,
-      description: "We’ll wire this safely in the next pass.",
+      description: "We'll wire this safely in the next pass.",
     });
   }
 
@@ -795,7 +857,7 @@ function ConnectionsPageClient() {
                   variant="ghost"
                   className="rounded-2xl"
                 >
-                  {creatingManual ? "Adding…" : "Add manual account"}
+                  {creatingManual ? "Adding..." : "Add manual account"}
                 </Button>
 
                 <Button
@@ -803,7 +865,7 @@ function ConnectionsPageClient() {
                   disabled={creatingBasiq || creatingManual || creatingPlaid}
                   className="rounded-2xl"
                 >
-                  {creatingBasiq ? "Starting…" : "Connect bank (AU)"}
+                  {creatingBasiq ? "Starting..." : "Connect bank (AU)"}
                 </Button>
 
                 <Button
@@ -811,7 +873,7 @@ function ConnectionsPageClient() {
                   disabled={creatingPlaid || creatingManual || creatingBasiq}
                   className="rounded-2xl"
                 >
-                  {creatingPlaid ? "Starting…" : "Connect bank (US)"}
+                  {creatingPlaid ? "Starting..." : "Connect bank (US)"}
                 </Button>
               </div>
             </div>
@@ -823,7 +885,7 @@ function ConnectionsPageClient() {
 
             <div className="mt-6 space-y-3">
               {loading ? (
-                <div className="text-sm text-zinc-600">Loading your connections…</div>
+                <div className="text-sm text-zinc-600">Loading your connections...</div>
               ) : (
                 <>
                   {activeItems.length > 0 ? (
@@ -879,7 +941,7 @@ function ConnectionsPageClient() {
                                       onClick={() => syncConnection(c.id)}
                                       disabled={syncingId === c.id}
                                     >
-                                      {syncingId === c.id ? "Refreshing…" : "Refresh"}
+                                      {syncingId === c.id ? "Refreshing..." : "Refresh"}
                                     </Button>
 
                                     <ConnectionActionsMenu
@@ -964,7 +1026,7 @@ function ConnectionsPageClient() {
                                   onClick={() => void startBasiqAuth(c.id)}
                                   disabled={connectingId === c.id}
                                 >
-                                  {connectingId === c.id ? "Opening…" : "Continue setup"}
+                                  {connectingId === c.id ? "Opening..." : "Continue setup"}
                                 </Button>
                               )}
 
@@ -975,7 +1037,7 @@ function ConnectionsPageClient() {
                                   onClick={() => void startPlaidAuth(c.id)}
                                   disabled={connectingId === c.id}
                                 >
-                                  {connectingId === c.id ? "Opening…" : "Continue setup"}
+                                  {connectingId === c.id ? "Opening..." : "Continue setup"}
                                 </Button>
                               )}
 
@@ -1049,7 +1111,7 @@ function ConnectionsPageClient() {
                                   onClick={() => void startBasiqAuth(c.id)}
                                   disabled={connectingId === c.id}
                                 >
-                                  {connectingId === c.id ? "Opening…" : "Continue setup"}
+                                  {connectingId === c.id ? "Opening..." : "Continue setup"}
                                 </Button>
                               )}
 
@@ -1060,7 +1122,7 @@ function ConnectionsPageClient() {
                                   onClick={() => void startPlaidAuth(c.id)}
                                   disabled={connectingId === c.id}
                                 >
-                                  {connectingId === c.id ? "Opening…" : "Continue setup"}
+                                  {connectingId === c.id ? "Opening..." : "Continue setup"}
                                 </Button>
                               )}
 
@@ -1100,7 +1162,7 @@ export default function ConnectionsPage() {
           <div className="mx-auto w-full max-w-[760px]">
             <Card className="border-zinc-200 bg-white">
               <CardContent>
-                <div className="text-sm text-zinc-600">Loading your connections…</div>
+                <div className="text-sm text-zinc-600">Loading your connections...</div>
               </CardContent>
             </Card>
           </div>

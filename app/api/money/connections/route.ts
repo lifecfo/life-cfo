@@ -161,12 +161,26 @@ export async function POST(req: Request) {
         .select("id,household_id,user_id,provider,status,display_name,created_at,updated_at")
         .eq("household_id", householdId)
         .eq("provider", "basiq")
-        .in("status", ["needs_auth", "error"])
         .order("updated_at", { ascending: false })
         .order("created_at", { ascending: false })
-        .limit(1);
+        .limit(20);
 
       if (existingErr) throw existingErr;
+
+      const active = (existingRows ?? []).find(
+        (row: any) =>
+          typeof row?.status === "string" &&
+          row.status.trim().toLowerCase() === "active"
+      );
+
+      if (active) {
+        return NextResponse.json({
+          ok: true,
+          household_id: householdId,
+          connection: active,
+          seeded_accounts: [],
+        });
+      }
 
       const reusable = (existingRows ?? []).find((row: any) =>
         isReusableBasiqStatus(row?.status)
@@ -250,7 +264,7 @@ export async function POST(req: Request) {
 
     let seeded_accounts: any[] = [];
 
-    if ((existingCount ?? 0) === 0) {
+    if (provider === "manual" && (existingCount ?? 0) === 0) {
       const seed = [
         { name: "Everyday Spending", type: "cash" },
         { name: "Bills Buffer", type: "cash" },
