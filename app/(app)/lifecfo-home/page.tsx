@@ -217,6 +217,7 @@ type TriageState =
       reviewDueCount: number;
       reviewSoonCount: number;
       openDecisionCount: number;
+      freshAskPromotionTitle: string | null;
     }
   | { status: "error" };
 
@@ -271,6 +272,7 @@ export default function LifeCFOHomePage() {
   const answerRef = useRef<HTMLDivElement | null>(null);
   const followUpRef = useRef<HTMLDivElement | null>(null);
   const followUpInputRef = useRef<HTMLTextAreaElement | null>(null);
+  const triageRefreshTimerRef = useRef<number | null>(null);
 
   const focusInput = () => window.setTimeout(() => inputRef.current?.focus(), 0);
   const scrollToAnswer = () =>
@@ -376,7 +378,7 @@ export default function LifeCFOHomePage() {
     try {
       const { data, error } = await supabase
         .from("decisions")
-        .select("id,status,decided_at,review_at,reviewed_at")
+        .select("id,title,origin,status,decided_at,review_at,reviewed_at,created_at")
         .eq("user_id", u)
         .limit(200);
 
@@ -386,26 +388,41 @@ export default function LifeCFOHomePage() {
       }
 
       const rows = (Array.isArray(data) ? data : []) as Array<{
+        title?: unknown;
+        origin?: unknown;
         status?: unknown;
         decided_at?: unknown;
         review_at?: unknown;
         reviewed_at?: unknown;
+        created_at?: unknown;
       }>;
       const now = Date.now();
       const soonMs = now + 14 * 24 * 60 * 60 * 1000;
+      const freshCutoffMs = now - 2 * 60 * 60 * 1000;
 
       let reviewDueCount = 0;
       let reviewSoonCount = 0;
       let openDecisionCount = 0;
+      let freshAskPromotionTitle: string | null = null;
+      let freshAskPromotionMs = 0;
 
       for (const row of rows) {
         const status = String(row.status ?? "").toLowerCase();
         const decidedAt = typeof row.decided_at === "string" ? row.decided_at : null;
         const reviewAt = typeof row.review_at === "string" ? row.review_at : null;
         const reviewedAt = typeof row.reviewed_at === "string" ? row.reviewed_at : null;
+        const createdAt = typeof row.created_at === "string" ? row.created_at : null;
+        const createdMs = createdAt ? Date.parse(createdAt) : NaN;
+        const title = typeof row.title === "string" ? row.title.trim() : "";
+        const origin = typeof row.origin === "string" ? row.origin.trim().toLowerCase() : "";
 
         if (!decidedAt && status !== "chapter" && status !== "closed") {
           openDecisionCount += 1;
+        }
+
+        if (origin === "ask_promotion" && Number.isFinite(createdMs) && createdMs >= freshCutoffMs && createdMs > freshAskPromotionMs) {
+          freshAskPromotionMs = createdMs;
+          freshAskPromotionTitle = title || "New promoted decision";
         }
 
         if (!reviewAt || reviewedAt) continue;
@@ -420,6 +437,7 @@ export default function LifeCFOHomePage() {
         reviewDueCount,
         reviewSoonCount,
         openDecisionCount,
+        freshAskPromotionTitle,
       });
     } catch {
       setTriage({ status: "error" });
@@ -432,6 +450,32 @@ export default function LifeCFOHomePage() {
       return;
     }
     void loadTriage(userId);
+  }, [authStatus, userId]);
+
+  useEffect(() => {
+    if (authStatus !== "signed_in" || !userId) return;
+
+    const scheduleRefresh = () => {
+      if (triageRefreshTimerRef.current) {
+        window.clearTimeout(triageRefreshTimerRef.current);
+      }
+      triageRefreshTimerRef.current = window.setTimeout(() => {
+        void loadTriage(userId);
+      }, 250);
+    };
+
+    const ch = supabase
+      .channel(`home-triage-decisions-${userId}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "decisions", filter: `user_id=eq.${userId}` }, scheduleRefresh)
+      .subscribe();
+
+    return () => {
+      if (triageRefreshTimerRef.current) {
+        window.clearTimeout(triageRefreshTimerRef.current);
+        triageRefreshTimerRef.current = null;
+      }
+      void supabase.removeChannel(ch);
+    };
   }, [authStatus, userId]);
 
   /* ---------- ask ---------- */
@@ -624,6 +668,16 @@ Follow-up question: ${fu}`
     }
 
     if (triage.status === "ready") {
+      if (triage.freshAskPromotionTitle) {
+        push({
+          key: "fresh_ask_promotion",
+          title: "New decision captured",
+          detail: triage.freshAskPromotionTitle,
+          href: "/decisions",
+          priority: 98,
+        });
+      }
+
       if (triage.reviewDueCount > 0) {
         push({
           key: "reviews_due",
