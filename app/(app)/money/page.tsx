@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Page } from "@/components/Page";
-import { Button, Card, CardContent, Chip, useToast } from "@/components/ui";
+import { Button, Card, CardContent, Chip, MeterBar, useToast } from "@/components/ui";
 import { useAsk } from "@/components/ask/AskProvider";
 import type { PressureInterpretation } from "@/lib/money/reasoning/interpretPressure";
 import { formatMoneyFromCents } from "@/lib/money/formatMoney";
@@ -232,6 +232,15 @@ export default function MoneyClientNext() {
         ? "What changed in our recent imported spending?"
         : "Are we okay this month?";
 
+  const committedIncomePercent =
+    snapshot && snapshot.income.recurringMonthlyCents > 0
+      ? Math.round(
+          (Math.max(0, snapshot.commitments.recurringMonthlyCents) /
+            snapshot.income.recurringMonthlyCents) *
+            100
+        )
+      : null;
+
   return (
     <Page title="Money" subtitle="A calm view of money coming in, going out, saved, and planned.">
       <div className="mx-auto w-full max-w-[980px] px-4 sm:px-6">
@@ -303,6 +312,18 @@ export default function MoneyClientNext() {
                   (loading
                     ? "Loading..."
                     : "This page gives a short view of your household money right now.")}
+              </div>
+              <MeterBar
+                label="Committed income"
+                value={snapshot?.commitments.recurringMonthlyCents ?? 0}
+                total={snapshot?.income.recurringMonthlyCents ?? 0}
+                valueLabel={snapshot ? formatMoney(snapshot.commitments.recurringMonthlyCents) : undefined}
+                totalLabel={snapshot ? formatMoney(snapshot.income.recurringMonthlyCents) : undefined}
+              />
+              <div className="text-xs leading-relaxed text-zinc-600">
+                {committedIncomePercent === null
+                  ? "Monthly commitments use 0% of recurring income"
+                  : `Monthly commitments use ${committedIncomePercent}% of recurring income`}
               </div>
               {interpretation ? (
                 <div className="text-xs leading-relaxed text-zinc-600">
