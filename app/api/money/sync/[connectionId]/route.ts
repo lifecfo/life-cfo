@@ -6,6 +6,18 @@ import { resolveHouseholdIdRoute } from "@/lib/households/resolveHouseholdIdRout
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+type ConnectionStatusRow = {
+  id: string;
+  household_id: string;
+  provider: string;
+  status: string | null;
+  last_sync_at: string | null;
+};
+
+function normalizeStatus(status: unknown): string {
+  return typeof status === "string" ? status.trim().toLowerCase() : "";
+}
+
 export async function POST(
   _req: Request,
   { params }: { params: Promise<{ connectionId: string }> }
@@ -58,15 +70,126 @@ export async function POST(
     const provider = getProvider(connection.provider);
     const result = await provider.sync(connection.id);
 
-    await supabase
+    if (normalizeStatus(connection.provider) !== "basiq") {
+      await supabase
+        .from("external_connections")
+        .update({
+          last_sync_at: new Date().toISOString(),
+          status: "active",
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", connection.id)
+        .eq("household_id", householdId);
+
+      return NextResponse.json({
+        ok: true,
+        household_id: householdId,
+        synced: true,
+        result,
+      });
+    }
+
+    const { data: statusAfterSync, error: statusAfterSyncErr } = await supabase
+      .from("external_connections")
+      .select("id, household_id, provider, status, last_sync_at")
+      .eq("id", connection.id)
+      .eq("household_id", householdId)
+      .maybeSingle();
+
+    if (statusAfterSyncErr) throw statusAfterSyncErr;
+
+    const previousStatus = normalizeStatus((statusAfterSync as ConnectionStatusRow | null)?.status);
+
+    if (previousStatus === "active") {
+      return NextResponse.json({
+        ok: true,
+        household_id: householdId,
+        synced: true,
+        result,
+      });
+    }
+
+    const nowIso = new Date().toISOString();
+    const { error: fallbackUpdateErr } = await supabase
       .from("external_connections")
       .update({
-        last_sync_at: new Date().toISOString(),
         status: "active",
-        updated_at: new Date().toISOString(),
+        last_sync_at: nowIso,
+        updated_at: nowIso,
       })
       .eq("id", connection.id)
       .eq("household_id", householdId);
+
+    if (fallbackUpdateErr) {
+      console.error("Basiq sync finalization fallback update failed", {
+        connection_id: connection.id,
+        provider: connection.provider,
+        previous_status: previousStatus || null,
+        error: fallbackUpdateErr.message,
+      });
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "Sync completed but connection status could not be finalized.",
+          connection_id: connection.id,
+          provider: connection.provider,
+          previous_status: previousStatus || null,
+          current_status: previousStatus || null,
+        },
+        { status: 500 }
+      );
+    }
+
+    const { data: statusAfterFallback, error: statusAfterFallbackErr } = await supabase
+      .from("external_connections")
+      .select("id, household_id, provider, status, last_sync_at")
+      .eq("id", connection.id)
+      .eq("household_id", householdId)
+      .maybeSingle();
+
+    if (statusAfterFallbackErr) {
+      console.error("Basiq sync finalization fallback verification failed", {
+        connection_id: connection.id,
+        provider: connection.provider,
+        previous_status: previousStatus || null,
+        error: statusAfterFallbackErr.message,
+      });
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "Sync completed but connection status verification failed.",
+          connection_id: connection.id,
+          provider: connection.provider,
+          previous_status: previousStatus || null,
+          current_status: null,
+        },
+        { status: 500 }
+      );
+    }
+
+    const currentStatus = normalizeStatus(
+      (statusAfterFallback as ConnectionStatusRow | null)?.status
+    );
+
+    if (currentStatus !== "active") {
+      console.error("Basiq sync finalization did not stick", {
+        connection_id: connection.id,
+        provider: connection.provider,
+        previous_status: previousStatus || null,
+        current_status: currentStatus || null,
+      });
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "Sync completed but connection status remained non-active.",
+          connection_id: connection.id,
+          provider: connection.provider,
+          previous_status: previousStatus || null,
+          current_status: currentStatus || null,
+        },
+        { status: 500 }
+      );
+    }
 
     return NextResponse.json({
       ok: true,
