@@ -763,24 +763,13 @@ function ConnectionsPageClient() {
     const basiqIds = new Set(basiqNeedsAuthRows.map((c) => c.id));
     if (!basiqIds.size) return null;
 
-    const preferred = [basiqReturnConnectionId, connectingId, syncingId].find(
+    const preferred = [connectingId, syncingId].find(
       (id) => typeof id === "string" && id && basiqIds.has(id)
     );
-    if (preferred) return preferred;
-
-    const newest = basiqNeedsAuthRows[0];
-    if (!newest) return null;
-
-    const newestMs = Date.parse(newest.updated_at || newest.created_at || "");
-    if (!Number.isFinite(newestMs)) return null;
-
-    const ageMs = Date.now() - newestMs;
-    const ACTIONABLE_WINDOW_MS = 6 * 60 * 60 * 1000;
-    return ageMs <= ACTIONABLE_WINDOW_MS ? newest.id : null;
+    return preferred ?? null;
   }, [
     hasActiveBasiq,
     basiqNeedsAuthRows,
-    basiqReturnConnectionId,
     connectingId,
     syncingId,
   ]);
