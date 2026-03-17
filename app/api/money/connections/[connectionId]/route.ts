@@ -156,13 +156,32 @@ export async function DELETE(
       );
     }
 
-    const { error: deleteErr } = await supabase
+    const { data: deletedRows, error: deleteErr } = await supabase
       .from("external_connections")
       .delete()
       .eq("id", connectionId)
-      .eq("household_id", householdId);
+      .eq("household_id", householdId)
+      .select("id");
 
-    if (deleteErr) throw deleteErr;
+    if (deleteErr) {
+      console.error("Failed to remove Basiq setup attempt", {
+        connection_id: connectionId,
+        household_id: householdId,
+        error: deleteErr.message,
+      });
+      throw new Error("Could not remove setup attempt.");
+    }
+
+    if (!deletedRows || deletedRows.length === 0) {
+      console.error("Basiq setup attempt delete returned no rows", {
+        connection_id: connectionId,
+        household_id: householdId,
+      });
+      return NextResponse.json(
+        { ok: false, error: "Could not remove setup attempt." },
+        { status: 500 }
+      );
+    }
 
     return NextResponse.json({
       ok: true,
