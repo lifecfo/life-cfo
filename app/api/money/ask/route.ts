@@ -563,7 +563,7 @@ export async function POST(req: Request) {
       const diagnosisHeadline =
         interpretation.main_pressure.key === "none"
           ? "No single pressure point is standing out right now."
-          : `The main pressure right now looks ${interpretation.main_pressure.key}.`;
+          : `Most of the pressure right now is ${interpretation.main_pressure.key}.`;
 
       const diagnosis = {
         headline: diagnosisHeadline,
