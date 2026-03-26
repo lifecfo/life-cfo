@@ -2,10 +2,9 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { supabaseRoute } from "@/lib/supabaseRoute";
-import { getHouseholdMoneyTruth } from "@/lib/money/reasoning/getHouseholdMoneyTruth";
-import { buildFinancialSnapshot } from "@/lib/money/reasoning/buildFinancialSnapshot";
-import { explainSnapshot } from "@/lib/money/reasoning/explainSnapshot";
+import type { FinancialSnapshot } from "@/lib/money/reasoning/buildFinancialSnapshot";
 import { PressureInterpretation } from "@/lib/money/reasoning/interpretPressure";
+import { runHouseholdMoneyReasoning } from "@/lib/money/reasoning/runHouseholdMoneyReasoning";
 import { formatMoneyFromCents } from "@/lib/money/formatMoney";
 import { extractMoneyAskCandidates } from "@/lib/memory/candidateExtraction";
 
@@ -178,7 +177,7 @@ function extractIncomeDropAmountCents(lowerQ: string): number | null {
 }
 
 function buildAffordabilityParsedLine(params: {
-  snapshot: ReturnType<typeof buildFinancialSnapshot>;
+  snapshot: FinancialSnapshot;
   oneOffAmountCents: number | null;
   recurringAmountCents: number | null;
   ambiguous: boolean;
@@ -228,7 +227,7 @@ function buildAffordabilityParsedLine(params: {
 }
 
 function buildScenarioParsedLine(params: {
-  snapshot: ReturnType<typeof buildFinancialSnapshot>;
+  snapshot: FinancialSnapshot;
   incomeDropPercent: number | null;
   incomeDropAmountCents: number | null;
 }): string | null {
@@ -475,10 +474,8 @@ export async function POST(req: Request) {
 
     // Orientation path: empty query or simple keyword match
     if (looksOrientation) {
-      const truth = await getHouseholdMoneyTruth(supabase, { householdId });
-      const snapshot = buildFinancialSnapshot(truth);
-      const explanation = explainSnapshot(snapshot);
-      const interpretation = explanation.interpretation;
+      const money = await runHouseholdMoneyReasoning(supabase as any, { householdId });
+      const { snapshot, explanation, interpretation } = money;
 
       return NextResponse.json({
         ok: true,
@@ -491,10 +488,8 @@ export async function POST(req: Request) {
     }
 
     if (looksDiagnosis) {
-      const truth = await getHouseholdMoneyTruth(supabase, { householdId });
-      const snapshot = buildFinancialSnapshot(truth);
-      const explanation = explainSnapshot(snapshot);
-      const interpretation = explanation.interpretation;
+      const money = await runHouseholdMoneyReasoning(supabase as any, { householdId });
+      const { snapshot, explanation, interpretation } = money;
 
       const signals = snapshot.pressure;
 
@@ -541,10 +536,8 @@ export async function POST(req: Request) {
     }
 
     if (looksAffordability) {
-      const truth = await getHouseholdMoneyTruth(supabase, { householdId });
-      const snapshot = buildFinancialSnapshot(truth);
-      const explanation = explainSnapshot(snapshot);
-      const interpretation = explanation.interpretation;
+      const money = await runHouseholdMoneyReasoning(supabase as any, { householdId });
+      const { snapshot, explanation, interpretation } = money;
       const recurringAmountCents = extractRecurringAmountCents(parseQ);
       const oneOffAmountCents =
         recurringAmountCents === null ? extractCurrencyAmountCents(parseQ) : null;
@@ -616,10 +609,8 @@ export async function POST(req: Request) {
     }
 
     if (looksPlanning) {
-      const truth = await getHouseholdMoneyTruth(supabase, { householdId });
-      const snapshot = buildFinancialSnapshot(truth);
-      const explanation = explainSnapshot(snapshot);
-      const interpretation = explanation.interpretation;
+      const money = await runHouseholdMoneyReasoning(supabase as any, { householdId });
+      const { truth, snapshot, explanation, interpretation } = money;
 
       const nowMs = toMs(truth.windows?.now_iso) ?? toMs(truth.as_of_iso) ?? Date.now();
       const next30Ms =
@@ -709,10 +700,8 @@ export async function POST(req: Request) {
     }
 
     if (looksScenario) {
-      const truth = await getHouseholdMoneyTruth(supabase, { householdId });
-      const snapshot = buildFinancialSnapshot(truth);
-      const explanation = explainSnapshot(snapshot);
-      const interpretation = explanation.interpretation;
+      const money = await runHouseholdMoneyReasoning(supabase as any, { householdId });
+      const { snapshot, explanation, interpretation } = money;
       const incomeDropPercent = extractIncomeDropPercent(parseQ);
       const incomeDropAmountCents =
         incomeDropPercent === null ? extractIncomeDropAmountCents(parseQ) : null;

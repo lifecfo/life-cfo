@@ -8,9 +8,10 @@ import { decideVerdict } from "@/lib/lifecfo/verdictDecision";
 import type { Verdict } from "@/lib/lifecfo/verdict";
 import { supabaseRoute } from "@/lib/supabaseRoute";
 import { resolveHouseholdIdRoute } from "@/lib/households/resolveHouseholdIdRoute";
-import { getHouseholdMoneyTruth } from "@/lib/money/reasoning/getHouseholdMoneyTruth";
-import { buildFinancialSnapshot } from "@/lib/money/reasoning/buildFinancialSnapshot";
-import { explainSnapshot } from "@/lib/money/reasoning/explainSnapshot";
+import {
+  tryRunHouseholdMoneyReasoning,
+  type HouseholdMoneyReasoningResult,
+} from "@/lib/money/reasoning/runHouseholdMoneyReasoning";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -571,22 +572,18 @@ async function buildFactsPack(scope: { userId: string; householdId: string }) {
 
   let moneyReasoningOk = false;
   let moneyReasoningNote = "";
-  let moneyReasoning:
-    | {
-        snapshot: ReturnType<typeof buildFinancialSnapshot>;
-        explanation: ReturnType<typeof explainSnapshot>;
-      }
-    | null = null;
+  let moneyReasoning: HouseholdMoneyReasoningResult | null = null;
 
-  try {
-    const moneyTruth = await getHouseholdMoneyTruth(supabase as any, { householdId });
-    const snapshot = buildFinancialSnapshot(moneyTruth);
-    const explanation = explainSnapshot(snapshot);
-    moneyReasoning = { snapshot, explanation };
+  const moneyReasoningResult = await tryRunHouseholdMoneyReasoning(
+    supabase as any,
+    { householdId }
+  );
+  if (moneyReasoningResult.ok) {
+    moneyReasoning = moneyReasoningResult.data;
     moneyReasoningOk = true;
-  } catch (err: unknown) {
+  } else {
     moneyReasoningOk = false;
-    moneyReasoningNote = err instanceof Error ? err.message : "Money reasoning unavailable.";
+    moneyReasoningNote = moneyReasoningResult.error;
   }
 
   return {
