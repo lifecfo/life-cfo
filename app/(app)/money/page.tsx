@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Page } from "@/components/Page";
-import { Button, Card, CardContent, Chip, MeterBar, MiniSignal, useToast } from "@/components/ui";
+import { Card, CardContent, Chip, MeterBar, MiniSignal, useToast } from "@/components/ui";
 import { useAsk } from "@/components/ask/AskProvider";
 import type { PressureInterpretation } from "@/lib/money/reasoning/interpretPressure";
 import { formatMoneyFromCents } from "@/lib/money/formatMoney";
@@ -91,15 +91,6 @@ function getErrorMessage(error: unknown, fallback: string) {
   return fallback;
 }
 
-function uniquePush(list: string[], seen: Set<string>, value: string) {
-  const v = value.trim();
-  if (!v) return;
-  const key = v.toLowerCase();
-  if (seen.has(key)) return;
-  seen.add(key);
-  list.push(v);
-}
-
 function toMiniSignalLevel(level: "none" | "low" | "medium" | "high"): MiniSignalLevel {
   if (level === "none") return "steady";
   if (level === "low") return "low";
@@ -110,7 +101,7 @@ function toMiniSignalLevel(level: "none" | "low" | "medium" | "high"): MiniSigna
 export default function MoneyClientNext() {
   const router = useRouter();
   const { showToast } = useToast();
-  const { openAsk, setDraft, recentMoneyAsks } = useAsk();
+  const { openAsk, setDraft } = useAsk();
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -179,61 +170,6 @@ export default function MoneyClientNext() {
         : `${snapshot.connections.stale} of ${snapshot.connections.total} connection(s) may need a refresh.`
     : "Connection freshness will show here.";
 
-  const dynamicAskExamples = (() => {
-    const fallback = [
-      "Are we okay this month?",
-      "Why does money feel tight right now?",
-      "What is coming up this month?",
-      "Can we afford this?",
-    ];
-
-    if (!snapshot) return fallback;
-
-    const prompts: string[] = [];
-    const seen = new Set<string>();
-    const interpretationPrompts = interpretation?.what_to_ask_next ?? [];
-    const hasConnectedData = snapshot.connections.total > 0;
-    const hasStaleData = snapshot.connections.stale > 0;
-    const hasImportedData = importedRecent.length > 0;
-    const hasIncome = snapshot.income.recurringMonthlyCents > 0;
-    const committedShare = hasIncome
-      ? snapshot.commitments.recurringMonthlyCents / snapshot.income.recurringMonthlyCents
-      : null;
-
-    interpretationPrompts.forEach((q) => uniquePush(prompts, seen, q));
-
-    if (!hasConnectedData) {
-      uniquePush(prompts, seen, "What will become clearer after we connect accounts?");
-    } else if (hasStaleData) {
-      uniquePush(prompts, seen, "How much could stale connection data be affecting this view?");
-    }
-
-    if (hasImportedData) {
-      uniquePush(prompts, seen, "What changed in our recent imported spending?");
-    }
-
-    if (committedShare !== null && committedShare >= 0.7) {
-      uniquePush(prompts, seen, "Why does money feel tight right now, and what is driving it?");
-    } else {
-      uniquePush(prompts, seen, "Are we okay this month after commitments?");
-    }
-
-    uniquePush(prompts, seen, "What is coming up before the next income?");
-    uniquePush(prompts, seen, "Can we afford this?");
-
-    fallback.forEach((q) => uniquePush(prompts, seen, q));
-    return prompts.slice(0, 4);
-  })();
-
-  const askNextLine = snapshot
-    ? interpretation?.confidence.note ||
-      (snapshot.connections.total === 0
-        ? "Suggestions are based on your current setup. Connect accounts for a fuller read."
-        : snapshot.connections.stale > 0
-          ? `${snapshot.connections.stale} connection(s) may be out of date, so suggestions include a freshness check.`
-          : "Suggestions are based on your latest connected household data.")
-    : "Suggestions will adapt once your current money picture loads.";
-
   const askAboutDataQuestion =
     snapshot?.connections.total && snapshot.connections.stale > 0
       ? "How much could stale connection data be affecting this view?"
@@ -284,51 +220,13 @@ export default function MoneyClientNext() {
               </div>
               <div className="text-sm leading-relaxed text-zinc-800">{smartInsightLine}</div>
               <div className="text-xs text-zinc-500">{smartInsightSubtle}</div>
-            </CardContent>
-          </Card>
-
-          <Card className="border-zinc-200 bg-white">
-            <CardContent className="space-y-3">
-              <div className="space-y-1">
-                <div className="text-sm font-semibold text-zinc-900">Start with a money question</div>
-                <div className="text-xs text-zinc-500">
-                  Ask first for a quick read. Suggestions below use your current money picture.
-                </div>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <Button onClick={openAsk} className="rounded-2xl">
-                  Ask about money
-                </Button>
-                <Link href="/money/planned">
-                  <Chip>Planned</Chip>
-                </Link>
-                <Link href="/connections">
-                  <Chip>Connections</Chip>
-                </Link>
-              </div>
-              {recentMoneyAsks.length > 0 ? (
-                <div className="space-y-1">
-                  <div className="text-xs text-zinc-500">Recent questions</div>
-                  <div className="flex flex-wrap gap-2">
-                    {recentMoneyAsks.slice(0, 3).map((q) => (
-                      <Chip key={`recent_${q}`} className="text-xs" onClick={() => openWithQuestion(q)} title={q}>
-                        {q}
-                      </Chip>
-                    ))}
-                  </div>
-                </div>
-              ) : null}
-              <div className="space-y-1">
-                <div className="text-xs text-zinc-500">What to ask next</div>
-                <div className="text-xs text-zinc-500">{askNextLine}</div>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {dynamicAskExamples.map((q) => (
-                  <Chip key={q} className="text-xs" onClick={() => openWithQuestion(q)} title={q}>
-                    {q}
-                  </Chip>
-                ))}
-              </div>
+              <button
+                type="button"
+                onClick={openAsk}
+                className="text-xs text-zinc-500 underline-offset-2 hover:text-zinc-700 hover:underline"
+              >
+                If you want to go deeper, just ask.
+              </button>
             </CardContent>
           </Card>
 
