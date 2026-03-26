@@ -8,6 +8,7 @@ import { Button, Card, CardContent, Chip, MeterBar, MiniSignal, useToast } from 
 import { useAsk } from "@/components/ask/AskProvider";
 import type { PressureInterpretation } from "@/lib/money/reasoning/interpretPressure";
 import { formatMoneyFromCents } from "@/lib/money/formatMoney";
+import { joinNonEmptyWithSpace } from "@/lib/ask/responseComposition";
 import type { MiniSignalLevel } from "@/components/ui/MiniSignal";
 
 type FinancialSnapshot = {
@@ -249,6 +250,17 @@ export default function MoneyClientNext() {
         )
       : null;
 
+  const smartInsightLine = interpretation
+    ? interpretation.main_pressure.key === "none"
+      ? explanation?.summary || "Your latest data looks fairly balanced overall."
+      : joinNonEmptyWithSpace([
+          interpretation.main_pressure.summary,
+          interpretation.main_pressure.why_now || "",
+        ])
+    : explanation?.summary || "Your latest data is loading.";
+
+  const smartInsightSubtle = "Based on your latest data.";
+
   return (
     <Page title="Money" subtitle="A calm view of money coming in, going out, saved, and planned.">
       <div className="mx-auto w-full max-w-[980px] px-4 sm:px-6">
@@ -265,6 +277,16 @@ export default function MoneyClientNext() {
         {error ? <div className="mt-4 text-sm text-red-600">{error}</div> : null}
 
         <div className="mt-5 grid gap-4">
+          <Card className="border-zinc-200 bg-white">
+            <CardContent className="space-y-1">
+              <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                How things are looking right now
+              </div>
+              <div className="text-sm leading-relaxed text-zinc-800">{smartInsightLine}</div>
+              <div className="text-xs text-zinc-500">{smartInsightSubtle}</div>
+            </CardContent>
+          </Card>
+
           <Card className="border-zinc-200 bg-white">
             <CardContent className="space-y-3">
               <div className="space-y-1">
