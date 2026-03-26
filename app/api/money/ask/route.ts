@@ -5,6 +5,7 @@ import { supabaseRoute } from "@/lib/supabaseRoute";
 import type { FinancialSnapshot } from "@/lib/money/reasoning/buildFinancialSnapshot";
 import { PressureInterpretation } from "@/lib/money/reasoning/interpretPressure";
 import { runHouseholdMoneyReasoning } from "@/lib/money/reasoning/runHouseholdMoneyReasoning";
+import { detectMoneyAskIntent } from "@/lib/money/reasoning/intentDetection";
 import { formatMoneyFromCents } from "@/lib/money/formatMoney";
 import { extractMoneyAskCandidates } from "@/lib/memory/candidateExtraction";
 
@@ -18,62 +19,6 @@ type AskBody = {
   limit?: number;
 };
 type RouteSupabase = Awaited<ReturnType<typeof supabaseRoute>>;
-
-const ORIENTATION_KEYWORDS = [
-  "are we okay",
-  "how are things looking",
-  "financial status",
-];
-
-const DIAGNOSIS_KEYWORDS = [
-  "why does money feel tight",
-  "why does money feel",
-  "what changed recently",
-  "what is the main pressure",
-  "main pressure",
-  "feel tight",
-  "pressure right now",
-];
-
-const PLANNING_KEYWORDS = [
-  "what should we plan for this month",
-  "what should we plan for",
-  "plan for this month",
-  "what is coming up",
-  "what's coming up",
-  "what do we need to keep in mind financially",
-  "what do we need to keep in mind",
-  "keep in mind financially",
-];
-
-const AFFORDABILITY_KEYWORDS = [
-  "can we afford this",
-  "can we afford it",
-  "can we afford a house",
-  "can we afford",
-  "could we manage this payment",
-  "could we manage this",
-  "would this stretch us too much",
-  "would this stretch us",
-];
-
-const SCENARIO_KEYWORDS = [
-  "what if income drops",
-  "what if our income drops",
-  "what if income goes down",
-  "what if we move",
-  "what if we moved",
-  "what if we add another bill",
-  "what if we add a bill",
-  "what if we add another recurring bill",
-  "what if we pause saving for a while",
-  "what if we pause saving",
-  "what if we stop saving for a while",
-  "what happens if income drops",
-  "what happens if we move",
-  "what happens if we add another bill",
-  "what happens if we pause saving",
-];
 
 function safeStr(v: unknown) {
   return typeof v === "string" ? v : "";
@@ -297,39 +242,6 @@ function hasConcretePurchaseContext(lowerQ: string): boolean {
   return contextHints.some((hint) => lowerQ.includes(hint));
 }
 
-function hasComingUpPlanningContext(lowerQ: string): boolean {
-  if (!lowerQ.includes("coming up")) return false;
-  const contextHints = [
-    "what",
-    "month",
-    "financial",
-    "money",
-    "bill",
-    "bills",
-    "commitment",
-    "plan",
-    "keep in mind",
-  ];
-  return contextHints.some((hint) => lowerQ.includes(hint));
-}
-
-function hasScenarioTopicHint(lowerQ: string): boolean {
-  const hints = [
-    "income",
-    "move",
-    "moving",
-    "bill",
-    "bills",
-    "saving",
-    "savings",
-    "payment",
-    "rent",
-    "mortgage",
-    "commitment",
-  ];
-  return hints.some((hint) => lowerQ.includes(hint));
-}
-
 function isSpecificScenarioPrompt(lowerQ: string): boolean {
   const specificHints = [
     "income drops",
@@ -457,20 +369,13 @@ export async function POST(req: Request) {
 
     const lowerQ = q.toLowerCase();
     const parseQ = normalizeQuestionForParsing(q);
-    const looksOrientation =
-      !q ||
-      ORIENTATION_KEYWORDS.some((kw) => lowerQ.includes(kw));
-    const looksDiagnosis = q && DIAGNOSIS_KEYWORDS.some((kw) => lowerQ.includes(kw));
-    const looksPlanning =
-      q &&
-      (PLANNING_KEYWORDS.some((kw) => lowerQ.includes(kw)) ||
-        hasComingUpPlanningContext(lowerQ));
-    const looksAffordability = q && AFFORDABILITY_KEYWORDS.some((kw) => lowerQ.includes(kw));
-    const looksScenario =
-      q &&
-      (SCENARIO_KEYWORDS.some((kw) => lowerQ.includes(kw)) ||
-        ((lowerQ.includes("what if") || lowerQ.includes("what happens if")) &&
-          hasScenarioTopicHint(lowerQ)));
+    const {
+      looksOrientation,
+      looksDiagnosis,
+      looksPlanning,
+      looksAffordability,
+      looksScenario,
+    } = detectMoneyAskIntent(q);
 
     // Orientation path: empty query or simple keyword match
     if (looksOrientation) {

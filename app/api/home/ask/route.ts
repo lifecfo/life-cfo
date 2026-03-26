@@ -12,6 +12,7 @@ import {
   tryRunHouseholdMoneyReasoning,
   type HouseholdMoneyReasoningResult,
 } from "@/lib/money/reasoning/runHouseholdMoneyReasoning";
+import { isHomeAffordabilityIntent } from "@/lib/money/reasoning/intentDetection";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -93,12 +94,6 @@ function isGoalsIntent(q: string) {
   const s = (q || "").trim().toLowerCase();
   if (!s) return false;
   return /\b(goal|goals|savings goal|savings goals|money goal|money goals|target|targets)\b/.test(s);
-}
-
-function isAffordIntent(q: string) {
-  const s = (q || "").trim().toLowerCase();
-  if (!s) return false;
-  return /(can we afford|can i afford|should we|safe to spend|is it safe to spend|can i spend|can we spend)\b/.test(s);
 }
 
 function formatDateShort(iso: string) {
@@ -851,7 +846,7 @@ export async function POST(req: Request) {
     const facts = await buildFactsPack({ userId: user.id, householdId });
 
     // ✅ Deterministic AFFORD handling (skip AI)
-    if (isAffordIntent(question)) {
+    if (isHomeAffordabilityIntent(question)) {
       const money = (facts as any)?.money_summary;
       const moneyReasoning = (facts as any)?.money_reasoning;
       const mainPressureSummary =
