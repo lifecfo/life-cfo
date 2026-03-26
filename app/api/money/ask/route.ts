@@ -258,6 +258,134 @@ function isSpecificScenarioPrompt(lowerQ: string): boolean {
   return specificHints.some((hint) => lowerQ.includes(hint));
 }
 
+function isRecentChangeQuestion(lowerQ: string): boolean {
+  return /\b(lately|recently|what changed|why.*worse now|worse now|tighter lately|tight lately)\b/i.test(
+    lowerQ
+  );
+}
+
+type ChangeTx = {
+  date?: string | null;
+  amount_cents?: number | null;
+  pending?: boolean | null;
+  category?: string | null;
+  description?: string | null;
+  merchant?: string | null;
+};
+
+function txDateMs(tx: ChangeTx): number | null {
+  const raw = typeof tx.date === "string" ? tx.date : null;
+  if (!raw) return null;
+  const ms = Date.parse(raw);
+  return Number.isFinite(ms) ? ms : null;
+}
+
+function txAmountCents(tx: ChangeTx): number {
+  const n = typeof tx.amount_cents === "number" ? tx.amount_cents : Number(tx.amount_cents);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function txText(tx: ChangeTx): string {
+  return `${tx.category ?? ""} ${tx.description ?? ""} ${tx.merchant ?? ""}`.toLowerCase();
+}
+
+function isBillLikeTx(tx: ChangeTx): boolean {
+  return /\b(rent|mortgage|bill|utility|electric|gas|water|internet|phone|insurance|subscription|repayment|loan)\b/i.test(
+    txText(tx)
+  );
+}
+
+function isIncomeLikeTx(tx: ChangeTx): boolean {
+  return /\b(salary|payroll|wage|pay|income|deposit|benefit|pension)\b/i.test(txText(tx));
+}
+
+function buildRecentChangeDiagnosisLines(params: {
+  nowIso: string;
+  rollingTransactions: ChangeTx[];
+}): string[] {
+  const nowMs = Date.parse(params.nowIso);
+  if (!Number.isFinite(nowMs)) return [];
+
+  const dayMs = 24 * 60 * 60 * 1000;
+  const recentStart = nowMs - 30 * dayMs;
+  const priorStart = nowMs - 60 * dayMs;
+  const txs = params.rollingTransactions.filter((tx) => tx.pending !== true);
+
+  const inRecent = (tx: ChangeTx) => {
+    const ms = txDateMs(tx);
+    return ms !== null && ms >= recentStart && ms <= nowMs;
+  };
+  const inPrior = (tx: ChangeTx) => {
+    const ms = txDateMs(tx);
+    return ms !== null && ms >= priorStart && ms < recentStart;
+  };
+
+  const sumOutflow = (items: ChangeTx[]) =>
+    items.reduce((sum, tx) => {
+      const cents = txAmountCents(tx);
+      return cents < 0 ? sum + Math.abs(cents) : sum;
+    }, 0);
+
+  const sumIncomeLikeInflow = (items: ChangeTx[]) =>
+    items.reduce((sum, tx) => {
+      const cents = txAmountCents(tx);
+      if (cents <= 0) return sum;
+      if (!isIncomeLikeTx(tx)) return sum;
+      return sum + cents;
+    }, 0);
+
+  const recent = txs.filter(inRecent);
+  const prior = txs.filter(inPrior);
+  if (!recent.length || !prior.length) return [];
+
+  const recentOutflow = sumOutflow(recent);
+  const priorOutflow = sumOutflow(prior);
+  const recentBillOutflow = sumOutflow(recent.filter(isBillLikeTx));
+  const priorBillOutflow = sumOutflow(prior.filter(isBillLikeTx));
+  const recentIncome = sumIncomeLikeInflow(recent);
+  const priorIncome = sumIncomeLikeInflow(prior);
+
+  const lines: Array<{ score: number; text: string }> = [];
+
+  if (priorBillOutflow > 0) {
+    const billDelta = recentBillOutflow - priorBillOutflow;
+    const billRatio = recentBillOutflow / priorBillOutflow;
+    if (billDelta >= 20000 && billRatio >= 1.12) {
+      lines.push({
+        score: billDelta,
+        text: "Bill-related spending looks higher than the prior period, which can leave less breathing room.",
+      });
+    }
+  }
+
+  if (priorOutflow > 0) {
+    const spendDelta = recentOutflow - priorOutflow;
+    const spendRatio = recentOutflow / priorOutflow;
+    if (spendDelta >= 30000 && spendRatio >= 1.12) {
+      lines.push({
+        score: spendDelta * 0.9,
+        text: "Spending has ticked up recently, which reduces what is left over.",
+      });
+    }
+  }
+
+  if (priorIncome > 0) {
+    const incomeDelta = priorIncome - recentIncome;
+    const incomeRatio = recentIncome / priorIncome;
+    if (incomeDelta >= 30000 && incomeRatio <= 0.9) {
+      lines.push({
+        score: incomeDelta,
+        text: "Income-like inflows look lower than the prior period, which can make things feel tighter.",
+      });
+    }
+  }
+
+  return lines
+    .sort((a, b) => b.score - a.score)
+    .map((x) => x.text)
+    .slice(0, 2);
+}
+
 function buildDiagnosisDrivers(
   rankedSignals: Array<{ name: string; summary: string; score: number }>,
   interpretation: PressureInterpretation
@@ -407,7 +535,7 @@ export async function POST(req: Request) {
 
     if (looksDiagnosis) {
       const money = await runHouseholdMoneyReasoning(supabase as any, { householdId });
-      const { snapshot, explanation, interpretation } = money;
+      const { truth, snapshot, explanation, interpretation } = money;
 
       const signals = snapshot.pressure;
 
@@ -419,6 +547,18 @@ export async function POST(req: Request) {
       ].sort((a, b) => b.score - a.score);
 
       const drivers = buildDiagnosisDrivers(rankedSignals, interpretation);
+      const recentChangeLines = isRecentChangeQuestion(lowerQ)
+        ? buildRecentChangeDiagnosisLines({
+            nowIso: truth.windows?.now_iso || truth.as_of_iso,
+            rollingTransactions: (truth.rolling_transactions ?? []) as ChangeTx[],
+          })
+        : [];
+      const diagnosisDrivers = recentChangeLines.length
+        ? [
+            ...drivers.slice(0, Math.max(1, 4 - recentChangeLines.length)),
+            ...recentChangeLines,
+          ].slice(0, 4)
+        : drivers;
 
       const diagnosisHeadline =
         interpretation.main_pressure.key === "none"
@@ -431,7 +571,7 @@ export async function POST(req: Request) {
           interpretation.main_pressure.key === "none"
             ? "From your latest household data, pressure looks fairly balanced overall."
             : interpretation.main_pressure.why_now || explanation.summary,
-        drivers,
+        drivers: diagnosisDrivers,
         signals: {
           structural: signals.structural_pressure.summary,
           discretionary: signals.discretionary_drift.summary,
