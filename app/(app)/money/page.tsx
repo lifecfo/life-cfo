@@ -100,6 +100,71 @@ function toMiniSignalLevel(level: "none" | "low" | "medium" | "high"): MiniSigna
   return "high";
 }
 
+function sentence(input: string | null | undefined): string {
+  const text = String(input || "").trim();
+  if (!text) return "";
+  return /[.!?]$/.test(text) ? text : `${text}.`;
+}
+
+function buildSmartInsight(
+  explanation: SnapshotExplanation | undefined,
+  interpretation: PressureInterpretation | undefined
+): { headline: string; supporting: string } {
+  if (!interpretation) {
+    return {
+      headline: explanation?.headline || "Your money picture is loading.",
+      supporting: explanation?.summary || "We are still pulling together the latest household view.",
+    };
+  }
+
+  const main = interpretation.main_pressure;
+  if (main.key === "none") {
+    return {
+      headline: "Your money picture looks fairly steady right now.",
+      supporting:
+        "No single pressure point is standing out, so day-to-day money should feel more even.",
+    };
+  }
+
+  if (main.key === "structural") {
+    return {
+      headline: "Regular commitments are creating most of the pressure right now.",
+      supporting: joinNonEmptyWithSpace([
+        sentence(main.why_now),
+        "That usually leaves less breathing room between pay cycles.",
+      ]),
+    };
+  }
+
+  if (main.key === "discretionary") {
+    return {
+      headline: "Recent spending drift is the main pressure right now.",
+      supporting: joinNonEmptyWithSpace([
+        sentence(main.why_now),
+        "That can make leftover cash feel thinner week to week.",
+      ]),
+    };
+  }
+
+  if (main.key === "timing") {
+    return {
+      headline: "Cash-flow timing is the main pressure point right now.",
+      supporting: joinNonEmptyWithSpace([
+        sentence(main.why_now),
+        "That can make parts of the month feel tighter even when totals look manageable.",
+      ]),
+    };
+  }
+
+  return {
+    headline: "Data freshness or income stability is the main uncertainty right now.",
+    supporting: joinNonEmptyWithSpace([
+      sentence(main.why_now),
+      "That can make the overall picture feel less certain from one week to the next.",
+    ]),
+  };
+}
+
 export default function MoneyClientNext() {
   const router = useRouter();
   const { showToast } = useToast();
@@ -188,29 +253,42 @@ export default function MoneyClientNext() {
         )
       : null;
 
-  const smartInsightLine = interpretation
-    ? interpretation.main_pressure.key === "none"
-      ? explanation?.summary || "Your latest data looks fairly balanced overall."
-      : joinNonEmptyWithSpace([
-          interpretation.main_pressure.summary,
-          interpretation.main_pressure.why_now || "",
-        ])
-    : explanation?.summary || "Your latest data is loading.";
-
-  const smartInsightSubtle = "Based on your latest data.";
+  const smartInsight = buildSmartInsight(explanation, interpretation);
+  const openAskFromMoney = useCallback(() => {
+    try {
+      if (smartInsight.headline && smartInsight.headline !== "Your money picture is loading.") {
+        window.sessionStorage.setItem(
+          MONEY_SMART_INSIGHT_PREVIEW_KEY,
+          JSON.stringify({
+            headline: smartInsight.headline,
+            supporting: smartInsight.supporting,
+          })
+        );
+      }
+    } catch {
+      // ignore storage availability issues
+    }
+    openAsk();
+  }, [openAsk, smartInsight.headline, smartInsight.supporting]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
     try {
-      if (!smartInsightLine || smartInsightLine === "Your latest data is loading.") {
+      if (!smartInsight.headline || smartInsight.headline === "Your money picture is loading.") {
         window.sessionStorage.removeItem(MONEY_SMART_INSIGHT_PREVIEW_KEY);
         return;
       }
-      window.sessionStorage.setItem(MONEY_SMART_INSIGHT_PREVIEW_KEY, smartInsightLine);
+      window.sessionStorage.setItem(
+        MONEY_SMART_INSIGHT_PREVIEW_KEY,
+        JSON.stringify({
+          headline: smartInsight.headline,
+          supporting: smartInsight.supporting,
+        })
+      );
     } catch {
       // ignore storage availability issues
     }
-  }, [smartInsightLine]);
+  }, [smartInsight.headline, smartInsight.supporting]);
 
   return (
     <Page title="Money" subtitle="A calm view of money coming in, going out, saved, and planned.">
@@ -233,11 +311,11 @@ export default function MoneyClientNext() {
               <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
                 How things are looking right now
               </div>
-              <div className="text-sm leading-relaxed text-zinc-800">{smartInsightLine}</div>
-              <div className="text-xs text-zinc-500">{smartInsightSubtle}</div>
+              <div className="text-sm leading-relaxed text-zinc-800">{smartInsight.headline}</div>
+              <div className="text-xs leading-relaxed text-zinc-500">{smartInsight.supporting}</div>
               <button
                 type="button"
-                onClick={openAsk}
+                onClick={openAskFromMoney}
                 className="text-xs text-zinc-500 underline-offset-2 hover:text-zinc-700 hover:underline"
               >
                 If you want to go deeper, just ask.

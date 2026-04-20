@@ -8,6 +8,28 @@ import type { DecisionCandidate } from "@/lib/memory/contracts";
 
 type AskPanelMode = "overlay" | "split";
 const MONEY_SMART_INSIGHT_PREVIEW_KEY = "lifecfo:money-smart-insight-preview";
+type MoneyInsightPreview = {
+  headline: string;
+  supporting?: string;
+};
+
+function readMoneyInsightPreview(): MoneyInsightPreview | null {
+  try {
+    const value = window.sessionStorage.getItem(MONEY_SMART_INSIGHT_PREVIEW_KEY);
+    if (!value || !value.trim()) return null;
+
+    try {
+      const parsed = JSON.parse(value) as MoneyInsightPreview;
+      const headline = String(parsed?.headline || "").trim();
+      const supporting = String(parsed?.supporting || "").trim();
+      return headline ? { headline, supporting: supporting || undefined } : null;
+    } catch {
+      return { headline: value.trim() };
+    }
+  } catch {
+    return null;
+  }
+}
 
 function cleanAnswer(raw: string) {
   let t = (raw || "").trim();
@@ -84,7 +106,6 @@ export function AskPanel({ mode = "overlay" }: { mode?: AskPanelMode }) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const [isDesktop, setIsDesktop] = useState(false);
   const [examplesExpanded, setExamplesExpanded] = useState(mode === "split");
-  const [moneyInsightPreview, setMoneyInsightPreview] = useState<string | null>(null);
 
   useEffect(() => {
     const media = window.matchMedia("(min-width: 768px)");
@@ -121,18 +142,9 @@ export function AskPanel({ mode = "overlay" }: { mode?: AskPanelMode }) {
     el.scrollTop = el.scrollHeight;
   }, [messages, status, effectiveOpen]);
 
-  useEffect(() => {
-    if (!effectiveOpen || currentScope !== "money") {
-      setMoneyInsightPreview(null);
-      return;
-    }
-
-    try {
-      const value = window.sessionStorage.getItem(MONEY_SMART_INSIGHT_PREVIEW_KEY);
-      setMoneyInsightPreview(value && value.trim() ? value.trim() : null);
-    } catch {
-      setMoneyInsightPreview(null);
-    }
+  const moneyInsightPreview = useMemo(() => {
+    if (!effectiveOpen || currentScope !== "money") return null;
+    return readMoneyInsightPreview();
   }, [effectiveOpen, currentScope]);
 
   const latestAssistant = useMemo(() => {
@@ -303,7 +315,9 @@ export function AskPanel({ mode = "overlay" }: { mode?: AskPanelMode }) {
                       overflow: "hidden",
                     }}
                   >
-                    {moneyInsightPreview}
+                    {[moneyInsightPreview.headline, moneyInsightPreview.supporting]
+                      .filter(Boolean)
+                      .join(" ")}
                   </div>
                 ) : null}
                 <div className="text-xs text-zinc-500">
