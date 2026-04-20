@@ -12,7 +12,12 @@ export function memoSection(title: string, lines: string[]): string {
 }
 
 export function joinNonEmptyWithSpace(parts: Array<string | null | undefined>): string {
-  return parts.filter(Boolean).join(" ");
+  return parts
+    .map((part) => (typeof part === "string" ? part.trim() : ""))
+    .filter(Boolean)
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 export function buildMemoAnswer(params: {
@@ -52,4 +57,3 @@ export function buildMemoAnswer(params: {
 
   return blocks.filter(Boolean).join("\n\n").trim();
 }
-

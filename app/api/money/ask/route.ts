@@ -534,13 +534,31 @@ export async function POST(req: Request) {
     if (looksOrientation || reasoningFallbackMode === "snapshot") {
       const money = await runHouseholdMoneyReasoning(supabase as any, { householdId });
       const { snapshot, explanation, interpretation } = money;
+      const snapshotHeadline =
+        interpretation.main_pressure.key === "none"
+          ? "Your household money picture looks fairly steady right now."
+          : `Your household money picture is mainly being shaped by ${interpretation.main_pressure.key} pressure right now.`;
+      const snapshotSummary =
+        interpretation.main_pressure.key === "none"
+          ? joinNonEmptyWithSpace([
+              explanation.summary,
+              "That means things may still feel tight at times, but no single pressure point is dominating.",
+            ])
+          : joinNonEmptyWithSpace([
+              interpretation.main_pressure.why_now || explanation.summary,
+              "That is usually why money can feel tighter day to day, even when parts of the picture are still stable.",
+            ]);
 
       return NextResponse.json({
         ok: true,
         mode: "snapshot",
         household_id: householdId,
         snapshot,
-        explanation,
+        explanation: {
+          ...explanation,
+          headline: snapshotHeadline,
+          summary: snapshotSummary,
+        },
         interpretation,
       });
     }
@@ -574,17 +592,20 @@ export async function POST(req: Request) {
 
       const diagnosisHeadline =
         interpretation.main_pressure.key === "none"
-          ? "Money pressure looks fairly balanced right now."
-          : `The main pressure right now is ${interpretation.main_pressure.key}.`;
+          ? "No single pressure point is dominating your money picture right now."
+          : `${interpretation.main_pressure.key[0].toUpperCase()}${interpretation.main_pressure.key.slice(1)} pressure is the main reason money feels tight right now.`;
 
       const diagnosis = {
         headline: diagnosisHeadline,
         summary:
           interpretation.main_pressure.key === "none"
-            ? "From your latest household data, no single pressure signal is dominating, so the picture looks relatively steady."
+            ? joinNonEmptyWithSpace([
+                explanation.summary,
+                "That means any pressure is likely coming from a few smaller factors rather than one major issue.",
+              ])
             : joinNonEmptyWithSpace([
                 interpretation.main_pressure.why_now || explanation.summary,
-                "That is why things may feel tighter even if some parts of the picture are still stable.",
+                "This usually reduces breathing room, so money can feel tighter even when some parts of the picture are still stable.",
               ]),
         drivers: diagnosisDrivers,
         signals: {
