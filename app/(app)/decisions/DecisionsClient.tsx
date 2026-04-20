@@ -1290,6 +1290,30 @@ export default function DecisionsClient() {
 
   const openItem = tab === "active" && openId ? filteredItems.find((d) => d.id === openId) ?? null : null;
   const others = useMemo(() => filteredItems.filter((d) => d.id !== openId), [filteredItems, openId]);
+  const activeSnapshotLine = useMemo(() => {
+    if (tab !== "active") return "";
+
+    const count = filteredItems.length;
+    const withReviewDate = filteredItems.filter((d) => !!d.review_at).length;
+    const dueForReview = filteredItems.filter((d) => isReviewDue(d.review_at)).length;
+
+    if (count <= 0) return "You have no active decisions right now.";
+
+    const decisionWord = count === 1 ? "decision" : "decisions";
+    const base = `You have ${count} active ${decisionWord}.`;
+
+    if (dueForReview > 0) {
+      const dueWord = dueForReview === 1 ? "is" : "are";
+      return `${base} ${dueForReview} ${dueWord} due for review.`;
+    }
+
+    if (withReviewDate > 0) {
+      const haveWord = withReviewDate === 1 ? "has" : "have";
+      return `${base} ${withReviewDate} ${haveWord} review dates set.`;
+    }
+
+    return base;
+  }, [filteredItems, tab]);
 
   const visibleOthers = useMemo(() => {
     if (showAll) return others;
@@ -2782,6 +2806,8 @@ export default function DecisionsClient() {
         {/* Page 2: Active Decisions */}
         {tab === "active" ? (
           <div className="space-y-4">
+            <div className="text-sm text-zinc-600">{activeSnapshotLine}</div>
+
             <div className="flex items-center gap-2">
               <input
                 ref={searchInputRef}
@@ -2802,8 +2828,7 @@ export default function DecisionsClient() {
             {filteredItems.length === 0 ? (
               <div className="space-y-2 pt-2">
                 <div className="text-sm font-semibold text-zinc-900">All clear.</div>
-                <div className="text-sm text-zinc-600">When something needs attention, it can live here quietly.</div>
-                <div className="text-sm text-zinc-600">This space is ready when there is something worth thinking through.</div>
+                <div className="text-sm text-zinc-600">This space stays ready for anything worth thinking through.</div>
               </div>
             ) : (
               <div className="space-y-6">
