@@ -179,12 +179,7 @@ export function AskPanel({ mode = "overlay" }: { mode?: AskPanelMode }) {
       <div className="shrink-0 flex items-center justify-between gap-3 border-b border-zinc-100 px-4 py-4">
         <div className="min-w-0">
           <div className="text-sm font-semibold text-zinc-900">{title}</div>
-          <div className="text-xs text-zinc-500">Looking at: {currentViewLabel}</div>
-          {isMoneyContext ? (
-            <div className="mt-1 text-xs text-zinc-500">
-              Money context
-            </div>
-          ) : null}
+          <div className="text-xs text-zinc-500">{currentViewLabel}</div>
         </div>
 
         <div className="flex items-center gap-2">
