@@ -15,8 +15,8 @@ export type LifeCFOAnswerPayload = {
   what_changes_this?: string[];  // max 3
 
   // Existing routing contract
-  action?: "open_bills" | "open_money" | "open_decisions" | "open_review" | "open_chapters" | "none";
-  suggested_next?: "none" | "create_capture" | "open_thinking";
+  action?: "open_money" | "open_decisions" | "open_chapters" | "none";
+  suggested_next?: "none";
 
   // Fallback (legacy / emergency only)
   answer?: string;

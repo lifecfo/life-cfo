@@ -233,8 +233,8 @@ export interface AskResponseBase {
   memory?: AskResponseMemory;
 }
 
-export type HomeAskAction = "open_bills" | "open_money" | "open_decisions" | "open_review" | "open_chapters" | "none";
-export type HomeAskSuggestedNext = "none" | "create_capture" | "open_thinking";
+export type HomeAskAction = "open_money" | "open_decisions" | "open_chapters" | "none";
+export type HomeAskSuggestedNext = "none";
 
 export interface HomeAskCaptureSeed {
   title: string;

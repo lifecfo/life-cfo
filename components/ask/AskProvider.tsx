@@ -115,8 +115,6 @@ function scopeFromPath(pathname: string): string | null {
   if (pathname.startsWith("/transactions")) return "transactions";
   if (pathname.startsWith("/connections")) return "connections";
   if (pathname.startsWith("/decisions")) return "decisions";
-  if (pathname.startsWith("/thinking")) return "thinking";
-  if (pathname.startsWith("/capture")) return "capture";
   if (pathname.startsWith("/bills")) return "bills";
   if (pathname.startsWith("/family")) return "family";
   if (pathname.startsWith("/household")) return "household";
@@ -283,10 +281,8 @@ export function AskProvider({ children }: { children: ReactNode }) {
         }
 
         const actionMap: Record<string, string | null> = {
-          open_bills: "/bills",
           open_money: "/money",
           open_decisions: "/decisions?tab=active",
-          open_review: "/revisit",
           open_chapters: "/chapters",
           none: null,
         };

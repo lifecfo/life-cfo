@@ -93,7 +93,7 @@ export function useHomeOrientation({ userId }: { userId: string | null }): Resul
           if (autopayRisk > 0) {
             dedupePush(next, {
               key: "bills_autopay_risk",
-              href: "/bills",
+              href: "/money",
               priority: 90,
               text:
                 autopayRisk === 1
@@ -103,14 +103,14 @@ export function useHomeOrientation({ userId }: { userId: string | null }): Resul
           } else if (due7 > 0) {
             dedupePush(next, {
               key: "bills_due_7",
-              href: "/bills",
+              href: "/money",
               priority: 70,
               text: due7 === 1 ? "One bill is due in the next 7 days." : `${due7} bills are due in the next 7 days.`,
             });
           } else if (due14 > 0) {
             dedupePush(next, {
               key: "bills_due_14",
-              href: "/bills",
+              href: "/money",
               priority: 60,
               text: due14 === 1 ? "One bill is due in the next two weeks." : `${due14} bills are due in the next two weeks.`,
             });
@@ -121,7 +121,7 @@ export function useHomeOrientation({ userId }: { userId: string | null }): Resul
       }
 
       // 2) Review intel (decisions with review_at due)
-      // Link to /revisit (your Review surface).
+      // Link to active Decisions.
       try {
         const nowIso = new Date().toISOString();
 
@@ -141,9 +141,9 @@ export function useHomeOrientation({ userId }: { userId: string | null }): Resul
           if (due > 0) {
             dedupePush(next, {
               key: "review_due",
-              href: "/revisit",
+              href: "/decisions?tab=active",
               priority: 95,
-              text: due === 1 ? "One decision is ready for Review." : `${due} decisions are ready for Review.`,
+              text: due === 1 ? "One decision is ready for a check-in." : `${due} decisions are ready for a check-in.`,
             });
           }
         }
@@ -151,8 +151,8 @@ export function useHomeOrientation({ userId }: { userId: string | null }): Resul
         // silent
       }
 
-      // 3) Capture / Inbox intel (decision_inbox)
-      // Link to /capture (or wherever you sort captures).
+      // 3) Inbox intel (decision_inbox)
+      // Link to active Decisions.
       try {
         const nowIso = new Date().toISOString();
 
@@ -169,9 +169,9 @@ export function useHomeOrientation({ userId }: { userId: string | null }): Resul
           if (openCount > 0) {
             dedupePush(next, {
               key: "captures_open",
-              href: "/capture",
+              href: "/decisions?tab=active",
               priority: 80,
-              text: openCount === 1 ? "One capture is waiting to be sorted." : `${openCount} captures are waiting to be sorted.`,
+              text: openCount === 1 ? "One item is waiting to be shaped into a decision." : `${openCount} items are waiting to be shaped into decisions.`,
             });
           }
         }

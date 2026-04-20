@@ -171,14 +171,7 @@ function statusOpeningLine(status: "all_clear" | "tight" | "attention" | "unknow
 
 /* ---------- types ---------- */
 
-type CaptureSeed = {
-  title: string;
-  prompt: string;
-  notes: string[];
-};
-
-type ApiAction = "open_bills" | "open_money" | "open_decisions" | "open_review" | "open_chapters" | "none";
-type SuggestedNext = "none" | "create_capture" | "open_thinking";
+type ApiAction = "open_money" | "open_decisions" | "open_chapters" | "none";
 
 type AskState =
   | { status: "idle" }
@@ -188,8 +181,6 @@ type AskState =
       question: string;
       answer: string;
       actionHref?: string | null;
-      suggestedNext?: SuggestedNext;
-      captureSeed?: CaptureSeed | null;
     }
   | { status: "error"; question: string; message: string };
 
@@ -233,9 +224,7 @@ type HomeNowItem = {
 
 function actionToHref(action: ApiAction | undefined): string | null {
   if (action === "open_money") return "/money";
-  if (action === "open_bills") return "/bills";
   if (action === "open_decisions") return "/decisions";
-  if (action === "open_review") return "/revisit";
   if (action === "open_chapters") return "/chapters";
   return null;
 }
@@ -514,11 +503,6 @@ export default function LifeCFOHomePage() {
         question,
         answer,
         actionHref,
-        suggestedNext: (typeof json?.suggested_next === "string" ? (json.suggested_next as SuggestedNext) : "none") as SuggestedNext,
-        captureSeed:
-          (json?.capture_seed && typeof json.capture_seed === "object" ? (json.capture_seed as CaptureSeed) : null) as
-            | CaptureSeed
-            | null,
       });
 
       scrollToAnswer();
@@ -547,7 +531,7 @@ export default function LifeCFOHomePage() {
     // Crisis intercept (no save, no AI)
     const intercept = maybeCrisisIntercept(msg);
     if (intercept) {
-      setAsk({ status: "done", question: msg, answer: intercept.content, actionHref: null, suggestedNext: "none", captureSeed: null });
+      setAsk({ status: "done", question: msg, answer: intercept.content, actionHref: null });
       scrollToAnswer();
       return;
     }
@@ -580,7 +564,7 @@ export default function LifeCFOHomePage() {
     try {
       const intercept = maybeCrisisIntercept(fu);
       if (intercept) {
-        setAsk({ status: "done", question: fu, answer: intercept.content, actionHref: null, suggestedNext: "none", captureSeed: null });
+        setAsk({ status: "done", question: fu, answer: intercept.content, actionHref: null });
         setFollowUpOpen(false);
         setFollowUpText("");
         scrollToAnswer();
@@ -660,8 +644,8 @@ Follow-up question: ${fu}`
         push({
           key: "bills_due_soon",
           title: dueSoon.length === 1 ? "1 bill due soon" : `${dueSoon.length} bills due soon`,
-          detail: "A quick bill check can prevent avoidable pressure.",
-          href: "/bills",
+          detail: "Money has the latest bill timing and pressure context.",
+          href: "/money",
           priority: 75,
         });
       }
@@ -682,16 +666,16 @@ Follow-up question: ${fu}`
         push({
           key: "reviews_due",
           title: triage.reviewDueCount === 1 ? "1 review is due" : `${triage.reviewDueCount} reviews are due`,
-          detail: "Revisit decisions that are now ready for a check-in.",
-          href: "/revisit",
+          detail: "Check your active decisions to close the loop.",
+          href: "/decisions?tab=active",
           priority: 95,
         });
       } else if (triage.reviewSoonCount > 0) {
         push({
           key: "reviews_soon",
           title: triage.reviewSoonCount === 1 ? "1 review is coming up" : `${triage.reviewSoonCount} reviews are coming up`,
-          detail: "A quick look now can make the next review easier.",
-          href: "/revisit",
+          detail: "A quick pass in Decisions keeps upcoming reviews calm.",
+          href: "/decisions?tab=active",
           priority: 65,
         });
       }
@@ -775,8 +759,8 @@ Follow-up question: ${fu}`
                           <Chip className="text-xs" title="Open Money" onClick={() => router.push("/money")}>
                             Open Money
                           </Chip>
-                          <Chip className="text-xs" title="Open Bills" onClick={() => router.push("/bills")}>
-                            Open Bills
+                          <Chip className="text-xs" title="Open Decisions" onClick={() => router.push("/decisions")}>
+                            Open Decisions
                           </Chip>
 
                           {buildStamp ? <span className="ml-auto text-[11px] text-zinc-400">Build {buildStamp}</span> : null}
@@ -838,8 +822,8 @@ Follow-up question: ${fu}`
                 <Chip className="text-xs" title="Open Decisions" onClick={() => router.push("/decisions")}>
                   Decisions
                 </Chip>
-                <Chip className="text-xs" title="Open Review" onClick={() => router.push("/revisit")}>
-                  Review
+                <Chip className="text-xs" title="Open Chapters" onClick={() => router.push("/chapters")}>
+                  Chapters
                 </Chip>
                 <Chip
                   className="text-xs"
@@ -1149,16 +1133,16 @@ Follow-up question: ${fu}`
                         <div className="mt-2 flex flex-wrap gap-2">
                           <Chip
                             className="text-xs"
-                            title="Save to Capture"
+                            title="Open in Money"
                             onClick={async () => {
                               try {
                                 await navigator.clipboard.writeText(ask.question);
-                                toast({ title: "Copied", description: "Paste into Capture." });
+                                toast({ title: "Copied", description: "Ready to paste in Money." });
                               } catch {}
-                              router.push("/capture");
+                              router.push("/money");
                             }}
                           >
-                            Save to Capture
+                            Open in Money
                           </Chip>
 
                           <Chip
@@ -1186,9 +1170,6 @@ Follow-up question: ${fu}`
                           </Chip>
                         </div>
 
-                        {"suggestedNext" in ask && ask.suggestedNext === "create_capture" ? (
-                          <div className="mt-2 text-xs text-zinc-500">If you’d like, we can save this so it doesn’t stay in your head.</div>
-                        ) : null}
                       </div>
                     </div>
                   )}

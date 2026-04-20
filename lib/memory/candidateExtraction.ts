@@ -101,7 +101,7 @@ function baseCandidate(input: BaseInput, candidateType: CandidateType, title: st
 function hasStrongDecisionSignal(input: HomeDecisionCandidateInput) {
   const q = input.question.toLowerCase();
   if (input.action === "open_decisions") return true;
-  if (input.suggestedNext === "create_capture" && /\b(decide|decision|choice|options?|trade-?off)\b/.test(q)) return true;
+  if (/\b(decide|decision|choice|options?|trade-?off)\b/.test(q)) return true;
   return false;
 }
 

@@ -6,8 +6,8 @@ import type { Verdict } from "./verdict";
 
 export type VerdictDecisionInput = {
   question: string;
-  suggested_next?: "none" | "create_capture" | "open_thinking";
-  action?: "open_bills" | "open_money" | "open_decisions" | "open_review" | "open_chapters" | "none";
+  suggested_next?: "none";
+  action?: "open_money" | "open_decisions" | "open_chapters" | "none";
   facts?: {
     data_quality?: {
       accounts_ok?: boolean;
@@ -24,10 +24,6 @@ export type VerdictDecisionInput = {
 
 export function decideVerdict(input: VerdictDecisionInput): Verdict {
   const q = (input.question || "").toLowerCase();
-  const suggested = input.suggested_next ?? "none";
-
-  // If we need more context to answer safely, we should not pretend we can conclude.
-  if (suggested === "create_capture") return "INSUFFICIENT_DATA";
 
   const dq = input.facts?.data_quality;
   const accountsOk = dq?.accounts_ok !== false;

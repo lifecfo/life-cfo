@@ -105,9 +105,9 @@ export default function ChaptersPage() {
       subtitle="Finished decisions you don’t want resurfacing."
       right={
         <div className="flex items-center gap-2">
-          <Chip onClick={() => router.push("/decisions")}>Decisions</Chip>
-          <Chip onClick={() => router.push("/revisit")}>Review</Chip>
-          <Button onClick={() => router.push("/framing")} className="rounded-2xl">
+          <Chip onClick={() => router.push("/money")}>Money</Chip>
+          <Chip onClick={() => router.push("/decisions?tab=active")}>Decisions</Chip>
+          <Button onClick={() => router.push("/decisions?tab=new")} className="rounded-2xl">
             New decision
           </Button>
         </div>

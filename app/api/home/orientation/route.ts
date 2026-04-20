@@ -19,21 +19,21 @@ function pickSentence(input: {
   if (input.hasUnframedCapture) {
     return {
       text: "There’s something waiting to be shaped into a decision.",
-      href: "/capture",
+      href: "/decisions?tab=active",
     };
   }
 
   if (input.dueReviews > 0) {
     return {
       text: "A decision is ready to revisit when you’re ready.",
-      href: "/revisit",
+      href: "/decisions?tab=active",
     };
   }
 
   if (input.upcomingBills > 0) {
     return {
       text: "One upcoming bill may need a look.",
-      href: "/bills",
+      href: "/money",
     };
   }
 
@@ -151,3 +151,4 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: e?.message ?? "Unknown error" }, { status: 500 });
   }
 }
+

@@ -20,19 +20,15 @@ import { createClient } from "@supabase/supabase-js";
 export type AskIntent = "state" | "find" | "compare" | "afford" | "attention" | "unknown";
 
 export type AskAction =
-  | "open_bills"
-  | "open_money"
-  | "open_goals"
-  | "open_decisions"
-  | "open_review"
-  | "open_chapters"
-  | "create_capture"
-  | "none";
+    | "open_money"
+    | "open_decisions"
+    | "open_chapters"
+    | "none";
 
 export type AskResult = {
   answer: string;
   action: AskAction;
-  suggested_next?: "create_capture";
+  suggested_next?: "none";
   // NOTE: kept name "framing_seed" to avoid breaking callers,
   // but it represents a Capture seed (title + prompt + notes).
   framing_seed?: {
@@ -110,7 +106,7 @@ export async function resolveHomeAsk(args: { userId: string; question: string })
     if (error || !goals) {
       return {
         answer: "I can’t see your goals right now (from what I can see).",
-        action: "open_goals",
+        action: "open_money",
       };
     }
 
@@ -142,7 +138,7 @@ export async function resolveHomeAsk(args: { userId: string; question: string })
     if (count === 0) {
       return {
         answer: "There are no active goals (from what I can see).",
-        action: "open_goals",
+        action: "open_money",
       };
     }
 
@@ -182,7 +178,7 @@ export async function resolveHomeAsk(args: { userId: string; question: string })
 
     return {
       answer: parts.join(" "),
-      action: "open_goals",
+      action: "open_money",
     };
   }
 
@@ -208,7 +204,7 @@ export async function resolveHomeAsk(args: { userId: string; question: string })
     if (!bills || bills.length === 0) {
       return {
         answer: `I don’t see any bills due in the next 30 days (from what I can see).`,
-        action: "open_bills",
+        action: "open_money",
       };
     }
 
@@ -221,7 +217,7 @@ export async function resolveHomeAsk(args: { userId: string; question: string })
 
     return {
       answer: `In the next 30 days (until ${end.toLocaleDateString()}), you have:\n\n${lines.join("\n")}`,
-      action: "open_bills",
+      action: "open_money",
     };
   }
 
@@ -271,7 +267,7 @@ export async function resolveHomeAsk(args: { userId: string; question: string })
         `I can’t say “yes” or “no” from here — but we can frame it so it’s safe and clear.`,
       ].join("\n"),
       action: "open_money",
-      suggested_next: "create_capture",
+      suggested_next: "none",
       framing_seed: {
         title: question,
         prompt: question,
@@ -293,9 +289,9 @@ export async function resolveHomeAsk(args: { userId: string; question: string })
    * ============================
    */
   return {
-    answer: "I can’t confidently answer that yet with the data I have. If this matters, we can capture it properly.",
+    answer: "I can’t confidently answer that yet with the data I have. If this matters, we can continue in Decisions.",
     action: "none",
-    suggested_next: "create_capture",
+    suggested_next: "none",
     framing_seed: {
       title: question,
       prompt: question,
@@ -303,3 +299,4 @@ export async function resolveHomeAsk(args: { userId: string; question: string })
     },
   };
 }
+

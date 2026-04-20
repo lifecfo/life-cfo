@@ -8,18 +8,15 @@ import { Chip } from "@/components/ui";
 
 export type Scope =
   | "money"
-  | "thinking"
   | "decisions"
-  | "revisit"
   | "chapters"
-  | "capture"
   | "bills"
   | "accounts"
   | "investments"
   | "transactions";
 
 type Suggestion = {
-  kind: "decision" | "bill" | "account" | "investment" | "capture" | "transaction";
+  kind: "decision" | "bill" | "account" | "investment" | "transaction";
   id: string;
   title: string;
   subtitle?: string;
@@ -48,10 +45,6 @@ function softDate(iso: unknown) {
  * So AssistedSearch MUST include tab=... when linking to decisions.
  */
 function routeForDecision(decisionId: string, scope: Scope) {
-  if (scope === "thinking") {
-    return `/thinking?open=${encodeURIComponent(decisionId)}`;
-  }
-
   // Chapters live under Closed Decisions
   if (scope === "chapters") {
     return `/decisions?tab=closed&open=${encodeURIComponent(decisionId)}`;
@@ -59,10 +52,6 @@ function routeForDecision(decisionId: string, scope: Scope) {
 
   // Everything else decision-ish should land on Active Decisions
   return `/decisions?tab=active&open=${encodeURIComponent(decisionId)}`;
-}
-
-function routeForCapture(inboxId: string) {
-  return `/capture?open=${encodeURIComponent(inboxId)}`;
 }
 
 function routeForBill() {
@@ -111,18 +100,6 @@ type AccountRow = {
   archived: boolean | null;
 };
 
-type CaptureRow = {
-  id: string;
-  title: string | null;
-  body: string | null;
-  created_at: string | null;
-  status: string | null;
-  framed_decision_id: string | null;
-  type: string | null;
-  attachments?: unknown;
-  attachment_count?: number | null;
-};
-
 type TxRow = {
   id: string;
   date: string | null; // YYYY-MM-DD
@@ -139,9 +116,7 @@ type TxRow = {
 };
 
 function scopeDecisionFilter(scope: Scope) {
-  if (scope === "thinking") return { statusEq: "draft" as const };
   if (scope === "chapters") return { statusEq: "chapter" as const };
-  if (scope === "revisit") return { notDraft: true, requireReviewAt: true };
   if (scope === "decisions") return { notDraft: true, notChapter: true };
   return { any: true };
 }
@@ -168,34 +143,6 @@ async function getActiveHouseholdId(): Promise<string | null> {
   } catch {
     return null;
   }
-}
-
-/* --------------------- ATTACHMENTS HINT --------------------- */
-function hasAttachmentsHint(row: CaptureRow): boolean {
-  if (typeof row.attachment_count === "number") return row.attachment_count > 0;
-
-  const a: any = (row as any).attachments;
-  if (Array.isArray(a)) return a.length > 0;
-  if (a && typeof a === "object") {
-    const maybeArr = (a as any).files ?? (a as any).items ?? null;
-    if (Array.isArray(maybeArr)) return maybeArr.length > 0;
-  }
-
-  const body = safeStr(row.body);
-  if (!body) return false;
-
-  const trimmed = body.trim();
-  if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
-    try {
-      const parsed: any = JSON.parse(trimmed);
-      const att = parsed?.attachments;
-      if (Array.isArray(att)) return att.length > 0;
-      const attFiles = att?.files ?? att?.items ?? null;
-      if (Array.isArray(attFiles)) return attFiles.length > 0;
-    } catch {}
-  }
-
-  return /"attachments"\s*:/.test(body);
 }
 
 /* ----------------------- BILLS (user-scoped, unchanged) ----------------------- */
@@ -420,61 +367,6 @@ async function fetchTransactionMatchesHousehold(q: string): Promise<Suggestion[]
   });
 }
 
-/* --------------------- CAPTURE (user-scoped, unchanged) --------------------- */
-async function fetchTopCaptureSuggestions(): Promise<Suggestion[]> {
-  const uid = await getUserId();
-  if (!uid) return [];
-
-  const { data, error } = await supabase
-    .from("decision_inbox")
-    .select("id,title,body,created_at,status,framed_decision_id,type,attachments,attachment_count")
-    .eq("user_id", uid)
-    .eq("type", "capture")
-    .eq("status", "open")
-    .is("framed_decision_id", null)
-    .order("created_at", { ascending: false })
-    .limit(10);
-
-  if (error) return [];
-
-  return (data ?? []).map((r: any) => {
-    const row: CaptureRow = r as CaptureRow;
-    const title = safeStr(row?.title) || "Captured";
-    const created = row?.created_at ? softDate(row.created_at) : "";
-    const subtitle = [created || null, hasAttachmentsHint(row) ? "Attachments" : null].filter(Boolean).join(" • ");
-    return { kind: "capture", id: String(row?.id), title, subtitle, href: routeForCapture(String(row?.id)) };
-  });
-}
-
-async function fetchCaptureMatches(q: string): Promise<Suggestion[]> {
-  const uid = await getUserId();
-  if (!uid) return [];
-
-  const query = q.trim();
-  if (!query) return fetchTopCaptureSuggestions();
-
-  const { data, error } = await supabase
-    .from("decision_inbox")
-    .select("id,title,body,created_at,status,framed_decision_id,type,attachments,attachment_count")
-    .eq("user_id", uid)
-    .eq("type", "capture")
-    .eq("status", "open")
-    .is("framed_decision_id", null)
-    .or(`title.ilike.%${query}%,body.ilike.%${query}%`)
-    .order("created_at", { ascending: false })
-    .limit(12);
-
-  if (error) return [];
-
-  return (data ?? []).map((r: any) => {
-    const row: CaptureRow = r as CaptureRow;
-    const title = safeStr(row.title) || "Captured";
-    const created = row.created_at ? softDate(row.created_at) : "";
-    const subtitle = [created || null, hasAttachmentsHint(row) ? "Attachments" : null].filter(Boolean).join(" • ");
-    return { kind: "capture", id: String(row.id), title, subtitle, href: routeForCapture(String(row.id)) };
-  });
-}
-
 /* --------------------- DECISIONS (user-scoped, unchanged) --------------------- */
 async function fetchTopDecisionSuggestions(scope: Scope): Promise<Suggestion[]> {
   const uid = await getUserId();
@@ -492,9 +384,7 @@ async function fetchTopDecisionSuggestions(scope: Scope): Promise<Suggestion[]> 
     if ("requireReviewAt" in filter && filter.requireReviewAt) q = q.not("review_at", "is", null);
   }
 
-  if (scope === "revisit") {
-    q = q.order("review_at", { ascending: true }).limit(7);
-  } else if (scope === "chapters") {
+  if (scope === "chapters") {
     q = q
       .order("chaptered_at", { ascending: false, nullsFirst: false })
       .order("decided_at", { ascending: false, nullsFirst: false })
@@ -544,9 +434,7 @@ async function fetchDecisionMatches(scope: Scope, q: string): Promise<Suggestion
     if ("requireReviewAt" in filter && filter.requireReviewAt) db = db.not("review_at", "is", null);
   }
 
-  if (scope === "revisit") {
-    db = db.order("review_at", { ascending: true }).limit(10);
-  } else if (scope === "chapters") {
+  if (scope === "chapters") {
     db = db.order("chaptered_at", { ascending: false, nullsFirst: false }).order("decided_at", { ascending: false, nullsFirst: false }).limit(10);
   } else if (scope === "decisions") {
     db = db.order("decided_at", { ascending: false, nullsFirst: false }).order("created_at", { ascending: false }).limit(10);
@@ -606,7 +494,6 @@ async function fetchMoneyMatches(q: string): Promise<Suggestion[]> {
 async function fetchTopSuggestions(scope: Scope): Promise<Suggestion[]> {
   if (scope === "money") return fetchTopMoneySuggestions();
 
-  if (scope === "capture") return fetchTopCaptureSuggestions();
   if (scope === "bills") return fetchTopBillSuggestions();
 
   if (scope === "accounts") {
@@ -623,7 +510,6 @@ async function fetchTopSuggestions(scope: Scope): Promise<Suggestion[]> {
 async function fetchMatches(scope: Scope, q: string): Promise<Suggestion[]> {
   if (scope === "money") return fetchMoneyMatches(q);
 
-  if (scope === "capture") return fetchCaptureMatches(q);
   if (scope === "bills") return fetchBillMatches(q);
 
   if (scope === "accounts") {
@@ -761,8 +647,6 @@ export function AssistedSearch({
       ? "Transaction"
       : k === "investment"
       ? "Investment"
-      : k === "capture"
-      ? "Capture"
       : "Item";
 
   return (

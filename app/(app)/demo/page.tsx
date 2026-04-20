@@ -158,7 +158,7 @@ export default function DemoPage() {
           <CardContent>
             <div className="font-semibold mb-2">Tester quick-start</div>
             <div className="text-sm text-zinc-600">
-              After seeding: explore Money → Accounts/Transactions/Goals/Bills, then Decide → Decisions/Review/Chapters, then Capture.
+              After seeding: explore Money → Accounts/Transactions/Goals/Bills, then Decide → Decisions/Review/Chapters, then Active Decisions.
             </div>
 
             <div className="mt-3 flex flex-wrap gap-2">
@@ -183,9 +183,7 @@ export default function DemoPage() {
               <Button variant="secondary" onClick={() => router.push("/chapters")} disabled={!userId}>
                 Chapters
               </Button>
-              <Button variant="secondary" onClick={() => router.push("/capture")} disabled={!userId}>
-                Capture
-              </Button>
+              <Button variant="secondary" onClick={() => router.push("/decisions?tab=active")} disabled={!userId}>Active Decisions</Button>
               <Button variant="secondary" onClick={() => router.push("/family")} disabled={!userId}>
                 Family
               </Button>
@@ -196,3 +194,4 @@ export default function DemoPage() {
     </Page>
   );
 }
+

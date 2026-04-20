@@ -13,8 +13,8 @@ type MoneySummaryRaw = {
 export function decideHomeTone(input: {
   question: string;
   // deterministic routing signal from Home Ask
-  suggested_next?: "none" | "create_capture" | "open_thinking";
-  action?: "open_bills" | "open_money" | "open_decisions" | "open_review" | "open_chapters" | "none";
+  suggested_next?: "none";
+  action?: "open_money" | "open_decisions" | "open_chapters" | "none";
   facts?: {
     data_quality?: {
       accounts_count_active?: number;
@@ -26,11 +26,6 @@ export function decideHomeTone(input: {
   };
 }): HomeTone {
   const q = (input.question || "").toLowerCase();
-  const suggested = input.suggested_next ?? "none";
-
-  // 1) If we explicitly need more context to answer safely,
-  // this is never "ok".
-  if (suggested === "create_capture") return "tight";
 
   const dq = input.facts?.data_quality;
   const accountsOk = dq?.accounts_ok !== false;

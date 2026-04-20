@@ -23,19 +23,19 @@ export const dynamic = "force-dynamic";
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
 
-type Action = "open_bills" | "open_money" | "open_decisions" | "open_review" | "open_chapters" | "none";
-type SuggestedNext = "none" | "create_capture" | "open_thinking";
+type Action = "open_money" | "open_decisions" | "open_chapters" | "none";
+type SuggestedNext = "none";
 
 type AskRequest = { userId?: string; question?: string };
 
 function isAction(x: unknown): x is Action {
   return (
     typeof x === "string" &&
-    (["open_bills", "open_money", "open_decisions", "open_review", "open_chapters", "none"] as const).includes(x as Action)
+    (["open_money", "open_decisions", "open_chapters", "none"] as const).includes(x as Action)
   );
 }
 function isSuggestedNext(x: unknown): x is SuggestedNext {
-  return typeof x === "string" && (["none", "create_capture", "open_thinking"] as const).includes(x as SuggestedNext);
+  return typeof x === "string" && (["none"] as const).includes(x as SuggestedNext);
 }
 
 function monthBoundsLocal() {
@@ -718,9 +718,9 @@ IMPORTANT
 - Do NOT choose tone/verdict. Server decides verdict deterministically.
 
 ROUTING
-- Choose action from: open_bills, open_money, open_decisions, open_review, open_chapters, none
-- suggested_next from: none, create_capture, open_thinking
-- capture_seed only when suggested_next="create_capture"
+- Choose action from: open_money, open_decisions, open_chapters, none
+- suggested_next from: none
+- capture_seed must be null
 
 OPEN DECISIONS
 - Use facts.open_decisions_preview for examples (count + up to 3 titles).
@@ -735,7 +735,7 @@ GOALS / REVIEW / CHAPTERS
 AFFORD / SHOULD-WE
 - Never grant permission.
 - Provide bounded facts and state what's missing.
-- suggested_next should be "create_capture" when more context is needed.
+- Keep suggested_next as "none".
 
 MONEY GROUNDING
 - If facts.money_reasoning is available, prioritize it over generic financial wording.
@@ -850,14 +850,14 @@ export async function POST(req: Request) {
 
       const tone: HomeTone = decideHomeTone({
         question,
-        suggested_next: "create_capture",
+        suggested_next: "none",
         action: "open_money",
         facts: facts as any,
       });
 
       const verdict: Verdict = decideVerdict({
         question,
-        suggested_next: "create_capture",
+        suggested_next: "none",
         action: "open_money",
         facts: facts as any,
       });
@@ -872,17 +872,8 @@ export async function POST(req: Request) {
         what_changes_this,
         assumptions,
         action: "open_money",
-        suggested_next: "create_capture",
-        capture_seed: {
-          title: question,
-          prompt: question,
-          notes: [
-            "Affordability question - no permission granted",
-            "Known: current balances (accounts)",
-            "Known: recurring commitments (recurring bills totals)",
-            "Unknown: timing, one-off vs recurring, which account pays, required buffer",
-          ],
-        },
+        suggested_next: "none",
+        capture_seed: null,
       });
     }
 
@@ -897,9 +888,9 @@ export async function POST(req: Request) {
         const assumptions = ["Review items come from decisions with review_at set and reviewed_at still empty"];
         const answer = buildMemoAnswer({ headline, key_points: [], details: "", what_changes_this: [], assumptions });
 
-        const tone: HomeTone = decideHomeTone({ question, suggested_next: "none", action: "open_review", facts: facts as any });
+        const tone: HomeTone = decideHomeTone({ question, suggested_next: "none", action: "open_decisions", facts: facts as any });
 
-        const verdict: Verdict = decideVerdict({ question, suggested_next: "none", action: "open_review", facts: facts as any });
+        const verdict: Verdict = decideVerdict({ question, suggested_next: "none", action: "open_decisions", facts: facts as any });
 
         return NextResponse.json({
           answer,
@@ -910,7 +901,7 @@ export async function POST(req: Request) {
           details: "",
           what_changes_this: [],
           assumptions,
-          action: "open_review",
+          action: "open_decisions",
           suggested_next: "none",
           capture_seed: null,
         });
@@ -927,9 +918,9 @@ export async function POST(req: Request) {
       const assumptions = ["Review items come from decisions with review_at set and reviewed_at still empty"];
       const answer = buildMemoAnswer({ headline, key_points: items, details: "", what_changes_this: [], assumptions });
 
-      const tone: HomeTone = decideHomeTone({ question, suggested_next: "none", action: "open_review", facts: facts as any });
+      const tone: HomeTone = decideHomeTone({ question, suggested_next: "none", action: "open_decisions", facts: facts as any });
 
-      const verdict: Verdict = decideVerdict({ question, suggested_next: "none", action: "open_review", facts: facts as any });
+      const verdict: Verdict = decideVerdict({ question, suggested_next: "none", action: "open_decisions", facts: facts as any });
 
       return NextResponse.json({
         answer,
@@ -940,7 +931,7 @@ export async function POST(req: Request) {
         details: "",
         what_changes_this: [],
         assumptions,
-        action: "open_review",
+        action: "open_decisions",
         suggested_next: "none",
         capture_seed: null,
       });
@@ -1210,23 +1201,9 @@ export async function POST(req: Request) {
               what_changes_this: { type: "array", items: { type: "string" } },
               assumptions: { type: "array", items: { type: "string" } },
 
-              action: { type: "string", enum: ["open_bills", "open_money", "open_decisions", "open_review", "open_chapters", "none"] },
-              suggested_next: { type: "string", enum: ["none", "create_capture", "open_thinking"] },
-              capture_seed: {
-                anyOf: [
-                  { type: "null" },
-                  {
-                    type: "object",
-                    additionalProperties: false,
-                    properties: {
-                      title: { type: "string" },
-                      prompt: { type: "string" },
-                      notes: { type: "array", items: { type: "string" } },
-                    },
-                    required: ["title", "prompt", "notes"],
-                  },
-                ],
-              },
+              action: { type: "string", enum: ["open_money", "open_decisions", "open_chapters", "none"] },
+              suggested_next: { type: "string", enum: ["none"] },
+              capture_seed: { type: "null" },
             },
             required: ["headline", "key_points", "details", "what_changes_this", "assumptions", "action", "suggested_next", "capture_seed"],
           },
@@ -1275,16 +1252,7 @@ export async function POST(req: Request) {
     const action: Action = isAction(obj.action) ? (obj.action as Action) : "none";
     const suggested_next: SuggestedNext = isSuggestedNext(obj.suggested_next) ? (obj.suggested_next as SuggestedNext) : "none";
 
-    const capture_seed =
-      suggested_next === "create_capture" && obj.capture_seed && typeof obj.capture_seed === "object"
-        ? {
-            title: String((obj.capture_seed as any).title ?? "").slice(0, 120) || "Capture",
-            prompt: String((obj.capture_seed as any).prompt ?? "").slice(0, 2000) || "",
-            notes: Array.isArray((obj.capture_seed as any).notes)
-              ? ((obj.capture_seed as any).notes as unknown[]).map((x: unknown) => String(x)).slice(0, 10)
-              : [],
-          }
-        : null;
+    const capture_seed = null;
 
     // ✅ Canonical memo formatting (server owns presentation)
     const answer = buildMemoAnswer({

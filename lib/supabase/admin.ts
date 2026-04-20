@@ -22,7 +22,6 @@ export function supabaseAdmin() {
 
 /**
  * Optional helper (used by some server routes/middleware patterns).
- * ✅ Removed /thinking from the protected set.
  */
 export function isProtectedPathname(pathname: string) {
   const p = pathname || "/";
@@ -41,12 +40,8 @@ export function isProtectedPathname(pathname: string) {
     p.startsWith("/home/") ||
     p === "/inbox" ||
     p.startsWith("/inbox/") ||
-    p === "/capture" ||
-    p.startsWith("/capture/") ||
     p === "/decisions" ||
     p.startsWith("/decisions/") ||
-    p === "/revisit" ||
-    p.startsWith("/revisit/") ||
     p === "/chapters" ||
     p.startsWith("/chapters/") ||
     p === "/accounts" ||

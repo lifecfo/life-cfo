@@ -12,11 +12,10 @@ type Props = {
 };
 
 const COPY_BY_PATH: Record<string, string> = {
-  "/capture": "Was it easy to put this down here?",
+  "/lifecfo-home": "Did this feel clear and grounded?",
+  "/money": "Did this help you understand your household picture quickly?",
   "/decisions": "Did this help you make progress without overwhelm?",
-  "/revisit": "Did Review show the right amount—no more, no less?",
   "/chapters": "Did this feel like a safe place to close things?",
-  "/thinking": "Did this help you think without overwhelm?",
 };
 
 export default function FeedbackPrompt({ className, pageTitle }: Props) {
@@ -46,3 +45,4 @@ export default function FeedbackPrompt({ className, pageTitle }: Props) {
     </div>
   );
 }
+
