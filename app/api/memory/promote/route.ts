@@ -255,7 +255,7 @@ async function ensureOwnDecision(supabase: Awaited<ReturnType<typeof supabaseRou
 }
 
 function buildDecisionContext(summary: string, rationale: string | null): string {
-  const lines = ["Promoted from Ask candidate.", summary];
+  const lines = ["Started from an Ask conversation.", summary];
   if (rationale) lines.push(`Reasoning: ${rationale}`);
   return lines.filter(Boolean).join("\n\n").slice(0, 6000);
 }

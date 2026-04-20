@@ -1590,6 +1590,7 @@ export default function DecisionsClient() {
   const renderOpenDecision = (d: Decision) => {
     const ctx = splitContext(d.context);
     const capturedForChat = (ctx.captured || "").trim();
+    const isAskPromoted = d.origin === "ask_promotion";
 
     const allAtt = normalizeAttachments(d.attachments) as AttachmentMeta[];
     const isWorking = workForId === d.id;
@@ -2322,7 +2323,9 @@ export default function DecisionsClient() {
           <div className="flex items-center justify-between gap-3">
             <div>
               <div className="text-sm font-semibold text-zinc-900">Conversation</div>
-              <div className="text-xs text-zinc-500">Optional workspace for thinking this through.</div>
+              <div className="text-xs text-zinc-500">
+                {isAskPromoted ? "Continue the same thought here." : "Optional workspace for thinking this through."}
+              </div>
             </div>
             {!isWorking ? (
               <TextAction
@@ -2342,9 +2345,9 @@ export default function DecisionsClient() {
                     { scroll: false }
                   );
                 }}
-                title="Open conversation"
+                title={isAskPromoted ? "Continue conversation" : "Open conversation"}
               >
-                Open conversation
+                {isAskPromoted ? "Continue conversation" : "Open conversation"}
               </TextAction>
             ) : (
               <TextAction onClick={closeChat} title="Close conversation">
@@ -2362,6 +2365,7 @@ export default function DecisionsClient() {
                 frame={{ decision_statement: capturedForChat || d.title }}
                 autoFocusToken={1}
                 autoStartToken={1}
+                continuationFromAsk={isAskPromoted}
                 onClose={() => {}}
                 onSummarySaved={() => void reloadSummaries(d.id)}
               />

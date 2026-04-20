@@ -262,6 +262,11 @@ export function AskPanel({ mode = "overlay" }: { mode?: AskPanelMode }) {
                           const isSaving = state?.status === "saving";
                           const isSaved = state?.status === "saved";
                           const hasError = state?.status === "error";
+                          const canContinueInDecisions =
+                            isSaved &&
+                            state?.resultKind === "decision" &&
+                            typeof state?.resultId === "string" &&
+                            state.resultId.trim().length > 0;
 
                           return (
                             <div
@@ -281,6 +286,20 @@ export function AskPanel({ mode = "overlay" }: { mode?: AskPanelMode }) {
                                 >
                                   {isSaved ? "Saved to Decisions" : isSaving ? "Saving..." : "Save to Decisions"}
                                 </Chip>
+                                {canContinueInDecisions ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const decisionId = state?.resultId?.trim();
+                                      if (!decisionId) return;
+                                      router.push(`/decisions?tab=active&open=${encodeURIComponent(decisionId)}&work=1`);
+                                      closeAsk();
+                                    }}
+                                    className="rounded-full px-2.5 py-1 text-xs text-zinc-500 hover:bg-zinc-100 hover:text-zinc-700"
+                                  >
+                                    Continue in Decisions
+                                  </button>
+                                ) : null}
                                 {hasError ? (
                                   <span className="text-xs text-rose-700">
                                     {state?.error || "Could not save this yet."}

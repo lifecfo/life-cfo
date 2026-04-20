@@ -76,6 +76,7 @@ export function ConversationPanel(props: {
   initialUserMessage?: string;
   initialUserMessageToken?: number;
   onInitialUserMessageConsumed?: () => void;
+  continuationFromAsk?: boolean;
 }) {
   const {
     decisionId,
@@ -88,6 +89,7 @@ export function ConversationPanel(props: {
     initialUserMessage,
     initialUserMessageToken,
     onInitialUserMessageConsumed,
+    continuationFromAsk,
   } = props;
 
   const [userId, setUserId] = useState<string | null>(null);
@@ -177,10 +179,18 @@ export function ConversationPanel(props: {
     if (!autoStartToken) return;
 
     const asked = (askedText || decisionStatement || decisionTitle || "").trim();
-    const line1 = asked ? `Okay - let's work through: "${asked}".` : "Okay - let's work through this.";
-    const line2 = "I'll clarify what matters, then lay out options + trade-offs.";
+    const line1 = asked
+      ? continuationFromAsk
+        ? `Let's keep going from Ask: "${asked}".`
+        : `Okay - let's work through: "${asked}".`
+      : continuationFromAsk
+        ? "Let's keep going from Ask."
+        : "Okay - let's work through this.";
+    const line2 = continuationFromAsk
+      ? "We'll keep the same thread and lay out options + trade-offs."
+      : "I'll clarify what matters, then lay out options + trade-offs.";
     setBootMessage(`${line1}\n\n${line2}`);
-  }, [autoStartToken, askedText, decisionStatement, decisionTitle]);
+  }, [autoStartToken, askedText, decisionStatement, decisionTitle, continuationFromAsk]);
 
   useEffect(() => {
     const t = window.setTimeout(() => {
