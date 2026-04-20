@@ -112,8 +112,8 @@ function buildSmartInsight(
 ): { headline: string; supporting: string } {
   if (!interpretation) {
     return {
-      headline: explanation?.headline || "Your money picture is loading.",
-      supporting: explanation?.summary || "We are still pulling together the latest household view.",
+      headline: explanation?.headline || "Pulling together your latest household money picture...",
+      supporting: explanation?.summary || "Already reading your latest income, commitments, and timing so this view lands grounded.",
     };
   }
 

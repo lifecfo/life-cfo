@@ -333,7 +333,7 @@ export function AskPanel({ mode = "overlay" }: { mode?: AskPanelMode }) {
                   </div>
                 ) : null}
                 <div className="text-xs text-zinc-500">
-                  Ask about what&apos;s happening, what changed, or what matters next.
+                  Ask about this picture, what changed, or what matters next.
                 </div>
                 <div className="mt-2 flex flex-wrap gap-2">
                   {[
