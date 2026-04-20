@@ -206,6 +206,8 @@ export function AskPanel({ mode = "overlay" }: { mode?: AskPanelMode }) {
             <div className="space-y-4">
               {messages.map((message) => {
                 const isUser = message.role === "user";
+                const isLatestAssistant =
+                  !isUser && latestAssistant?.id && latestAssistant.id === message.id;
                 const decisionCandidates = (message.candidates?.decision_candidates || []) as DecisionCandidate[];
 
                 return (
@@ -225,6 +227,11 @@ export function AskPanel({ mode = "overlay" }: { mode?: AskPanelMode }) {
                     <div className="whitespace-pre-wrap text-[14px] leading-relaxed text-zinc-800">
                       {cleanAnswer(message.content)}
                     </div>
+                    {isLatestAssistant && status !== "loading" ? (
+                      <div className="mt-2 text-xs text-zinc-400">
+                        If this gives you what you need, you can stop here.
+                      </div>
+                    ) : null}
 
                     {!isUser && message.actionHref ? (
                       <div className="mt-3 flex flex-wrap gap-2">
@@ -410,7 +417,7 @@ export function AskPanel({ mode = "overlay" }: { mode?: AskPanelMode }) {
             ref={inputRef}
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
-            placeholder="Ask anything about money, decisions, pressure points, or what to do next..."
+            placeholder="Ask a follow-up if you want more detail..."
             className="min-h-[90px] w-full resize-y rounded-2xl border border-zinc-200 bg-white px-4 py-3 pr-14 text-[14px] leading-relaxed text-zinc-800 outline-none focus:ring-2 focus:ring-zinc-200"
             onKeyDown={(e) => {
               const isMac =
