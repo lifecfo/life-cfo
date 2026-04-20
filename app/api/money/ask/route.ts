@@ -5,7 +5,10 @@ import { supabaseRoute } from "@/lib/supabaseRoute";
 import type { FinancialSnapshot } from "@/lib/money/reasoning/buildFinancialSnapshot";
 import { PressureInterpretation } from "@/lib/money/reasoning/interpretPressure";
 import { runHouseholdMoneyReasoning } from "@/lib/money/reasoning/runHouseholdMoneyReasoning";
-import { detectMoneyAskIntent } from "@/lib/money/reasoning/intentDetection";
+import {
+  detectMoneyAskIntent,
+  detectReasoningFallbackMode,
+} from "@/lib/money/reasoning/intentDetection";
 import { joinNonEmptyWithSpace } from "@/lib/ask/responseComposition";
 import { formatMoneyFromCents } from "@/lib/money/formatMoney";
 import { extractMoneyAskCandidates } from "@/lib/memory/candidateExtraction";
@@ -264,59 +267,6 @@ function isRecentChangeQuestion(lowerQ: string): boolean {
   );
 }
 
-function tokenizeQuestion(input: string): string[] {
-  return String(input || "")
-    .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, " ")
-    .split(/\s+/)
-    .filter(Boolean);
-}
-
-function looksLookupStylePrompt(lowerQ: string): boolean {
-  const hasLookupVerb = /\b(find|show|list|search|lookup|look up|get|pull up)\b/i.test(lowerQ);
-  const hasRecordNoun =
-    /\b(transaction|transactions|merchant|merchants|bill|bills|account|accounts|charge|charges|payment|payments|subscription|subscriptions|category|categories)\b/i.test(
-      lowerQ
-    );
-  const hasLookupPattern =
-    /\bwhat transactions\b|\bwhich transactions\b|\bshow me\b|\blist\b|\bfind\b|\bsearch\b/i.test(
-      lowerQ
-    );
-
-  return (hasLookupVerb && hasRecordNoun) || hasLookupPattern;
-}
-
-function looksShortKeywordPrompt(lowerQ: string): boolean {
-  const tokens = tokenizeQuestion(lowerQ);
-  if (tokens.length === 0 || tokens.length > 3) return false;
-
-  const analyticalCue =
-    /\b(why|how|are|is|does|what|okay|ok|tight|stretched|pressure|tracking|off|happening)\b/i.test(
-      lowerQ
-    );
-  if (analyticalCue) return false;
-
-  return true;
-}
-
-function looksAnalyticalPrompt(lowerQ: string): boolean {
-  return /\b(why|how|are we|are our|what's going on|what is going on|what's happening|what is happening|does anything look off|look off|pressure|tight|stretched|tracking|how are we|hows our|how's our|are we okay|are we ok|worse|breathing room)\b/i.test(
-    lowerQ
-  );
-}
-
-function reasoningFallbackModeForQuestion(lowerQ: string): "diagnosis" | "snapshot" | null {
-  if (!lowerQ.trim()) return "snapshot";
-  if (looksLookupStylePrompt(lowerQ) || looksShortKeywordPrompt(lowerQ)) return null;
-  if (!looksAnalyticalPrompt(lowerQ)) return null;
-
-  const diagnosisCue =
-    /\b(why|pressure|tight|stretched|off|worse|what changed|changed|stress|strain)\b/i.test(lowerQ);
-
-  if (diagnosisCue) return "diagnosis";
-  return "snapshot";
-}
-
 type ChangeTx = {
   date?: string | null;
   amount_cents?: number | null;
@@ -462,7 +412,7 @@ function buildDiagnosisDrivers(
   }
 
   if (interpretation.secondary_pressure?.summary) {
-    lines.push(`A secondary factor is ${interpretation.secondary_pressure.summary}`);
+    lines.push(`A secondary pressure signal is ${interpretation.secondary_pressure.summary}`);
   }
 
   const includeConfidence =
@@ -578,8 +528,7 @@ export async function POST(req: Request) {
       looksAffordability ||
       looksScenario;
 
-    const reasoningFallbackMode =
-      !hasExplicitModeMatch ? reasoningFallbackModeForQuestion(lowerQ) : null;
+    const reasoningFallbackMode = !hasExplicitModeMatch ? detectReasoningFallbackMode(q) : null;
 
     // Orientation path: empty query or simple keyword match
     if (looksOrientation || reasoningFallbackMode === "snapshot") {
@@ -625,15 +574,18 @@ export async function POST(req: Request) {
 
       const diagnosisHeadline =
         interpretation.main_pressure.key === "none"
-          ? "No single pressure point is standing out right now."
-          : `Most of the pressure right now is ${interpretation.main_pressure.key}.`;
+          ? "Money pressure looks fairly balanced right now."
+          : `The main pressure right now is ${interpretation.main_pressure.key}.`;
 
       const diagnosis = {
         headline: diagnosisHeadline,
         summary:
           interpretation.main_pressure.key === "none"
-            ? "From your latest household data, pressure looks fairly balanced overall."
-            : interpretation.main_pressure.why_now || explanation.summary,
+            ? "From your latest household data, no single pressure signal is dominating, so the picture looks relatively steady."
+            : joinNonEmptyWithSpace([
+                interpretation.main_pressure.why_now || explanation.summary,
+                "That is why things may feel tighter even if some parts of the picture are still stable.",
+              ]),
         drivers: diagnosisDrivers,
         signals: {
           structural: signals.structural_pressure.summary,
@@ -695,8 +647,8 @@ export async function POST(req: Request) {
       const caveatNeeded = missingCostDetail || missingPurchaseContext;
 
       const summary = joinNonEmptyWithSpace([
-        "This is a grounded affordability baseline from your current household position.",
         explanation.summary,
+        "This gives a grounded affordability baseline from your current household position before exact amount and timing details are added.",
       ]);
 
       const caveat = caveatNeeded
@@ -787,14 +739,14 @@ export async function POST(req: Request) {
       }
 
       const headline = dueSoon.length
-        ? "Here is what is coming up in your household money."
-        : "Here is your near-term money baseline.";
+        ? "Here is your near-term household money timeline."
+        : "Here is your near-term household money picture.";
 
       const summary = joinNonEmptyWithSpace([
         snapshot.commitments.billCount > 0
           ? `${snapshot.commitments.billCount} recurring commitment(s) are currently tracked.`
           : "No recurring commitments are currently tracked.",
-        explanation.summary,
+        "This combines upcoming timing with current pressure signals so you can see where the next few weeks may feel tighter.",
       ]);
       const planning = {
         headline,
@@ -861,11 +813,11 @@ export async function POST(req: Request) {
           : undefined;
 
       const summary = joinNonEmptyWithSpace([
-        "This is the current baseline before any scenario change is layered in.",
         explanation.summary,
+        "This is the before-change baseline, so you can see what would shift if that scenario happens.",
       ]);
       const scenario = {
-        headline: "Here is the baseline for that what-if question.",
+        headline: "Here is the current baseline for that what-if question.",
         summary,
         watch: watch.slice(0, 4),
         caveat,

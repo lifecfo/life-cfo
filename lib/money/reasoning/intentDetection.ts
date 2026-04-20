@@ -65,6 +65,7 @@ const SCENARIO_KEYWORDS = [
 function normalizeForIntent(input: string): string {
   return String(input || "")
     .toLowerCase()
+    .replace(/[’`]/g, "'")
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -133,6 +134,59 @@ export function detectMoneyAskIntent(question: string): MoneyAskIntentSignals {
   };
 }
 
+function tokenizeQuestion(input: string): string[] {
+  return normalizeForIntent(input)
+    .replace(/[^a-z0-9\s']/g, " ")
+    .split(/\s+/)
+    .filter(Boolean);
+}
+
+function looksLookupStylePrompt(lowerQ: string): boolean {
+  const hasLookupVerb = /\b(find|show|list|search|lookup|look up|get|pull up)\b/i.test(lowerQ);
+  const hasRecordNoun =
+    /\b(transaction|transactions|merchant|merchants|bill|bills|account|accounts|charge|charges|payment|payments|subscription|subscriptions|category|categories)\b/i.test(
+      lowerQ
+    );
+  const hasLookupPattern =
+    /\bwhat transactions\b|\bwhich transactions\b|\bshow me\b|\blist\b|\bfind\b|\bsearch\b/i.test(
+      lowerQ
+    );
+
+  return (hasLookupVerb && hasRecordNoun) || hasLookupPattern;
+}
+
+function looksShortKeywordPrompt(lowerQ: string): boolean {
+  const tokens = tokenizeQuestion(lowerQ);
+  if (tokens.length === 0 || tokens.length > 3) return false;
+
+  const analyticalCue =
+    /\b(why|how|are|is|does|what|okay|ok|tight|stretched|pressure|tracking|off|happening)\b/i.test(
+      lowerQ
+    );
+  if (analyticalCue) return false;
+
+  return true;
+}
+
+function looksAnalyticalPrompt(lowerQ: string): boolean {
+  return /\b(why|how|are we|are our|what's going on|what is going on|what's happening|what is happening|does anything look off|look off|pressure|tight|stretched|tracking|how are we|hows our|how's our|are we okay|are we ok|worse|breathing room)\b/i.test(
+    lowerQ
+  );
+}
+
+export function detectReasoningFallbackMode(question: string): "diagnosis" | "snapshot" | null {
+  const lowerQ = normalizeForIntent(question);
+  if (!lowerQ.trim()) return "snapshot";
+  if (looksLookupStylePrompt(lowerQ) || looksShortKeywordPrompt(lowerQ)) return null;
+  if (!looksAnalyticalPrompt(lowerQ)) return null;
+
+  const diagnosisCue =
+    /\b(why|pressure|tight|stretched|off|worse|what changed|changed|stress|strain)\b/i.test(lowerQ);
+
+  if (diagnosisCue) return "diagnosis";
+  return "snapshot";
+}
+
 export function isHomeAffordabilityIntent(question: string): boolean {
   const lowerQ = normalizeForIntent(question);
   if (!lowerQ) return false;
@@ -140,4 +194,3 @@ export function isHomeAffordabilityIntent(question: string): boolean {
     lowerQ
   );
 }
-
