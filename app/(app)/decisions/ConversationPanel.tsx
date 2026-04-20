@@ -182,10 +182,10 @@ export function ConversationPanel(props: {
     const line1 = asked
       ? continuationFromAsk
         ? `Let's keep going from Ask: "${asked}".`
-        : `Okay - let's work through: "${asked}".`
+        : `Let's take a clear look at: "${asked}".`
       : continuationFromAsk
         ? "Let's keep going from Ask."
-        : "Okay - let's work through this.";
+        : "Let's take a clear look at this together.";
     const line2 = continuationFromAsk
       ? "We'll keep the same thread and lay out options + trade-offs."
       : "I'll clarify what matters, then lay out options + trade-offs.";
@@ -412,7 +412,7 @@ export function ConversationPanel(props: {
             </div>
           </div>
         ) : null}
-        {loading ? <div className="px-2 text-sm text-zinc-600">Loading...</div> : null}
+        {loading ? <div className="px-2 text-sm text-zinc-600">Loading conversation...</div> : null}
 
         {!loading && messages.length === 0 ? (
           <div className="py-2">

@@ -2803,6 +2803,7 @@ export default function DecisionsClient() {
               <div className="space-y-2 pt-2">
                 <div className="text-sm font-semibold text-zinc-900">All clear.</div>
                 <div className="text-sm text-zinc-600">When something needs attention, it can live here quietly.</div>
+                <div className="text-sm text-zinc-600">This space is ready when there is something worth thinking through.</div>
               </div>
             ) : (
               <div className="space-y-6">
@@ -2870,7 +2871,7 @@ export default function DecisionsClient() {
 
             {shouldShowStatusLine ? <div className="text-xs text-zinc-500">{statusLine}</div> : null}
 
-            {filteredItems.length === 0 ? <div className="text-sm text-zinc-600 pt-2">No closed decisions yet.</div> : null}
+            {filteredItems.length === 0 ? <div className="text-sm text-zinc-600 pt-2">Closed decisions will collect here over time.</div> : null}
 
             {filteredItems.length > 0 ? (
               <div className="divide-y divide-zinc-100">
@@ -2936,7 +2937,7 @@ export default function DecisionsClient() {
                             {notesLoading ? (
                               <div className="text-sm text-zinc-500">Loading notes…</div>
                             ) : notes.length === 0 ? (
-                              <div className="text-sm text-zinc-600">No notes.</div>
+                              <div className="text-sm text-zinc-600">No notes yet.</div>
                             ) : (
                               <div className="divide-y divide-zinc-100 rounded-2xl bg-white">
                                 {notes.map((n) => (
@@ -2955,7 +2956,7 @@ export default function DecisionsClient() {
                           <div className="space-y-2">
                             <div className="text-sm font-semibold text-zinc-900">Files</div>
                             {normalizeAttachments(d.attachments).length === 0 ? (
-                              <div className="text-sm text-zinc-600">No attachments.</div>
+                              <div className="text-sm text-zinc-600">No files yet.</div>
                             ) : (
                               <ul className="list-disc pl-5 text-sm text-zinc-700 space-y-1">
                                 {normalizeAttachments(d.attachments).map((a, idx) => (
