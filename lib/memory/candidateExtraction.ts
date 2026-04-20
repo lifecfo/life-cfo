@@ -5,7 +5,7 @@ import type {
   ConfidenceLabel,
   DecisionCandidate,
   InsightCandidate,
-  RevisitCandidate,
+  ReviewPointCandidate,
 } from "@/lib/memory/contracts";
 
 type BaseInput = {
@@ -179,7 +179,7 @@ export function extractHomeReviewCandidates(input: HomeReviewCandidateInput): As
     "medium"
   );
 
-  const revisit: RevisitCandidate = {
+  const reviewPoint: ReviewPointCandidate = {
     ...base,
     candidate_type: "revisit_candidate",
     draft: {
@@ -191,7 +191,7 @@ export function extractHomeReviewCandidates(input: HomeReviewCandidateInput): As
   };
 
   return {
-    revisit_candidates: [revisit],
+    revisit_candidates: [reviewPoint],
   };
 }
 

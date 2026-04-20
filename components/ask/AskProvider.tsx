@@ -166,9 +166,12 @@ function buildInterpretationLines(
   return { main, next, confidence };
 }
 
-function actionForCandidateType(candidateType: MemoryCandidate["candidate_type"]): PromotionActionType | null {
+function promotionActionForCandidateType(
+  candidateType: MemoryCandidate["candidate_type"]
+): PromotionActionType | null {
   if (candidateType === "decision_candidate") return "create_decision";
   if (candidateType === "insight_candidate") return "save_insight";
+  // Legacy action key kept for API compatibility; semantically this is "schedule decision check-in".
   if (candidateType === "revisit_candidate") return "add_revisit_trigger";
   return null;
 }
@@ -579,7 +582,7 @@ export function AskProvider({ children }: { children: ReactNode }) {
 
   const promoteCandidate = useCallback(
     async ({ messageId, candidate }: { messageId: string; candidate: MemoryCandidate }) => {
-      const actionType = actionForCandidateType(candidate.candidate_type);
+      const actionType = promotionActionForCandidateType(candidate.candidate_type);
       if (!actionType) return;
 
       setMessages((prev) =>

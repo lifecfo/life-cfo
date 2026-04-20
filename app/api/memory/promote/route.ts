@@ -53,7 +53,7 @@ function isDecisionStatus(value: unknown): value is "open" | "committed" | "clos
   return value === "open" || value === "committed" || value === "closed" || value === "archived";
 }
 
-function isRevisitTriggerType(value: unknown): value is "time" | "condition" | "manual" {
+function isDecisionCheckInTriggerType(value: unknown): value is "time" | "condition" | "manual" {
   return value === "time" || value === "condition" || value === "manual";
 }
 
@@ -80,6 +80,7 @@ function isActionType(value: unknown): value is PromotionActionType {
 function actionForCandidate(candidateType: CandidateType): PromotionActionType {
   if (candidateType === "decision_candidate") return "create_decision";
   if (candidateType === "insight_candidate") return "save_insight";
+  // Legacy action key retained for compatibility; semantically this schedules a decision check-in.
   if (candidateType === "revisit_candidate") return "add_revisit_trigger";
   return "track_assumption";
 }
@@ -182,7 +183,7 @@ function parseMemoryCandidate(candidateRaw: unknown): MemoryCandidate | null {
     const conditionText = asNullableString(draftRaw.condition_text, 2000);
     const triggerAtRaw = draftRaw.trigger_at;
     const triggerAt = triggerAtRaw == null ? null : parseIso(triggerAtRaw);
-    if (!draftTitle || !isRevisitTriggerType(triggerType)) return null;
+    if (!draftTitle || !isDecisionCheckInTriggerType(triggerType)) return null;
     if (triggerAtRaw != null && !triggerAt) return null;
     return {
       ...base,
@@ -404,7 +405,7 @@ export async function POST(req: Request) {
       const decisionId = asNonEmptyString(parsed.target?.decision_id, 120);
       if (!decisionId) {
         return NextResponse.json<AskErrorResponse>(
-          { ok: false, error: "Revisit promotion currently requires target.decision_id." },
+          { ok: false, error: "This review-point promotion currently requires target.decision_id." },
           { status: 409 }
         );
       }
@@ -414,7 +415,7 @@ export async function POST(req: Request) {
 
       if (triggerType !== "time" || !triggerAt) {
         return NextResponse.json<AskErrorResponse>(
-          { ok: false, error: "Only time-based revisit promotion is supported in this thin slice." },
+          { ok: false, error: "Only time-based decision check-in promotion is supported in this thin slice." },
           { status: 409 }
         );
       }

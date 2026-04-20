@@ -14,7 +14,7 @@ function pickSentence(input: {
   hasIncome: boolean;
   hasBills: boolean;
 }) {
-  // Priority: Revisit -> Bills -> steady -> silence
+  // Priority: Decision check-in -> Bills -> steady -> silence
 
   if (input.hasUnframedCapture) {
     return {
@@ -25,7 +25,7 @@ function pickSentence(input: {
 
   if (input.dueReviews > 0) {
     return {
-      text: "A decision is ready to revisit when you’re ready.",
+      text: "A decision is ready for a check-in when you’re ready.",
       href: "/decisions?tab=active",
     };
   }
@@ -75,7 +75,7 @@ export async function POST(req: Request) {
       .neq("type", "engine")
       .limit(1);
 
-    // 1) Revisit decisions due soon (<= 7 days)
+    // 1) Decisions due for check-in soon (<= 7 days)
     const soonIso = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
 
     const { data: due, error: dueErr } = await admin

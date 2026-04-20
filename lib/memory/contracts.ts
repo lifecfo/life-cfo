@@ -2,6 +2,8 @@ export type UUID = string;
 export type ISODateString = string;
 export type ISODateTimeString = string;
 
+// NOTE: `tier_d_revisit` is a legacy storage label kept for compatibility.
+// In product language, this represents decision check-ins/review points.
 export type MemoryTier = "tier_a_ephemeral" | "tier_b_candidates" | "tier_c_durable" | "tier_d_revisit";
 
 export type MemoryRole = "user" | "assistant" | "system";
@@ -16,6 +18,7 @@ export type DurableMemoryKind =
   | "insight"
   | "assumption"
   | "decision"
+  // Legacy durable kind names retained for DB/API compatibility.
   | "revisit_trigger"
   | "revisit_event"
   | "memory_link"
@@ -25,6 +28,7 @@ export type CandidateType =
   | "insight_candidate"
   | "assumption_candidate"
   | "decision_candidate"
+  // Legacy candidate key retained for compatibility.
   | "revisit_candidate";
 
 export type PromotionActionType =
@@ -32,6 +36,7 @@ export type PromotionActionType =
   | "track_assumption"
   | "create_decision"
   | "update_decision"
+  // Legacy action key retained for compatibility.
   | "add_revisit_trigger"
   | "dismiss_candidate";
 
@@ -126,6 +131,10 @@ export interface RevisitEvent {
   outcome_note: string | null;
 }
 
+// Product-language aliases (preferred in new code).
+export type DecisionCheckInTrigger = RevisitTrigger;
+export type DecisionCheckInEvent = RevisitEvent;
+
 export interface MemoryLink {
   id: UUID;
   household_id: UUID;
@@ -173,6 +182,9 @@ export interface RevisitCandidate extends MemoryCandidateBase {
   draft: Pick<RevisitTrigger, "title" | "trigger_type" | "condition_text" | "trigger_at">;
 }
 
+// Product-language alias (preferred in new code).
+export type ReviewPointCandidate = RevisitCandidate;
+
 export type MemoryCandidate = InsightCandidate | AssumptionCandidate | DecisionCandidate | RevisitCandidate;
 
 export interface PromotionAction {
@@ -219,6 +231,7 @@ export interface AskCandidatePayload {
   insight_candidates?: InsightCandidate[];
   assumption_candidates?: AssumptionCandidate[];
   decision_candidates?: DecisionCandidate[];
+  // Legacy payload key retained for compatibility.
   revisit_candidates?: RevisitCandidate[];
 }
 
