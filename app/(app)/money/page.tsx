@@ -311,8 +311,20 @@ export default function MoneyClientNext() {
               <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
                 How things are looking right now
               </div>
-              <div className="text-sm leading-relaxed text-zinc-800">{smartInsight.headline}</div>
-              <div className="text-xs leading-relaxed text-zinc-500">{smartInsight.supporting}</div>
+              <button
+                type="button"
+                onClick={openAskFromMoney}
+                className="w-full text-left text-sm leading-relaxed text-zinc-800 transition-colors hover:text-zinc-900"
+              >
+                {smartInsight.headline}
+              </button>
+              <button
+                type="button"
+                onClick={openAskFromMoney}
+                className="w-full text-left text-xs leading-relaxed text-zinc-500 transition-colors hover:text-zinc-600"
+              >
+                {smartInsight.supporting}
+              </button>
               <button
                 type="button"
                 onClick={openAskFromMoney}

@@ -139,7 +139,17 @@ export function AskPanel({ mode = "overlay" }: { mode?: AskPanelMode }) {
     if (!effectiveOpen) return;
     const el = scrollRef.current;
     if (!el) return;
-    el.scrollTop = el.scrollHeight;
+    let rafA = 0;
+    let rafB = 0;
+    rafA = window.requestAnimationFrame(() => {
+      rafB = window.requestAnimationFrame(() => {
+        el.scrollTop = el.scrollHeight;
+      });
+    });
+    return () => {
+      window.cancelAnimationFrame(rafA);
+      window.cancelAnimationFrame(rafB);
+    };
   }, [messages, status, effectiveOpen]);
 
   const moneyInsightPreview = useMemo(() => {
