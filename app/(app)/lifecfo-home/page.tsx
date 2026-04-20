@@ -224,7 +224,7 @@ type HomeNowItem = {
 
 function actionToHref(action: ApiAction | undefined): string | null {
   if (action === "open_money") return "/money";
-  if (action === "open_decisions") return "/decisions";
+  if (action === "open_decisions") return "/decisions?tab=active";
   if (action === "open_chapters") return "/chapters";
   return null;
 }
@@ -657,7 +657,7 @@ Follow-up question: ${fu}`
           key: "fresh_ask_promotion",
           title: "New decision captured",
           detail: triage.freshAskPromotionTitle,
-          href: "/decisions",
+          href: "/decisions?tab=active",
           priority: 98,
         });
       }
@@ -685,7 +685,7 @@ Follow-up question: ${fu}`
           key: "open_decisions",
           title: triage.openDecisionCount === 1 ? "1 active decision" : `${triage.openDecisionCount} active decisions`,
           detail: "Keep commitments clear in Decisions.",
-          href: "/decisions",
+          href: "/decisions?tab=active",
           priority: 60,
         });
       }
@@ -759,7 +759,7 @@ Follow-up question: ${fu}`
                           <Chip className="text-xs" title="Open Money" onClick={() => router.push("/money")}>
                             Open Money
                           </Chip>
-                          <Chip className="text-xs" title="Open Decisions" onClick={() => router.push("/decisions")}>
+                          <Chip className="text-xs" title="Open Decisions" onClick={() => router.push("/decisions?tab=active")}>
                             Open Decisions
                           </Chip>
 
@@ -819,7 +819,7 @@ Follow-up question: ${fu}`
                 <Chip className="text-xs" title="Open Money" onClick={() => router.push("/money")}>
                   Money
                 </Chip>
-                <Chip className="text-xs" title="Open Decisions" onClick={() => router.push("/decisions")}>
+                <Chip className="text-xs" title="Open Decisions" onClick={() => router.push("/decisions?tab=active")}>
                   Decisions
                 </Chip>
                 <Chip className="text-xs" title="Open Chapters" onClick={() => router.push("/chapters")}>
@@ -1134,11 +1134,7 @@ Follow-up question: ${fu}`
                           <Chip
                             className="text-xs"
                             title="Open in Money"
-                            onClick={async () => {
-                              try {
-                                await navigator.clipboard.writeText(ask.question);
-                                toast({ title: "Copied", description: "Ready to paste in Money." });
-                              } catch {}
+                            onClick={() => {
                               router.push("/money");
                             }}
                           >
@@ -1148,12 +1144,8 @@ Follow-up question: ${fu}`
                           <Chip
                             className="text-xs"
                             title="Open in Decisions"
-                            onClick={async () => {
-                              try {
-                                await navigator.clipboard.writeText(ask.question);
-                                toast({ title: "Copied", description: "Paste into Decisions." });
-                              } catch {}
-                              router.push("/decisions");
+                            onClick={() => {
+                              router.push("/decisions?tab=active");
                             }}
                           >
                             Open in Decisions

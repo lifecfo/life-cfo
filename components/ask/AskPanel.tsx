@@ -55,6 +55,7 @@ function friendlyScopeLabel(scope: string | null) {
   if (scope === "transactions") return "Money -> Transactions";
   if (scope === "connections") return "Money -> Connections";
   if (scope === "decisions") return "Decisions";
+  if (scope === "chapters") return "Chapters";
   if (scope === "family") return "Family";
   if (scope === "household") return "Household";
   if (scope === "settings") return "Settings";
@@ -76,6 +77,7 @@ function routeLabel(pathname: string | null, scope: string | null) {
   if (path === "/transactions" || path.startsWith("/transactions/")) return "Money -> Transactions";
   if (path === "/connections" || path.startsWith("/connections/")) return "Money -> Connections";
   if (path === "/decisions" || path.startsWith("/decisions/")) return "Decisions";
+  if (path === "/chapters" || path.startsWith("/chapters/")) return "Chapters";
   if (path === "/family" || path.startsWith("/family/")) return "Family";
   if (path === "/household" || path.startsWith("/household/")) return "Household";
   if (path === "/settings" || path.startsWith("/settings/")) return "Settings";

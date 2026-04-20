@@ -115,6 +115,7 @@ function scopeFromPath(pathname: string): string | null {
   if (pathname.startsWith("/transactions")) return "transactions";
   if (pathname.startsWith("/connections")) return "connections";
   if (pathname.startsWith("/decisions")) return "decisions";
+  if (pathname.startsWith("/chapters")) return "chapters";
   if (pathname.startsWith("/bills")) return "bills";
   if (pathname.startsWith("/family")) return "family";
   if (pathname.startsWith("/household")) return "household";
