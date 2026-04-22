@@ -692,6 +692,111 @@ async function buildFactsPack(scope: { userId: string; householdId: string }) {
   };
 }
 
+function slimMoneyReasoningForAi(moneyReasoning: any) {
+  if (!moneyReasoning) return null;
+  const interpretation = moneyReasoning?.interpretation ?? {};
+  const main = interpretation?.main_pressure ?? {};
+  const secondary = interpretation?.secondary_pressure ?? {};
+  const confidence = interpretation?.confidence ?? {};
+  const explanation = moneyReasoning?.explanation ?? {};
+
+  return {
+    explanation: {
+      headline: typeof explanation?.headline === "string" ? explanation.headline : "",
+      summary: typeof explanation?.summary === "string" ? explanation.summary : "",
+    },
+    interpretation: {
+      main_pressure: {
+        key: typeof main?.key === "string" ? main.key : "none",
+        summary: typeof main?.summary === "string" ? main.summary : "",
+        why_now: typeof main?.why_now === "string" ? main.why_now : "",
+      },
+      secondary_pressure: secondary
+        ? {
+            key: typeof secondary?.key === "string" ? secondary.key : "none",
+            summary: typeof secondary?.summary === "string" ? secondary.summary : "",
+          }
+        : null,
+      confidence: {
+        note: typeof confidence?.note === "string" ? confidence.note : "",
+        freshness: typeof confidence?.freshness === "string" ? confidence.freshness : "",
+        evidence: typeof confidence?.evidence === "string" ? confidence.evidence : "",
+      },
+    },
+  };
+}
+
+function buildHomeAiFactsView(facts: any) {
+  const dataQuality = facts?.data_quality ?? {};
+  const review = facts?.review ?? {};
+  const chapters = facts?.chapters ?? {};
+  const goals = facts?.goals ?? {};
+  const openDecisionsPreview = facts?.open_decisions_preview ?? {};
+
+  return {
+    now_iso: facts?.now_iso ?? new Date().toISOString(),
+    data_quality: {
+      money_reasoning_ok: Boolean(dataQuality?.money_reasoning_ok),
+      money_reasoning_note:
+        typeof dataQuality?.money_reasoning_note === "string" ? dataQuality.money_reasoning_note : null,
+      accounts_count_active:
+        typeof dataQuality?.accounts_count_active === "number" ? dataQuality.accounts_count_active : 0,
+      decisions_open_count:
+        typeof dataQuality?.decisions_open_count === "number" ? dataQuality.decisions_open_count : 0,
+      review_count: typeof dataQuality?.review_count === "number" ? dataQuality.review_count : 0,
+      chapters_count: typeof dataQuality?.chapters_count === "number" ? dataQuality.chapters_count : 0,
+      goals_count_active:
+        typeof dataQuality?.goals_count_active === "number" ? dataQuality.goals_count_active : 0,
+    },
+    money_summary: {
+      balances_by_currency: Array.isArray(facts?.money_summary?.balances_by_currency)
+        ? facts.money_summary.balances_by_currency
+        : [],
+      recurring_bills_totals_by_currency: Array.isArray(
+        facts?.money_summary?.recurring_bills_totals_by_currency
+      )
+        ? facts.money_summary.recurring_bills_totals_by_currency
+        : [],
+    },
+    money_reasoning: slimMoneyReasoningForAi(facts?.money_reasoning),
+    open_decisions_preview: {
+      count: typeof openDecisionsPreview?.count === "number" ? openDecisionsPreview.count : 0,
+      titles: Array.isArray(openDecisionsPreview?.titles)
+        ? openDecisionsPreview.titles.filter((t: unknown) => typeof t === "string").slice(0, 3)
+        : [],
+    },
+    review: {
+      count: typeof review?.count === "number" ? review.count : 0,
+      upcoming: Array.isArray(review?.upcoming) ? review.upcoming.slice(0, 3) : [],
+    },
+    chapters: {
+      count: typeof chapters?.count === "number" ? chapters.count : 0,
+      recent: Array.isArray(chapters?.recent) ? chapters.recent.slice(0, 3) : [],
+    },
+    goals: {
+      count_active: typeof goals?.count_active === "number" ? goals.count_active : 0,
+      preview_titles: Array.isArray(goals?.preview_titles)
+        ? goals.preview_titles.filter((t: unknown) => typeof t === "string").slice(0, 3)
+        : [],
+      primary: goals?.primary
+        ? {
+            title: typeof goals.primary?.title === "string" ? goals.primary.title : "",
+            current: typeof goals.primary?.current === "string" ? goals.primary.current : null,
+            target: typeof goals.primary?.target === "string" ? goals.primary.target : null,
+            remaining: typeof goals.primary?.remaining === "string" ? goals.primary.remaining : null,
+            percent: typeof goals.primary?.percent === "number" ? goals.primary.percent : null,
+            target_date:
+              typeof goals.primary?.target_date === "string" ? goals.primary.target_date : null,
+          }
+        : null,
+    },
+    household_context: {
+      family_members_count: typeof facts?.family?.count_members === "number" ? facts.family.count_members : 0,
+      pets_count: typeof facts?.family?.count_pets === "number" ? facts.family.count_pets : 0,
+    },
+  };
+}
+
 /* ---------------- prompt ---------------- */
 
 const SYSTEM = `
@@ -803,6 +908,7 @@ export async function POST(req: Request) {
     }
 
     const facts = await buildFactsPack({ userId: user.id, householdId });
+    const aiFacts = buildHomeAiFactsView(facts);
 
     // ✅ Deterministic AFFORD handling (skip AI)
     if (isHomeAffordabilityIntent(question)) {
@@ -1184,7 +1290,7 @@ export async function POST(req: Request) {
       model: "gpt-4o-mini",
       input: [
         { role: "system", content: SYSTEM },
-        { role: "user", content: `QUESTION:\n${question}\n\nFACTS PACK:\n${JSON.stringify(facts, null, 2)}` },
+        { role: "user", content: `QUESTION:\n${question}\n\nFACTS PACK:\n${JSON.stringify(aiFacts, null, 2)}` },
       ],
       text: {
         format: {
