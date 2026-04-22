@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { Page } from "@/components/Page";
 import { Card, CardContent, Chip, Button, useToast } from "@/components/ui";
+import { useAsk } from "@/components/ask/AskProvider";
 import { useRouter } from "next/navigation";
 import { maybeCrisisIntercept } from "@/lib/safety/guard";
 
@@ -234,6 +235,7 @@ function actionToHref(action: ApiAction | undefined): string | null {
 export default function LifeCFOHomePage() {
   const router = useRouter();
   const { toast } = useToast();
+  const { openAsk: openGlobalAsk, setDraft: setAskDraft } = useAsk();
 
   const buildStamp = process.env.NEXT_PUBLIC_BUILD_STAMP || "";
 
@@ -269,6 +271,10 @@ export default function LifeCFOHomePage() {
   const scrollToFollowUp = () =>
     window.setTimeout(() => followUpRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }), 40);
   const focusFollowUp = () => window.setTimeout(() => followUpInputRef.current?.focus(), 0);
+  const continueInAsk = (seed = "") => {
+    setAskDraft(seed);
+    openGlobalAsk();
+  };
 
   /* ---------- auth ---------- */
 
@@ -845,7 +851,7 @@ Follow-up question: ${fu}`
           <Card className="border-zinc-200 bg-white shadow-none">
             <CardContent className="p-0">
               <div className="px-6 py-5">
-                <div className="mb-2 text-xs text-zinc-500">Quick ask on Home. For deeper work, use Ask or Decisions.</div>
+                <div className="mb-2 text-xs text-zinc-500">Quick orientation on Home. Continue in Ask when you want to go deeper.</div>
 
                 <textarea
                   ref={inputRef}
@@ -1002,16 +1008,8 @@ Follow-up question: ${fu}`
                           </Chip>
                         ) : null}
 
-                        <Chip
-                          className="text-xs"
-                          title="Ask something else"
-                          onClick={() => {
-                            setShowQuickAsk(true);
-                            focusInput();
-                            window.setTimeout(() => inputRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }), 40);
-                          }}
-                        >
-                          Ask something else
+                        <Chip className="text-xs" title="Continue in Ask" onClick={() => continueInAsk(ask.question)}>
+                          Continue in Ask
                         </Chip>
 
                         <Chip className="text-xs" title="Done" onClick={() => setAsk({ status: "idle" })}>
