@@ -252,25 +252,25 @@ function buildSearchSummary(params: {
   if (txExamples.length > 0) {
     return {
       summary,
-      examples: `Examples include transactions like ${compactJoin(txExamples)}.`,
+      examples: `You can see it in transactions like ${compactJoin(txExamples)}.`,
     };
   }
   if (billExamples.length > 0) {
     return {
       summary,
-      examples: `Examples include bills like ${compactJoin(billExamples)}.`,
+      examples: `That includes bills like ${compactJoin(billExamples)}.`,
     };
   }
   if (accountExamples.length > 0) {
     return {
       summary,
-      examples: `Examples include accounts like ${compactJoin(accountExamples)}.`,
+      examples: `That includes accounts like ${compactJoin(accountExamples)}.`,
     };
   }
 
   return {
     summary,
-    examples: "I could not find clear named examples for that search yet.",
+    examples: "Matches are still thin, so naming one merchant, account, or bill will sharpen it.",
   };
 }
 
@@ -639,7 +639,9 @@ export function AskProvider({ children }: { children: ReactNode }) {
           const bills = billRows.length;
           const txs = txRows.length;
           const hasEvidence = accounts + bills + txs > 0;
-          const searchIntro = "Here is what I could find quickly in your money data.";
+          const searchIntro = hasEvidence
+            ? "I found a few concrete matches in your money data."
+            : "I checked your money data, but there were very few direct matches.";
           const searchSummary = buildSearchSummary({
             accounts: accountRows,
             bills: billRows,
@@ -653,7 +655,7 @@ export function AskProvider({ children }: { children: ReactNode }) {
             searchIntro,
             paragraph(searchSummary.summary),
             paragraph(searchSummary.examples),
-            paragraph("If this is not what you meant, try naming a merchant, account, or bill."),
+            paragraph("If this is slightly off, naming a merchant, account, or bill usually helps."),
             stableGroundLine({
               mode: "search",
               hasEvidence,

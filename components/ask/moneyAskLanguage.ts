@@ -116,7 +116,7 @@ export function stableGroundLine(params: StableGroundParams) {
 
   if (mode === "search") {
     return hasEvidence
-      ? "This gives you a clear place to start before we narrow it further."
+      ? "These matches give us a clear starting point before narrowing further."
       : "There is not much matching data yet, which still helps narrow the next question.";
   }
 
@@ -125,24 +125,24 @@ export function stableGroundLine(params: StableGroundParams) {
   }
 
   if (hasCaveat || evidence === "thin") {
-    return "This is still useful for direction, even if a little more detail would make it sharper.";
+    return "This still gives useful direction, and a little more detail would sharpen it.";
   }
 
   switch (mode) {
     case "snapshot":
       return pressure === "elevated"
         ? "It makes sense if this feels heavy right now, and the upside is the pattern is visible."
-        : "The picture is fairly clear right now, which makes the next choices easier to weigh.";
+        : "The picture is fairly clear, which makes the next choices easier to weigh.";
     case "diagnosis":
       return pressure === "elevated"
         ? "This may feel like a lot, but it does not look random."
-        : "This gives a clearer read on what is really driving the pressure.";
+        : "This gives a clearer read on what is actually driving the pressure.";
     case "planning":
       return "There is enough mapped out here to plan ahead with a bit more confidence.";
     case "affordability":
       return pressure === "elevated"
         ? "There may be pressure here, and this gives you a clear baseline before getting more specific."
-        : "This gives you a solid starting point before getting more specific.";
+        : "This is a solid baseline before getting more specific.";
     case "scenario":
       return evidence === "clear"
         ? "You can treat this as the before picture, then layer the change on top."

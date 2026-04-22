@@ -399,12 +399,12 @@ function buildDiagnosisDrivers(
   if (main.key !== "none") {
     const meaning =
       main.key === "structural"
-        ? "This usually means there is less left over each month."
+        ? "That often leaves less left over each month."
         : main.key === "discretionary"
-          ? "This can reduce day-to-day flexibility."
+          ? "It can reduce day-to-day flexibility."
           : main.key === "timing"
-            ? "This can make things feel tighter when money out lands before money in."
-            : "This can make the picture feel tighter because confidence is lower right now.";
+            ? "It can make things feel tighter when money out lands before money in."
+            : "It can make the picture feel tighter because confidence is lower right now.";
     lines.push(`${main.summary} ${meaning}`);
     if (main.why_now) lines.push(main.why_now);
   } else {
@@ -412,14 +412,14 @@ function buildDiagnosisDrivers(
   }
 
   if (interpretation.secondary_pressure?.summary) {
-    lines.push(`A secondary pressure signal is ${interpretation.secondary_pressure.summary}`);
+    lines.push(`Another signal in the mix is ${interpretation.secondary_pressure.summary}`);
   }
 
   const includeConfidence =
     interpretation.confidence.freshness !== "fresh" ||
     interpretation.confidence.evidence === "limited";
   if (includeConfidence && interpretation.confidence.note) {
-    lines.push(`Grounding note: ${interpretation.confidence.note}`);
+    lines.push(`Data note: ${interpretation.confidence.note}`);
   }
 
   if (lines.length) return lines.slice(0, 4);
@@ -570,31 +570,31 @@ function buildCausalNarrative(params: {
     key === "none"
       ? "Your household money picture looks mostly steady."
       : mode === "diagnosis"
-        ? `${mainPressureLabel(key)[0].toUpperCase()}${mainPressureLabel(key).slice(1)} is the main driver right now.`
+        ? `${mainPressureLabel(key)[0].toUpperCase()}${mainPressureLabel(key).slice(1)} looks like the main driver.`
         : {
-            structural: "Regular commitments are setting the tone right now.",
-            discretionary: "Recent spending drift is shaping the picture right now.",
-            timing: "Cash-flow timing is shaping the picture right now.",
-            stability: "Data and income stability are shaping the picture right now.",
+            structural: "Regular commitments are setting the tone.",
+            discretionary: "Recent spending drift is shaping the picture.",
+            timing: "Cash-flow timing is shaping the picture.",
+            stability: "Data and income stability are shaping the picture.",
           }[key];
 
   const happening =
     key === "none"
-      ? "No single pressure point is dominating."
+      ? "No single pressure point is standing out."
       : mode === "diagnosis"
-        ? `${mainPressureLabel(key)[0].toUpperCase()}${mainPressureLabel(key).slice(1)} is creating most of the strain.`
-        : `Your money picture is being led by ${mainPressureLabel(key)}.`;
+        ? `Most of the strain is coming from ${mainPressureLabel(key)}.`
+        : `${mainPressureLabel(key)[0].toUpperCase()}${mainPressureLabel(key).slice(1)} is leading the picture.`;
 
   const why =
     whyFromFacts
       ? mode === "diagnosis"
-        ? `You can see it in the numbers: ${whyFromFacts}`
-        : `The numbers behind that are straightforward: ${whyFromFacts}`
+        ? `That shows up clearly in the numbers: ${whyFromFacts}`
+        : `The numbers behind that are clear: ${whyFromFacts}`
       : interpretation.main_pressure.why_now || fallbackSummary;
 
   const impact =
     key === "none"
-      ? "That usually means day-to-day pressure can still appear, but it is coming from smaller factors rather than one major issue."
+      ? "Day-to-day pressure can still appear, but it is coming from smaller factors rather than one major issue."
       : key === "timing"
         ? "It can make parts of the month feel tighter, even when the broader picture is still manageable."
         : key === "stability"
