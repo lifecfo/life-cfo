@@ -430,6 +430,176 @@ function buildDiagnosisDrivers(
     .map((s) => s.summary);
 }
 
+type PressureKey = PressureInterpretation["main_pressure"]["key"];
+
+function parseEvidenceNumber(value: unknown): number | null {
+  const n = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+function mainPressureLabel(key: PressureKey): string {
+  switch (key) {
+    case "structural":
+      return "structural pressure";
+    case "discretionary":
+      return "discretionary pressure";
+    case "timing":
+      return "timing pressure";
+    case "stability":
+      return "stability pressure";
+    default:
+      return "pressure";
+  }
+}
+
+function recurringCommitmentFact(snapshot: FinancialSnapshot): string | null {
+  const income = snapshot.income.recurringMonthlyCents;
+  const commitments = snapshot.commitments.recurringMonthlyCents;
+  if (income > 0 && commitments > 0) {
+    const pct = Math.round((commitments / income) * 100);
+    return `${pct}% of recurring income is already committed (${formatMoney(commitments)} of ${formatMoney(income)} per month)`;
+  }
+  if (commitments > 0) {
+    return `recurring commitments are about ${formatMoney(commitments)} per month while recurring income is still partly mapped`;
+  }
+  return null;
+}
+
+function discretionaryDriftFact(snapshot: FinancialSnapshot): string | null {
+  const evidence = snapshot.pressure.discretionary_drift.evidence ?? {};
+  const recent = parseEvidenceNumber(evidence.recent_outflow_cents);
+  const prior = parseEvidenceNumber(evidence.prior_outflow_cents);
+  if (recent === null || prior === null) return null;
+  if (recent <= 0 && prior <= 0) return null;
+  if (prior <= 0) return `recent flexible outflow is ${formatMoney(recent)} in the last 30 days`;
+
+  const delta = recent - prior;
+  const pct = Math.round((Math.abs(delta) / Math.max(prior, 1)) * 100);
+  if (delta >= 10000) {
+    return `flexible outflow is up about ${pct}% versus the prior 30 days (${formatMoney(recent)} vs ${formatMoney(prior)})`;
+  }
+  if (delta <= -10000) {
+    return `flexible outflow is down about ${pct}% versus the prior 30 days (${formatMoney(recent)} vs ${formatMoney(prior)})`;
+  }
+  return null;
+}
+
+function timingMismatchFact(snapshot: FinancialSnapshot): string | null {
+  const evidence = snapshot.pressure.timing_mismatch.evidence ?? {};
+  const obligations = parseEvidenceNumber(evidence.obligations_before_income_cents);
+  const available = parseEvidenceNumber(evidence.available_cash_cents);
+  const shortfall = parseEvidenceNumber(evidence.shortfall_cents);
+  if (obligations === null || available === null || obligations <= 0) return null;
+
+  if (shortfall !== null && shortfall > 0) {
+    return `${formatMoney(obligations)} in bills land before the next income against ${formatMoney(available)} available cash, leaving about ${formatMoney(shortfall)} short`;
+  }
+  return `${formatMoney(obligations)} in bills land before the next income and are currently being covered by about ${formatMoney(available)} available cash`;
+}
+
+function stabilityFact(snapshot: FinancialSnapshot): string | null {
+  if (snapshot.connections.total <= 0) return "no connected sources are active yet, so this read has lower confidence";
+  if (snapshot.connections.stale > 0) {
+    return `${snapshot.connections.stale} of ${snapshot.connections.total} connected sources may be stale`;
+  }
+  if (snapshot.income.sourceCount <= 0 && snapshot.commitments.billCount > 0) {
+    return "recurring bills are visible but recurring income sources are still sparse";
+  }
+  return null;
+}
+
+function strongestCausalFacts(params: {
+  snapshot: FinancialSnapshot;
+  interpretation: PressureInterpretation;
+}): string[] {
+  const { snapshot, interpretation } = params;
+  const byKey: Record<Exclude<PressureKey, "none">, string | null> = {
+    structural: recurringCommitmentFact(snapshot),
+    discretionary: discretionaryDriftFact(snapshot),
+    timing: timingMismatchFact(snapshot),
+    stability: stabilityFact(snapshot),
+  };
+
+  const ranked = [
+    { key: "structural", score: snapshot.pressure.structural_pressure.score },
+    { key: "discretionary", score: snapshot.pressure.discretionary_drift.score },
+    { key: "timing", score: snapshot.pressure.timing_mismatch.score },
+    { key: "stability", score: snapshot.pressure.stability_risk.score },
+  ].sort((a, b) => b.score - a.score) as Array<{
+    key: Exclude<PressureKey, "none">;
+    score: number;
+  }>;
+
+  const orderedKeys: Array<Exclude<PressureKey, "none">> = [];
+  if (interpretation.main_pressure.key !== "none") {
+    orderedKeys.push(interpretation.main_pressure.key as Exclude<PressureKey, "none">);
+  }
+  for (const item of ranked) {
+    if (!orderedKeys.includes(item.key)) orderedKeys.push(item.key);
+  }
+
+  const out: string[] = [];
+  for (const key of orderedKeys) {
+    const text = byKey[key];
+    if (!text) continue;
+    if (out.some((line) => line.toLowerCase() === text.toLowerCase())) continue;
+    out.push(text);
+    if (out.length >= 3) break;
+  }
+  return out;
+}
+
+function buildCausalNarrative(params: {
+  mode: "snapshot" | "diagnosis";
+  snapshot: FinancialSnapshot;
+  interpretation: PressureInterpretation;
+  fallbackSummary: string;
+}): { headline: string; summary: string } {
+  const { mode, snapshot, interpretation, fallbackSummary } = params;
+  const facts = strongestCausalFacts({ snapshot, interpretation });
+  const key = interpretation.main_pressure.key;
+
+  const headline =
+    key === "none"
+      ? "Your household money picture looks mostly steady right now."
+      : mode === "diagnosis"
+        ? `${mainPressureLabel(key)[0].toUpperCase()}${mainPressureLabel(key).slice(1)} is the main pressure right now.`
+        : {
+            structural: "Regular commitments are the main pressure right now.",
+            discretionary: "Recent spending drift is the main pressure right now.",
+            timing: "Cash-flow timing is the main pressure right now.",
+            stability: "Data and income stability are the main pressure right now.",
+          }[key];
+
+  const happening =
+    key === "none"
+      ? "Right now, no single pressure point is dominating."
+      : mode === "diagnosis"
+        ? `Right now, ${mainPressureLabel(key)} is driving most of the strain.`
+        : `Right now, your money picture is being led by ${mainPressureLabel(key)}.`;
+
+  const why =
+    facts.length > 0
+      ? mode === "diagnosis"
+        ? `That is showing up because ${facts.slice(0, 2).join(", and ")}.`
+        : `This is mainly because ${facts.slice(0, 2).join(", and ")}.`
+      : interpretation.main_pressure.why_now || fallbackSummary;
+
+  const impact =
+    key === "none"
+      ? "That usually means day-to-day pressure can still appear, but it is coming from smaller factors rather than one major issue."
+      : key === "timing"
+        ? "That means things can feel tighter at certain points in the month even when the broader picture is still manageable."
+        : key === "stability"
+          ? "That means this read is useful, but confidence can improve as fresh data comes in."
+          : "That usually means there is less breathing room, so money can feel tighter day to day.";
+
+  return {
+    headline,
+    summary: joinNonEmptyWithSpace([happening, why, impact]),
+  };
+}
+
 async function readCookie(name: string) {
   // Next.js cookies() is async
   const jar = await cookies();
@@ -534,20 +704,12 @@ export async function POST(req: Request) {
     if (looksOrientation || reasoningFallbackMode === "snapshot") {
       const money = await runHouseholdMoneyReasoning(supabase as any, { householdId });
       const { snapshot, explanation, interpretation } = money;
-      const snapshotHeadline =
-        interpretation.main_pressure.key === "none"
-          ? "Your household money picture looks fairly steady right now."
-          : `Your household money picture is mainly being shaped by ${interpretation.main_pressure.key} pressure right now.`;
-      const snapshotSummary =
-        interpretation.main_pressure.key === "none"
-          ? joinNonEmptyWithSpace([
-              explanation.summary,
-              "That means things may still feel tight at times, but no single pressure point is dominating.",
-            ])
-          : joinNonEmptyWithSpace([
-              interpretation.main_pressure.why_now || explanation.summary,
-              "That is usually why money can feel tighter day to day, even when parts of the picture are still stable.",
-            ]);
+      const snapshotNarrative = buildCausalNarrative({
+        mode: "snapshot",
+        snapshot,
+        interpretation,
+        fallbackSummary: explanation.summary,
+      });
 
       return NextResponse.json({
         ok: true,
@@ -556,8 +718,8 @@ export async function POST(req: Request) {
         snapshot,
         explanation: {
           ...explanation,
-          headline: snapshotHeadline,
-          summary: snapshotSummary,
+          headline: snapshotNarrative.headline,
+          summary: snapshotNarrative.summary,
         },
         interpretation,
       });
@@ -590,23 +752,16 @@ export async function POST(req: Request) {
           ].slice(0, 4)
         : drivers;
 
-      const diagnosisHeadline =
-        interpretation.main_pressure.key === "none"
-          ? "No single pressure point is dominating your money picture right now."
-          : `${interpretation.main_pressure.key[0].toUpperCase()}${interpretation.main_pressure.key.slice(1)} pressure is the main reason money feels tight right now.`;
+      const diagnosisNarrative = buildCausalNarrative({
+        mode: "diagnosis",
+        snapshot,
+        interpretation,
+        fallbackSummary: explanation.summary,
+      });
 
       const diagnosis = {
-        headline: diagnosisHeadline,
-        summary:
-          interpretation.main_pressure.key === "none"
-            ? joinNonEmptyWithSpace([
-                explanation.summary,
-                "That means any pressure is likely coming from a few smaller factors rather than one major issue.",
-              ])
-            : joinNonEmptyWithSpace([
-                interpretation.main_pressure.why_now || explanation.summary,
-                "This usually reduces breathing room, so money can feel tighter even when some parts of the picture are still stable.",
-              ]),
+        headline: diagnosisNarrative.headline,
+        summary: diagnosisNarrative.summary,
         drivers: diagnosisDrivers,
         signals: {
           structural: signals.structural_pressure.summary,
