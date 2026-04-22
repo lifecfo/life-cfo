@@ -482,6 +482,9 @@ export default function FamilyClient() {
   return (
     <Page title="Family" subtitle="People (and pets) Life CFO can keep in mind when helping with decisions.">
       <div className="mx-auto w-full max-w-[760px] space-y-6">
+        <div className="text-sm text-zinc-600">
+          This helps Life CFO understand your household context when thinking through money and decisions.
+        </div>
         <div className="text-xs text-zinc-500">{loading ? "Loading…" : statusLine}</div>
 
         {/* Me */}
@@ -900,3 +903,4 @@ export default function FamilyClient() {
     </Page>
   );
 }
+
