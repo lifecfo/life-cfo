@@ -166,6 +166,114 @@ function buildInterpretationLines(
   return { main, next, confidence };
 }
 
+type SearchAccount = {
+  name?: string | null;
+  provider?: string | null;
+  current_balance_cents?: number | null;
+};
+
+type SearchBill = {
+  name?: string | null;
+  amount_cents?: number | null;
+  cadence?: string | null;
+};
+
+type SearchTransaction = {
+  merchant?: string | null;
+  description?: string | null;
+  amount_cents?: number | null;
+  posted_at?: string | null;
+};
+
+function formatSearchMoney(cents: unknown, currency = "AUD"): string {
+  const n = typeof cents === "number" ? cents : Number(cents);
+  if (!Number.isFinite(n)) return "";
+  try {
+    return new Intl.NumberFormat(undefined, { style: "currency", currency }).format(Math.abs(n) / 100);
+  } catch {
+    return `$${(Math.abs(n) / 100).toFixed(0)}`;
+  }
+}
+
+function compactJoin(items: string[]): string {
+  if (items.length <= 1) return items[0] || "";
+  if (items.length === 2) return `${items[0]} and ${items[1]}`;
+  return `${items.slice(0, -1).join(", ")}, and ${items[items.length - 1]}`;
+}
+
+function buildSearchSummary(params: {
+  accounts: SearchAccount[];
+  bills: SearchBill[];
+  transactions: SearchTransaction[];
+}): { summary: string; examples: string } {
+  const { accounts, bills, transactions } = params;
+  const accountCount = accounts.length;
+  const billCount = bills.length;
+  const txCount = transactions.length;
+
+  const summary = `I found ${accountCount} account match${accountCount === 1 ? "" : "es"}, ${billCount} bill match${billCount === 1 ? "" : "es"}, and ${txCount} transaction match${txCount === 1 ? "" : "es"}.`;
+
+  const txExamples = [...transactions]
+    .sort((a, b) => {
+      const aAmt = Math.abs(Number(a.amount_cents ?? 0));
+      const bAmt = Math.abs(Number(b.amount_cents ?? 0));
+      if (bAmt !== aAmt) return bAmt - aAmt;
+      const aMs = Date.parse(String(a.posted_at ?? "")) || 0;
+      const bMs = Date.parse(String(b.posted_at ?? "")) || 0;
+      return bMs - aMs;
+    })
+    .slice(0, 2)
+    .map((tx) => {
+      const name = (tx.merchant || tx.description || "a transaction").trim();
+      const amt = formatSearchMoney(tx.amount_cents);
+      return amt ? `${name} (${amt})` : name;
+    })
+    .filter(Boolean);
+
+  const billExamples = [...bills]
+    .sort((a, b) => Math.abs(Number(b.amount_cents ?? 0)) - Math.abs(Number(a.amount_cents ?? 0)))
+    .slice(0, 2)
+    .map((bill) => {
+      const name = (bill.name || "a bill").trim();
+      const amt = formatSearchMoney(bill.amount_cents);
+      const cadence = typeof bill.cadence === "string" && bill.cadence.trim() ? bill.cadence.trim() : "";
+      if (amt && cadence) return `${name} (${amt}, ${cadence})`;
+      if (amt) return `${name} (${amt})`;
+      return name;
+    })
+    .filter(Boolean);
+
+  const accountExamples = [...accounts]
+    .sort((a, b) => Math.abs(Number(b.current_balance_cents ?? 0)) - Math.abs(Number(a.current_balance_cents ?? 0)))
+    .slice(0, 2)
+    .map((account) => (account.name || account.provider || "an account").trim())
+    .filter(Boolean);
+
+  if (txExamples.length > 0) {
+    return {
+      summary,
+      examples: `Examples include transactions like ${compactJoin(txExamples)}.`,
+    };
+  }
+  if (billExamples.length > 0) {
+    return {
+      summary,
+      examples: `Examples include bills like ${compactJoin(billExamples)}.`,
+    };
+  }
+  if (accountExamples.length > 0) {
+    return {
+      summary,
+      examples: `Examples include accounts like ${compactJoin(accountExamples)}.`,
+    };
+  }
+
+  return {
+    summary,
+    examples: "I could not find clear named examples for that search yet.",
+  };
+}
+
 function promotionActionForCandidateType(
   candidateType: MemoryCandidate["candidate_type"]
 ): PromotionActionType | null {
@@ -518,22 +626,33 @@ export function AskProvider({ children }: { children: ReactNode }) {
           content = lines;
           tone = tone || "overview";
         } else if (isMoneyScope && json?.mode === "search") {
-          const accounts = Array.isArray(json?.results?.accounts) ? json.results.accounts.length : 0;
-          const bills = Array.isArray(json?.results?.bills) ? json.results.bills.length : 0;
-          const txs = Array.isArray(json?.results?.transactions) ? json.results.transactions.length : 0;
+          const accountRows = Array.isArray(json?.results?.accounts)
+            ? (json.results.accounts as SearchAccount[])
+            : [];
+          const billRows = Array.isArray(json?.results?.bills)
+            ? (json.results.bills as SearchBill[])
+            : [];
+          const txRows = Array.isArray(json?.results?.transactions)
+            ? (json.results.transactions as SearchTransaction[])
+            : [];
+          const accounts = accountRows.length;
+          const bills = billRows.length;
+          const txs = txRows.length;
           const hasEvidence = accounts + bills + txs > 0;
           const searchIntro = "Here is what I could find quickly in your money data.";
+          const searchSummary = buildSearchSummary({
+            accounts: accountRows,
+            bills: billRows,
+            transactions: txRows,
+          });
           const languageContext = deriveAskLanguageContext({
-            lines: [searchIntro, `Accounts: ${accounts}`, `Bills: ${bills}`, `Transactions: ${txs}`],
+            lines: [searchIntro, searchSummary.summary, searchSummary.examples],
             hasEvidence,
           });
           content = composeMessage([
             searchIntro,
-            section("Matches:", [
-              `Accounts: ${accounts}`,
-              `Bills: ${bills}`,
-              `Transactions: ${txs}`,
-            ]),
+            paragraph(searchSummary.summary),
+            paragraph(searchSummary.examples),
             paragraph("If this is not what you meant, try naming a merchant, account, or bill."),
             stableGroundLine({
               mode: "search",
