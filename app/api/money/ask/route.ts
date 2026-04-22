@@ -558,41 +558,48 @@ function buildCausalNarrative(params: {
   const { mode, snapshot, interpretation, fallbackSummary } = params;
   const facts = strongestCausalFacts({ snapshot, interpretation });
   const key = interpretation.main_pressure.key;
+  const factPair = facts.slice(0, 2);
+  const whyFromFacts =
+    factPair.length === 0
+      ? ""
+      : factPair.length === 1
+        ? factPair[0]
+        : `${factPair[0]}. ${factPair[1]}.`;
 
   const headline =
     key === "none"
-      ? "Your household money picture looks mostly steady right now."
+      ? "Your household money picture looks mostly steady."
       : mode === "diagnosis"
-        ? `${mainPressureLabel(key)[0].toUpperCase()}${mainPressureLabel(key).slice(1)} is the main pressure right now.`
+        ? `${mainPressureLabel(key)[0].toUpperCase()}${mainPressureLabel(key).slice(1)} is the main driver right now.`
         : {
-            structural: "Regular commitments are the main pressure right now.",
-            discretionary: "Recent spending drift is the main pressure right now.",
-            timing: "Cash-flow timing is the main pressure right now.",
-            stability: "Data and income stability are the main pressure right now.",
+            structural: "Regular commitments are setting the tone right now.",
+            discretionary: "Recent spending drift is shaping the picture right now.",
+            timing: "Cash-flow timing is shaping the picture right now.",
+            stability: "Data and income stability are shaping the picture right now.",
           }[key];
 
   const happening =
     key === "none"
-      ? "Right now, no single pressure point is dominating."
+      ? "No single pressure point is dominating."
       : mode === "diagnosis"
-        ? `Right now, ${mainPressureLabel(key)} is driving most of the strain.`
-        : `Right now, your money picture is being led by ${mainPressureLabel(key)}.`;
+        ? `${mainPressureLabel(key)[0].toUpperCase()}${mainPressureLabel(key).slice(1)} is creating most of the strain.`
+        : `Your money picture is being led by ${mainPressureLabel(key)}.`;
 
   const why =
-    facts.length > 0
+    whyFromFacts
       ? mode === "diagnosis"
-        ? `That is showing up because ${facts.slice(0, 2).join(", and ")}.`
-        : `This is mainly because ${facts.slice(0, 2).join(", and ")}.`
+        ? `You can see it in the numbers: ${whyFromFacts}`
+        : `The numbers behind that are straightforward: ${whyFromFacts}`
       : interpretation.main_pressure.why_now || fallbackSummary;
 
   const impact =
     key === "none"
       ? "That usually means day-to-day pressure can still appear, but it is coming from smaller factors rather than one major issue."
       : key === "timing"
-        ? "That means things can feel tighter at certain points in the month even when the broader picture is still manageable."
+        ? "It can make parts of the month feel tighter, even when the broader picture is still manageable."
         : key === "stability"
-          ? "That means this read is useful, but confidence can improve as fresh data comes in."
-          : "That usually means there is less breathing room, so money can feel tighter day to day.";
+          ? "This read is still useful, and confidence should improve as fresh data comes in."
+          : "It usually means there is less breathing room, so money can feel tighter day to day.";
 
   return {
     headline,
