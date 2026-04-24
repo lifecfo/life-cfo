@@ -872,9 +872,9 @@ function ConnectionsPageClient() {
           <CardContent>
             <div className="flex items-start justify-between gap-4 flex-wrap">
               <div className="space-y-1">
-                <div className="text-sm font-medium text-zinc-900">Connect accounts</div>
+                <div className="text-sm font-medium text-zinc-900">Connect your bank</div>
                 <div className="text-xs text-zinc-500">
-                  Start with one secure connection, or add a manual account.
+                  Connect securely, then Life CFO will start bringing in your recent balances and transactions.
                 </div>
               </div>
 
@@ -884,7 +884,7 @@ function ConnectionsPageClient() {
                   disabled={creatingBasiq || creatingManual || creatingPlaid}
                   className="rounded-2xl"
                 >
-                  {creatingBasiq ? "Starting..." : "Connect accounts"}
+                  {creatingBasiq ? "Starting..." : "Connect your bank"}
                 </Button>
 
                 <Button
@@ -908,8 +908,8 @@ function ConnectionsPageClient() {
             </div>
 
             <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs text-zinc-600">
-              After setup, we import recent balances and transactions. You can refresh any
-              connection at any time.
+              We'll bring in your recent balances and transactions automatically. You can refresh
+              any connection at any time.
             </div>
 
             <div className="mt-6 space-y-3">
@@ -1191,8 +1191,8 @@ function ConnectionsPageClient() {
 
                   {!loading && activeItems.length === 0 && pendingItems.length === 0 ? (
                     <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-600">
-                      No accounts connected yet. Connect your bank or add a manual account to get
-                      started.
+                      No accounts connected yet. Connect your bank to start bringing your money
+                      picture into Life CFO.
                     </div>
                   ) : null}
                 </>
