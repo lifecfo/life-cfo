@@ -347,7 +347,7 @@ function shouldIncludeFamilyContextLine(params: {
   return false;
 }
 
-function buildFamilyContextLine(params: {
+function buildFamilyContextFragment(params: {
   mode: "snapshot" | "diagnosis" | "affordability" | "scenario";
   lowerQ: string;
   familyContext: HouseholdFamilyContext;
@@ -360,18 +360,18 @@ function buildFamilyContextLine(params: {
   }`;
 
   if (familyContext.dependentsCount > 0) {
-    return `Family context: ${peopleLabel} are noted in Family, including ${familyContext.dependentsCount} ${
+    return `With ${peopleLabel} in your household, including ${familyContext.dependentsCount} ${
       familyContext.dependentsCount === 1 ? "dependent" : "dependents"
-    }.`;
+    }`;
   }
 
   if (familyContext.childrenCount > 0) {
-    return `Family context: ${peopleLabel} are noted in Family, including ${familyContext.childrenCount} ${
+    return `With ${peopleLabel} in your household, including ${familyContext.childrenCount} ${
       familyContext.childrenCount === 1 ? "child" : "children"
-    }.`;
+    }`;
   }
 
-  return `Family context: ${peopleLabel} are noted in Family.`;
+  return `With ${peopleLabel} in your household`;
 }
 
 type ChangeTx = {
@@ -825,11 +825,14 @@ export async function POST(req: Request) {
         interpretation,
         fallbackSummary: explanation.summary,
       });
-      const familyContextLine = buildFamilyContextLine({
+      const familyContextFragment = buildFamilyContextFragment({
         mode: "snapshot",
         lowerQ,
         familyContext,
       });
+      const familyNarrativeTail = familyContextFragment
+        ? `${familyContextFragment}, that context can shape how tight things feel month to month.`
+        : null;
 
       return NextResponse.json({
         ok: true,
@@ -839,7 +842,7 @@ export async function POST(req: Request) {
         explanation: {
           ...explanation,
           headline: snapshotNarrative.headline,
-          summary: joinNonEmptyWithSpace([snapshotNarrative.summary, familyContextLine]),
+          summary: joinNonEmptyWithSpace([snapshotNarrative.summary, familyNarrativeTail]),
         },
         interpretation,
       });
@@ -878,15 +881,18 @@ export async function POST(req: Request) {
         interpretation,
         fallbackSummary: explanation.summary,
       });
-      const familyContextLine = buildFamilyContextLine({
+      const familyContextFragment = buildFamilyContextFragment({
         mode: "diagnosis",
         lowerQ,
         familyContext,
       });
+      const familyNarrativeTail = familyContextFragment
+        ? `${familyContextFragment}, that context can affect how quickly pressure shows up day to day.`
+        : null;
 
       const diagnosis = {
         headline: diagnosisNarrative.headline,
-        summary: joinNonEmptyWithSpace([diagnosisNarrative.summary, familyContextLine]),
+        summary: joinNonEmptyWithSpace([diagnosisNarrative.summary, familyNarrativeTail]),
         drivers: diagnosisDrivers,
         signals: {
           structural: signals.structural_pressure.summary,
@@ -923,12 +929,24 @@ export async function POST(req: Request) {
         recurringAmountCents === null ? extractCurrencyAmountCents(parseQ) : null;
       const parsingAmbiguous = isParsingAmbiguous(parseQ);
 
+      const familyContextFragment = buildFamilyContextFragment({
+        mode: "affordability",
+        lowerQ,
+        familyContext,
+      });
+      const currentPressureSignal = joinNonEmptyWithSpace([
+        `Current pressure: ${explanation.pressure.structural}`,
+        familyContextFragment
+          ? `${familyContextFragment}, affordability is usually more sensitive to day-to-day cash flow.`
+          : null,
+      ]);
+
       const signals: string[] = [
         `Available cash is ${formatMoney(snapshot.liquidity.availableCashCents)}.`,
         `Recurring commitments are about ${formatMoney(
           snapshot.commitments.recurringMonthlyCents
         )} per month across ${snapshot.commitments.billCount} tracked bill(s).`,
-        `Current pressure: ${explanation.pressure.structural}`,
+        currentPressureSignal,
       ];
       if (explanation.pressure.timing) {
         signals.push(`Timing context: ${explanation.pressure.timing}`);
@@ -942,15 +960,6 @@ export async function POST(req: Request) {
       if (parsedAffordabilityLine) {
         signals.push(parsedAffordabilityLine);
       }
-      const familyContextLine = buildFamilyContextLine({
-        mode: "affordability",
-        lowerQ,
-        familyContext,
-      });
-      if (familyContextLine) {
-        signals.push(familyContextLine);
-      }
-
       const missingCostDetail = !hasExplicitCostDetail(lowerQ);
       const missingPurchaseContext = !hasConcretePurchaseContext(lowerQ);
       const caveatNeeded = missingCostDetail || missingPurchaseContext;
@@ -1090,6 +1099,18 @@ export async function POST(req: Request) {
       const incomeDropAmountCents =
         incomeDropPercent === null ? extractIncomeDropAmountCents(parseQ) : null;
 
+      const familyContextFragment = buildFamilyContextFragment({
+        mode: "scenario",
+        lowerQ,
+        familyContext,
+      });
+      const currentPressureWatch = joinNonEmptyWithSpace([
+        `Current pressure: ${explanation.pressure.structural}`,
+        familyContextFragment
+          ? `${familyContextFragment}, the impact of a change can feel larger in everyday cash flow.`
+          : null,
+      ]);
+
       const watch: string[] = [
         `Recurring commitments are about ${formatMoney(
           snapshot.commitments.recurringMonthlyCents
@@ -1097,7 +1118,7 @@ export async function POST(req: Request) {
         `Available cash is ${formatMoney(snapshot.liquidity.availableCashCents)} across ${
           snapshot.liquidity.accountCount
         } account(s).`,
-        `Current pressure: ${explanation.pressure.structural}`,
+        currentPressureWatch,
       ];
 
       if (explanation.pressure.timing) {
@@ -1113,15 +1134,6 @@ export async function POST(req: Request) {
       if (parsedScenarioLine) {
         watch.push(parsedScenarioLine);
       }
-      const familyContextLine = buildFamilyContextLine({
-        mode: "scenario",
-        lowerQ,
-        familyContext,
-      });
-      if (familyContextLine) {
-        watch.push(familyContextLine);
-      }
-
       const broadPrompt = !isSpecificScenarioPrompt(lowerQ);
       const caveat = broadPrompt
         ? "This scenario is still broad, so this is a baseline view. A little more detail on amount and timing would sharpen the picture."
