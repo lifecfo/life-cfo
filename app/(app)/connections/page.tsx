@@ -80,6 +80,15 @@ function coerceStr(v: unknown) {
   return typeof v === "string" ? v : "";
 }
 
+function hasSuccessfulSync(connection: Connection) {
+  return Boolean(connection.last_sync_at);
+}
+
+function syncFailureMessage(status: number, json: any) {
+  if (status === 400) return "This connection didn't complete. Try reconnecting.";
+  return coerceStr(json?.error) || "Sync failed";
+}
+
 function pickRedirectUrl(json: any) {
   const consent = coerceStr(json?.consent_url);
   if (consent) return consent;
@@ -458,14 +467,10 @@ function ConnectionsPageClient() {
         const json = await res.json().catch(() => ({}));
 
         if (!res.ok) {
-          const err = coerceStr(json?.error).toLowerCase();
-          const looksNotReady = err.includes("no linked basiq accounts");
-          if (!looksNotReady) {
-            toast({
-              title: "Couldn't finish Basiq connection",
-              description: coerceStr(json?.error) || "Sync failed",
-            });
-          }
+          toast({
+            title: "Couldn't finish Basiq connection",
+            description: syncFailureMessage(res.status, json),
+          });
           return;
         }
 
@@ -622,7 +627,7 @@ function ConnectionsPageClient() {
 
             const syncJson = await syncRes.json();
             if (!syncRes.ok) {
-              throw new Error(syncJson?.error || "Sync failed");
+              throw new Error(syncFailureMessage(syncRes.status, syncJson));
             }
 
             toast({
@@ -690,7 +695,7 @@ function ConnectionsPageClient() {
     try {
       const res = await fetch(`/api/money/sync/${id}`, { method: "POST" });
       const json = await res.json();
-      if (!res.ok) throw new Error(json?.error || "Sync failed");
+      if (!res.ok) throw new Error(syncFailureMessage(res.status, json));
 
       toast({ title: "Connection refreshed" });
       await load();
@@ -806,6 +811,7 @@ function ConnectionsPageClient() {
     () =>
       items.filter((c) => {
         if (c.status !== "needs_auth" && c.status !== "error") return false;
+        if (!hasSuccessfulSync(c)) return false;
 
         const isBasiqNeedsAuth =
           c.status === "needs_auth" &&
@@ -815,6 +821,25 @@ function ConnectionsPageClient() {
         return retainedBasiqNeedsAuthId !== null && c.id === retainedBasiqNeedsAuthId;
       }),
     [items, hasActiveBasiq, retainedBasiqNeedsAuthId]
+  );
+
+  const incompleteSetupItems = useMemo(
+    () =>
+      items
+        .filter((c) => {
+          const provider = coerceStr(c.provider).toLowerCase();
+          if (provider !== "basiq") return false;
+          if (c.status !== "needs_auth" && c.status !== "error") return false;
+          return !hasSuccessfulSync(c);
+        })
+        .sort((a, b) => {
+          const aTime = Date.parse(a.updated_at || a.created_at || "");
+          const bTime = Date.parse(b.updated_at || b.created_at || "");
+          const safeA = Number.isFinite(aTime) ? aTime : 0;
+          const safeB = Number.isFinite(bTime) ? bTime : 0;
+          return safeB - safeA;
+        }),
+    [items]
   );
 
   const stalePendingItems = useMemo(() => {
@@ -852,7 +877,8 @@ function ConnectionsPageClient() {
 
   const canRemoveSetupAttempt = (c: Connection) =>
     coerceStr(c.provider).toLowerCase() === "basiq" &&
-    (c.status === "needs_auth" || c.status === "error");
+    (c.status === "needs_auth" || c.status === "error") &&
+    !hasSuccessfulSync(c);
 
   function handleComingSoon(label: string) {
     toast({
@@ -1189,7 +1215,56 @@ function ConnectionsPageClient() {
                     </div>
                   ) : null}
 
-                  {!loading && activeItems.length === 0 && pendingItems.length === 0 ? (
+                  {incompleteSetupItems.length > 0 ? (
+                    <div className="space-y-3 pt-2">
+                      <div className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+                        Incomplete setup attempts
+                      </div>
+
+                      {incompleteSetupItems.map((c) => (
+                        <div
+                          key={c.id}
+                          className="rounded-2xl border border-zinc-200 bg-zinc-50/60 px-4 py-3"
+                        >
+                          <div className="flex items-start justify-between gap-3 flex-wrap">
+                            <div className="min-w-[240px] flex-1">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <div className="text-sm font-medium text-zinc-900">
+                                  {displayTitle(c)}
+                                </div>
+                                <span
+                                  className={`rounded-full px-2.5 py-1 text-[11px] ${providerChipClass(
+                                    c.provider
+                                  )}`}
+                                >
+                                  {providerLabel(c.provider)}
+                                </span>
+                              </div>
+                              <div className="mt-1 text-xs text-zinc-600">
+                                This setup didn't complete.
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-2">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => void removeSetupAttempt(c.id)}
+                                disabled={removingId === c.id || connectingId === c.id}
+                              >
+                                {removingId === c.id ? "Removing..." : "Remove setup attempt"}
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+
+                  {!loading &&
+                  activeItems.length === 0 &&
+                  pendingItems.length === 0 &&
+                  incompleteSetupItems.length === 0 ? (
                     <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-600">
                       No accounts connected yet. Connect your bank to start bringing your money
                       picture into Life CFO.
