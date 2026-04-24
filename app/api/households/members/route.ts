@@ -8,12 +8,6 @@ export const dynamic = "force-dynamic";
 type Role = "owner" | "editor" | "viewer";
 const isRole = (v: unknown): v is Role => v === "owner" || v === "editor" || v === "viewer";
 
-function maskId(id: string) {
-  if (!id) return "";
-  if (id.length <= 12) return id;
-  return `${id.slice(0, 6)}…${id.slice(-4)}`;
-}
-
 async function getMyRole(supabase: any, userId: string, householdId: string): Promise<string | null> {
   const { data, error } = await supabase
     .from("household_members")
@@ -65,7 +59,7 @@ export async function GET(req: Request) {
           user_id: m.user_id,
           role: m.role,
           created_at: m.created_at,
-          label: isMe ? meEmail ?? "You" : `Member ${maskId(m.user_id)}`,
+          label: isMe ? (meEmail ? `You (${meEmail})` : "You") : "Household member",
           is_me: isMe,
         };
       }) ?? [];

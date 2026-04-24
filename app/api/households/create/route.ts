@@ -8,6 +8,10 @@ export const dynamic = "force-dynamic";
 
 const COOKIE_NAME = "lifecfo_household";
 
+function safeStr(v: unknown) {
+  return typeof v === "string" ? v : "";
+}
+
 export async function POST(req: Request) {
   try {
     const supabase = await supabaseRoute();
@@ -22,30 +26,22 @@ export async function POST(req: Request) {
     }
 
     const body = await req.json().catch(() => ({}));
-    const name = typeof body?.name === "string" ? body.name.trim() : "";
+    const name = safeStr(body?.name).trim();
 
-    const householdName = name || "Household";
+    // Keep /api/households/create as a compatibility entrypoint,
+    // but use the same canonical creation path as POST /api/households.
+    const { data: household_id, error: createErr } = await supabase.rpc("create_household", {
+      p_name: name || null,
+    });
 
-    // Create household
-    const { data: hh, error: hhErr } = await supabase
-      .from("households")
-      .insert({ name: householdName })
-      .select("id,name,created_at")
-      .maybeSingle();
-
-    if (hhErr) throw hhErr;
-    if (!hh?.id) return NextResponse.json({ ok: false, error: "Household create failed." }, { status: 500 });
-
-    // Add creator as owner
-    const { error: memErr } = await supabase
-      .from("household_members")
-      .insert({ household_id: hh.id, user_id: user.id, role: "owner" });
-
-    if (memErr) throw memErr;
+    if (createErr) throw createErr;
+    if (!household_id) {
+      return NextResponse.json({ ok: false, error: "Household create failed." }, { status: 500 });
+    }
 
     // Set active household cookie
     const cookieStore = await cookies();
-    cookieStore.set(COOKIE_NAME, hh.id, {
+    cookieStore.set(COOKIE_NAME, household_id, {
       path: "/",
       httpOnly: true,
       sameSite: "lax",
@@ -56,11 +52,11 @@ export async function POST(req: Request) {
     // Persist preference (cross-device)
     const { error: prefErr } = await supabase
       .from("household_preferences")
-      .upsert({ user_id: user.id, active_household_id: hh.id }, { onConflict: "user_id" });
+      .upsert({ user_id: user.id, active_household_id: household_id }, { onConflict: "user_id" });
 
     if (prefErr) throw prefErr;
 
-    return NextResponse.json({ ok: true, household: hh, active_household_id: hh.id });
+    return NextResponse.json({ ok: true, household_id, active_household_id: household_id });
   } catch (e: any) {
     return NextResponse.json({ ok: false, error: e?.message ?? "Household create failed" }, { status: 500 });
   }

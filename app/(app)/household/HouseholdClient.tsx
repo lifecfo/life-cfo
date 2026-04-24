@@ -278,7 +278,7 @@ export default function HouseholdClient() {
     try {
       const name = safeStr(createName).trim();
 
-      const res = await fetch("/api/households/create", {
+      const res = await fetch("/api/households", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name }),
