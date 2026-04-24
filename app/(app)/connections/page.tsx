@@ -872,9 +872,9 @@ function ConnectionsPageClient() {
           <CardContent>
             <div className="flex items-start justify-between gap-4 flex-wrap">
               <div className="space-y-1">
-                <div className="text-sm font-medium text-zinc-900">Connect your bank</div>
+                <div className="text-sm font-medium text-zinc-900">Bring your money into Life CFO</div>
                 <div className="text-xs text-zinc-500">
-                  Connect securely, then Life CFO will start bringing in your recent balances and transactions.
+                  Connect securely. Life CFO will bring in your recent balances and transactions.
                 </div>
               </div>
 
@@ -893,7 +893,7 @@ function ConnectionsPageClient() {
                   variant="ghost"
                   className="rounded-2xl"
                 >
-                  {creatingPlaid ? "Starting..." : "Connect US bank"}
+                  {creatingPlaid ? "Starting..." : "Connect US bank (Plaid)"}
                 </Button>
 
                 <Button
