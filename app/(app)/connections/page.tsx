@@ -154,7 +154,7 @@ function syncLine(c: Connection) {
   }
 
   if (c.status === "manual") return "Manual account.";
-  if (c.status === "needs_auth") return "Setup not finished.";
+  if (c.status === "needs_auth") return "Connection in progress.";
   if (c.status === "error") return "Update needs review.";
   return "";
 }
@@ -171,7 +171,7 @@ function connectionSubline(c: Connection) {
 
 function pendingHelpLine(c: Connection) {
   if (c.status === "needs_auth") {
-    return "Finish setup to start bringing in balances and transactions.";
+    return "Finish the secure bank step to start bringing in balances and transactions.";
   }
 
   if (c.status === "error") {
@@ -469,7 +469,10 @@ function ConnectionsPageClient() {
           return;
         }
 
-        toast({ title: "Basiq connected" });
+        toast({
+          title: "Bank connected",
+          description: "Importing your latest balances and transactions.",
+        });
         if (!cancelled) {
           await load();
           if (cameFromBasiqReturn || basiqReturnConnectionId) {
@@ -562,7 +565,7 @@ function ConnectionsPageClient() {
         return;
       }
 
-      toast({ title: "Starting secure connection..." });
+      toast({ title: "Opening secure bank connection..." });
       await startBasiqAuth(connectionId);
     } catch (e: any) {
       toast({ title: "Couldn't add bank", description: e?.message });
@@ -622,7 +625,10 @@ function ConnectionsPageClient() {
               throw new Error(syncJson?.error || "Sync failed");
             }
 
-            toast({ title: "Bank connected" });
+            toast({
+              title: "Bank connected",
+              description: "Importing your latest balances and transactions.",
+            });
             await load();
             router.refresh();
           } catch (e: any) {
@@ -670,7 +676,7 @@ function ConnectionsPageClient() {
       const connectionId = coerceStr(json?.connection?.id);
       if (!connectionId) throw new Error("Missing connection id");
 
-      toast({ title: "Starting secure connection..." });
+      toast({ title: "Opening secure bank connection..." });
       await startPlaidAuth(connectionId);
     } catch (e: any) {
       toast({ title: "Couldn't add bank", description: e?.message });
@@ -866,13 +872,30 @@ function ConnectionsPageClient() {
           <CardContent>
             <div className="flex items-start justify-between gap-4 flex-wrap">
               <div className="space-y-1">
-                <div className="text-sm font-medium text-zinc-900">Add accounts</div>
+                <div className="text-sm font-medium text-zinc-900">Connect accounts</div>
                 <div className="text-xs text-zinc-500">
-                  Connect your bank or add a manual account.
+                  Start with one secure connection, or add a manual account.
                 </div>
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  onClick={() => void createBasiqAndConnect()}
+                  disabled={creatingBasiq || creatingManual || creatingPlaid}
+                  className="rounded-2xl"
+                >
+                  {creatingBasiq ? "Starting..." : "Connect accounts"}
+                </Button>
+
+                <Button
+                  onClick={() => void createPlaidAndConnect()}
+                  disabled={creatingPlaid || creatingManual || creatingBasiq}
+                  variant="ghost"
+                  className="rounded-2xl"
+                >
+                  {creatingPlaid ? "Starting..." : "Connect US bank"}
+                </Button>
+
                 <Button
                   onClick={() => void createManual()}
                   disabled={creatingManual || creatingBasiq || creatingPlaid}
@@ -880,22 +903,6 @@ function ConnectionsPageClient() {
                   className="rounded-2xl"
                 >
                   {creatingManual ? "Adding..." : "Add manual account"}
-                </Button>
-
-                <Button
-                  onClick={() => void createBasiqAndConnect()}
-                  disabled={creatingBasiq || creatingManual || creatingPlaid}
-                  className="rounded-2xl"
-                >
-                  {creatingBasiq ? "Starting..." : "Connect bank (AU)"}
-                </Button>
-
-                <Button
-                  onClick={() => void createPlaidAndConnect()}
-                  disabled={creatingPlaid || creatingManual || creatingBasiq}
-                  className="rounded-2xl"
-                >
-                  {creatingPlaid ? "Starting..." : "Connect bank (US)"}
                 </Button>
               </div>
             </div>
