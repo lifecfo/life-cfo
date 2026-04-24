@@ -749,11 +749,11 @@ function ConnectionsPageClient() {
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(coerceStr(json?.error) || "Could not remove setup attempt.");
 
-      toast({ title: "Setup attempt removed" });
+      toast({ title: "Setup removed" });
       await load();
     } catch (e: unknown) {
       toast({
-        title: "Couldn't remove setup attempt",
+        title: "Couldn't remove this setup",
         description: e instanceof Error ? e.message : "Please try again.",
       });
     } finally {
@@ -1105,7 +1105,7 @@ function ConnectionsPageClient() {
                                 >
                                   {removingId === c.id
                                     ? "Removing..."
-                                    : "Remove setup attempt"}
+                                    : "Remove"}
                                 </Button>
                               )}
 
@@ -1203,7 +1203,7 @@ function ConnectionsPageClient() {
                                 >
                                   {removingId === c.id
                                     ? "Removing..."
-                                    : "Remove setup attempt"}
+                                    : "Remove"}
                                 </Button>
                               )}
 
@@ -1218,7 +1218,7 @@ function ConnectionsPageClient() {
                   {incompleteSetupItems.length > 0 ? (
                     <div className="space-y-3 pt-2">
                       <div className="text-xs font-medium uppercase tracking-wide text-zinc-500">
-                        Incomplete setup attempts
+                        Setups that didn't complete
                       </div>
 
                       {incompleteSetupItems.map((c) => (
@@ -1241,7 +1241,7 @@ function ConnectionsPageClient() {
                                 </span>
                               </div>
                               <div className="mt-1 text-xs text-zinc-600">
-                                This setup didn't complete.
+                                This setup didn't complete. Remove it to start again.
                               </div>
                             </div>
 
@@ -1252,7 +1252,7 @@ function ConnectionsPageClient() {
                                 onClick={() => void removeSetupAttempt(c.id)}
                                 disabled={removingId === c.id || connectingId === c.id}
                               >
-                                {removingId === c.id ? "Removing..." : "Remove setup attempt"}
+                                {removingId === c.id ? "Removing..." : "Remove"}
                               </Button>
                             </div>
                           </div>
