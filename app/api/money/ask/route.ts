@@ -23,6 +23,12 @@ type AskBody = {
   limit?: number;
 };
 type RouteSupabase = Awaited<ReturnType<typeof supabaseRoute>>;
+type FamilyMemberRelationshipRow = { relationship?: string | null };
+type HouseholdFamilyContext = {
+  peopleCount: number;
+  dependentsCount: number;
+  childrenCount: number;
+};
 
 function safeStr(v: unknown) {
   return typeof v === "string" ? v : "";
@@ -265,6 +271,107 @@ function isRecentChangeQuestion(lowerQ: string): boolean {
   return /\b(lately|recently|what changed|why.*worse now|worse now|tighter lately|tight lately)\b/i.test(
     lowerQ
   );
+}
+
+function isMeRelationship(relationship: string | null | undefined): boolean {
+  const rel = safeStr(relationship).trim().toLowerCase();
+  return rel === "me" || rel === "self" || rel === "myself";
+}
+
+function isChildRelationship(relationship: string | null | undefined): boolean {
+  const rel = safeStr(relationship).trim().toLowerCase();
+  return /\b(child|children|kid|kids|son|daughter|toddler|baby|teen)\b/i.test(rel);
+}
+
+function isDependentRelationship(relationship: string | null | undefined): boolean {
+  const rel = safeStr(relationship).trim().toLowerCase();
+  return /\b(dependent|dependant)\b/i.test(rel);
+}
+
+async function readHouseholdFamilyContext(
+  supabase: RouteSupabase,
+  householdId: string
+): Promise<HouseholdFamilyContext> {
+  const fallback: HouseholdFamilyContext = {
+    peopleCount: 0,
+    dependentsCount: 0,
+    childrenCount: 0,
+  };
+
+  try {
+    const { data, error } = await supabase
+      .from("family_members")
+      .select("relationship")
+      .eq("household_id", householdId)
+      .limit(100);
+
+    if (error || !Array.isArray(data) || data.length === 0) {
+      return fallback;
+    }
+
+    const rows = data as FamilyMemberRelationshipRow[];
+    const peopleRows = rows.filter((r) => !isMeRelationship(r.relationship));
+    const peopleCount = peopleRows.length;
+    const childrenCount = peopleRows.filter((r) => isChildRelationship(r.relationship)).length;
+    const dependentsCount = peopleRows.filter((r) => isDependentRelationship(r.relationship)).length;
+
+    return {
+      peopleCount,
+      dependentsCount,
+      childrenCount,
+    };
+  } catch {
+    return fallback;
+  }
+}
+
+function shouldIncludeFamilyContextLine(params: {
+  mode: "snapshot" | "diagnosis" | "affordability" | "scenario";
+  lowerQ: string;
+  familyContext: HouseholdFamilyContext;
+}): boolean {
+  const { mode, lowerQ, familyContext } = params;
+  if (familyContext.peopleCount <= 0) return false;
+
+  const questionHasFamilyCue =
+    /\b(family|household|kids?|children|child|dependent|dependents|school|childcare|daycare)\b/i.test(
+      lowerQ
+    );
+
+  if (questionHasFamilyCue) return true;
+
+  if ((mode === "affordability" || mode === "scenario") && familyContext.dependentsCount > 0) {
+    return true;
+  }
+
+  return false;
+}
+
+function buildFamilyContextLine(params: {
+  mode: "snapshot" | "diagnosis" | "affordability" | "scenario";
+  lowerQ: string;
+  familyContext: HouseholdFamilyContext;
+}): string | null {
+  const { mode, lowerQ, familyContext } = params;
+  if (!shouldIncludeFamilyContextLine({ mode, lowerQ, familyContext })) return null;
+
+  const peopleLabel = `${familyContext.peopleCount} ${
+    familyContext.peopleCount === 1 ? "person" : "people"
+  }`;
+
+  if (familyContext.dependentsCount > 0) {
+    return `Family context: ${peopleLabel} are noted in Family, including ${familyContext.dependentsCount} ${
+      familyContext.dependentsCount === 1 ? "dependent" : "dependents"
+    }.`;
+  }
+
+  if (familyContext.childrenCount > 0) {
+    return `Family context: ${peopleLabel} are noted in Family, including ${familyContext.childrenCount} ${
+      familyContext.childrenCount === 1 ? "child" : "children"
+    }.`;
+  }
+
+  return `Family context: ${peopleLabel} are noted in Family.`;
 }
 
 type ChangeTx = {
@@ -687,6 +794,7 @@ export async function POST(req: Request) {
     }
 
     const { role } = await ensureHouseholdMember(supabase, user.id, householdId);
+    const familyContext = await readHouseholdFamilyContext(supabase, householdId);
 
     const lowerQ = q.toLowerCase();
     const parseQ = normalizeQuestionForParsing(q);
@@ -717,6 +825,11 @@ export async function POST(req: Request) {
         interpretation,
         fallbackSummary: explanation.summary,
       });
+      const familyContextLine = buildFamilyContextLine({
+        mode: "snapshot",
+        lowerQ,
+        familyContext,
+      });
 
       return NextResponse.json({
         ok: true,
@@ -726,7 +839,7 @@ export async function POST(req: Request) {
         explanation: {
           ...explanation,
           headline: snapshotNarrative.headline,
-          summary: snapshotNarrative.summary,
+          summary: joinNonEmptyWithSpace([snapshotNarrative.summary, familyContextLine]),
         },
         interpretation,
       });
@@ -765,10 +878,15 @@ export async function POST(req: Request) {
         interpretation,
         fallbackSummary: explanation.summary,
       });
+      const familyContextLine = buildFamilyContextLine({
+        mode: "diagnosis",
+        lowerQ,
+        familyContext,
+      });
 
       const diagnosis = {
         headline: diagnosisNarrative.headline,
-        summary: diagnosisNarrative.summary,
+        summary: joinNonEmptyWithSpace([diagnosisNarrative.summary, familyContextLine]),
         drivers: diagnosisDrivers,
         signals: {
           structural: signals.structural_pressure.summary,
@@ -823,6 +941,14 @@ export async function POST(req: Request) {
       });
       if (parsedAffordabilityLine) {
         signals.push(parsedAffordabilityLine);
+      }
+      const familyContextLine = buildFamilyContextLine({
+        mode: "affordability",
+        lowerQ,
+        familyContext,
+      });
+      if (familyContextLine) {
+        signals.push(familyContextLine);
       }
 
       const missingCostDetail = !hasExplicitCostDetail(lowerQ);
@@ -986,6 +1112,14 @@ export async function POST(req: Request) {
       });
       if (parsedScenarioLine) {
         watch.push(parsedScenarioLine);
+      }
+      const familyContextLine = buildFamilyContextLine({
+        mode: "scenario",
+        lowerQ,
+        familyContext,
+      });
+      if (familyContextLine) {
+        watch.push(familyContextLine);
       }
 
       const broadPrompt = !isSpecificScenarioPrompt(lowerQ);
