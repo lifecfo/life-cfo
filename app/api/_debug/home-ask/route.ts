@@ -4,7 +4,10 @@ import { NextResponse } from "next/server";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function POST(req: Request) {
+export async function POST() {
+  return NextResponse.json({ error: "Not found." }, { status: 404 });
+
+  /*
   const startedAt = Date.now();
   let body: any = null;
 
@@ -33,4 +36,5 @@ export async function POST(req: Request) {
     },
     raw_body: body,
   });
+  */
 }

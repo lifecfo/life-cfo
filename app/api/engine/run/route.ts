@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars */
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
@@ -191,6 +192,9 @@ function severityForUpcomingIncome(t: any) {
 }
 
 export async function POST(req: Request) {
+  return NextResponse.json({ error: "Not found." }, { status: 404 });
+
+  /*
   try {
     const body = await req.json().catch(() => ({}));
     const userId = body?.userId as string | undefined;
@@ -336,4 +340,5 @@ export async function POST(req: Request) {
   } catch (e: any) {
     return NextResponse.json({ error: e?.message ?? "Engine run failed" }, { status: 500 });
   }
+  */
 }

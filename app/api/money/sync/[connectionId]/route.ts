@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { supabaseRoute } from "@/lib/supabaseRoute";
 import { getProvider } from "@/lib/money/providers";
 import { resolveHouseholdIdRoute } from "@/lib/households/resolveHouseholdIdRoute";
+import { assertFinePrintAccepted } from "@/lib/finePrint";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -33,6 +34,8 @@ export async function POST(
     if (authErr || !user?.id) {
       return NextResponse.json({ ok: false, error: "Not signed in." }, { status: 401 });
     }
+
+    await assertFinePrintAccepted(supabase, user.id);
 
     const householdId = await resolveHouseholdIdRoute(supabase, user.id);
     if (!householdId) {

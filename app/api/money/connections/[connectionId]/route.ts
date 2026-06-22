@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import { supabaseRoute } from "@/lib/supabaseRoute";
 import { resolveHouseholdIdRoute } from "@/lib/households/resolveHouseholdIdRoute";
+import {
+  BasiqRevocationNotConfiguredError,
+  revokeBasiqConnection,
+} from "@/lib/money/providers/basiq";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -16,6 +20,16 @@ function normalizeProvider(provider: unknown): string {
 function isOwnerOrEditor(role: unknown): boolean {
   const r = typeof role === "string" ? role.trim().toLowerCase() : "";
   return r === "owner" || r === "editor";
+}
+
+function getBasiqUserId(itemId: string | null): string {
+  if (!itemId) return "";
+  try {
+    const parsed = JSON.parse(itemId);
+    return typeof parsed?.basiq_user_id === "string" ? parsed.basiq_user_id.trim() : "";
+  } catch {
+    return itemId.trim();
+  }
 }
 
 async function assertOwnerOrEditorAccess(
@@ -90,7 +104,7 @@ export async function DELETE(
 
     const { data: connection, error: connectionErr } = await supabase
       .from("external_connections")
-      .select("id, household_id, provider, status")
+      .select("id, household_id, provider, status, item_id")
       .eq("id", connectionId)
       .eq("household_id", householdId)
       .maybeSingle();
@@ -106,9 +120,10 @@ export async function DELETE(
 
     const provider = normalizeProvider(connection.provider);
     const status = normalizeStatus(connection.status);
+    const isActiveBasiq = provider === "basiq" && status === "active";
     const canDelete = provider === "basiq" && (status === "needs_auth" || status === "error");
 
-    if (!canDelete) {
+    if (!canDelete && !isActiveBasiq) {
       return NextResponse.json(
         {
           ok: false,
@@ -116,6 +131,25 @@ export async function DELETE(
         },
         { status: 409 }
       );
+    }
+
+    if (isActiveBasiq) {
+      const basiqUserId = getBasiqUserId(connection.item_id);
+      if (!basiqUserId) {
+        return NextResponse.json(
+          { ok: false, error: "This bank connection is missing its provider reference." },
+          { status: 409 }
+        );
+      }
+
+      try {
+        await revokeBasiqConnection(basiqUserId);
+      } catch (error) {
+        if (error instanceof BasiqRevocationNotConfiguredError) {
+          return NextResponse.json({ ok: false, error: error.message }, { status: 501 });
+        }
+        throw error;
+      }
     }
 
     const [{ count: externalAccountsCount, error: externalAccountsErr }, { count: accountsCount, error: accountsErr }, { count: transactionsCount, error: transactionsErr }] = await Promise.all([
@@ -146,7 +180,7 @@ export async function DELETE(
       transactions: transactionsCount ?? 0,
     };
 
-    if (linkedCounts.external_accounts > 0 || linkedCounts.accounts > 0 || linkedCounts.transactions > 0) {
+    if (canDelete && (linkedCounts.external_accounts > 0 || linkedCounts.accounts > 0 || linkedCounts.transactions > 0)) {
       return NextResponse.json(
         {
           ok: false,
@@ -154,6 +188,29 @@ export async function DELETE(
         },
         { status: 409 }
       );
+    }
+
+    if (isActiveBasiq) {
+      const { error: transactionDeleteError } = await supabase
+        .from("transactions")
+        .delete()
+        .eq("household_id", householdId)
+        .or(`connection_id.eq.${connectionId},external_connection_id.eq.${connectionId}`);
+      if (transactionDeleteError) throw transactionDeleteError;
+
+      const { error: externalAccountsDeleteError } = await supabase
+        .from("external_accounts")
+        .delete()
+        .eq("household_id", householdId)
+        .eq("connection_id", connectionId);
+      if (externalAccountsDeleteError) throw externalAccountsDeleteError;
+
+      const { error: accountsDeleteError } = await supabase
+        .from("accounts")
+        .delete()
+        .eq("household_id", householdId)
+        .eq("connection_id", connectionId);
+      if (accountsDeleteError) throw accountsDeleteError;
     }
 
     const { data: deletedRows, error: deleteErr } = await supabase
@@ -186,6 +243,7 @@ export async function DELETE(
     return NextResponse.json({
       ok: true,
       removed_connection_id: connectionId,
+      disconnected: isActiveBasiq,
       household_id: householdId,
     });
   } catch (e: unknown) {

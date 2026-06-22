@@ -2,6 +2,7 @@
 import { NextResponse } from "next/server";
 import { supabaseRoute } from "@/lib/supabaseRoute";
 import { resolveHouseholdIdRoute } from "@/lib/households/resolveHouseholdIdRoute";
+import { assertFinePrintAccepted } from "@/lib/finePrint";
 import { basiqFetch, getBasiqClientToken } from "@/lib/money/providers/basiq";
 
 export const runtime = "nodejs";
@@ -10,6 +11,8 @@ export const dynamic = "force-dynamic";
 type ItemIdPayload = {
   basiq_user_id: string;
   basiq_authlink_id?: string; // legacy; not used now
+  basiq_job_id?: string;
+  basiq_job_ids?: string[];
 };
 
 type BasiqConnectionRow = {
@@ -19,6 +22,7 @@ type BasiqConnectionRow = {
   status: string;
   item_id: string | null;
   display_name: string | null;
+  created_at: string;
 };
 
 function safeJsonParse<T>(input: unknown): T | null {
@@ -87,22 +91,6 @@ function envDiag() {
   };
 }
 
-function resolveSiteBaseFromRequest(req: Request) {
-  const preferred = (process.env.NEXT_PUBLIC_SITE_URL || "").trim();
-  if (preferred) {
-    try {
-      return new URL(preferred).origin;
-    } catch {
-      // fallback below
-    }
-  }
-  try {
-    return new URL(req.url).origin;
-  } catch {
-    return "https://life-cfo.com";
-  }
-}
-
 function unwrapBasiq(e: any): {
   stage?: string;
   status?: number;
@@ -169,7 +157,7 @@ async function normalizeReusableBasiqConnection(
     })
     .eq("id", connection.id)
     .eq("household_id", connection.household_id)
-    .select("id, household_id, provider, status, item_id, display_name")
+    .select("id, household_id, provider, status, item_id, display_name, created_at")
     .maybeSingle();
 
   if (error) throw error;
@@ -180,13 +168,14 @@ async function findReusableBasiqConnection(
   supabase: any,
   householdId: string
 ): Promise<BasiqConnectionRow | null> {
+  const cutoff = new Date(Date.now() - 15 * 60 * 1000).toISOString();
   const { data, error } = await supabase
     .from("external_connections")
-    .select("id, household_id, provider, status, item_id, display_name")
+    .select("id, household_id, provider, status, item_id, display_name, created_at")
     .eq("household_id", householdId)
     .eq("provider", "basiq")
-    .in("status", ["needs_auth", "error"])
-    .order("updated_at", { ascending: false })
+    .eq("status", "needs_auth")
+    .gte("created_at", cutoff)
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -240,7 +229,7 @@ async function createBasiqConnection(
       provider_connection_id: null,
       encrypted_access_token: null,
     })
-    .select("id, household_id, provider, status, item_id, display_name")
+    .select("id, household_id, provider, status, item_id, display_name, created_at")
     .maybeSingle();
 
   if (error) throw error;
@@ -260,7 +249,7 @@ async function resolveBasiqConnectionForStart(params: {
   if (requestedId) {
     const { data, error } = await supabase
       .from("external_connections")
-      .select("id, household_id, provider, status, item_id, display_name")
+      .select("id, household_id, provider, status, item_id, display_name, created_at")
       .eq("id", requestedId)
       .eq("household_id", householdId)
       .maybeSingle();
@@ -269,10 +258,11 @@ async function resolveBasiqConnectionForStart(params: {
 
     if (data && safeStr(data.provider).toLowerCase() === "basiq") {
       const current = data as BasiqConnectionRow;
-      if (isReusableBasiqStatus(current.status)) {
+      const isFresh = Date.parse(current.created_at) >= Date.now() - 15 * 60 * 1000;
+      if (isReusableBasiqStatus(current.status) && isFresh) {
         return normalizeReusableBasiqConnection(supabase, current);
       }
-      return current;
+      if (safeStr(current.status).toLowerCase() === "active") return current;
     }
   }
 
@@ -298,6 +288,8 @@ export async function POST(req: Request) {
     if (userErr || !user?.id) {
       return NextResponse.json({ ok: false, error: "Not signed in." }, { status: 401 });
     }
+
+    await assertFinePrintAccepted(supabase, user.id);
 
     const householdId = await resolveHouseholdIdRoute(supabase, user.id);
     if (!householdId) {
@@ -399,20 +391,12 @@ export async function POST(req: Request) {
       );
     }
 
-    const siteBase = resolveSiteBaseFromRequest(req);
-    const returnUrl = `${siteBase}/api/money/basiq/return?connection_id=${encodeURIComponent(
-      connectionId
-    )}`;
-
     const consent = new URL("https://consent.basiq.io/home");
     consent.searchParams.set("token", clientToken);
-    // Different Basiq consent builds have used different callback param names.
-    consent.searchParams.set("redirect_uri", returnUrl);
-    consent.searchParams.set("redirectUri", returnUrl);
-    consent.searchParams.set("returnUrl", returnUrl);
     const consentUrl = consent.toString();
 
-    // Keep connection in needs_auth until we get jobs/connections back from consent journey
+    // The Basiq Dashboard Redirect URL delivers jobId/jobIds to our callback.
+    // Keep the fresh connection pending until job history can confirm progress.
     await persistItemId(
       supabase,
       connectionId,

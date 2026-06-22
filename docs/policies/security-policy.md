@@ -18,7 +18,7 @@ This policy applies to:
 •	Supabase-backed infrastructure
 •	Auth and access-control mechanisms
 •	API route handlers
-•	External provider integrations (e.g. Plaid)
+•	External provider integrations (including Basiq for Australian bank data)
 Out of scope:
 •	Issues caused by user device compromise
 •	Social engineering attempts
@@ -58,7 +58,7 @@ AI operates strictly as a bounded reasoning layer over retrieved data.
 All durable state changes require explicit user action.
 ________________________________________
 5. Financial Integrations
-For external data providers (e.g. Plaid):
+For external data providers (including Basiq):
 •	Access tokens are stored securely
 •	Only required scopes are requested
 •	No user banking passwords are stored

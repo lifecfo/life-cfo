@@ -100,8 +100,8 @@ export default function FinePrintClient({ nextPath }: FinePrintClientProps) {
       <Card className="border-zinc-200 bg-white">
         <CardContent>
           <div className="space-y-2">
-            <div className="text-sm font-semibold text-zinc-900">What Keystone is</div>
-            <div className="text-sm text-zinc-700">Keystone is a calm decision system.</div>
+            <div className="text-sm font-semibold text-zinc-900">What Life CFO is</div>
+            <div className="text-sm text-zinc-700">Life CFO is a calm decision-support system.</div>
             <div className="text-sm text-zinc-700">
               It brings together your information — decisions, money, notes, and timing — with AI that helps you understand what’s going on,
               answer questions about your life, and make informed choices.
@@ -117,7 +117,7 @@ export default function FinePrintClient({ nextPath }: FinePrintClientProps) {
       <Card className="border-zinc-200 bg-white">
         <CardContent>
           <div className="space-y-2">
-            <div className="text-sm font-semibold text-zinc-900">What Keystone is not</div>
+            <div className="text-sm font-semibold text-zinc-900">What Life CFO is not</div>
             <ul className="list-disc space-y-1 pl-5 text-sm text-zinc-700">
               <li>Not financial, legal, medical, or tax advice.</li>
               <li>Not a forecast or guarantee.</li>
@@ -136,6 +136,7 @@ export default function FinePrintClient({ nextPath }: FinePrintClientProps) {
               <li>AI helps when you ask.</li>
               <li>No auto-decisions. No auto-saving.</li>
               <li>Summaries are preview-first, then explicitly attached by you.</li>
+              <li>When you use Ask, selected household facts may be processed by OpenAI to create a response.</li>
             </ul>
           </div>
         </CardContent>

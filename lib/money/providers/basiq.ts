@@ -176,9 +176,139 @@ export async function getBasiqAccounts(basiqUserId: string) {
 }
 
 export async function getBasiqTransactions(basiqUserId: string) {
+  // TODO(basiq): confirm the production pagination contract with Basiq before
+  // adding cursor/page parameters. This deliberately keeps the existing API
+  // shape rather than guessing a live-data pagination protocol.
   const data = await basiqFetch(`/users/${basiqUserId}/transactions`);
   const root = (data as Record<string, unknown> | null) ?? null;
   return (root?.data as unknown[]) ?? (Array.isArray(data) ? data : []);
+}
+
+export type BasiqJobState = "pending" | "ready" | "failed";
+
+export type BasiqJobProgress = {
+  jobId: string;
+  state: BasiqJobState;
+  status: string | null;
+  source: string | null;
+  stepStatuses: string[];
+};
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function asString(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function normalizedJobRoot(value: unknown): Record<string, unknown> {
+  const root = asRecord(value) ?? {};
+  return asRecord(root.data) ?? root;
+}
+
+function sourceFromLinks(value: unknown): string | null {
+  const links = asRecord(value);
+  if (!links) return null;
+
+  const source = links.source;
+  if (typeof source === "string" && source.trim()) return source.trim();
+
+  const sourceObject = asRecord(source);
+  return asString(sourceObject?.href) ?? asString(sourceObject?.id);
+}
+
+function isFailureStatus(value: string | null): boolean {
+  return Boolean(value && /^(failed|failure|error|cancelled|canceled)$/i.test(value));
+}
+
+function isSuccessStatus(value: string | null): boolean {
+  return Boolean(value && /^(success|successful|completed|complete)$/i.test(value));
+}
+
+function stepLooksLikeRetrieval(step: Record<string, unknown>, source: string | null): boolean {
+  if (source) return true;
+  const description = [step.name, step.title, step.type, step.description]
+    .map(asString)
+    .filter(Boolean)
+    .join(" ");
+  return /connect|account|transaction|retrieve|retriev|fetch|source/i.test(description);
+}
+
+function normalizeBasiqJob(jobId: string, value: unknown): BasiqJobProgress {
+  const root = normalizedJobRoot(value);
+  const status = asString(root.status);
+  const rootSource = sourceFromLinks(root.links);
+  const steps = Array.isArray(root.steps) ? root.steps : [];
+
+  const normalizedSteps = steps
+    .map(asRecord)
+    .filter((step): step is Record<string, unknown> => step !== null)
+    .map((step) => ({
+      status: asString(step.status),
+      source: sourceFromLinks(step.links),
+      retrieval: stepLooksLikeRetrieval(step, sourceFromLinks(step.links)),
+    }));
+
+  const stepStatuses = normalizedSteps
+    .map((step) => step.status)
+    .filter((stepStatus): stepStatus is string => Boolean(stepStatus));
+  const source = rootSource ?? normalizedSteps.find((step) => step.source)?.source ?? null;
+  const hasFailedStep = normalizedSteps.some((step) => isFailureStatus(step.status));
+  const hasSuccessfulRetrievalStep = normalizedSteps.some(
+    (step) => isSuccessStatus(step.status) && step.retrieval
+  );
+  const hasClearSuccess = isSuccessStatus(status) || normalizedSteps.every(
+    (step) => isSuccessStatus(step.status)
+  );
+
+  if (isFailureStatus(status) || hasFailedStep) {
+    return { jobId, state: "failed", status, source, stepStatuses };
+  }
+
+  if (hasClearSuccess && source && hasSuccessfulRetrievalStep) {
+    return { jobId, state: "ready", status, source, stepStatuses };
+  }
+
+  return { jobId, state: "pending", status, source, stepStatuses };
+}
+
+export async function getBasiqUserJobs(basiqUserId: string) {
+  const data = await basiqFetch(`/users/${encodeURIComponent(basiqUserId)}/jobs`);
+  const root = normalizedJobRoot(data);
+  return Array.isArray(root.data) ? root.data : Array.isArray(data) ? data : [];
+}
+
+export async function getBasiqJobHistory(
+  _basiqUserId: string,
+  jobIds: string[]
+): Promise<BasiqJobProgress[]> {
+  void _basiqUserId;
+  const uniqueJobIds = Array.from(new Set(jobIds.map((jobId) => jobId.trim()).filter(Boolean)));
+  return Promise.all(
+    uniqueJobIds.map(async (jobId) => {
+      const job = await basiqFetch(`/jobs/${encodeURIComponent(jobId)}`);
+      return normalizeBasiqJob(jobId, job);
+    })
+  );
+}
+
+export class BasiqRevocationNotConfiguredError extends Error {
+  constructor() {
+    super(
+      "Bank disconnection is not available until the Basiq production revocation endpoint is confirmed and configured."
+    );
+    this.name = "BasiqRevocationNotConfiguredError";
+  }
+}
+
+export async function revokeBasiqConnection(_basiqUserId: string): Promise<void> {
+  // TODO(basiq): implement the documented production revocation/delete call here.
+  // Do not delete local financial data until upstream access has been revoked.
+  void _basiqUserId;
+  throw new BasiqRevocationNotConfiguredError();
 }
 
 type ConnectionRow = {

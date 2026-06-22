@@ -7,7 +7,7 @@ This policy defines how Life CFO retains, manages, and deletes user data in orde
 2. Scope
 This policy applies to all data collected, processed, or stored by Life CFO, including:
 •	User account information
-•	Financial data retrieved through Plaid
+•	Financial data retrieved through Basiq
 •	Application usage data
 •	System logs required for security and reliability
 3. Data Retention Principles
@@ -15,12 +15,12 @@ Life CFO retains user data only for as long as necessary to provide the service 
 •	Data is collected only for legitimate application functionality.
 •	Data retention periods are minimized where possible.
 •	Users retain control over their financial connections and account data.
-4. Financial Data (Plaid)
+4. Financial Data (Basiq)
 If users choose to connect financial accounts:
-•	Financial data such as account balances and transactions may be retrieved through Plaid.
+•	Financial data such as account balances and transactions may be retrieved through Basiq.
 •	Life CFO does not store bank login credentials.
 •	Data retrieved from Plaid is used solely to provide application features.
-Users may disconnect financial accounts at any time, which stops further data retrieval.
+When Basiq revocation is configured for the service, users can disconnect financial accounts to stop further data retrieval.
 5. Account Deletion
 Users may request deletion of their account and associated data.
 Upon deletion:

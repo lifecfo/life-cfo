@@ -23,7 +23,7 @@ export default function PrivacyPage() {
       <ul>
         <li>
           <strong>Account information (optional):</strong> If you choose to
-          connect accounts, we receive certain financial data via Plaid, such as
+          connect Australian accounts, we receive certain financial data via Basiq, such as
           account names, account type, balances, and transaction details
           (including merchant/description, amount, date, and category data where
           available).
@@ -39,15 +39,22 @@ export default function PrivacyPage() {
         </li>
       </ul>
 
-      <h2>Financial information (via Plaid)</h2>
+      <h2>Financial information (via Basiq)</h2>
       <p>
-        If you choose to connect financial accounts, we use Plaid Inc. ("Plaid")
-        to link your accounts and retrieve financial data on your behalf.
+        If you choose to connect Australian financial accounts, we use Basiq Pty Ltd
+        ("Basiq") to link your accounts and retrieve financial data on your behalf.
       </p>
       <p>
         We do <strong>not</strong> collect or store your banking login
-        credentials. Your credentials are entered directly into Plaid Link and
-        handled by Plaid.
+        credentials. Any bank sign-in is completed in Basiq's secure consent flow.
+      </p>
+
+      <h2>Ask and AI processing</h2>
+      <p>
+        When you use Ask, we may send the question you ask and selected household
+        financial facts needed to answer it to OpenAI. Ask provides analysis and
+        explanations only; it does not provide financial advice or take action on
+        your behalf.
       </p>
 
       <h2>How we use information</h2>
@@ -64,8 +71,9 @@ export default function PrivacyPage() {
       </p>
       <ul>
         <li>
-          <strong>Plaid</strong> (account connection and data retrieval).
+          <strong>Basiq</strong> (Australian account connection and data retrieval).
         </li>
+        <li><strong>OpenAI</strong> (Ask responses when you choose to use Ask).</li>
         <li>
           <strong>Infrastructure providers</strong> used to host and operate the
           service (for example, database and application hosting).
@@ -100,8 +108,8 @@ export default function PrivacyPage() {
 
       <h2>Your choices</h2>
       <ul>
-        <li>You can choose whether to connect accounts via Plaid.</li>
-        <li>You can disconnect accounts at any time within the app.</li>
+        <li>You can choose whether to connect Australian accounts via Basiq.</li>
+        <li>We will clearly show how to disconnect once Basiq revocation is configured for the service.</li>
         <li>You can request access, correction, or deletion by contacting us.</li>
       </ul>
 

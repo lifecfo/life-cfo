@@ -281,11 +281,13 @@ function ConnectionActionsMenu({
   connection,
   syncing,
   onSync,
+  onDisconnect,
   onComingSoon,
 }: {
   connection: Connection;
   syncing: boolean;
   onSync: () => void;
+  onDisconnect: () => void;
   onComingSoon: (label: string) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -371,14 +373,12 @@ function ConnectionActionsMenu({
             type="button"
             onClick={() => {
               setOpen(false);
-              onComingSoon("Disconnect");
+              onDisconnect();
             }}
             className="flex w-full items-center justify-between px-4 py-3 text-left text-sm text-zinc-700 hover:bg-zinc-50"
           >
             <span>Disconnect</span>
-            <span className="text-[11px] uppercase tracking-wide text-zinc-400">
-              Soon
-            </span>
+            <span className="text-[11px] uppercase tracking-wide text-zinc-400">Unavailable</span>
           </button>
         </div>
       ) : null}
@@ -404,6 +404,8 @@ function ConnectionsPageClient() {
   const basiqReturnConnectionId = coerceStr(searchParams.get("basiq_connection_id"));
   const cameFromBasiqReturn = searchParams.get("basiq_return") === "1";
   const basiqReturnError = coerceStr(searchParams.get("basiq_error"));
+  const basiqJobsPending = searchParams.get("basiq_jobs_pending") === "1";
+  const basiqJobStatus = coerceStr(searchParams.get("basiq_job_status"));
 
   async function load() {
     setLoading(true);
@@ -435,8 +437,36 @@ function ConnectionsPageClient() {
   }, [cameFromBasiqReturn, basiqReturnError]);
 
   useEffect(() => {
+    if (!cameFromBasiqReturn || !basiqJobStatus) return;
+
+    if (basiqJobStatus === "ready") {
+      toast({
+        title: "Bank connection is ready",
+        description: "Life CFO can now refresh your latest balances and transactions.",
+      });
+      return;
+    }
+
+    if (basiqJobStatus === "lookup_pending") {
+      toast({
+        title: "Bank consent received",
+        description: "We couldn't check Basiq's progress yet. Refresh when its processing is complete.",
+      });
+      return;
+    }
+
+    if (basiqJobStatus === "pending") {
+      toast({
+        title: "Bank consent received",
+        description: "Basiq is preparing the connection. Refresh when its processing is complete.",
+      });
+    }
+  }, [basiqJobStatus, cameFromBasiqReturn, toast]);
+
+  useEffect(() => {
     if (loading) return;
     if (connectingId || syncingId) return;
+    if (basiqJobsPending) return;
 
     const callbackCandidate = basiqReturnConnectionId
       ? items.find(
@@ -499,7 +529,7 @@ function ConnectionsPageClient() {
     return () => {
       cancelled = true;
     };
-  }, [items, loading, connectingId, syncingId, basiqReturnConnectionId, cameFromBasiqReturn, router]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [items, loading, connectingId, syncingId, basiqReturnConnectionId, cameFromBasiqReturn, basiqJobsPending, router]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function createManual() {
     setCreatingManual(true);
@@ -761,6 +791,28 @@ function ConnectionsPageClient() {
     }
   }
 
+  async function disconnectConnection(id: string) {
+    setRemovingId(id);
+    try {
+      const res = await fetch(`/api/money/connections/${id}`, { method: "DELETE" });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(coerceStr(json?.error) || "Could not disconnect this bank.");
+
+      toast({ title: "Bank disconnected" });
+      await load();
+    } catch (error: unknown) {
+      toast({
+        title: "Bank disconnection needs review",
+        description:
+          error instanceof Error
+            ? error.message
+            : "Bank access could not be revoked yet.",
+      });
+    } finally {
+      setRemovingId(null);
+    }
+  }
+
   const activeItems = useMemo(
     () => items.filter((c) => c.status === "active" || c.status === "manual"),
     [items]
@@ -1003,6 +1055,7 @@ function ConnectionsPageClient() {
                                       connection={c}
                                       syncing={syncingId === c.id}
                                       onSync={() => void syncConnection(c.id)}
+                                      onDisconnect={() => void disconnectConnection(c.id)}
                                       onComingSoon={handleComingSoon}
                                     />
                                   </>
