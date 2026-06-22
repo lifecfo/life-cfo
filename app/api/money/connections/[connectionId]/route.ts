@@ -1,10 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseRoute } from "@/lib/supabaseRoute";
 import { resolveHouseholdIdRoute } from "@/lib/households/resolveHouseholdIdRoute";
-import {
-  BasiqRevocationNotConfiguredError,
-  revokeBasiqConnection,
-} from "@/lib/money/providers/basiq";
+import { supabaseAdmin } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -22,14 +19,14 @@ function isOwnerOrEditor(role: unknown): boolean {
   return r === "owner" || r === "editor";
 }
 
-function getBasiqUserId(itemId: string | null): string {
-  if (!itemId) return "";
-  try {
-    const parsed = JSON.parse(itemId);
-    return typeof parsed?.basiq_user_id === "string" ? parsed.basiq_user_id.trim() : "";
-  } catch {
-    return itemId.trim();
+function cleanupErrorMessage(error: unknown): string {
+  const message = error instanceof Error ? error.message : "";
+
+  if (message.includes("foreign key")) {
+    return "This setup still has local records that need review before it can be removed.";
   }
+
+  return "This setup could not be removed. Your connected bank data was not changed.";
 }
 
 async function assertOwnerOrEditorAccess(
@@ -104,7 +101,7 @@ export async function DELETE(
 
     const { data: connection, error: connectionErr } = await supabase
       .from("external_connections")
-      .select("id, household_id, provider, status, item_id")
+      .select("id, household_id, provider, status")
       .eq("id", connectionId)
       .eq("household_id", householdId)
       .maybeSingle();
@@ -120,10 +117,19 @@ export async function DELETE(
 
     const provider = normalizeProvider(connection.provider);
     const status = normalizeStatus(connection.status);
-    const isActiveBasiq = provider === "basiq" && status === "active";
     const canDelete = provider === "basiq" && (status === "needs_auth" || status === "error");
 
-    if (!canDelete && !isActiveBasiq) {
+    if (provider === "basiq" && status === "active") {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "Bank disconnection is not available yet. We're preparing secure consent management before enabling it.",
+        },
+        { status: 409 }
+      );
+    }
+
+    if (!canDelete) {
       return NextResponse.json(
         {
           ok: false,
@@ -133,87 +139,30 @@ export async function DELETE(
       );
     }
 
-    if (isActiveBasiq) {
-      const basiqUserId = getBasiqUserId(connection.item_id);
-      if (!basiqUserId) {
-        return NextResponse.json(
-          { ok: false, error: "This bank connection is missing its provider reference." },
-          { status: 409 }
-        );
-      }
+    const admin = supabaseAdmin();
 
-      try {
-        await revokeBasiqConnection(basiqUserId);
-      } catch (error) {
-        if (error instanceof BasiqRevocationNotConfiguredError) {
-          return NextResponse.json({ ok: false, error: error.message }, { status: 501 });
-        }
-        throw error;
-      }
-    }
+    const { error: transactionDeleteError } = await admin
+      .from("transactions")
+      .delete()
+      .eq("household_id", householdId)
+      .or(`connection_id.eq.${connectionId},external_connection_id.eq.${connectionId}`);
+    if (transactionDeleteError) throw transactionDeleteError;
 
-    const [{ count: externalAccountsCount, error: externalAccountsErr }, { count: accountsCount, error: accountsErr }, { count: transactionsCount, error: transactionsErr }] = await Promise.all([
-      supabase
-        .from("external_accounts")
-        .select("id", { count: "exact", head: true })
-        .eq("household_id", householdId)
-        .eq("connection_id", connectionId),
-      supabase
-        .from("accounts")
-        .select("id", { count: "exact", head: true })
-        .eq("household_id", householdId)
-        .eq("connection_id", connectionId),
-      supabase
-        .from("transactions")
-        .select("id", { count: "exact", head: true })
-        .eq("household_id", householdId)
-        .or(`connection_id.eq.${connectionId},external_connection_id.eq.${connectionId}`),
-    ]);
+    const { error: externalAccountsDeleteError } = await admin
+      .from("external_accounts")
+      .delete()
+      .eq("household_id", householdId)
+      .eq("connection_id", connectionId);
+    if (externalAccountsDeleteError) throw externalAccountsDeleteError;
 
-    if (externalAccountsErr) throw externalAccountsErr;
-    if (accountsErr) throw accountsErr;
-    if (transactionsErr) throw transactionsErr;
+    const { error: accountsDeleteError } = await admin
+      .from("accounts")
+      .delete()
+      .eq("household_id", householdId)
+      .eq("connection_id", connectionId);
+    if (accountsDeleteError) throw accountsDeleteError;
 
-    const linkedCounts = {
-      external_accounts: externalAccountsCount ?? 0,
-      accounts: accountsCount ?? 0,
-      transactions: transactionsCount ?? 0,
-    };
-
-    if (canDelete && (linkedCounts.external_accounts > 0 || linkedCounts.accounts > 0 || linkedCounts.transactions > 0)) {
-      return NextResponse.json(
-        {
-          ok: false,
-          error: "This setup attempt already has imported data and cannot be removed here.",
-        },
-        { status: 409 }
-      );
-    }
-
-    if (isActiveBasiq) {
-      const { error: transactionDeleteError } = await supabase
-        .from("transactions")
-        .delete()
-        .eq("household_id", householdId)
-        .or(`connection_id.eq.${connectionId},external_connection_id.eq.${connectionId}`);
-      if (transactionDeleteError) throw transactionDeleteError;
-
-      const { error: externalAccountsDeleteError } = await supabase
-        .from("external_accounts")
-        .delete()
-        .eq("household_id", householdId)
-        .eq("connection_id", connectionId);
-      if (externalAccountsDeleteError) throw externalAccountsDeleteError;
-
-      const { error: accountsDeleteError } = await supabase
-        .from("accounts")
-        .delete()
-        .eq("household_id", householdId)
-        .eq("connection_id", connectionId);
-      if (accountsDeleteError) throw accountsDeleteError;
-    }
-
-    const { data: deletedRows, error: deleteErr } = await supabase
+    const { data: deletedRows, error: deleteErr } = await admin
       .from("external_connections")
       .delete()
       .eq("id", connectionId)
@@ -235,7 +184,10 @@ export async function DELETE(
         household_id: householdId,
       });
       return NextResponse.json(
-        { ok: false, error: "Could not remove setup attempt." },
+        {
+          ok: false,
+          error: "This setup could not be removed. Your connected bank data was not changed.",
+        },
         { status: 500 }
       );
     }
@@ -243,13 +195,15 @@ export async function DELETE(
     return NextResponse.json({
       ok: true,
       removed_connection_id: connectionId,
-      disconnected: isActiveBasiq,
+      disconnected: false,
       household_id: householdId,
     });
   } catch (e: unknown) {
-    const message = e instanceof Error ? e.message : "Could not remove setup attempt.";
+    console.error("Failed to clean up incomplete Basiq setup attempt", {
+      error: e instanceof Error ? e.message : "Unknown error",
+    });
     return NextResponse.json(
-      { ok: false, error: message },
+      { ok: false, error: cleanupErrorMessage(e) },
       { status: 500 }
     );
   }

@@ -282,13 +282,11 @@ function ConnectionActionsMenu({
   connection,
   syncing,
   onSync,
-  onDisconnect,
   onComingSoon,
 }: {
   connection: Connection;
   syncing: boolean;
   onSync: () => void;
-  onDisconnect: () => void;
   onComingSoon: (label: string) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -374,12 +372,12 @@ function ConnectionActionsMenu({
             type="button"
             onClick={() => {
               setOpen(false);
-              onDisconnect();
+              onComingSoon("Bank disconnection");
             }}
             className="flex w-full items-center justify-between px-4 py-3 text-left text-sm text-zinc-700 hover:bg-zinc-50"
           >
             <span>Disconnect</span>
-            <span className="text-[11px] uppercase tracking-wide text-zinc-400">Unavailable</span>
+            <span className="text-[11px] uppercase tracking-wide text-zinc-400">Preparing</span>
           </button>
         </div>
       ) : null}
@@ -792,28 +790,6 @@ function ConnectionsPageClient() {
     }
   }
 
-  async function disconnectConnection(id: string) {
-    setRemovingId(id);
-    try {
-      const res = await fetch(`/api/money/connections/${id}`, { method: "DELETE" });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(coerceStr(json?.error) || "Could not disconnect this bank.");
-
-      toast({ title: "Bank disconnected" });
-      await load();
-    } catch (error: unknown) {
-      toast({
-        title: "Bank disconnection needs review",
-        description:
-          error instanceof Error
-            ? error.message
-            : "Bank access could not be revoked yet.",
-      });
-    } finally {
-      setRemovingId(null);
-    }
-  }
-
   const activeItems = useMemo(
     () => items.filter((c) => c.status === "active" || c.status === "manual"),
     [items]
@@ -937,6 +913,14 @@ function ConnectionsPageClient() {
     !hasSuccessfulSync(c);
 
   function handleComingSoon(label: string) {
+    if (label === "Bank disconnection") {
+      toast({
+        title: "Bank disconnection isn't available yet",
+        description: "We're preparing secure consent management before enabling it.",
+      });
+      return;
+    }
+
     toast({
       title: `${label} coming next`,
       description: "We'll wire this safely in the next pass.",
@@ -1059,7 +1043,6 @@ function ConnectionsPageClient() {
                                       connection={c}
                                       syncing={syncingId === c.id}
                                       onSync={() => void syncConnection(c.id)}
-                                      onDisconnect={() => void disconnectConnection(c.id)}
                                       onComingSoon={handleComingSoon}
                                     />
                                   </>
