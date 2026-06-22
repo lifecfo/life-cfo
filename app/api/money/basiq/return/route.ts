@@ -1,7 +1,11 @@
 import { NextResponse } from "next/server";
 import { supabaseRoute } from "@/lib/supabaseRoute";
 import { resolveHouseholdIdRoute } from "@/lib/households/resolveHouseholdIdRoute";
-import { getBasiqJobHistory, type BasiqJobProgress } from "@/lib/money/providers/basiq";
+import {
+  BasiqError,
+  getBasiqJobHistory,
+  type BasiqJobProgress,
+} from "@/lib/money/providers/basiq";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -111,7 +115,15 @@ export async function GET(req: Request) {
   try {
     if (!item.basiq_user_id) throw new Error("Missing Basiq user reference.");
     jobHistory = await getBasiqJobHistory(item.basiq_user_id, jobIds);
-  } catch {
+  } catch (error) {
+    if (error instanceof BasiqError) {
+      console.warn("Basiq job lookup could not be completed", {
+        operation: "job_lookup",
+        status: error.status,
+        code: error.basiq.code ?? null,
+        correlation_id: error.basiq.correlationId ?? null,
+      });
+    }
     const target = new URL("/connections", url.origin);
     target.searchParams.set("basiq_connection_id", connection.id);
     target.searchParams.set("basiq_return", "1");

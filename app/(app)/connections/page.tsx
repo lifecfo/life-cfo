@@ -15,6 +15,7 @@ type Connection = {
   last_sync_at: string | null;
   created_at: string | null;
   updated_at?: string | null;
+  can_refresh_after_consent?: boolean;
 };
 
 type PlaidLinkOnSuccessMetadata = {
@@ -927,6 +928,9 @@ function ConnectionsPageClient() {
   const canShowConnect = (c: Connection) =>
     (c.provider === "basiq" || c.provider === "plaid") && c.status === "needs_auth";
 
+  const canRefreshBasiqAfterConsent = (c: Connection) =>
+    c.provider === "basiq" && c.status === "needs_auth" && c.can_refresh_after_consent === true;
+
   const canRemoveSetupAttempt = (c: Connection) =>
     coerceStr(c.provider).toLowerCase() === "basiq" &&
     (c.status === "needs_auth" || c.status === "error") &&
@@ -1127,7 +1131,18 @@ function ConnectionsPageClient() {
                             </div>
 
                             <div className="flex items-center gap-2">
-                              {canShowConnect(c) && c.provider === "basiq" && (
+                              {canRefreshBasiqAfterConsent(c) && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => void syncConnection(c.id)}
+                                  disabled={syncingId === c.id}
+                                >
+                                  {syncingId === c.id ? "Refreshing..." : "Refresh"}
+                                </Button>
+                              )}
+
+                              {canShowConnect(c) && c.provider === "basiq" && !canRefreshBasiqAfterConsent(c) && (
                                 <Button
                                   variant="ghost"
                                   size="sm"
@@ -1225,7 +1240,18 @@ function ConnectionsPageClient() {
                             </div>
 
                             <div className="flex items-center gap-2">
-                              {canShowConnect(c) && c.provider === "basiq" && (
+                              {canRefreshBasiqAfterConsent(c) && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => void syncConnection(c.id)}
+                                  disabled={syncingId === c.id}
+                                >
+                                  {syncingId === c.id ? "Refreshing..." : "Refresh"}
+                                </Button>
+                              )}
+
+                              {canShowConnect(c) && c.provider === "basiq" && !canRefreshBasiqAfterConsent(c) && (
                                 <Button
                                   variant="ghost"
                                   size="sm"
@@ -1294,16 +1320,29 @@ function ConnectionsPageClient() {
                                 </span>
                               </div>
                               <div className="mt-1 text-xs text-zinc-600">
-                                This setup didn't complete. Remove it to start again.
+                                {canRefreshBasiqAfterConsent(c)
+                                  ? "Bank consent was received. You can refresh to check for available account data."
+                                  : "This setup didn't complete. Remove it to start again."}
                               </div>
                             </div>
 
                             <div className="flex items-center gap-2">
+                              {canRefreshBasiqAfterConsent(c) && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => void syncConnection(c.id)}
+                                  disabled={syncingId === c.id}
+                                >
+                                  {syncingId === c.id ? "Refreshing..." : "Refresh"}
+                                </Button>
+                              )}
+
                               <Button
                                 variant="ghost"
                                 size="sm"
                                 onClick={() => void removeSetupAttempt(c.id)}
-                                disabled={removingId === c.id || connectingId === c.id}
+                                disabled={removingId === c.id || connectingId === c.id || syncingId === c.id}
                               >
                                 {removingId === c.id ? "Removing..." : "Remove"}
                               </Button>

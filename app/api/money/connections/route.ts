@@ -31,6 +31,20 @@ function isReusableBasiqStatus(status: unknown) {
   return s === "needs_auth" || s === "error";
 }
 
+function hasBasiqConsentMetadata(itemId: unknown): boolean {
+  if (typeof itemId !== "string" || !itemId.trim()) return false;
+  try {
+    const item = JSON.parse(itemId) as Record<string, unknown>;
+    return Boolean(
+      (typeof item.basiq_job_id === "string" && item.basiq_job_id.trim()) ||
+        (Array.isArray(item.basiq_job_ids) && item.basiq_job_ids.length) ||
+        (typeof item.basiq_source === "string" && item.basiq_source.trim())
+    );
+  } catch {
+    return false;
+  }
+}
+
 export async function GET() {
   try {
     const supabase = await supabaseRoute();
@@ -55,7 +69,7 @@ export async function GET() {
     const { data, error } = await supabase
       .from("external_connections")
       .select(
-        "id,household_id,user_id,provider,status,provider_connection_id,display_name,last_sync_at,created_at,updated_at,provider_institution_name,institution_name"
+        "id,household_id,user_id,provider,status,provider_connection_id,display_name,last_sync_at,created_at,updated_at,provider_institution_name,institution_name,item_id"
       )
       .eq("household_id", householdId)
       .order("created_at", { ascending: false });
@@ -65,7 +79,17 @@ export async function GET() {
     return NextResponse.json({
       ok: true,
       household_id: householdId,
-      connections: data ?? [],
+      connections: (data ?? []).map((connection) => {
+        const provider = normalizeProvider(connection.provider);
+        const status = typeof connection.status === "string" ? connection.status.trim() : "";
+        const can_refresh_after_consent =
+          provider === "basiq" &&
+          status === "needs_auth" &&
+          hasBasiqConsentMetadata(connection.item_id);
+        const { item_id: _itemId, ...safeConnection } = connection;
+        void _itemId;
+        return { ...safeConnection, can_refresh_after_consent };
+      }),
     });
   } catch (e: any) {
     return NextResponse.json(
