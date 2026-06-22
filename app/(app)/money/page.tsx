@@ -44,6 +44,26 @@ type SnapshotExplanation = {
 type OverviewResponse = {
   snapshot: FinancialSnapshot;
   explanation: SnapshotExplanation;
+  transaction_outflows?: TransactionOutflowSummary;
+};
+
+type MoneyRow = {
+  currency: string;
+  cents: number;
+};
+
+type TransactionOutflowSummary = {
+  transaction_count: number;
+  month_outflow_by_currency: MoneyRow[];
+  largest_outflows: Array<{ label: string; cents: number; currency: string; uncertain_label: boolean }>;
+  likely_regular_outflows: Array<{
+    label: string;
+    occurrences: number;
+    average_cents: number;
+    currency: string;
+    uncertain_label: boolean;
+  }>;
+  source_note: string | null;
 };
 
 type TransactionRow = {
@@ -62,6 +82,11 @@ type TransactionsResponse = {
 
 function formatMoney(cents: number | undefined | null, currency = "AUD") {
   return formatMoneyFromCents(cents, currency);
+}
+
+function formatMoneyRows(rows: MoneyRow[]) {
+  if (!rows.length) return "-";
+  return rows.map((row) => formatMoney(row.cents, row.currency)).join(" | ");
 }
 
 function softDate(isoOrDate: string | null | undefined) {
@@ -178,6 +203,7 @@ export default function MoneyClientNext() {
   const snapshot = data?.snapshot;
   const explanation = data?.explanation;
   const interpretation = explanation?.interpretation;
+  const transactionOutflows = data?.transaction_outflows;
 
   const refresh = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
@@ -405,6 +431,9 @@ export default function MoneyClientNext() {
                     ? "Connected data is available. New imported activity will appear here."
                     : "Connect a bank to bring in recent account and transaction activity."}
               </div>
+              {transactionOutflows?.source_note ? (
+                <div className="text-xs text-zinc-500">{transactionOutflows.source_note}</div>
+              ) : null}
               <ul className="list-disc space-y-1 pl-4 text-xs text-zinc-600">
                 <li>{connectionFreshnessLine}</li>
                 <li>
@@ -448,13 +477,29 @@ export default function MoneyClientNext() {
               rows={[
                 `Recurring commitments: ${snapshot ? formatMoney(snapshot.commitments.recurringMonthlyCents) : loading ? "Loading..." : "-"}`,
                 snapshot
-                  ? `${snapshot.commitments.billCount} bill(s) mapped.`
+                  ? snapshot.commitments.billCount > 0
+                    ? `${snapshot.commitments.billCount} bill(s) mapped.`
+                    : "No bills are formally mapped yet."
                   : "Bill coverage will show here.",
-                latestImported
-                  ? `Latest imported outflow cue: ${latestImportedName} (${latestImportedAmount}).`
-                  : `Flexible spending (30 days): ${snapshot ? formatMoney(snapshot.discretionary.last30DayOutflowCents) : loading ? "Loading..." : "-"}`,
+                transactionOutflows?.month_outflow_by_currency?.length
+                  ? `This month’s connected outflows: ${formatMoneyRows(
+                      transactionOutflows.month_outflow_by_currency
+                    )}.`
+                  : latestImported
+                    ? `Latest imported outflow cue: ${latestImportedName} (${latestImportedAmount}).`
+                    : `Flexible spending (30 days): ${snapshot ? formatMoney(snapshot.discretionary.last30DayOutflowCents) : loading ? "Loading..." : "-"}`,
+                transactionOutflows?.likely_regular_outflows?.[0]
+                  ? `Possible regular payment: ${transactionOutflows.likely_regular_outflows[0].label} (${formatMoney(
+                      transactionOutflows.likely_regular_outflows[0].average_cents,
+                      transactionOutflows.likely_regular_outflows[0].currency
+                    )} average).`
+                  : "Repeated payments will appear here when the transaction labels are clear.",
               ]}
-              note={explanation?.pressure.structural || "Spending pressure notes will appear here."}
+              note={
+                snapshot?.commitments.billCount === 0 && transactionOutflows?.transaction_count
+                  ? "Connected transactions are available. Bills are not formally mapped yet, so this view is using recent outflows as a starting point."
+                  : explanation?.pressure.structural || "Spending pressure notes will appear here."
+              }
               links={[
                 { href: "/money/out", label: "Open Out" },
                 { href: "/bills", label: "Bills" },

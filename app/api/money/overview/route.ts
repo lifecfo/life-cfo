@@ -4,6 +4,7 @@ import { resolveHouseholdIdRoute } from "@/lib/households/resolveHouseholdIdRout
 import { getHouseholdMoneyTruth } from "@/lib/money/reasoning/getHouseholdMoneyTruth";
 import { buildFinancialSnapshot } from "@/lib/money/reasoning/buildFinancialSnapshot";
 import { explainSnapshot } from "@/lib/money/reasoning/explainSnapshot";
+import { deriveTransactionOutflowSummary } from "@/lib/money/reasoning/deriveTransactionOutflows";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -41,8 +42,14 @@ export async function GET() {
     const truth = await getHouseholdMoneyTruth(supabase, { householdId });
     const snapshot = buildFinancialSnapshot(truth);
     const explanation = explainSnapshot(snapshot);
+    const transactionOutflows = deriveTransactionOutflowSummary({
+      monthTransactions: truth.month_transactions,
+      rollingTransactions: truth.rolling_transactions,
+      connections: truth.external_connections,
+      nowIso: truth.as_of_iso,
+    });
 
-    return NextResponse.json({ snapshot, explanation });
+    return NextResponse.json({ snapshot, explanation, transaction_outflows: transactionOutflows });
   } catch (e: unknown) {
     return NextResponse.json(
       { ok: false, error: errorMessage(e, "Money overview fetch failed") },

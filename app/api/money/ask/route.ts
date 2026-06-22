@@ -1,10 +1,12 @@
 // app/api/money/ask/route.ts
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { supabaseRoute } from "@/lib/supabaseRoute";
 import type { FinancialSnapshot } from "@/lib/money/reasoning/buildFinancialSnapshot";
 import { PressureInterpretation } from "@/lib/money/reasoning/interpretPressure";
 import { runHouseholdMoneyReasoning } from "@/lib/money/reasoning/runHouseholdMoneyReasoning";
+import { deriveTransactionOutflowSummary } from "@/lib/money/reasoning/deriveTransactionOutflows";
 import {
   detectMoneyAskIntent,
   detectReasoningFallbackMode,
@@ -56,6 +58,12 @@ function toMs(value: string | null | undefined): number | null {
   if (!value) return null;
   const ms = Date.parse(value);
   return Number.isFinite(ms) ? ms : null;
+}
+
+function looksCommitmentsQuestion(lowerQ: string): boolean {
+  return /\b(bills?|commitments?|subscriptions?|regular payments?|regular outflows?|outflows?)\b/i.test(
+    lowerQ
+  );
 }
 
 function hasExplicitCostDetail(lowerQ: string): boolean {
@@ -814,6 +822,62 @@ export async function POST(req: Request) {
       looksScenario;
 
     const reasoningFallbackMode = !hasExplicitModeMatch ? detectReasoningFallbackMode(q) : null;
+
+    if (looksCommitmentsQuestion(lowerQ)) {
+      const money = await runHouseholdMoneyReasoning(supabase as unknown as SupabaseClient, {
+        householdId,
+      });
+      const { truth } = money;
+      const mappedBills = (truth.recurring_bills ?? []).filter((bill) => bill.active !== false);
+      const outflows = deriveTransactionOutflowSummary({
+        monthTransactions: truth.month_transactions,
+        rollingTransactions: truth.rolling_transactions,
+        connections: truth.external_connections,
+        nowIso: truth.as_of_iso,
+      });
+      const mappedLines = mappedBills.slice(0, 4).map((bill) => {
+        const label = safeStr(bill.name) || "Mapped bill";
+        return `${label}: ${formatMoney(bill.amount_cents, bill.currency || "AUD")} (${bill.cadence || "monthly"}).`;
+      });
+      const monthOutflowLines = outflows.month_outflow_by_currency.map(
+        (row) => `Current-month outflows: ${formatMoney(row.cents, row.currency)}.`
+      );
+      const largestLines = outflows.largest_outflows.slice(0, 3).map((item) =>
+        `${item.label}: ${formatMoney(item.cents, item.currency)}${
+          item.uncertain_label ? " (merchant label is unclear)" : ""
+        }.`
+      );
+      const regularLines = outflows.likely_regular_outflows.slice(0, 3).map((item) =>
+        `${item.label}: ${item.occurrences} recent payments averaging ${formatMoney(
+          item.average_cents,
+          item.currency
+        )}${item.uncertain_label ? " (label is unclear)" : ""}.`
+      );
+      const formallyMapped = mappedBills.length > 0;
+      const summary = formallyMapped
+        ? "These are the bills currently mapped in Life CFO. Recent connected outflows are included as supporting context."
+        : outflows.transaction_count > 0
+          ? "Bills are not formally mapped yet, but recent connected transactions show the outflows below as a starting point."
+          : "Bills are not formally mapped yet, and there are no current-month outflows to use as a starting point.";
+
+      return NextResponse.json({
+        ok: true,
+        mode: "commitments",
+        household_id: householdId,
+        commitments: {
+          headline: formallyMapped ? "Mapped commitments" : "Recent connected outflows",
+          summary,
+          mapped: mappedLines,
+          current_month: monthOutflowLines,
+          largest_outflows: largestLines,
+          likely_regular: regularLines,
+          source_note: outflows.source_note,
+          caveat: formallyMapped
+            ? "Mapped bills are the tracked commitments. Transaction patterns are supporting context, not new bill records."
+            : "These are observed transactions, not confirmed bills or financial advice. Mapping a bill will make its timing clearer.",
+        },
+      });
+    }
 
     // Orientation path: empty query or simple keyword match
     if (looksOrientation || reasoningFallbackMode === "snapshot") {

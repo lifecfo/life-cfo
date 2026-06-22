@@ -23,6 +23,7 @@ export function explainSnapshot(snapshot: FinancialSnapshot): SnapshotExplanatio
     structuralLevel: pressure.structural_pressure.level,
     incomeCents: income.recurringMonthlyCents,
     commitmentsCents: commitments.recurringMonthlyCents,
+    discretionaryCents: discretionary.last30DayOutflowCents,
     connections,
   });
   const summary = buildSummary({
@@ -60,9 +61,10 @@ function buildHeadline(params: {
   structuralLevel: PressureSignals["structural_pressure"]["level"];
   incomeCents: number;
   commitmentsCents: number;
+  discretionaryCents: number;
   connections: FinancialSnapshot["connections"];
 }): string {
-  const { structuralLevel, incomeCents, commitmentsCents, connections } = params;
+  const { structuralLevel, incomeCents, commitmentsCents, discretionaryCents, connections } = params;
   const hasIncome = incomeCents > 0;
   const hasBills = commitmentsCents > 0;
   const hasConnectedData = connections.total > 0;
@@ -70,7 +72,9 @@ function buildHeadline(params: {
 
   if (!hasIncome && !hasBills) {
     return hasConnectedData
-      ? "Connected data is coming through. Income and commitments still need mapping."
+      ? discretionaryCents > 0
+        ? "Connected transactions are available. Bills are not formally mapped yet, so recent outflows are the starting point."
+        : "Connected data is coming through. Income and commitments still need mapping."
       : "Recurring income and commitments are not set up yet.";
   }
 

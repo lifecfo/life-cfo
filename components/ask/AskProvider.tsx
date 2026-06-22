@@ -480,6 +480,47 @@ export function AskProvider({ children }: { children: ReactNode }) {
           content = lines;
           tone = tone || "overview";
           verdict = verdict || null;
+        } else if (isMoneyScope && json?.mode === "commitments") {
+          const commitments = json?.commitments || {};
+          const headline =
+            typeof commitments?.headline === "string"
+              ? commitments.headline
+              : "Recent connected outflows";
+          const summary =
+            typeof commitments?.summary === "string"
+              ? commitments.summary
+              : "Here is the current commitments view.";
+          const mapped = Array.isArray(commitments?.mapped)
+            ? (commitments.mapped as string[]).filter((line) => typeof line === "string" && line.trim())
+            : [];
+          const currentMonth = Array.isArray(commitments?.current_month)
+            ? (commitments.current_month as string[]).filter((line) => typeof line === "string" && line.trim())
+            : [];
+          const largest = Array.isArray(commitments?.largest_outflows)
+            ? (commitments.largest_outflows as string[]).filter((line) => typeof line === "string" && line.trim())
+            : [];
+          const regular = Array.isArray(commitments?.likely_regular)
+            ? (commitments.likely_regular as string[]).filter((line) => typeof line === "string" && line.trim())
+            : [];
+          const sourceNote = typeof commitments?.source_note === "string" ? commitments.source_note : "";
+          const caveat = typeof commitments?.caveat === "string" ? commitments.caveat : "";
+          const hasEvidence = mapped.length + currentMonth.length + largest.length + regular.length > 0;
+          const languageContext = deriveAskLanguageContext({
+            lines: [headline, summary, ...mapped, ...currentMonth, ...largest, ...regular, sourceNote, caveat],
+            hasEvidence,
+          });
+          content = composeMessage([
+            headline,
+            summary,
+            section("Mapped commitments:", mapped),
+            section("This month:", currentMonth),
+            section("Largest recent outflows:", largest),
+            section("Possible regular payments:", regular),
+            paragraph(sourceNote),
+            section("A helpful note:", caveat ? [caveat] : []),
+            stableGroundLine({ mode: "search", hasEvidence, context: languageContext }),
+          ]);
+          tone = tone || "overview";
         } else if (isMoneyScope && json?.mode === "planning") {
           const planning = json?.planning || {};
           const headline =

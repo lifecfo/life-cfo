@@ -18,6 +18,7 @@ export type AccountTruth = {
   current_balance_cents: number;
   available_balance_cents?: number | null;
   currency?: string | null;
+  provider?: string | null;
 };
 
 export type TransactionTruth = {
