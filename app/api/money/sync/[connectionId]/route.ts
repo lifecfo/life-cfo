@@ -19,6 +19,16 @@ function normalizeStatus(status: unknown): string {
   return typeof status === "string" ? status.trim().toLowerCase() : "";
 }
 
+function syncErrorMessage(error: unknown): string {
+  const message = error instanceof Error ? error.message : "";
+
+  if (message.includes("external_connections_token_required_check")) {
+    return "Account data was imported, but this bank connection needs a database configuration update before it can be marked ready.";
+  }
+
+  return message || "Sync failed";
+}
+
 export async function POST(
   _req: Request,
   { params }: { params: Promise<{ connectionId: string }> }
@@ -200,9 +210,9 @@ export async function POST(
       synced: true,
       result,
     });
-  } catch (e: any) {
+  } catch (e: unknown) {
     return NextResponse.json(
-      { ok: false, error: e?.message ?? "Sync failed" },
+      { ok: false, error: syncErrorMessage(e) },
       { status: 500 }
     );
   }
