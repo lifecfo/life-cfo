@@ -174,7 +174,7 @@ export function deriveTransactionOutflowSummary(params: {
 
   const likelyRegularOutflows = Array.from(grouped.values())
     .filter((group) => group.cents.length >= 2)
-    .map((group) => {
+    .map((group): LikelyRegularOutflow => {
       const total = group.cents.reduce((sum, cents) => sum + cents, 0);
       const cadence = cadenceFor(group.dates);
       return {
@@ -215,7 +215,7 @@ export function deriveTransactionOutflowSummary(params: {
 
   const likelyIncome = Array.from(incomeGroups.values())
     .filter((group) => group.cents.length >= 2)
-    .map((group) => {
+    .map((group): LikelyIncome | null => {
       const total = group.cents.reduce((sum, cents) => sum + cents, 0);
       const cadence = cadenceFor(group.dates);
       const wagesLike = isWagesLike(group.label);
