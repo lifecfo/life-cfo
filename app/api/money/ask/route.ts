@@ -963,9 +963,7 @@ export async function POST(req: Request) {
         : focus === "regular"
           ? formallyMapped
             ? "These regular payments have been set up in Life CFO."
-            : regularLines.length > 0
-              ? "Regular payments have not been confirmed yet. Your connected bank data shows activity that looks regular."
-              : "Regular payments have not been confirmed yet. Your connected bank data shows repeated activity, but the bank labels are too unclear to name the payments."
+            : "Regular payments have not been confirmed yet. Your connected bank data shows repeated activity."
           : focus === "bills"
           ? formallyMapped
             ? "Here is the money that has gone out this month, alongside bills you have already set up."
@@ -1007,12 +1005,17 @@ export async function POST(req: Request) {
               ? `You currently have ${formatMoney(snapshot.liquidity.availableCashCents)} available across the accounts shown here.`
               : null,
           source_note: null,
-          label_note: (focus === "bills" || focus === "regular") && outflows.has_unlabelled_repeated_outflows
-            ? "The bank labels are unclear, so Life CFO can show the amounts but cannot reliably name the bills or payments yet."
-            : null,
+          label_note:
+            (focus === "bills" || focus === "regular") && outflows.has_unlabelled_repeated_outflows
+              ? focus === "bills"
+                ? "The bank labels are unclear, so Life CFO cannot reliably name these as bills yet."
+                : "The bank labels are too unclear for Life CFO to reliably name the payments yet."
+              : null,
           caveat:
             focus === "month"
               ? "Bills and income have not been confirmed yet, so this is a first look based on your connected bank data."
+              : focus === "bills" || focus === "regular"
+                ? null
             : formallyMapped && incomeMapped
                 ? "The items you have set up are shown alongside recent bank activity."
                 : focus === "income"
