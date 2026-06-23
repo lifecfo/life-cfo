@@ -492,7 +492,7 @@ export function AskProvider({ children }: { children: ReactNode }) {
           const headline =
             typeof commitments?.headline === "string"
               ? commitments.headline
-              : "Recent connected outflows";
+              : "This month so far";
           const summary =
             typeof commitments?.summary === "string"
               ? commitments.summary
@@ -534,22 +534,22 @@ export function AskProvider({ children }: { children: ReactNode }) {
             focus === "income"
               ? currentMonthIncome
               : focus === "month"
-                ? [...currentMonthIncome, ...currentMonth]
+                ? []
                 : currentMonth;
           content = composeMessage([
             headline,
             summary,
-            section("Observed this month:", observedLines),
-            section("Monthly movement:", monthlyPosition),
+            section("This month so far:", observedLines),
+            section("Money in and out:", focus === "month" ? [] : monthlyPosition),
             section("Available cash:", availableCash ? [availableCash] : []),
             section(
-              focus === "regular" ? "Confirmed recurring payments:" : "Mapped commitments:",
+              focus === "regular" ? "Payments you have set up:" : "Bills you have set up:",
               focus === "income" ? [] : mapped
             ),
-            section("Mapped income:", focus === "bills" || focus === "regular" ? [] : mappedIncome),
-            section("Largest recent outflows:", focus === "bills" || focus === "regular" ? largest : []),
+            section("Income you have set up:", focus === "bills" || focus === "regular" ? [] : mappedIncome),
+            section("Largest amounts that went out:", focus === "bills" || focus === "regular" ? largest : []),
             section(
-              "Largest unlabelled outflows:",
+              "Largest amounts without a clear name:",
               (focus === "bills" || focus === "regular") &&
                 largest.length === 0 &&
                 largestUnlabelled.length > 0
@@ -557,10 +557,10 @@ export function AskProvider({ children }: { children: ReactNode }) {
                 : []
             ),
             section(
-              focus === "regular" ? "Likely repeated payments:" : "Possible regular payments:",
+              focus === "regular" ? "Payments that look regular:" : "Payments that may be regular:",
               focus === "bills" || focus === "regular" ? regular : []
             ),
-            section("Possible regular income:", focus === "income" ? likelyIncome : []),
+            section("Income that looks regular:", focus === "income" ? likelyIncome : []),
             paragraph(labelNote),
             paragraph(caveat),
           ]);

@@ -119,9 +119,10 @@ function buildMonthlyPositionSummary(
       return `So far this month, connected transactions show ${formatMoney(
         inflow,
         currency
-      )} coming in and ${formatMoney(outflow, currency)} going out, giving an observed net ${
-        net >= 0 ? "inflow" : "outflow"
-      } of ${formatMoney(Math.abs(net), currency)}.`;
+      )} has come in and ${formatMoney(outflow, currency)} has gone out. That means ${formatMoney(
+        Math.abs(net),
+        currency
+      )} more has ${net >= 0 ? "come in than gone out" : "gone out than come in"}.`;
     })
     .join(" ");
 }
@@ -908,14 +909,14 @@ export async function POST(req: Request) {
         return `${label}: ${formatMoney(bill.amount_cents, bill.currency || "AUD")} (${bill.cadence || "monthly"}).`;
       });
       const mappedIncomeLines = mappedIncome.slice(0, 4).map((income) => {
-        const label = safeStr(income.name) || "Mapped income";
+        const label = safeStr(income.name) || "Income you have set up";
         return `${label}: ${formatMoney(income.amount_cents, income.currency || "AUD")} (${income.cadence || "monthly"}).`;
       });
       const monthInflowLines = outflows.month_inflow_by_currency.map(
-        (row) => `Current-month inflows: ${formatMoney(row.cents, row.currency)}.`
+        (row) => `${formatMoney(row.cents, row.currency)} has come in so far this month.`
       );
       const monthOutflowLines = outflows.month_outflow_by_currency.map(
-        (row) => `Current-month outflows: ${formatMoney(row.cents, row.currency)}.`
+        (row) => `${formatMoney(row.cents, row.currency)} has gone out so far this month.`
       );
       const largestLines = outflows.largest_outflows
         .filter((item) => !item.uncertain_label)
@@ -955,22 +956,22 @@ export async function POST(req: Request) {
       );
       const summary = focus === "income"
         ? incomeMapped
-          ? "Connected transactions show this month's inflows, alongside income sources already mapped in Life CFO."
+          ? "Here is the money that has come in this month, alongside income you have already set up."
           : outflows.inflow_transaction_count > 0
-            ? "Connected transactions show the inflows received so far this month."
-            : "Income is not formally mapped yet, and there are no current-month inflows to use as a starting point."
+            ? "Here is the money that has come in so far this month from your connected bank data."
+            : "Income has not been set up yet, and there is no money in to show for this month."
         : focus === "regular"
           ? formallyMapped
-            ? "These recurring payments are confirmed in Life CFO."
+            ? "These regular payments have been set up in Life CFO."
             : regularLines.length > 0
-              ? "Regular payments are not formally confirmed yet. Connected transactions show likely repeated activity."
-              : "Regular payments are not formally confirmed yet. Connected transactions show repeated activity, but the merchant labels are not reliable enough to name the payments."
+              ? "Regular payments have not been confirmed yet. Your connected bank data shows activity that looks regular."
+              : "Regular payments have not been confirmed yet. Your connected bank data shows repeated activity, but the bank labels are too unclear to name the payments."
           : focus === "bills"
           ? formallyMapped
-            ? "Connected transactions show this month's outflows, alongside bills already mapped in Life CFO."
+            ? "Here is the money that has gone out this month, alongside bills you have already set up."
             : outflows.transaction_count > 0
-              ? "Bills are not formally mapped yet. Connected transactions show the outflows so far this month."
-              : "Bills are not formally mapped yet, and there are no current-month outflows to use as a starting point."
+              ? "Bills have not been set up yet. Here is the money that has gone out so far this month from your connected bank data."
+              : "Bills have not been set up yet, and there is no money out to show for this month."
           : monthlyPositionSummary;
 
       return NextResponse.json({
@@ -988,9 +989,9 @@ export async function POST(req: Request) {
                   : "Possible regular payments"
               : focus === "bills"
                 ? formallyMapped
-                  ? "Mapped bills this month"
+                  ? "Bills this month"
                   : "Bills this month"
-                : "This month's observed position",
+                : "This month so far",
           summary,
           mapped: focus === "income" ? [] : mappedLines,
           mapped_income: focus === "bills" || focus === "regular" ? [] : mappedIncomeLines,
@@ -1003,18 +1004,22 @@ export async function POST(req: Request) {
           monthly_position: focus === "month" ? monthlyPosition : [],
           available_cash:
             focus === "month"
-              ? `Available cash across included accounts: ${formatMoney(snapshot.liquidity.availableCashCents)}.`
+              ? `You currently have ${formatMoney(snapshot.liquidity.availableCashCents)} available across the accounts shown here.`
               : null,
           source_note: null,
           label_note: (focus === "bills" || focus === "regular") && outflows.has_unlabelled_repeated_outflows
-            ? "The connected merchant labels are unclear, so Life CFO can show totals and repeated activity but not reliable bill names yet."
+            ? "The bank labels are unclear, so Life CFO can show the amounts but cannot reliably name the bills or payments yet."
             : null,
           caveat:
             focus === "month"
-              ? "Bills and income are not formally confirmed yet, so this is a transaction-based view rather than a full household plan."
-              : formallyMapped && incomeMapped
-                ? "Mapped records are tracked items; transaction patterns are supporting context."
-                : outflows.confirmation_note || "These are observed transactions, not confirmed bills, income records, or financial advice.",
+              ? "Bills and income have not been confirmed yet, so this is a first look based on your connected bank data."
+            : formallyMapped && incomeMapped
+                ? "The items you have set up are shown alongside recent bank activity."
+                : focus === "income"
+                  ? "Income has not been confirmed yet, so this is a first look rather than a final income summary."
+                  : focus === "bills"
+                    ? "Bills have not been confirmed yet, so this is a first look from your connected bank data."
+                    : "Payments have not been confirmed yet, so this is a first look from your connected bank data.",
         },
       });
     }
