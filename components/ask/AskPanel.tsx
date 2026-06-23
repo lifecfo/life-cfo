@@ -213,8 +213,6 @@ export function AskPanel({ mode = "overlay" }: { mode?: AskPanelMode }) {
             <div className="space-y-4">
               {messages.map((message) => {
                 const isUser = message.role === "user";
-                const isLatestAssistant =
-                  !isUser && latestAssistant?.id && latestAssistant.id === message.id;
                 const decisionCandidates = (message.candidates?.decision_candidates || []) as DecisionCandidate[];
 
                 return (
@@ -234,12 +232,6 @@ export function AskPanel({ mode = "overlay" }: { mode?: AskPanelMode }) {
                     <div className="whitespace-pre-wrap text-[14px] leading-relaxed text-zinc-800">
                       {cleanAnswer(message.content)}
                     </div>
-                    {isLatestAssistant && status !== "loading" ? (
-                      <div className="mt-2 text-xs text-zinc-400">
-                        If this gives you what you need, you can stop here.
-                      </div>
-                    ) : null}
-
                     {!isUser && message.actionHref ? (
                       <div className="mt-3 flex flex-wrap gap-2">
                         <Chip onClick={() => router.push(message.actionHref!)}>Open relevant page</Chip>

@@ -41,6 +41,8 @@ export type TransactionOutflowSummary = {
   largest_inflows: TransactionOutflowItem[];
   likely_regular_outflows: LikelyRegularOutflow[];
   likely_income: LikelyIncome[];
+  has_unlabelled_repeated_outflows: boolean;
+  has_unlabelled_repeated_income: boolean;
   source_note: string | null;
   confirmation_note: string | null;
 };
@@ -61,7 +63,12 @@ function labelFor(transaction: TransactionsTruthRow): string {
 
 function isUncertainLabel(label: string): boolean {
   const compact = label.replace(/\s+/g, "").toUpperCase();
-  return /^AU\d+$/.test(compact) || /^\d{5,}$/.test(compact) || label === "Unlabelled transaction";
+  return (
+    /^AU\d+$/.test(compact) ||
+    /^[A-Z]{1,3}\d{4,}$/.test(compact) ||
+    /^\d{5,}$/.test(compact) ||
+    label === "Unlabelled transaction"
+  );
 }
 
 function groupKey(label: string): string {
@@ -232,6 +239,14 @@ export function deriveTransactionOutflowSummary(params: {
       };
     })
     .filter((pattern): pattern is LikelyIncome => pattern !== null)
+    .filter((pattern) => {
+      const observedThisMonth = inflowTotals.get(pattern.currency) ?? 0;
+      return (
+        pattern.cadence !== "repeated" &&
+        observedThisMonth > 0 &&
+        observedThisMonth >= Math.round(pattern.average_cents * 0.6)
+      );
+    })
     .sort((left, right) => right.total_cents - left.total_cents)
     .slice(0, 5);
 
@@ -248,6 +263,10 @@ export function deriveTransactionOutflowSummary(params: {
     largest_inflows: largestInflows,
     likely_regular_outflows: likelyRegularOutflows,
     likely_income: likelyIncome,
+    has_unlabelled_repeated_outflows: likelyRegularOutflows.some(
+      (pattern) => pattern.uncertain_label
+    ),
+    has_unlabelled_repeated_income: likelyIncome.some((pattern) => pattern.uncertain_label),
     source_note: hasFreshActiveBasiq(params.connections, nowMs)
       ? "A fresh Basiq connection is available. Older linked sources may need review."
       : null,

@@ -74,6 +74,28 @@ function looksThisMonthQuestion(lowerQ: string): boolean {
   return /\b(this month|how (?:am|are) (?:i|we) looking)\b/i.test(lowerQ);
 }
 
+function buildMonthlyPositionLines(
+  inflows: Array<{ currency: string; cents: number }>,
+  outflows: Array<{ currency: string; cents: number }>
+): string[] {
+  const byCurrency = new Map<string, { inflow: number; outflow: number }>();
+  for (const row of inflows) {
+    byCurrency.set(row.currency, { ...(byCurrency.get(row.currency) ?? { inflow: 0, outflow: 0 }), inflow: row.cents });
+  }
+  for (const row of outflows) {
+    byCurrency.set(row.currency, { ...(byCurrency.get(row.currency) ?? { inflow: 0, outflow: 0 }), outflow: row.cents });
+  }
+
+  return Array.from(byCurrency.entries()).map(([currency, values]) => {
+    const net = values.inflow - values.outflow;
+    const direction = net >= 0 ? "net in" : "net out";
+    return `${currency}: ${formatMoney(values.inflow, currency)} in, ${formatMoney(
+      values.outflow,
+      currency
+    )} out, ${formatMoney(Math.abs(net), currency)} ${direction}.`;
+  });
+}
+
 function hasExplicitCostDetail(lowerQ: string): boolean {
   return /(\$|aud|usd|dollars?|cents?|\d)/i.test(lowerQ);
 }
@@ -832,10 +854,15 @@ export async function POST(req: Request) {
     const reasoningFallbackMode = !hasExplicitModeMatch ? detectReasoningFallbackMode(q) : null;
 
     if (looksCommitmentsQuestion(lowerQ) || looksIncomeQuestion(lowerQ) || looksThisMonthQuestion(lowerQ)) {
+      const focus = looksCommitmentsQuestion(lowerQ)
+        ? "bills"
+        : looksIncomeQuestion(lowerQ)
+          ? "income"
+          : "month";
       const money = await runHouseholdMoneyReasoning(supabase as unknown as SupabaseClient, {
         householdId,
       });
-      const { truth } = money;
+      const { truth, snapshot } = money;
       const mappedBills = (truth.recurring_bills ?? []).filter((bill) => bill.active !== false);
       const mappedIncome = (truth.recurring_income ?? []).filter((income) => income.active !== false);
       const outflows = deriveTransactionOutflowSummary({
@@ -858,52 +885,79 @@ export async function POST(req: Request) {
       const monthOutflowLines = outflows.month_outflow_by_currency.map(
         (row) => `Current-month outflows: ${formatMoney(row.cents, row.currency)}.`
       );
-      const largestLines = outflows.largest_outflows.slice(0, 3).map((item) =>
-        `${item.label}: ${formatMoney(item.cents, item.currency)}${
-          item.uncertain_label ? " (merchant label is unclear)" : ""
-        }.`
-      );
-      const regularLines = outflows.likely_regular_outflows.slice(0, 3).map((item) =>
+      const largestLines = outflows.largest_outflows
+        .filter((item) => !item.uncertain_label)
+        .slice(0, 3)
+        .map((item) => `${item.label}: ${formatMoney(item.cents, item.currency)}.`);
+      const regularLines = outflows.likely_regular_outflows
+        .filter((item) => !item.uncertain_label && item.confidence === "likely")
+        .slice(0, 3)
+        .map((item) =>
         `${item.label}: ${item.occurrences} recent ${item.cadence} payment(s) averaging ${formatMoney(
           item.average_cents,
           item.currency
-        )}${item.uncertain_label ? " (label is unclear)" : ""}.`
+        )}.`
       );
-      const likelyIncomeLines = outflows.likely_income.slice(0, 3).map((item) =>
+      const likelyIncomeLines = outflows.likely_income
+        .filter((item) => !item.uncertain_label && item.confidence === "likely")
+        .slice(0, 3)
+        .map((item) =>
         `${item.label}: ${item.occurrences} recent ${item.cadence} inflow(s) averaging ${formatMoney(
           item.average_cents,
           item.currency
-        )}${item.uncertain_label ? " (label is unclear)" : ""}.`
+        )}.`
       );
       const formallyMapped = mappedBills.length > 0;
       const incomeMapped = mappedIncome.length > 0;
-      const summary = looksIncomeQuestion(lowerQ)
+      const monthlyPosition = buildMonthlyPositionLines(
+        outflows.month_inflow_by_currency,
+        outflows.month_outflow_by_currency
+      );
+      const summary = focus === "income"
         ? incomeMapped
           ? "These are the income sources currently mapped in Life CFO. Recent connected inflows are included as supporting context."
           : outflows.inflow_transaction_count > 0
             ? "Income is not formally mapped yet, but recent connected transactions show the inflows below as a starting point."
             : "Income is not formally mapped yet, and there are no current-month inflows to use as a starting point."
-        : formallyMapped
-          ? "These are the bills currently mapped in Life CFO. Recent connected outflows are included as supporting context."
-          : outflows.transaction_count > 0
-            ? "Bills are not formally mapped yet, but recent connected transactions show the outflows below as a starting point."
-            : "Bills are not formally mapped yet, and there are no current-month outflows to use as a starting point.";
+        : focus === "bills"
+          ? formallyMapped
+            ? "These are the bills currently mapped in Life CFO. Recent connected outflows are included as supporting context."
+            : outflows.transaction_count > 0
+              ? "Bills are not formally mapped yet, but recent connected transactions show the outflows below as a starting point."
+              : "Bills are not formally mapped yet, and there are no current-month outflows to use as a starting point."
+          : "This is an observed monthly position from connected transactions and current account balances. Mapped income and commitments may still be incomplete.";
 
       return NextResponse.json({
         ok: true,
         mode: "commitments",
         household_id: householdId,
         commitments: {
-          headline: formallyMapped ? "Mapped commitments" : "Recent connected outflows",
+          focus,
+          headline:
+            focus === "income"
+              ? "Income this month"
+              : focus === "bills"
+                ? formallyMapped
+                  ? "Mapped bills this month"
+                  : "Bills this month"
+                : "This month's observed position",
           summary,
-          mapped: mappedLines,
-          mapped_income: mappedIncomeLines,
-          current_month: monthOutflowLines,
-          current_month_income: monthInflowLines,
-          largest_outflows: largestLines,
-          likely_regular: regularLines,
-          likely_income: likelyIncomeLines,
+          mapped: focus === "income" ? [] : mappedLines,
+          mapped_income: focus === "bills" ? [] : mappedIncomeLines,
+          current_month: focus === "income" ? [] : monthOutflowLines,
+          current_month_income: focus === "bills" ? [] : monthInflowLines,
+          largest_outflows: focus === "bills" ? largestLines : [],
+          likely_regular: focus === "bills" ? regularLines : [],
+          likely_income: focus === "income" ? likelyIncomeLines : [],
+          monthly_position: focus === "month" ? monthlyPosition : [],
+          available_cash:
+            focus === "month"
+              ? `Available cash across included accounts: ${formatMoney(snapshot.liquidity.availableCashCents)}.`
+              : null,
           source_note: outflows.source_note,
+          label_note: focus === "bills" && outflows.has_unlabelled_repeated_outflows
+            ? "The connected merchant labels are unclear, so Life CFO can show totals and repeated activity but not reliable bill names yet."
+            : null,
           caveat: formallyMapped && incomeMapped
             ? "Mapped bills are the tracked commitments. Transaction patterns are supporting context, not new bill records."
             : outflows.confirmation_note || "These are observed transactions, not confirmed bills, income records, or financial advice.",
@@ -913,7 +967,7 @@ export async function POST(req: Request) {
 
     // Orientation path: empty query or simple keyword match
     if (looksOrientation || reasoningFallbackMode === "snapshot") {
-      const money = await runHouseholdMoneyReasoning(supabase as any, { householdId });
+      const money = await runHouseholdMoneyReasoning(supabase as unknown as SupabaseClient, { householdId });
       const { snapshot, explanation, interpretation } = money;
       const snapshotNarrative = buildCausalNarrative({
         mode: "snapshot",
@@ -945,7 +999,7 @@ export async function POST(req: Request) {
     }
 
     if (looksDiagnosis || reasoningFallbackMode === "diagnosis") {
-      const money = await runHouseholdMoneyReasoning(supabase as any, { householdId });
+      const money = await runHouseholdMoneyReasoning(supabase as unknown as SupabaseClient, { householdId });
       const { truth, snapshot, explanation, interpretation } = money;
 
       const signals = snapshot.pressure;
@@ -1018,7 +1072,7 @@ export async function POST(req: Request) {
     }
 
     if (looksAffordability) {
-      const money = await runHouseholdMoneyReasoning(supabase as any, { householdId });
+      const money = await runHouseholdMoneyReasoning(supabase as unknown as SupabaseClient, { householdId });
       const { snapshot, explanation, interpretation } = money;
       const recurringAmountCents = extractRecurringAmountCents(parseQ);
       const oneOffAmountCents =
@@ -1100,7 +1154,7 @@ export async function POST(req: Request) {
     }
 
     if (looksPlanning) {
-      const money = await runHouseholdMoneyReasoning(supabase as any, { householdId });
+      const money = await runHouseholdMoneyReasoning(supabase as unknown as SupabaseClient, { householdId });
       const { truth, snapshot, explanation, interpretation } = money;
 
       const nowMs = toMs(truth.windows?.now_iso) ?? toMs(truth.as_of_iso) ?? Date.now();
@@ -1189,7 +1243,7 @@ export async function POST(req: Request) {
     }
 
     if (looksScenario) {
-      const money = await runHouseholdMoneyReasoning(supabase as any, { householdId });
+      const money = await runHouseholdMoneyReasoning(supabase as unknown as SupabaseClient, { householdId });
       const { snapshot, explanation, interpretation } = money;
       const incomeDropPercent = extractIncomeDropPercent(parseQ);
       const incomeDropAmountCents =

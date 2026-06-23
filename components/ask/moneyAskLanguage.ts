@@ -116,8 +116,8 @@ export function stableGroundLine(params: StableGroundParams) {
 
   if (mode === "search") {
     return hasEvidence
-      ? "These matches give us a clear starting point before narrowing further."
-      : "There is not much matching data yet, which still helps narrow the next question.";
+      ? "These are direct matches from the available records, not a complete household summary."
+      : "There are few direct record matches for that wording.";
   }
 
   if (data === "stale") {

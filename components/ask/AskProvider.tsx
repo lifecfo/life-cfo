@@ -482,6 +482,10 @@ export function AskProvider({ children }: { children: ReactNode }) {
           verdict = verdict || null;
         } else if (isMoneyScope && json?.mode === "commitments") {
           const commitments = json?.commitments || {};
+          const focus =
+            commitments?.focus === "income" || commitments?.focus === "bills" || commitments?.focus === "month"
+              ? commitments.focus
+              : "bills";
           const headline =
             typeof commitments?.headline === "string"
               ? commitments.headline
@@ -511,27 +515,28 @@ export function AskProvider({ children }: { children: ReactNode }) {
           const likelyIncome = Array.isArray(commitments?.likely_income)
             ? (commitments.likely_income as string[]).filter((line) => typeof line === "string" && line.trim())
             : [];
+          const monthlyPosition = Array.isArray(commitments?.monthly_position)
+            ? (commitments.monthly_position as string[]).filter((line) => typeof line === "string" && line.trim())
+            : [];
+          const availableCash =
+            typeof commitments?.available_cash === "string" ? commitments.available_cash : "";
           const sourceNote = typeof commitments?.source_note === "string" ? commitments.source_note : "";
+          const labelNote = typeof commitments?.label_note === "string" ? commitments.label_note : "";
           const caveat = typeof commitments?.caveat === "string" ? commitments.caveat : "";
-          const hasEvidence =
-            mapped.length + mappedIncome.length + currentMonth.length + currentMonthIncome.length + largest.length + regular.length + likelyIncome.length > 0;
-          const languageContext = deriveAskLanguageContext({
-            lines: [headline, summary, ...mapped, ...mappedIncome, ...currentMonth, ...currentMonthIncome, ...largest, ...regular, ...likelyIncome, sourceNote, caveat],
-            hasEvidence,
-          });
           content = composeMessage([
             headline,
             summary,
-            section("Mapped commitments:", mapped),
-            section("Mapped income:", mappedIncome),
-            section("This month:", currentMonth),
-            section("Income this month:", currentMonthIncome),
-            section("Largest recent outflows:", largest),
-            section("Possible regular payments:", regular),
-            section("Possible regular income:", likelyIncome),
+            section("Observed this month:", focus === "income" ? currentMonthIncome : currentMonth),
+            section("Monthly movement:", monthlyPosition),
+            section("Available cash:", availableCash ? [availableCash] : []),
+            section("Mapped commitments:", focus === "income" ? [] : mapped),
+            section("Mapped income:", focus === "bills" ? [] : mappedIncome),
+            section("Largest recent outflows:", focus === "bills" ? largest : []),
+            section("Possible regular payments:", focus === "bills" ? regular : []),
+            section("Possible regular income:", focus === "income" ? likelyIncome : []),
             paragraph(sourceNote),
+            paragraph(labelNote),
             section("A helpful note:", caveat ? [caveat] : []),
-            stableGroundLine({ mode: "search", hasEvidence, context: languageContext }),
           ]);
           tone = tone || "overview";
         } else if (isMoneyScope && json?.mode === "planning") {
