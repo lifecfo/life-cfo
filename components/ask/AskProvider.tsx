@@ -509,6 +509,11 @@ export function AskProvider({ children }: { children: ReactNode }) {
           const largest = Array.isArray(commitments?.largest_outflows)
             ? (commitments.largest_outflows as string[]).filter((line) => typeof line === "string" && line.trim())
             : [];
+          const largestUnlabelled = Array.isArray(commitments?.largest_unlabelled_outflows)
+            ? (commitments.largest_unlabelled_outflows as string[]).filter(
+                (line) => typeof line === "string" && line.trim()
+              )
+            : [];
           const regular = Array.isArray(commitments?.likely_regular)
             ? (commitments.likely_regular as string[]).filter((line) => typeof line === "string" && line.trim())
             : [];
@@ -520,23 +525,33 @@ export function AskProvider({ children }: { children: ReactNode }) {
             : [];
           const availableCash =
             typeof commitments?.available_cash === "string" ? commitments.available_cash : "";
-          const sourceNote = typeof commitments?.source_note === "string" ? commitments.source_note : "";
           const labelNote = typeof commitments?.label_note === "string" ? commitments.label_note : "";
           const caveat = typeof commitments?.caveat === "string" ? commitments.caveat : "";
+          const observedLines =
+            focus === "income"
+              ? currentMonthIncome
+              : focus === "month"
+                ? [...currentMonthIncome, ...currentMonth]
+                : currentMonth;
           content = composeMessage([
             headline,
             summary,
-            section("Observed this month:", focus === "income" ? currentMonthIncome : currentMonth),
+            section("Observed this month:", observedLines),
             section("Monthly movement:", monthlyPosition),
             section("Available cash:", availableCash ? [availableCash] : []),
             section("Mapped commitments:", focus === "income" ? [] : mapped),
             section("Mapped income:", focus === "bills" ? [] : mappedIncome),
             section("Largest recent outflows:", focus === "bills" ? largest : []),
+            section(
+              "Largest unlabelled outflows:",
+              focus === "bills" && largest.length === 0 && largestUnlabelled.length > 0
+                ? largestUnlabelled
+                : []
+            ),
             section("Possible regular payments:", focus === "bills" ? regular : []),
             section("Possible regular income:", focus === "income" ? likelyIncome : []),
-            paragraph(sourceNote),
             paragraph(labelNote),
-            section("A helpful note:", caveat ? [caveat] : []),
+            paragraph(caveat),
           ]);
           tone = tone || "overview";
         } else if (isMoneyScope && json?.mode === "planning") {

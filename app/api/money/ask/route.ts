@@ -96,6 +96,30 @@ function buildMonthlyPositionLines(
   });
 }
 
+function buildMonthlyPositionSummary(
+  inflows: Array<{ currency: string; cents: number }>,
+  outflows: Array<{ currency: string; cents: number }>
+): string {
+  const inflowByCurrency = new Map(inflows.map((row) => [row.currency, row.cents]));
+  const outflowByCurrency = new Map(outflows.map((row) => [row.currency, row.cents]));
+  const currencies = Array.from(new Set([...inflowByCurrency.keys(), ...outflowByCurrency.keys()]));
+  if (!currencies.length) return "There is not enough current-month transaction activity to summarise yet.";
+
+  return currencies
+    .map((currency) => {
+      const inflow = inflowByCurrency.get(currency) ?? 0;
+      const outflow = outflowByCurrency.get(currency) ?? 0;
+      const net = inflow - outflow;
+      return `So far this month, connected transactions show ${formatMoney(
+        inflow,
+        currency
+      )} coming in and ${formatMoney(outflow, currency)} going out, giving an observed net ${
+        net >= 0 ? "inflow" : "outflow"
+      } of ${formatMoney(Math.abs(net), currency)}.`;
+    })
+    .join(" ");
+}
+
 function hasExplicitCostDetail(lowerQ: string): boolean {
   return /(\$|aud|usd|dollars?|cents?|\d)/i.test(lowerQ);
 }
@@ -889,6 +913,10 @@ export async function POST(req: Request) {
         .filter((item) => !item.uncertain_label)
         .slice(0, 3)
         .map((item) => `${item.label}: ${formatMoney(item.cents, item.currency)}.`);
+      const largestUnlabelledLines = outflows.largest_outflows
+        .filter((item) => item.uncertain_label)
+        .slice(0, 3)
+        .map((item) => formatMoney(item.cents, item.currency));
       const regularLines = outflows.likely_regular_outflows
         .filter((item) => !item.uncertain_label && item.confidence === "likely")
         .slice(0, 3)
@@ -913,19 +941,23 @@ export async function POST(req: Request) {
         outflows.month_inflow_by_currency,
         outflows.month_outflow_by_currency
       );
+      const monthlyPositionSummary = buildMonthlyPositionSummary(
+        outflows.month_inflow_by_currency,
+        outflows.month_outflow_by_currency
+      );
       const summary = focus === "income"
         ? incomeMapped
-          ? "These are the income sources currently mapped in Life CFO. Recent connected inflows are included as supporting context."
+          ? "Connected transactions show this month's inflows, alongside income sources already mapped in Life CFO."
           : outflows.inflow_transaction_count > 0
-            ? "Income is not formally mapped yet, but recent connected transactions show the inflows below as a starting point."
+            ? "Connected transactions show the inflows received so far this month."
             : "Income is not formally mapped yet, and there are no current-month inflows to use as a starting point."
         : focus === "bills"
           ? formallyMapped
-            ? "These are the bills currently mapped in Life CFO. Recent connected outflows are included as supporting context."
+            ? "Connected transactions show this month's outflows, alongside bills already mapped in Life CFO."
             : outflows.transaction_count > 0
-              ? "Bills are not formally mapped yet, but recent connected transactions show the outflows below as a starting point."
+              ? "Bills are not formally mapped yet. Connected transactions show the outflows so far this month."
               : "Bills are not formally mapped yet, and there are no current-month outflows to use as a starting point."
-          : "This is an observed monthly position from connected transactions and current account balances. Mapped income and commitments may still be incomplete.";
+          : monthlyPositionSummary;
 
       return NextResponse.json({
         ok: true,
@@ -947,6 +979,7 @@ export async function POST(req: Request) {
           current_month: focus === "income" ? [] : monthOutflowLines,
           current_month_income: focus === "bills" ? [] : monthInflowLines,
           largest_outflows: focus === "bills" ? largestLines : [],
+          largest_unlabelled_outflows: focus === "bills" ? largestUnlabelledLines : [],
           likely_regular: focus === "bills" ? regularLines : [],
           likely_income: focus === "income" ? likelyIncomeLines : [],
           monthly_position: focus === "month" ? monthlyPosition : [],
@@ -954,13 +987,16 @@ export async function POST(req: Request) {
             focus === "month"
               ? `Available cash across included accounts: ${formatMoney(snapshot.liquidity.availableCashCents)}.`
               : null,
-          source_note: outflows.source_note,
+          source_note: null,
           label_note: focus === "bills" && outflows.has_unlabelled_repeated_outflows
             ? "The connected merchant labels are unclear, so Life CFO can show totals and repeated activity but not reliable bill names yet."
             : null,
-          caveat: formallyMapped && incomeMapped
-            ? "Mapped bills are the tracked commitments. Transaction patterns are supporting context, not new bill records."
-            : outflows.confirmation_note || "These are observed transactions, not confirmed bills, income records, or financial advice.",
+          caveat:
+            focus === "month"
+              ? "Bills and income are not formally confirmed yet, so this is a transaction-based view rather than a full household plan."
+              : formallyMapped && incomeMapped
+                ? "Mapped records are tracked items; transaction patterns are supporting context."
+                : outflows.confirmation_note || "These are observed transactions, not confirmed bills, income records, or financial advice.",
         },
       });
     }
