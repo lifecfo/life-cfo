@@ -483,7 +483,10 @@ export function AskProvider({ children }: { children: ReactNode }) {
         } else if (isMoneyScope && json?.mode === "commitments") {
           const commitments = json?.commitments || {};
           const focus =
-            commitments?.focus === "income" || commitments?.focus === "bills" || commitments?.focus === "month"
+            commitments?.focus === "income" ||
+            commitments?.focus === "bills" ||
+            commitments?.focus === "regular" ||
+            commitments?.focus === "month"
               ? commitments.focus
               : "bills";
           const headline =
@@ -539,16 +542,24 @@ export function AskProvider({ children }: { children: ReactNode }) {
             section("Observed this month:", observedLines),
             section("Monthly movement:", monthlyPosition),
             section("Available cash:", availableCash ? [availableCash] : []),
-            section("Mapped commitments:", focus === "income" ? [] : mapped),
-            section("Mapped income:", focus === "bills" ? [] : mappedIncome),
-            section("Largest recent outflows:", focus === "bills" ? largest : []),
+            section(
+              focus === "regular" ? "Confirmed recurring payments:" : "Mapped commitments:",
+              focus === "income" ? [] : mapped
+            ),
+            section("Mapped income:", focus === "bills" || focus === "regular" ? [] : mappedIncome),
+            section("Largest recent outflows:", focus === "bills" || focus === "regular" ? largest : []),
             section(
               "Largest unlabelled outflows:",
-              focus === "bills" && largest.length === 0 && largestUnlabelled.length > 0
+              (focus === "bills" || focus === "regular") &&
+                largest.length === 0 &&
+                largestUnlabelled.length > 0
                 ? largestUnlabelled
                 : []
             ),
-            section("Possible regular payments:", focus === "bills" ? regular : []),
+            section(
+              focus === "regular" ? "Likely repeated payments:" : "Possible regular payments:",
+              focus === "bills" || focus === "regular" ? regular : []
+            ),
             section("Possible regular income:", focus === "income" ? likelyIncome : []),
             paragraph(labelNote),
             paragraph(caveat),

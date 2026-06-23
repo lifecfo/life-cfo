@@ -66,6 +66,12 @@ function looksCommitmentsQuestion(lowerQ: string): boolean {
   );
 }
 
+function looksRegularPaymentsQuestion(lowerQ: string): boolean {
+  return /\b(regular payments?|recurring payments?|subscriptions?|regular outflows?)\b/i.test(
+    lowerQ
+  );
+}
+
 function looksIncomeQuestion(lowerQ: string): boolean {
   return /\b(income|pay|salary|wages?|earnings?|deposits?)\b/i.test(lowerQ);
 }
@@ -878,8 +884,10 @@ export async function POST(req: Request) {
     const reasoningFallbackMode = !hasExplicitModeMatch ? detectReasoningFallbackMode(q) : null;
 
     if (looksCommitmentsQuestion(lowerQ) || looksIncomeQuestion(lowerQ) || looksThisMonthQuestion(lowerQ)) {
-      const focus = looksCommitmentsQuestion(lowerQ)
-        ? "bills"
+      const focus = looksRegularPaymentsQuestion(lowerQ)
+        ? "regular"
+        : looksCommitmentsQuestion(lowerQ)
+          ? "bills"
         : looksIncomeQuestion(lowerQ)
           ? "income"
           : "month";
@@ -951,7 +959,13 @@ export async function POST(req: Request) {
           : outflows.inflow_transaction_count > 0
             ? "Connected transactions show the inflows received so far this month."
             : "Income is not formally mapped yet, and there are no current-month inflows to use as a starting point."
-        : focus === "bills"
+        : focus === "regular"
+          ? formallyMapped
+            ? "These recurring payments are confirmed in Life CFO."
+            : regularLines.length > 0
+              ? "Regular payments are not formally confirmed yet. Connected transactions show likely repeated activity."
+              : "Regular payments are not formally confirmed yet. Connected transactions show repeated activity, but the merchant labels are not reliable enough to name the payments."
+          : focus === "bills"
           ? formallyMapped
             ? "Connected transactions show this month's outflows, alongside bills already mapped in Life CFO."
             : outflows.transaction_count > 0
@@ -968,6 +982,10 @@ export async function POST(req: Request) {
           headline:
             focus === "income"
               ? "Income this month"
+              : focus === "regular"
+                ? formallyMapped
+                  ? "Regular payments"
+                  : "Possible regular payments"
               : focus === "bills"
                 ? formallyMapped
                   ? "Mapped bills this month"
@@ -975,12 +993,12 @@ export async function POST(req: Request) {
                 : "This month's observed position",
           summary,
           mapped: focus === "income" ? [] : mappedLines,
-          mapped_income: focus === "bills" ? [] : mappedIncomeLines,
+          mapped_income: focus === "bills" || focus === "regular" ? [] : mappedIncomeLines,
           current_month: focus === "income" ? [] : monthOutflowLines,
-          current_month_income: focus === "bills" ? [] : monthInflowLines,
-          largest_outflows: focus === "bills" ? largestLines : [],
-          largest_unlabelled_outflows: focus === "bills" ? largestUnlabelledLines : [],
-          likely_regular: focus === "bills" ? regularLines : [],
+          current_month_income: focus === "bills" || focus === "regular" ? [] : monthInflowLines,
+          largest_outflows: focus === "bills" || focus === "regular" ? largestLines : [],
+          largest_unlabelled_outflows: focus === "bills" || focus === "regular" ? largestUnlabelledLines : [],
+          likely_regular: focus === "bills" || focus === "regular" ? regularLines : [],
           likely_income: focus === "income" ? likelyIncomeLines : [],
           monthly_position: focus === "month" ? monthlyPosition : [],
           available_cash:
@@ -988,7 +1006,7 @@ export async function POST(req: Request) {
               ? `Available cash across included accounts: ${formatMoney(snapshot.liquidity.availableCashCents)}.`
               : null,
           source_note: null,
-          label_note: focus === "bills" && outflows.has_unlabelled_repeated_outflows
+          label_note: (focus === "bills" || focus === "regular") && outflows.has_unlabelled_repeated_outflows
             ? "The connected merchant labels are unclear, so Life CFO can show totals and repeated activity but not reliable bill names yet."
             : null,
           caveat:
