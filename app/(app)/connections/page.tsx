@@ -400,6 +400,7 @@ function ConnectionsPageClient() {
   const [removingId, setRemovingId] = useState<string | null>(null);
   const [showAllRecentPending, setShowAllRecentPending] = useState(false);
   const [showOlderPending, setShowOlderPending] = useState(false);
+  const [showOlderSources, setShowOlderSources] = useState(false);
   const basiqReturnConnectionId = coerceStr(searchParams.get("basiq_connection_id"));
   const cameFromBasiqReturn = searchParams.get("basiq_return") === "1";
   const basiqReturnError = coerceStr(searchParams.get("basiq_error"));
@@ -803,6 +804,24 @@ function ConnectionsPageClient() {
     [activeItems]
   );
 
+  const olderPlaidSources = useMemo(
+    () =>
+      activeItems.filter(
+        (connection) =>
+          coerceStr(connection.provider).toLowerCase() === "plaid" &&
+          isOlderThanHours(connection.last_sync_at || connection.updated_at, 24 * 30)
+      ),
+    [activeItems]
+  );
+
+  const visibleActiveItems = useMemo(
+    () =>
+      showOlderSources
+        ? activeItems
+        : activeItems.filter((connection) => !olderPlaidSources.some((older) => older.id === connection.id)),
+    [activeItems, olderPlaidSources, showOlderSources]
+  );
+
   const basiqNeedsAuthRows = useMemo(() => {
     return items
       .filter(
@@ -985,11 +1004,24 @@ function ConnectionsPageClient() {
                 <>
                   {activeItems.length > 0 ? (
                     <div className="space-y-3">
-                      <div className="text-xs font-medium uppercase tracking-wide text-zinc-500">
-                        Connected
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+                          Connected
+                        </div>
+                        {olderPlaidSources.length > 0 ? (
+                          <button
+                            type="button"
+                            onClick={() => setShowOlderSources((value) => !value)}
+                            className="text-xs text-zinc-500 hover:text-zinc-700"
+                          >
+                            {showOlderSources
+                              ? "Hide older sources"
+                              : `Show older sources (${olderPlaidSources.length})`}
+                          </button>
+                        ) : null}
                       </div>
 
-                      {activeItems.map((c) => {
+                      {visibleActiveItems.map((c) => {
                         const title = displayTitle(c);
                         return (
                           <div
@@ -1024,6 +1056,12 @@ function ConnectionsPageClient() {
                                   <div className="mt-1 text-sm text-zinc-600">
                                     {connectionSubline(c)}
                                   </div>
+                                  {coerceStr(c.provider).toLowerCase() === "plaid" &&
+                                  isOlderThanHours(c.last_sync_at || c.updated_at, 24 * 30) ? (
+                                    <div className="mt-1 text-xs text-zinc-500">
+                                      Older Plaid sandbox source. It is kept for reference and is not part of the fresh Basiq-led Money view.
+                                    </div>
+                                  ) : null}
                                 </div>
                               </div>
 

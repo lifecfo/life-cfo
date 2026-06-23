@@ -68,6 +68,12 @@ function isImportedProvider(provider: string | null | undefined) {
   return p !== "" && p !== "manual";
 }
 
+function isOlderPlaidTransaction(transaction: Tx) {
+  if ((transaction.provider || "").trim().toLowerCase() !== "plaid") return false;
+  const updatedMs = Date.parse(transaction.updated_at || transaction.created_at || transaction.date || "");
+  return Number.isFinite(updatedMs) && Date.now() - updatedMs > 30 * 24 * 60 * 60 * 1000;
+}
+
 async function fetchJson<T>(url: string): Promise<T> {
   const res = await fetch(url, { cache: "no-store" });
   const json = await res.json().catch(() => ({}));
@@ -442,7 +448,9 @@ export default function TransactionsClient() {
                   const abs = Math.abs(cents);
                   const source = providerLabel(t.provider);
                   const sourceLine =
-                    source === "Manual" ? "Manual entry" : `Imported via ${source}`;
+                    source === "Manual"
+                      ? "Manual entry"
+                      : `${isOlderPlaidTransaction(t) ? "Older test data via" : "Imported via"} ${source}`;
 
                   const title = t.merchant || t.description || "Transaction";
                   const meta = [

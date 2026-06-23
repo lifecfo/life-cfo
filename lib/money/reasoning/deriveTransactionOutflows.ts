@@ -17,14 +17,32 @@ export type LikelyRegularOutflow = {
   average_cents: number;
   currency: string;
   uncertain_label: boolean;
+  cadence: "weekly" | "fortnightly" | "monthly" | "repeated";
+  confidence: "likely" | "low";
+};
+
+export type LikelyIncome = {
+  label: string;
+  occurrences: number;
+  total_cents: number;
+  average_cents: number;
+  currency: string;
+  cadence: "weekly" | "fortnightly" | "monthly" | "repeated";
+  uncertain_label: boolean;
+  confidence: "likely" | "low";
 };
 
 export type TransactionOutflowSummary = {
   transaction_count: number;
+  inflow_transaction_count: number;
   month_outflow_by_currency: MoneyRow[];
+  month_inflow_by_currency: MoneyRow[];
   largest_outflows: TransactionOutflowItem[];
+  largest_inflows: TransactionOutflowItem[];
   likely_regular_outflows: LikelyRegularOutflow[];
+  likely_income: LikelyIncome[];
   source_note: string | null;
+  confirmation_note: string | null;
 };
 
 function centsFor(transaction: TransactionsTruthRow): number {
@@ -55,6 +73,28 @@ function groupKey(label: string): string {
     .trim();
 }
 
+function cadenceFor(dates: string[]): "weekly" | "fortnightly" | "monthly" | "repeated" {
+  const values = dates
+    .map((date) => Date.parse(date))
+    .filter((value) => Number.isFinite(value))
+    .sort((left, right) => left - right);
+  if (values.length < 2) return "repeated";
+
+  const gaps: number[] = [];
+  for (let index = 1; index < values.length; index += 1) {
+    gaps.push(Math.round((values[index] - values[index - 1]) / (24 * 60 * 60 * 1000)));
+  }
+  const averageGap = gaps.reduce((sum, gap) => sum + gap, 0) / gaps.length;
+  if (averageGap >= 5 && averageGap <= 9) return "weekly";
+  if (averageGap >= 11 && averageGap <= 18) return "fortnightly";
+  if (averageGap >= 25 && averageGap <= 35) return "monthly";
+  return "repeated";
+}
+
+function isWagesLike(label: string): boolean {
+  return /\b(payroll|salary|wages?|payg|employer)\b/i.test(label);
+}
+
 function hasFreshActiveBasiq(connections: ExternalConnectionsTruthRow[], nowMs: number): boolean {
   const maxAgeMs = 7 * 24 * 60 * 60 * 1000;
   return connections.some((connection) => {
@@ -73,11 +113,18 @@ export function deriveTransactionOutflowSummary(params: {
 }): TransactionOutflowSummary {
   const nowMs = Date.parse(params.nowIso || "") || Date.now();
   const monthOutflows = params.monthTransactions.filter((transaction) => centsFor(transaction) < 0);
+  const monthInflows = params.monthTransactions.filter((transaction) => centsFor(transaction) > 0);
   const totals = new Map<string, number>();
+  const inflowTotals = new Map<string, number>();
 
   for (const transaction of monthOutflows) {
     const currency = currencyFor(transaction);
     totals.set(currency, (totals.get(currency) ?? 0) + Math.abs(centsFor(transaction)));
+  }
+
+  for (const transaction of monthInflows) {
+    const currency = currencyFor(transaction);
+    inflowTotals.set(currency, (inflowTotals.get(currency) ?? 0) + centsFor(transaction));
   }
 
   const largestOutflows = monthOutflows
@@ -91,9 +138,20 @@ export function deriveTransactionOutflowSummary(params: {
     .sort((left, right) => right.cents - left.cents)
     .slice(0, 5);
 
+  const largestInflows = monthInflows
+    .map((transaction) => ({
+      label: labelFor(transaction),
+      cents: centsFor(transaction),
+      currency: currencyFor(transaction),
+      date: transaction.date,
+      uncertain_label: isUncertainLabel(labelFor(transaction)),
+    }))
+    .sort((left, right) => right.cents - left.cents)
+    .slice(0, 5);
+
   const grouped = new Map<
     string,
-    { label: string; cents: number[]; currency: string; uncertain: boolean }
+    { label: string; cents: number[]; currency: string; uncertain: boolean; dates: string[] }
   >();
   for (const transaction of params.rollingTransactions) {
     const cents = centsFor(transaction);
@@ -107,8 +165,10 @@ export function deriveTransactionOutflowSummary(params: {
       cents: [],
       currency: currencyFor(transaction),
       uncertain: isUncertainLabel(label),
+      dates: [],
     };
     existing.cents.push(Math.abs(cents));
+    if (transaction.date) existing.dates.push(transaction.date);
     grouped.set(key, existing);
   }
 
@@ -116,6 +176,7 @@ export function deriveTransactionOutflowSummary(params: {
     .filter((group) => group.cents.length >= 2)
     .map((group) => {
       const total = group.cents.reduce((sum, cents) => sum + cents, 0);
+      const cadence = cadenceFor(group.dates);
       return {
         label: group.label,
         occurrences: group.cents.length,
@@ -123,20 +184,76 @@ export function deriveTransactionOutflowSummary(params: {
         average_cents: Math.round(total / group.cents.length),
         currency: group.currency,
         uncertain_label: group.uncertain,
+        cadence,
+        confidence: group.uncertain || cadence === "repeated" ? "low" : "likely",
       };
     })
     .sort((left, right) => right.total_cents - left.total_cents)
     .slice(0, 5);
 
+  const incomeGroups = new Map<
+    string,
+    { label: string; cents: number[]; currency: string; uncertain: boolean; dates: string[] }
+  >();
+  for (const transaction of params.rollingTransactions) {
+    const cents = centsFor(transaction);
+    if (cents <= 0) continue;
+    const label = labelFor(transaction);
+    const keyPart = groupKey(label) || `amount:${cents}`;
+    const key = `${currencyFor(transaction)}:${keyPart}`;
+    const existing = incomeGroups.get(key) ?? {
+      label,
+      cents: [],
+      currency: currencyFor(transaction),
+      uncertain: isUncertainLabel(label),
+      dates: [],
+    };
+    existing.cents.push(cents);
+    if (transaction.date) existing.dates.push(transaction.date);
+    incomeGroups.set(key, existing);
+  }
+
+  const likelyIncome = Array.from(incomeGroups.values())
+    .filter((group) => group.cents.length >= 2)
+    .map((group) => {
+      const total = group.cents.reduce((sum, cents) => sum + cents, 0);
+      const cadence = cadenceFor(group.dates);
+      const wagesLike = isWagesLike(group.label);
+      if (cadence === "repeated" && group.cents.length < 3 && !wagesLike) return null;
+      return {
+        label: group.label,
+        occurrences: group.cents.length,
+        total_cents: total,
+        average_cents: Math.round(total / group.cents.length),
+        currency: group.currency,
+        cadence,
+        uncertain_label: group.uncertain,
+        confidence: group.uncertain || cadence === "repeated" ? "low" : "likely",
+      };
+    })
+    .filter((pattern): pattern is LikelyIncome => pattern !== null)
+    .sort((left, right) => right.total_cents - left.total_cents)
+    .slice(0, 5);
+
   return {
     transaction_count: monthOutflows.length,
+    inflow_transaction_count: monthInflows.length,
     month_outflow_by_currency: Array.from(totals.entries())
       .map(([currency, cents]) => ({ currency, cents }))
       .sort((left, right) => left.currency.localeCompare(right.currency)),
+    month_inflow_by_currency: Array.from(inflowTotals.entries())
+      .map(([currency, cents]) => ({ currency, cents }))
+      .sort((left, right) => left.currency.localeCompare(right.currency)),
     largest_outflows: largestOutflows,
+    largest_inflows: largestInflows,
     likely_regular_outflows: likelyRegularOutflows,
+    likely_income: likelyIncome,
     source_note: hasFreshActiveBasiq(params.connections, nowMs)
       ? "A fresh Basiq connection is available. Older linked sources may need review."
       : null,
+    confirmation_note:
+      likelyRegularOutflows.length || likelyIncome.length
+        ? "Likely patterns are based on observed transactions, not confirmed bills or income records."
+        : null,
   };
 }

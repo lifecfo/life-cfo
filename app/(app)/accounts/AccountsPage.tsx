@@ -64,6 +64,12 @@ async function fetchJson<T>(url: string): Promise<T> {
   return json as T;
 }
 
+function isOlderPlaidAccount(account: AccountRow) {
+  if (safeStr(account.provider).trim().toLowerCase() !== "plaid") return false;
+  const updatedMs = Date.parse(account.updated_at || account.created_at || "");
+  return Number.isFinite(updatedMs) && Date.now() - updatedMs > 30 * 24 * 60 * 60 * 1000;
+}
+
 export const dynamic = "force-dynamic";
 
 export default function AccountsPage() {
@@ -196,7 +202,9 @@ export default function AccountsPage() {
                     const cents = typeof a.current_balance_cents === "number" ? a.current_balance_cents : 0;
                     const provider = providerLabel(a.provider);
                     const sourceLine =
-                      provider === "Manual" ? "Manual entry" : `Connected via ${provider}`;
+                      provider === "Manual"
+                        ? "Manual entry"
+                        : `${isOlderPlaidAccount(a) ? "Older test data via" : "Connected via"} ${provider}`;
 
                     return (
                       <div key={a.id} className="flex items-center justify-between gap-3 py-3">

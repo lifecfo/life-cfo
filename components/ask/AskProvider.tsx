@@ -493,8 +493,14 @@ export function AskProvider({ children }: { children: ReactNode }) {
           const mapped = Array.isArray(commitments?.mapped)
             ? (commitments.mapped as string[]).filter((line) => typeof line === "string" && line.trim())
             : [];
+          const mappedIncome = Array.isArray(commitments?.mapped_income)
+            ? (commitments.mapped_income as string[]).filter((line) => typeof line === "string" && line.trim())
+            : [];
           const currentMonth = Array.isArray(commitments?.current_month)
             ? (commitments.current_month as string[]).filter((line) => typeof line === "string" && line.trim())
+            : [];
+          const currentMonthIncome = Array.isArray(commitments?.current_month_income)
+            ? (commitments.current_month_income as string[]).filter((line) => typeof line === "string" && line.trim())
             : [];
           const largest = Array.isArray(commitments?.largest_outflows)
             ? (commitments.largest_outflows as string[]).filter((line) => typeof line === "string" && line.trim())
@@ -502,20 +508,27 @@ export function AskProvider({ children }: { children: ReactNode }) {
           const regular = Array.isArray(commitments?.likely_regular)
             ? (commitments.likely_regular as string[]).filter((line) => typeof line === "string" && line.trim())
             : [];
+          const likelyIncome = Array.isArray(commitments?.likely_income)
+            ? (commitments.likely_income as string[]).filter((line) => typeof line === "string" && line.trim())
+            : [];
           const sourceNote = typeof commitments?.source_note === "string" ? commitments.source_note : "";
           const caveat = typeof commitments?.caveat === "string" ? commitments.caveat : "";
-          const hasEvidence = mapped.length + currentMonth.length + largest.length + regular.length > 0;
+          const hasEvidence =
+            mapped.length + mappedIncome.length + currentMonth.length + currentMonthIncome.length + largest.length + regular.length + likelyIncome.length > 0;
           const languageContext = deriveAskLanguageContext({
-            lines: [headline, summary, ...mapped, ...currentMonth, ...largest, ...regular, sourceNote, caveat],
+            lines: [headline, summary, ...mapped, ...mappedIncome, ...currentMonth, ...currentMonthIncome, ...largest, ...regular, ...likelyIncome, sourceNote, caveat],
             hasEvidence,
           });
           content = composeMessage([
             headline,
             summary,
             section("Mapped commitments:", mapped),
+            section("Mapped income:", mappedIncome),
             section("This month:", currentMonth),
+            section("Income this month:", currentMonthIncome),
             section("Largest recent outflows:", largest),
             section("Possible regular payments:", regular),
+            section("Possible regular income:", likelyIncome),
             paragraph(sourceNote),
             section("A helpful note:", caveat ? [caveat] : []),
             stableGroundLine({ mode: "search", hasEvidence, context: languageContext }),

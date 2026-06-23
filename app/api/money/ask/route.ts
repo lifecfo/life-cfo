@@ -66,6 +66,14 @@ function looksCommitmentsQuestion(lowerQ: string): boolean {
   );
 }
 
+function looksIncomeQuestion(lowerQ: string): boolean {
+  return /\b(income|pay|salary|wages?|earnings?|deposits?)\b/i.test(lowerQ);
+}
+
+function looksThisMonthQuestion(lowerQ: string): boolean {
+  return /\b(this month|how (?:am|are) (?:i|we) looking)\b/i.test(lowerQ);
+}
+
 function hasExplicitCostDetail(lowerQ: string): boolean {
   return /(\$|aud|usd|dollars?|cents?|\d)/i.test(lowerQ);
 }
@@ -823,12 +831,13 @@ export async function POST(req: Request) {
 
     const reasoningFallbackMode = !hasExplicitModeMatch ? detectReasoningFallbackMode(q) : null;
 
-    if (looksCommitmentsQuestion(lowerQ)) {
+    if (looksCommitmentsQuestion(lowerQ) || looksIncomeQuestion(lowerQ) || looksThisMonthQuestion(lowerQ)) {
       const money = await runHouseholdMoneyReasoning(supabase as unknown as SupabaseClient, {
         householdId,
       });
       const { truth } = money;
       const mappedBills = (truth.recurring_bills ?? []).filter((bill) => bill.active !== false);
+      const mappedIncome = (truth.recurring_income ?? []).filter((income) => income.active !== false);
       const outflows = deriveTransactionOutflowSummary({
         monthTransactions: truth.month_transactions,
         rollingTransactions: truth.rolling_transactions,
@@ -839,6 +848,13 @@ export async function POST(req: Request) {
         const label = safeStr(bill.name) || "Mapped bill";
         return `${label}: ${formatMoney(bill.amount_cents, bill.currency || "AUD")} (${bill.cadence || "monthly"}).`;
       });
+      const mappedIncomeLines = mappedIncome.slice(0, 4).map((income) => {
+        const label = safeStr(income.name) || "Mapped income";
+        return `${label}: ${formatMoney(income.amount_cents, income.currency || "AUD")} (${income.cadence || "monthly"}).`;
+      });
+      const monthInflowLines = outflows.month_inflow_by_currency.map(
+        (row) => `Current-month inflows: ${formatMoney(row.cents, row.currency)}.`
+      );
       const monthOutflowLines = outflows.month_outflow_by_currency.map(
         (row) => `Current-month outflows: ${formatMoney(row.cents, row.currency)}.`
       );
@@ -848,17 +864,30 @@ export async function POST(req: Request) {
         }.`
       );
       const regularLines = outflows.likely_regular_outflows.slice(0, 3).map((item) =>
-        `${item.label}: ${item.occurrences} recent payments averaging ${formatMoney(
+        `${item.label}: ${item.occurrences} recent ${item.cadence} payment(s) averaging ${formatMoney(
+          item.average_cents,
+          item.currency
+        )}${item.uncertain_label ? " (label is unclear)" : ""}.`
+      );
+      const likelyIncomeLines = outflows.likely_income.slice(0, 3).map((item) =>
+        `${item.label}: ${item.occurrences} recent ${item.cadence} inflow(s) averaging ${formatMoney(
           item.average_cents,
           item.currency
         )}${item.uncertain_label ? " (label is unclear)" : ""}.`
       );
       const formallyMapped = mappedBills.length > 0;
-      const summary = formallyMapped
-        ? "These are the bills currently mapped in Life CFO. Recent connected outflows are included as supporting context."
-        : outflows.transaction_count > 0
-          ? "Bills are not formally mapped yet, but recent connected transactions show the outflows below as a starting point."
-          : "Bills are not formally mapped yet, and there are no current-month outflows to use as a starting point.";
+      const incomeMapped = mappedIncome.length > 0;
+      const summary = looksIncomeQuestion(lowerQ)
+        ? incomeMapped
+          ? "These are the income sources currently mapped in Life CFO. Recent connected inflows are included as supporting context."
+          : outflows.inflow_transaction_count > 0
+            ? "Income is not formally mapped yet, but recent connected transactions show the inflows below as a starting point."
+            : "Income is not formally mapped yet, and there are no current-month inflows to use as a starting point."
+        : formallyMapped
+          ? "These are the bills currently mapped in Life CFO. Recent connected outflows are included as supporting context."
+          : outflows.transaction_count > 0
+            ? "Bills are not formally mapped yet, but recent connected transactions show the outflows below as a starting point."
+            : "Bills are not formally mapped yet, and there are no current-month outflows to use as a starting point.";
 
       return NextResponse.json({
         ok: true,
@@ -868,13 +897,16 @@ export async function POST(req: Request) {
           headline: formallyMapped ? "Mapped commitments" : "Recent connected outflows",
           summary,
           mapped: mappedLines,
+          mapped_income: mappedIncomeLines,
           current_month: monthOutflowLines,
+          current_month_income: monthInflowLines,
           largest_outflows: largestLines,
           likely_regular: regularLines,
+          likely_income: likelyIncomeLines,
           source_note: outflows.source_note,
-          caveat: formallyMapped
+          caveat: formallyMapped && incomeMapped
             ? "Mapped bills are the tracked commitments. Transaction patterns are supporting context, not new bill records."
-            : "These are observed transactions, not confirmed bills or financial advice. Mapping a bill will make its timing clearer.",
+            : outflows.confirmation_note || "These are observed transactions, not confirmed bills, income records, or financial advice.",
         },
       });
     }

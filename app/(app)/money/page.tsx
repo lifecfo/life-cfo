@@ -54,16 +54,31 @@ type MoneyRow = {
 
 type TransactionOutflowSummary = {
   transaction_count: number;
+  inflow_transaction_count: number;
   month_outflow_by_currency: MoneyRow[];
+  month_inflow_by_currency: MoneyRow[];
   largest_outflows: Array<{ label: string; cents: number; currency: string; uncertain_label: boolean }>;
+  largest_inflows: Array<{ label: string; cents: number; currency: string; uncertain_label: boolean }>;
   likely_regular_outflows: Array<{
     label: string;
     occurrences: number;
     average_cents: number;
     currency: string;
     uncertain_label: boolean;
+    cadence: string;
+    confidence: "likely" | "low";
+  }>;
+  likely_income: Array<{
+    label: string;
+    occurrences: number;
+    average_cents: number;
+    currency: string;
+    uncertain_label: boolean;
+    cadence: string;
+    confidence: "likely" | "low";
   }>;
   source_note: string | null;
+  confirmation_note: string | null;
 };
 
 type TransactionRow = {
@@ -460,12 +475,26 @@ export default function MoneyClientNext() {
               title="In"
               rows={[
                 `Recurring income: ${snapshot ? formatMoney(snapshot.income.recurringMonthlyCents) : loading ? "Loading..." : "-"}`,
-                snapshot
-                  ? `${snapshot.income.sourceCount} recurring source(s) tracked.`
-                  : "Income sources will show here.",
+                transactionOutflows?.month_inflow_by_currency?.length
+                  ? `This month’s observed inflows: ${formatMoneyRows(
+                      transactionOutflows.month_inflow_by_currency
+                    )}.`
+                  : snapshot
+                    ? `${snapshot.income.sourceCount} recurring source(s) tracked.`
+                    : "Income sources will show here.",
+                transactionOutflows?.likely_income?.[0]
+                  ? `Likely ${transactionOutflows.likely_income[0].cadence} income: ${transactionOutflows.likely_income[0].label} (${formatMoney(
+                      transactionOutflows.likely_income[0].average_cents,
+                      transactionOutflows.likely_income[0].currency
+                    )} average).`
+                  : "Repeated income will appear here when the transaction pattern is clear.",
                 explanation?.pressure.timing || "Income timing notes will appear here.",
               ]}
-              note="See income details and recent inflows."
+              note={
+                snapshot?.income.sourceCount === 0 && transactionOutflows?.inflow_transaction_count
+                  ? "Connected inflows are available. They are observed transactions until you choose to confirm an income pattern."
+                  : "See income details and recent inflows."
+              }
               links={[
                 { href: "/money/in", label: "Open In" },
                 { href: "/transactions", label: "Transactions" },
@@ -489,10 +518,10 @@ export default function MoneyClientNext() {
                     ? `Latest imported outflow cue: ${latestImportedName} (${latestImportedAmount}).`
                     : `Flexible spending (30 days): ${snapshot ? formatMoney(snapshot.discretionary.last30DayOutflowCents) : loading ? "Loading..." : "-"}`,
                 transactionOutflows?.likely_regular_outflows?.[0]
-                  ? `Possible regular payment: ${transactionOutflows.likely_regular_outflows[0].label} (${formatMoney(
+                  ? `Likely ${transactionOutflows.likely_regular_outflows[0].cadence} payment: ${transactionOutflows.likely_regular_outflows[0].label} (${formatMoney(
                       transactionOutflows.likely_regular_outflows[0].average_cents,
                       transactionOutflows.likely_regular_outflows[0].currency
-                    )} average).`
+                    )} average${transactionOutflows.likely_regular_outflows[0].confidence === "low" ? "; label needs confirmation" : ""}).`
                   : "Repeated payments will appear here when the transaction labels are clear.",
               ]}
               note={
