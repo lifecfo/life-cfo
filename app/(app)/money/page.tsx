@@ -77,6 +77,8 @@ type TransactionOutflowSummary = {
     cadence: string;
     confidence: "likely" | "low";
   }>;
+  has_unlabelled_repeated_outflows: boolean;
+  has_unlabelled_repeated_income: boolean;
   source_note: string | null;
   confirmation_note: string | null;
 };
@@ -219,6 +221,17 @@ export default function MoneyClientNext() {
   const explanation = data?.explanation;
   const interpretation = explanation?.interpretation;
   const transactionOutflows = data?.transaction_outflows;
+  const reviewPayments = (transactionOutflows?.likely_regular_outflows ?? []).filter(
+    (pattern) => pattern.confidence === "likely" && !pattern.uncertain_label
+  );
+  const reviewIncome = (transactionOutflows?.likely_income ?? []).filter(
+    (pattern) => pattern.confidence === "likely" && !pattern.uncertain_label
+  );
+  const hasReviewItems =
+    reviewPayments.length > 0 ||
+    reviewIncome.length > 0 ||
+    transactionOutflows?.has_unlabelled_repeated_outflows ||
+    transactionOutflows?.has_unlabelled_repeated_income;
 
   const refresh = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
@@ -469,6 +482,57 @@ export default function MoneyClientNext() {
               </div>
             </CardContent>
           </Card>
+
+          {hasReviewItems ? (
+            <Card className="border-zinc-200 bg-white">
+              <CardContent className="space-y-3">
+                <div>
+                  <div className="text-sm font-semibold text-zinc-900">Review what Life CFO found</div>
+                  <div className="mt-1 text-xs leading-relaxed text-zinc-600">
+                    These items look regular from your connected bank data. This first view does not change your bills or income.
+                  </div>
+                </div>
+
+                {reviewPayments.slice(0, 3).map((pattern) => (
+                  <div
+                    key={`payment-${pattern.label}-${pattern.average_cents}-${pattern.cadence}-${pattern.currency}`}
+                    className="rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-2"
+                  >
+                    <div className="text-sm font-medium text-zinc-900">{pattern.label}</div>
+                    <div className="mt-1 text-xs text-zinc-600">
+                      This looks regular: about {formatMoney(pattern.average_cents, pattern.currency)} {pattern.cadence}.
+                    </div>
+                    <div className="mt-2 text-xs text-zinc-500">Needs checking before it becomes a bill.</div>
+                  </div>
+                ))}
+
+                {reviewIncome.slice(0, 3).map((pattern) => (
+                  <div
+                    key={`income-${pattern.label}-${pattern.average_cents}-${pattern.cadence}-${pattern.currency}`}
+                    className="rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-2"
+                  >
+                    <div className="text-sm font-medium text-zinc-900">{pattern.label}</div>
+                    <div className="mt-1 text-xs text-zinc-600">
+                      This looks regular: about {formatMoney(pattern.average_cents, pattern.currency)} {pattern.cadence}.
+                    </div>
+                    <div className="mt-2 text-xs text-zinc-500">Needs checking before it becomes income you have set up.</div>
+                  </div>
+                ))}
+
+                {transactionOutflows?.has_unlabelled_repeated_outflows ? (
+                  <div className="rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-800">
+                    Repeated payments were found, but the bank labels are too unclear to give them a useful name yet.
+                  </div>
+                ) : null}
+
+                {transactionOutflows?.has_unlabelled_repeated_income ? (
+                  <div className="rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-800">
+                    Repeated money in was found, but the bank labels are too unclear to give it a useful name yet.
+                  </div>
+                ) : null}
+              </CardContent>
+            </Card>
+          ) : null}
 
           <div className="grid gap-4 md:grid-cols-2">
             <FlowCard
