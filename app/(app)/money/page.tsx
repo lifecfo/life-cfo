@@ -370,13 +370,13 @@ export default function MoneyClientNext() {
           confirmation,
         };
       })
-      .filter((pattern) => pattern.confirmation?.kind !== "ignore");
+      .filter((pattern) => pattern.confirmation === null);
   const reviewPayments = mergePatterns(
     transactionOutflows?.likely_regular_outflows ?? [],
     "bill"
   );
   const reviewIncome = mergePatterns(transactionOutflows?.likely_income ?? [], "income");
-  const hasReviewItems = reviewPayments.length > 0 || reviewIncome.length > 0;
+  const hasPendingReviewItems = reviewPayments.length > 0 || reviewIncome.length > 0;
 
   const refresh = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
@@ -687,7 +687,7 @@ export default function MoneyClientNext() {
             </CardContent>
           </Card>
 
-          {hasReviewItems ? (
+          {transactionOutflows ? (
             <Card className="border-zinc-200 bg-white">
               <CardContent className="space-y-3">
                 <div>
@@ -697,27 +697,39 @@ export default function MoneyClientNext() {
                   </div>
                 </div>
 
-                {reviewPayments.slice(0, 3).map((pattern) => (
-                  <ReviewPatternCard
-                    key={pattern.pattern_key}
-                    pattern={pattern}
-                    saving={savingPatternKey === pattern.pattern_key}
-                    onSave={savePatternConfirmation}
-                  />
-                ))}
+                {hasPendingReviewItems ? (
+                  <>
+                    {reviewPayments.slice(0, 3).map((pattern) => (
+                      <ReviewPatternCard
+                        key={pattern.pattern_key}
+                        pattern={pattern}
+                        saving={savingPatternKey === pattern.pattern_key}
+                        onSave={savePatternConfirmation}
+                      />
+                    ))}
 
-                {reviewIncome.slice(0, 3).map((pattern) => (
-                  <ReviewPatternCard
-                    key={pattern.pattern_key}
-                    pattern={pattern}
-                    saving={savingPatternKey === pattern.pattern_key}
-                    onSave={savePatternConfirmation}
-                  />
-                ))}
+                    {reviewIncome.slice(0, 3).map((pattern) => (
+                      <ReviewPatternCard
+                        key={pattern.pattern_key}
+                        pattern={pattern}
+                        saving={savingPatternKey === pattern.pattern_key}
+                        onSave={savePatternConfirmation}
+                      />
+                    ))}
+                  </>
+                ) : (
+                  <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-3 text-sm leading-relaxed text-zinc-700">
+                    You’re all caught up. Life CFO will keep watching for regular money patterns.
+                  </div>
+                )}
 
                 {confirmationError ? (
                   <div className="text-xs text-red-600">{confirmationError}</div>
                 ) : null}
+
+                <div className="text-xs leading-relaxed text-zinc-500">
+                  Confirmed patterns are remembered and can be used in future summaries.
+                </div>
               </CardContent>
             </Card>
           ) : null}
