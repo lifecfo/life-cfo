@@ -74,6 +74,16 @@ type DecisionShare = {
   shared_by?: string | null;
 };
 
+type UnknownRow = Record<string, unknown>;
+
+function isUnknownRow(value: unknown): value is UnknownRow {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function errorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error && error.message ? error.message : fallback;
+}
+
 function safeMs(iso: string | null | undefined) {
   if (!iso) return null;
   const ms = Date.parse(iso);
@@ -109,8 +119,8 @@ function normalizeAttachments(raw: unknown): AttachmentMeta[] {
   if (!raw) return [];
   if (!Array.isArray(raw)) return [];
   return raw
-    .filter((a: any) => a && typeof a.path === "string")
-    .map((a: any) => ({
+    .filter((a): a is UnknownRow => isUnknownRow(a) && typeof a.path === "string")
+    .map((a) => ({
       name: typeof a.name === "string" ? a.name : "Attachment",
       path: String(a.path),
       type: typeof a.type === "string" ? a.type : "application/octet-stream",
@@ -420,31 +430,41 @@ function renderSummaryBody(text: string) {
   return out;
 }
 
-function SegTabs({ tab, onTab }: { tab: Tab; onTab: (t: Tab) => void }) {
-  const TabBtn = ({ t, label }: { t: Tab; label: string }) => {
-    const active = tab === t;
-    return (
-      <button
-        type="button"
-        onClick={() => onTab(t)}
-        className={[
-          "h-10 rounded-full px-4 text-sm font-medium transition",
-          active ? "bg-white text-zinc-900 shadow-sm" : "text-zinc-600 hover:text-zinc-900",
-          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6FAFB2]/30 focus-visible:ring-offset-2",
-        ].join(" ")}
-        aria-pressed={active}
-      >
-        {label}
-      </button>
-    );
-  };
+function SegTabButton({
+  tab,
+  target,
+  label,
+  onTab,
+}: {
+  tab: Tab;
+  target: Tab;
+  label: string;
+  onTab: (tab: Tab) => void;
+}) {
+  const active = tab === target;
+  return (
+    <button
+      type="button"
+      onClick={() => onTab(target)}
+      className={[
+        "h-10 rounded-full px-4 text-sm font-medium transition",
+        active ? "bg-white text-zinc-900 shadow-sm" : "text-zinc-600 hover:text-zinc-900",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6FAFB2]/30 focus-visible:ring-offset-2",
+      ].join(" ")}
+      aria-pressed={active}
+    >
+      {label}
+    </button>
+  );
+}
 
+function SegTabs({ tab, onTab }: { tab: Tab; onTab: (t: Tab) => void }) {
   return (
     <div className="flex justify-center">
       <div className="inline-flex items-center gap-1 rounded-full bg-zinc-100 p-1">
-        <TabBtn t="new" label="New Decision" />
-        <TabBtn t="active" label="Active Decisions" />
-        <TabBtn t="closed" label="Closed Decisions" />
+        <SegTabButton tab={tab} target="new" label="New Decision" onTab={onTab} />
+        <SegTabButton tab={tab} target="active" label="Active Decisions" onTab={onTab} />
+        <SegTabButton tab={tab} target="closed" label="Closed Decisions" onTab={onTab} />
       </div>
     </div>
   );
@@ -637,11 +657,6 @@ export default function DecisionsClient() {
   const [shareTargetHouseholdByDecisionId, setShareTargetHouseholdByDecisionId] = useState<Record<string, string>>({});
   const [sharePermissionDraftByDecisionId, setSharePermissionDraftByDecisionId] = useState<Record<string, "view" | "edit">>({});
 
-  const scrollToDecisionTop = (id: string) => {
-    const anchor = topAnchorRefs.current[id] ?? cardRefs.current[id];
-    anchor?.scrollIntoView?.({ behavior: "smooth", block: "start" });
-  };
-
   const scheduleReload = () => {
     if (reloadTimerRef.current) window.clearTimeout(reloadTimerRef.current);
     reloadTimerRef.current = window.setTimeout(() => void load({ silent: true }), 250);
@@ -692,7 +707,6 @@ export default function DecisionsClient() {
       hasReview: hasReviewDateOnly,
       reviewDue: reviewDueOnly,
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     tab,
     openFromQuery,
@@ -723,14 +737,21 @@ export default function DecisionsClient() {
         .eq("user_id", uid);
 
       if (!res.error) {
-        const rows = (res.data ?? []) as any[];
+        const rows = (res.data ?? []) as UnknownRow[];
         const next: HouseholdOption[] = rows
           .filter((r) => r && r.household_id)
-          .map((r) => ({
-            household_id: String(r.household_id),
-            role: r.role ? String(r.role) : null,
-            name: r.households?.name ? String(r.households.name) : r.households?.id ? String(r.households.id) : null,
-          }));
+          .map((r) => {
+            const household = isUnknownRow(r.households) ? r.households : null;
+            return {
+              household_id: String(r.household_id),
+              role: r.role ? String(r.role) : null,
+              name: household?.name
+                ? String(household.name)
+                : household?.id
+                  ? String(household.id)
+                  : null,
+            };
+          });
         setHouseholds(next);
         return;
       }
@@ -738,7 +759,7 @@ export default function DecisionsClient() {
       // Fallback: just household_members if no join
       const res2 = await supabase.from("household_members").select("household_id,role").eq("user_id", uid);
       if (!res2.error) {
-        const rows = (res2.data ?? []) as any[];
+        const rows = (res2.data ?? []) as UnknownRow[];
         const next: HouseholdOption[] = rows
           .filter((r) => r && r.household_id)
           .map((r) => ({
@@ -770,7 +791,7 @@ export default function DecisionsClient() {
         return;
       }
 
-      const rows = Array.isArray(data) ? (data as any[]) : [];
+      const rows = Array.isArray(data) ? (data as UnknownRow[]) : [];
       const safe: DecisionShare[] = rows
         .filter((r) => r && r.household_id)
         .map((r) => ({
@@ -913,18 +934,18 @@ export default function DecisionsClient() {
       return;
     }
 
-    const listRaw = (data ?? []) as any[];
+    const listRaw = (data ?? []) as UnknownRow[];
     const list: Decision[] = listRaw.map((r) => ({
-      id: r.id,
-      user_id: r.user_id,
-      title: r.title ?? "",
-      context: r.context ?? null,
-      status: r.status ?? "",
-      created_at: r.created_at ?? new Date().toISOString(),
-      decided_at: r.decided_at ?? null,
-      review_at: r.review_at ?? null,
-      origin: r.origin ?? null,
-      framed_at: r.framed_at ?? null,
+      id: String(r.id ?? ""),
+      user_id: String(r.user_id ?? ""),
+      title: String(r.title ?? ""),
+      context: typeof r.context === "string" ? r.context : null,
+      status: String(r.status ?? ""),
+      created_at: typeof r.created_at === "string" ? r.created_at : new Date().toISOString(),
+      decided_at: typeof r.decided_at === "string" ? r.decided_at : null,
+      review_at: typeof r.review_at === "string" ? r.review_at : null,
+      origin: typeof r.origin === "string" ? r.origin : null,
+      framed_at: typeof r.framed_at === "string" ? r.framed_at : null,
       attachments: normalizeAttachments(r.attachments),
     }));
 
@@ -939,7 +960,7 @@ export default function DecisionsClient() {
     ]);
 
     if (!domRes.error) {
-      const rows = (domRes.data ?? []) as any[];
+      const rows = (domRes.data ?? []) as UnknownRow[];
       const next: Domain[] = rows
         .filter((r) => r && r.id && r.name)
         .map((r) => ({
@@ -951,7 +972,7 @@ export default function DecisionsClient() {
     }
 
     if (!conRes.error) {
-      const rows = (conRes.data ?? []) as any[];
+      const rows = (conRes.data ?? []) as UnknownRow[];
       const next: Constellation[] = rows
         .filter((r) => r && r.id && r.name)
         .map((r) => ({
@@ -971,15 +992,17 @@ export default function DecisionsClient() {
 
       if (!ddRes.error) {
         const next: Record<string, string | null> = {};
-        for (const row of ddRes.data ?? []) next[String((row as any).decision_id)] = String((row as any).domain_id);
+        for (const row of (ddRes.data ?? []) as UnknownRow[]) {
+          next[String(row.decision_id)] = String(row.domain_id);
+        }
         setDomainByDecision(next);
       } else setDomainByDecision({});
 
       if (!ciRes.error) {
         const next: Record<string, string[]> = {};
-        for (const row of ciRes.data ?? []) {
-          const did = String((row as any).decision_id);
-          const cid = String((row as any).constellation_id);
+        for (const row of (ciRes.data ?? []) as UnknownRow[]) {
+          const did = String(row.decision_id);
+          const cid = String(row.constellation_id);
           next[did] = next[did] ? [...next[did], cid] : [cid];
         }
         setConstellationsByDecision(next);
@@ -996,7 +1019,6 @@ export default function DecisionsClient() {
   useEffect(() => {
     setPage(1);
     setShowAll(false);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, searchDebounced, sortKey]);
 
   useEffect(() => {
@@ -1098,7 +1120,7 @@ export default function DecisionsClient() {
       return;
     }
 
-    const rows = (data ?? []) as any[];
+    const rows = (data ?? []) as UnknownRow[];
     const safe: DecisionNote[] = rows
       .filter((r) => r && r.id && typeof r.body === "string")
       .map((r) => ({
@@ -1349,25 +1371,30 @@ export default function DecisionsClient() {
         body: JSON.stringify({ text }),
       });
 
-      const json = await res.json().catch(() => ({}));
+      const json: unknown = await res.json().catch(() => ({}));
+      const responseBody = isUnknownRow(json) ? json : {};
       if (!res.ok) {
-        throw new Error(json?.error ? String(json.error) : "Couldn’t clarify right now.");
+        throw new Error(
+          responseBody.error ? String(responseBody.error) : "Couldn’t clarify right now."
+        );
       }
 
-      const f = json?.frame ?? null;
+      const f = isUnknownRow(responseBody.frame) ? responseBody.frame : null;
       if (!f) throw new Error("No frame returned.");
 
       const next = {
         title: String(f.title ?? "").trim() || titleFromStatement(text),
         statement: String(f.statement ?? "").trim() || text,
         what_im_hearing: String(f.what_im_hearing ?? "").trim(),
-        questions: Array.isArray(f.questions) ? f.questions.map((q: any) => String(q)).filter(Boolean).slice(0, 5) : [],
+        questions: Array.isArray(f.questions)
+          ? f.questions.map((question) => String(question)).filter(Boolean).slice(0, 5)
+          : [],
       };
 
       setFrameDraft(next);
       setNewStep("confirm");
-    } catch (e: any) {
-      showToast({ message: e?.message ?? "Couldn’t clarify right now." }, 3500);
+    } catch (error: unknown) {
+      showToast({ message: errorMessage(error, "Couldn’t clarify right now.") }, 3500);
       setNewStep("input");
     } finally {
       setFramingBusy(false);
@@ -1401,26 +1428,33 @@ export default function DecisionsClient() {
     try {
       const context = composeContext(original, "");
 
-      const { data, error } = await supabase
-        .from("decisions")
-        .insert({
-          user_id: userId,
+      const response = await fetch("/api/decisions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
           title,
           context,
-          status: "open",
-          origin: "decisions",
-          decided_at: null,
-          framed_at: new Date().toISOString(),
-          review_at: null, // ✅ ensure no auto review date set on creation
-        })
-        .select("id")
-        .single();
+          decision_context: {
+            original,
+            statement,
+            questions: frameDraft.questions,
+          },
+          ai_summary: frameDraft.what_im_hearing || null,
+          ai_json: frameDraft,
+        }),
+      });
+      const json = (await response.json().catch(() => ({}))) as {
+        error?: string;
+        decision?: { id?: string };
+      };
 
-      if (error || !data?.id) {
-        throw new Error(error?.message ?? "Save failed.");
+      if (!response.ok || !json.decision?.id) {
+        throw new Error(
+          json.error || "Life CFO couldn’t save this decision yet. Please try again."
+        );
       }
 
-      const id = String(data.id);
+      const id = String(json.decision.id);
 
       setNewText("");
       setFrameDraft(null);
@@ -1440,8 +1474,16 @@ export default function DecisionsClient() {
         }),
         { scroll: false }
       );
-    } catch (e: any) {
-      showToast({ message: e?.message ?? "Save failed." }, 3500);
+    } catch (error: unknown) {
+      showToast(
+        {
+          message:
+            error instanceof Error
+              ? error.message
+              : "Life CFO couldn’t save this decision yet. Please try again.",
+        },
+        3500
+      );
     } finally {
       setCreatingNew(false);
     }
@@ -1559,8 +1601,8 @@ export default function DecisionsClient() {
       const { data, error } = await supabase.storage.from("captures").createSignedUrl(a.path, 60 * 15);
       if (error || !data?.signedUrl) throw new Error(error?.message ?? "Couldn’t open file.");
       window.open(data.signedUrl, "_blank", "noopener,noreferrer");
-    } catch (e: any) {
-      showToast({ message: e?.message ?? "Couldn’t open file." }, 3000);
+    } catch (error: unknown) {
+      showToast({ message: errorMessage(error, "Couldn’t open file.") }, 3000);
     }
   };
 
@@ -1851,7 +1893,7 @@ export default function DecisionsClient() {
                       households.find((h) => h.household_id === s.household_id)?.name ||
                       null;
 
-                    const perm = (String(s.permission ?? "view") as any) === "edit" ? "edit" : "view";
+                    const perm = String(s.permission ?? "view") === "edit" ? "edit" : "view";
                     const stamp = s.created_at ? `Shared ${softWhen(s.created_at)}` : "Shared";
 
                     return (
@@ -1867,7 +1909,13 @@ export default function DecisionsClient() {
                             <select
                               className="h-8 rounded-full border border-zinc-200 bg-white px-3 text-xs text-zinc-700"
                               value={perm}
-                              onChange={(e) => void updateSharePermission(d.id, s.household_id, (e.target.value as any) === "edit" ? "edit" : "view")}
+                              onChange={(e) =>
+                                void updateSharePermission(
+                                  d.id,
+                                  s.household_id,
+                                  e.target.value === "edit" ? "edit" : "view"
+                                )
+                              }
                               title="Permission"
                             >
                               <option value="view">View</option>
@@ -1913,7 +1961,10 @@ export default function DecisionsClient() {
                           className="h-9 rounded-full border border-zinc-200 bg-white px-3 text-sm text-zinc-700"
                           value={sharePerm}
                           onChange={(e) =>
-                            setSharePermissionDraftByDecisionId((p) => ({ ...p, [d.id]: (e.target.value as any) === "edit" ? "edit" : "view" }))
+                            setSharePermissionDraftByDecisionId((p) => ({
+                              ...p,
+                              [d.id]: e.target.value === "edit" ? "edit" : "view",
+                            }))
                           }
                           title="Permission"
                         >
