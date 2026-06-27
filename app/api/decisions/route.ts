@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { resolveHouseholdIdRoute } from "@/lib/households/resolveHouseholdIdRoute";
@@ -112,9 +113,11 @@ export async function POST(request: Request) {
       );
     }
 
-    const { data: decision, error: insertError } = await supabase
+    const decisionId = randomUUID();
+    const { error: insertError } = await supabase
       .from("decisions")
       .insert({
+        id: decisionId,
         user_id: user.id,
         household_id: householdId,
         title: parsed.data.title,
@@ -130,9 +133,7 @@ export async function POST(request: Request) {
         decided_at: null,
         framed_at: new Date().toISOString(),
         review_at: null,
-      })
-      .select("id")
-      .single();
+      });
 
     if (insertError) {
       console.error("decision_create_insert_failed", {
@@ -151,24 +152,7 @@ export async function POST(request: Request) {
       );
     }
 
-    if (!decision?.id) {
-      console.error("decision_create_insert_failed", {
-        code: null,
-        message: "Decision insert returned no id.",
-        details: null,
-        hint: null,
-      });
-      return NextResponse.json(
-        {
-          ok: false,
-          code: "decision_insert_failed",
-          error: "Life CFO couldn’t save this decision yet. Please try again.",
-        },
-        { status: 500 }
-      );
-    }
-
-    return NextResponse.json({ ok: true, decision: { id: decision.id } });
+    return NextResponse.json({ ok: true, decision: { id: decisionId } });
   } catch {
     console.error("decision_create_unexpected_error", {
       code: "unexpected_error",
