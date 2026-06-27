@@ -19,6 +19,10 @@ const confirmationSchema = z.object({
   last_seen_at: z.string().trim().nullable().optional(),
 });
 
+const deleteConfirmationSchema = z.object({
+  pattern_key: z.string().trim().min(1).max(500),
+});
+
 function isOwnerOrEditor(role: unknown): boolean {
   return role === "owner" || role === "editor";
 }
@@ -128,6 +132,72 @@ export async function POST(request: Request) {
     console.error("pattern_confirmation_failed", { message });
     return NextResponse.json(
       { ok: false, error: "We could not save that just now." },
+      { status: 500 }
+    );
+  }
+}
+
+export async function DELETE(request: Request) {
+  try {
+    const supabase = await supabaseRoute();
+    const {
+      data: { user },
+      error: userError,
+    } = await supabase.auth.getUser();
+
+    if (userError || !user?.id) {
+      return NextResponse.json({ ok: false, error: "Please sign in again." }, { status: 401 });
+    }
+
+    const householdId = await resolveHouseholdIdRoute(supabase, user.id);
+    if (!householdId) {
+      return NextResponse.json(
+        { ok: false, error: "No active household was found." },
+        { status: 400 }
+      );
+    }
+
+    const [{ data: membership, error: membershipError }, ownerCheckResult] = await Promise.all([
+      supabase
+        .from("household_members")
+        .select("role")
+        .eq("household_id", householdId)
+        .eq("user_id", user.id)
+        .maybeSingle(),
+      supabase.rpc("is_household_owner_or_editor", { p_household_id: householdId }),
+    ]);
+
+    if (membershipError) throw membershipError;
+    if (ownerCheckResult.error) throw ownerCheckResult.error;
+    if (!isOwnerOrEditor(membership?.role) || ownerCheckResult.data !== true) {
+      return NextResponse.json(
+        { ok: false, error: "Only a household owner or editor can change this." },
+        { status: 403 }
+      );
+    }
+
+    const parsed = deleteConfirmationSchema.safeParse(await request.json().catch(() => ({})));
+    if (!parsed.success) {
+      return NextResponse.json(
+        { ok: false, error: "That pattern could not be put back for review." },
+        { status: 400 }
+      );
+    }
+
+    const { error: deleteError } = await supabase
+      .from("transaction_pattern_confirmations")
+      .delete()
+      .eq("household_id", householdId)
+      .eq("pattern_key", parsed.data.pattern_key);
+
+    if (deleteError) throw deleteError;
+
+    return NextResponse.json({ ok: true });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Pattern reset failed";
+    console.error("pattern_confirmation_delete_failed", { message });
+    return NextResponse.json(
+      { ok: false, error: "We could not put that back for review just now." },
       { status: 500 }
     );
   }

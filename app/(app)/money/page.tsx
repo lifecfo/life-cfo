@@ -94,6 +94,11 @@ type PatternConfirmationResponse = {
   confirmation: PatternConfirmation;
 };
 
+type PatternConfirmationWrite = Omit<
+  PatternConfirmation,
+  "id" | "created_at" | "updated_at"
+>;
+
 type TransactionOutflowSummary = {
   transaction_count: number;
   inflow_transaction_count: number;
@@ -349,6 +354,123 @@ function ReviewPatternCard({
   );
 }
 
+function ReviewedPatternItem({
+  confirmation,
+  displayLabel,
+  saving,
+  onSave,
+  onReset,
+}: {
+  confirmation: PatternConfirmation;
+  displayLabel: string;
+  saving: boolean;
+  onSave: (
+    confirmation: PatternConfirmation,
+    kind: PatternConfirmationKind,
+    label?: string | null
+  ) => Promise<boolean>;
+  onReset: (confirmation: PatternConfirmation) => Promise<boolean>;
+}) {
+  const [renaming, setRenaming] = useState(false);
+  const [nameDraft, setNameDraft] = useState("");
+  const kindLabel =
+    confirmation.kind === "bill"
+      ? "Regular payment"
+      : confirmation.kind === "income"
+        ? "Income"
+        : confirmation.kind === "ignore"
+          ? "Ignored"
+          : "Transfer";
+  const status =
+    confirmation.kind === "ignore"
+      ? "Ignored"
+      : confirmation.kind === "transfer"
+        ? "Reviewed"
+        : "Confirmed";
+
+  const startRenaming = () => {
+    setNameDraft(confirmation.label || displayLabel);
+    setRenaming(true);
+  };
+
+  const saveName = () => {
+    const label = nameDraft.trim();
+    if (!label) return;
+    void onSave(confirmation, confirmation.kind, label).then((saved) => {
+      if (saved) setRenaming(false);
+    });
+  };
+
+  return (
+    <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-3">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <div className="text-sm font-medium text-zinc-900">{displayLabel}</div>
+          <div className="mt-1 text-xs text-zinc-600">
+            {kindLabel}
+            {typeof confirmation.amount_cents === "number"
+              ? ` · ${formatMoney(confirmation.amount_cents, confirmation.currency)}`
+              : ""}
+          </div>
+        </div>
+        <div className="text-xs font-medium text-zinc-600">{status}</div>
+      </div>
+
+      {renaming ? (
+        <form
+          className="mt-3 flex flex-wrap items-center gap-2"
+          onSubmit={(event) => {
+            event.preventDefault();
+            saveName();
+          }}
+        >
+          <input
+            value={nameDraft}
+            onChange={(event) => setNameDraft(event.target.value)}
+            maxLength={160}
+            autoFocus
+            aria-label="Reviewed pattern name"
+            className="min-w-0 flex-1 rounded-xl border border-zinc-300 bg-white px-3 py-1.5 text-sm text-zinc-900 outline-none focus:border-brand-aqua"
+          />
+          <Chip onClick={saveName} disabled={saving || !nameDraft.trim()}>
+            Save
+          </Chip>
+          <Chip onClick={() => setRenaming(false)} disabled={saving}>
+            Cancel
+          </Chip>
+        </form>
+      ) : (
+        <div className="mt-3 flex flex-wrap gap-2">
+          <Chip onClick={startRenaming} disabled={saving}>
+            Rename
+          </Chip>
+          <Chip
+            onClick={() => void onSave(confirmation, "bill")}
+            disabled={saving || confirmation.kind === "bill"}
+          >
+            Change to regular payment
+          </Chip>
+          <Chip
+            onClick={() => void onSave(confirmation, "income")}
+            disabled={saving || confirmation.kind === "income"}
+          >
+            Change to income
+          </Chip>
+          <Chip
+            onClick={() => void onSave(confirmation, "ignore")}
+            disabled={saving || confirmation.kind === "ignore"}
+          >
+            Ignore
+          </Chip>
+          <Chip onClick={() => void onReset(confirmation)} disabled={saving}>
+            Put back for review
+          </Chip>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function MoneyClientNext() {
   const router = useRouter();
   const { showToast } = useToast();
@@ -360,6 +482,7 @@ export default function MoneyClientNext() {
   const [recentTransactions, setRecentTransactions] = useState<TransactionRow[]>([]);
   const [savingPatternKey, setSavingPatternKey] = useState<string | null>(null);
   const [confirmationError, setConfirmationError] = useState<string | null>(null);
+  const [reviewedPatternsOpen, setReviewedPatternsOpen] = useState(false);
 
   const snapshot = data?.snapshot;
   const explanation = data?.explanation;
@@ -377,17 +500,31 @@ export default function MoneyClientNext() {
       ...(transactionOutflows?.likely_income ?? []),
     ].map((pattern) => [pattern.pattern_key, pattern])
   );
-  const confirmedPatterns = (data?.pattern_confirmations ?? []).map((confirmation) => ({
-    ...confirmation,
-    label:
-      confirmation.label || detectedPatternsByKey.get(confirmation.pattern_key)?.label || null,
-  }));
-  const confirmedBills = confirmedPatterns.filter(
+  const reviewedPatterns = data?.pattern_confirmations ?? [];
+  const displayLabelForConfirmation = (confirmation: PatternConfirmation): string =>
+    confirmation.label ||
+    detectedPatternsByKey.get(confirmation.pattern_key)?.label ||
+    (confirmation.kind === "bill"
+      ? "Regular payment"
+      : confirmation.kind === "income"
+        ? "Income pattern"
+        : confirmation.kind === "ignore"
+          ? "Ignored pattern"
+          : "Transfer");
+  const confirmedBills = reviewedPatterns.filter(
     (confirmation) => confirmation.kind === "bill"
   );
-  const confirmedIncome = confirmedPatterns.filter(
+  const confirmedIncome = reviewedPatterns.filter(
     (confirmation) => confirmation.kind === "income"
   );
+  const reviewedIgnored = reviewedPatterns.filter(
+    (confirmation) => confirmation.kind === "ignore" || confirmation.kind === "transfer"
+  );
+  const reviewedGroups = [
+    { title: "Regular payments", items: confirmedBills },
+    { title: "Income", items: confirmedIncome },
+    { title: "Ignored", items: reviewedIgnored },
+  ];
   const mergePatterns = (
     patterns: DetectedPattern[],
     detectedKind: "bill" | "income"
@@ -432,30 +569,18 @@ export default function MoneyClientNext() {
     }
   }, [showToast]);
 
-  const savePatternConfirmation = async (
-    pattern: ReviewPattern,
-    kind: PatternConfirmationKind,
-    label?: string | null
+  const upsertPatternConfirmation = async (
+    input: PatternConfirmationWrite,
+    successMessage: string
   ): Promise<boolean> => {
-    setSavingPatternKey(pattern.pattern_key);
+    setSavingPatternKey(input.pattern_key);
     setConfirmationError(null);
 
     try {
       const response = await fetch("/api/money/pattern-confirmations", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          pattern_key: pattern.pattern_key,
-          kind,
-          label: label === undefined ? pattern.confirmation?.label ?? null : label,
-          amount_cents: pattern.average_cents,
-          currency: pattern.currency,
-          cadence: pattern.cadence,
-          confidence: pattern.confidence,
-          source_provider: pattern.source_provider,
-          first_seen_at: pattern.first_seen_at,
-          last_seen_at: pattern.last_seen_at,
-        }),
+        body: JSON.stringify(input),
       });
       const json = (await response.json().catch(() => ({}))) as Partial<
         PatternConfirmationResponse & { error: string }
@@ -473,18 +598,98 @@ export default function MoneyClientNext() {
           pattern_confirmations: [
             json.confirmation as PatternConfirmation,
             ...previous.filter(
-              (confirmation) => confirmation.pattern_key !== pattern.pattern_key
+              (confirmation) => confirmation.pattern_key !== input.pattern_key
             ),
           ],
         };
       });
 
-      const message = kind === "ignore" ? "Ignored" : label !== undefined ? "Name saved" : "Confirmed";
-      showToast({ message }, 1800);
+      showToast({ message: successMessage }, 1800);
       return true;
     } catch (saveError: unknown) {
       const message = getErrorMessage(saveError, "We could not save that just now.");
       setConfirmationError(message);
+      return false;
+    } finally {
+      setSavingPatternKey(null);
+    }
+  };
+
+  const savePatternConfirmation = (
+    pattern: ReviewPattern,
+    kind: PatternConfirmationKind,
+    label?: string | null
+  ): Promise<boolean> =>
+    upsertPatternConfirmation(
+      {
+        pattern_key: pattern.pattern_key,
+        kind,
+        label: label === undefined ? pattern.confirmation?.label ?? null : label,
+        amount_cents: pattern.average_cents,
+        currency: pattern.currency,
+        cadence: pattern.cadence,
+        confidence: pattern.confidence,
+        source_provider: pattern.source_provider,
+        first_seen_at: pattern.first_seen_at,
+        last_seen_at: pattern.last_seen_at,
+      },
+      kind === "ignore" ? "Ignored" : label !== undefined ? "Name saved" : "Confirmed"
+    );
+
+  const saveReviewedPattern = (
+    confirmation: PatternConfirmation,
+    kind: PatternConfirmationKind,
+    label?: string | null
+  ): Promise<boolean> =>
+    upsertPatternConfirmation(
+      {
+        pattern_key: confirmation.pattern_key,
+        kind,
+        label: label === undefined ? confirmation.label : label,
+        amount_cents: confirmation.amount_cents,
+        currency: confirmation.currency,
+        cadence: confirmation.cadence,
+        confidence: confirmation.confidence,
+        source_provider: confirmation.source_provider,
+        first_seen_at: confirmation.first_seen_at,
+        last_seen_at: confirmation.last_seen_at,
+      },
+      label !== undefined ? "Name saved" : kind === "ignore" ? "Ignored" : "Saved"
+    );
+
+  const putPatternBackForReview = async (
+    confirmation: PatternConfirmation
+  ): Promise<boolean> => {
+    setSavingPatternKey(confirmation.pattern_key);
+    setConfirmationError(null);
+
+    try {
+      const response = await fetch("/api/money/pattern-confirmations", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pattern_key: confirmation.pattern_key }),
+      });
+      const json = (await response.json().catch(() => ({}))) as { error?: string };
+      if (!response.ok) {
+        throw new Error(json.error || "We could not put that back for review just now.");
+      }
+
+      setData((current) =>
+        current
+          ? {
+              ...current,
+              pattern_confirmations: (current.pattern_confirmations ?? []).filter(
+                (item) => item.pattern_key !== confirmation.pattern_key
+              ),
+            }
+          : current
+      );
+      showToast({ message: "Put back for review" }, 1800);
+      return true;
+    } catch (resetError: unknown) {
+      setConfirmationError(
+        getErrorMessage(resetError, "We could not put that back for review just now.")
+      );
       return false;
     } finally {
       setSavingPatternKey(null);
@@ -765,6 +970,58 @@ export default function MoneyClientNext() {
               </CardContent>
             </Card>
           ) : null}
+
+          <Card className="border-zinc-200 bg-white">
+            <CardContent className="space-y-3">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <div className="text-sm font-semibold text-zinc-900">
+                    Reviewed money patterns
+                  </div>
+                  <div className="mt-1 text-xs leading-relaxed text-zinc-600">
+                    These are the regular payments and income patterns you’ve reviewed from connected bank data.
+                  </div>
+                </div>
+                <Chip onClick={() => setReviewedPatternsOpen((open) => !open)}>
+                  {reviewedPatternsOpen ? "Hide reviewed patterns" : "View reviewed patterns"}
+                </Chip>
+              </div>
+
+              {reviewedPatternsOpen ? (
+                reviewedPatterns.length ? (
+                  <div className="space-y-4">
+                    {reviewedGroups.map((group) =>
+                      group.items.length ? (
+                        <div key={group.title} className="space-y-2">
+                          <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                            {group.title}
+                          </div>
+                          {group.items.map((confirmation) => (
+                            <ReviewedPatternItem
+                              key={confirmation.pattern_key}
+                              confirmation={confirmation}
+                              displayLabel={displayLabelForConfirmation(confirmation)}
+                              saving={savingPatternKey === confirmation.pattern_key}
+                              onSave={saveReviewedPattern}
+                              onReset={putPatternBackForReview}
+                            />
+                          ))}
+                        </div>
+                      ) : null
+                    )}
+                  </div>
+                ) : (
+                  <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-3 text-sm text-zinc-700">
+                    No reviewed money patterns yet.
+                  </div>
+                )
+              ) : null}
+
+              {reviewedPatternsOpen && confirmationError ? (
+                <div className="text-xs text-red-600">{confirmationError}</div>
+              ) : null}
+            </CardContent>
+          </Card>
 
           <div className="grid gap-4 md:grid-cols-2">
             <FlowCard
