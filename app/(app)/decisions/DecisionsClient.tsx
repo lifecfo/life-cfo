@@ -80,6 +80,12 @@ function isUnknownRow(value: unknown): value is UnknownRow {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
+function householdNameFromRow(row: UnknownRow): string | null {
+  if (row.household_name) return String(row.household_name);
+  const household = isUnknownRow(row.household) ? row.household : null;
+  return household?.name ? String(household.name) : null;
+}
+
 function errorMessage(error: unknown, fallback: string): string {
   return error instanceof Error && error.message ? error.message : fallback;
 }
@@ -798,7 +804,7 @@ export default function DecisionsClient() {
           id: r.id ? String(r.id) : undefined,
           decision_id: r.decision_id ? String(r.decision_id) : undefined,
           household_id: String(r.household_id),
-          household_name: r.household_name ? String(r.household_name) : r.household?.name ? String(r.household.name) : null,
+          household_name: householdNameFromRow(r),
           permission: r.permission ? String(r.permission) : "view",
           note: r.note ? String(r.note) : null,
           created_at: r.created_at ? String(r.created_at) : null,
