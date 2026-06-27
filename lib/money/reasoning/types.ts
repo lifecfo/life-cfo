@@ -141,6 +141,22 @@ export type ExternalConnectionsTruthRow = {
   provider: string | null;
 };
 
+export type TransactionPatternConfirmationTruthRow = {
+  id: string;
+  pattern_key: string;
+  kind: "bill" | "income" | "transfer" | "ignore";
+  label: string | null;
+  amount_cents: number | null;
+  currency: string;
+  cadence: string | null;
+  confidence: string | null;
+  source_provider: string | null;
+  first_seen_at: string | null;
+  last_seen_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 export type GetHouseholdMoneyTruthParams = {
   householdId: string;
   nowIso?: string;
@@ -167,6 +183,7 @@ export type HouseholdMoneyTruth = {
   goals: MoneyGoalsTruthRow[];
   liabilities: LiabilitiesTruthRow[];
   external_connections: ExternalConnectionsTruthRow[];
+  transaction_pattern_confirmations: TransactionPatternConfirmationTruthRow[];
   counts: {
     budget_items: number;
     investment_accounts: number;

@@ -500,6 +500,16 @@ export function AskProvider({ children }: { children: ReactNode }) {
           const mapped = Array.isArray(commitments?.mapped)
             ? (commitments.mapped as string[]).filter((line) => typeof line === "string" && line.trim())
             : [];
+          const confirmed = Array.isArray(commitments?.confirmed)
+            ? (commitments.confirmed as string[]).filter(
+                (line) => typeof line === "string" && line.trim()
+              )
+            : [];
+          const confirmedIncome = Array.isArray(commitments?.confirmed_income)
+            ? (commitments.confirmed_income as string[]).filter(
+                (line) => typeof line === "string" && line.trim()
+              )
+            : [];
           const mappedIncome = Array.isArray(commitments?.mapped_income)
             ? (commitments.mapped_income as string[]).filter((line) => typeof line === "string" && line.trim())
             : [];
@@ -539,6 +549,14 @@ export function AskProvider({ children }: { children: ReactNode }) {
           content = composeMessage([
             headline,
             summary,
+            section(
+              focus === "income"
+                ? "Confirmed income patterns:"
+                : focus === "regular"
+                  ? "Confirmed regular payments:"
+                  : "Confirmed bills:",
+              focus === "income" ? confirmedIncome : focus === "month" ? [] : confirmed
+            ),
             section("This month so far:", observedLines),
             section("Money in and out:", focus === "month" ? [] : monthlyPosition),
             section("Available cash:", availableCash ? [availableCash] : []),

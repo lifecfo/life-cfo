@@ -39,19 +39,7 @@ export async function GET() {
       );
     }
 
-    const [truth, confirmationsResult] = await Promise.all([
-      getHouseholdMoneyTruth(supabase, { householdId }),
-      supabase
-        .from("transaction_pattern_confirmations")
-        .select(
-          "id,pattern_key,kind,label,amount_cents,currency,cadence,confidence,source_provider,first_seen_at,last_seen_at,created_at,updated_at"
-        )
-        .eq("household_id", householdId)
-        .order("updated_at", { ascending: false }),
-    ]);
-
-    if (confirmationsResult.error) throw confirmationsResult.error;
-
+    const truth = await getHouseholdMoneyTruth(supabase, { householdId });
     const snapshot = buildFinancialSnapshot(truth);
     const explanation = explainSnapshot(snapshot);
     const transactionOutflows = deriveTransactionOutflowSummary({
@@ -65,7 +53,7 @@ export async function GET() {
       snapshot,
       explanation,
       transaction_outflows: transactionOutflows,
-      pattern_confirmations: confirmationsResult.data ?? [],
+      pattern_confirmations: truth.transaction_pattern_confirmations,
     });
   } catch (e: unknown) {
     return NextResponse.json(

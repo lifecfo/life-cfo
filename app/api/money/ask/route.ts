@@ -904,8 +904,48 @@ export async function POST(req: Request) {
         connections: truth.external_connections,
         nowIso: truth.as_of_iso,
       });
+      const confirmations = truth.transaction_pattern_confirmations ?? [];
+      const confirmationsByPatternKey = new Map(
+        confirmations.map((confirmation) => [confirmation.pattern_key, confirmation])
+      );
+      const detectedPatternsByKey = new Map(
+        [...outflows.likely_regular_outflows, ...outflows.likely_income].map((pattern) => [
+          pattern.pattern_key,
+          pattern,
+        ])
+      );
+      const confirmedBills = confirmations.filter(
+        (confirmation) => confirmation.kind === "bill"
+      );
+      const confirmedIncome = confirmations.filter(
+        (confirmation) => confirmation.kind === "income"
+      );
+      const confirmedBillLines = confirmedBills.slice(0, 4).map((confirmation) => {
+        const label =
+          safeStr(confirmation.label) ||
+          detectedPatternsByKey.get(confirmation.pattern_key)?.label ||
+          "Regular payment";
+        const amount =
+          typeof confirmation.amount_cents === "number"
+            ? `about ${formatMoney(confirmation.amount_cents, confirmation.currency || "AUD")}`
+            : "amount not recorded";
+        const timing = safeStr(confirmation.cadence);
+        return `${label}: ${amount}${timing ? ` ${timing}` : ""}.`;
+      });
+      const confirmedIncomeLines = confirmedIncome.slice(0, 4).map((confirmation) => {
+        const label =
+          safeStr(confirmation.label) ||
+          detectedPatternsByKey.get(confirmation.pattern_key)?.label ||
+          "Income pattern";
+        const amount =
+          typeof confirmation.amount_cents === "number"
+            ? `about ${formatMoney(confirmation.amount_cents, confirmation.currency || "AUD")}`
+            : "amount not recorded";
+        const timing = safeStr(confirmation.cadence);
+        return `${label}: ${amount}${timing ? ` ${timing}` : ""}.`;
+      });
       const mappedLines = mappedBills.slice(0, 4).map((bill) => {
-        const label = safeStr(bill.name) || "Mapped bill";
+        const label = safeStr(bill.name) || "Bill";
         return `${label}: ${formatMoney(bill.amount_cents, bill.currency || "AUD")} (${bill.cadence || "monthly"}).`;
       });
       const mappedIncomeLines = mappedIncome.slice(0, 4).map((income) => {
@@ -927,22 +967,35 @@ export async function POST(req: Request) {
         .slice(0, 3)
         .map((item) => formatMoney(item.cents, item.currency));
       const regularLines = outflows.likely_regular_outflows
-        .filter((item) => !item.uncertain_label && item.confidence === "likely")
+        .filter(
+          (item) =>
+            !confirmationsByPatternKey.has(item.pattern_key) &&
+            !item.uncertain_label &&
+            item.confidence === "likely"
+        )
         .slice(0, 3)
         .map((item) =>
-        `${item.label}: ${item.occurrences} recent ${item.cadence} payment(s) averaging ${formatMoney(
+        `${item.label}: ${item.occurrences} recent ${item.cadence} payments, about ${formatMoney(
           item.average_cents,
           item.currency
-        )}.`
+        )} each.`
       );
       const likelyIncomeLines = outflows.likely_income
-        .filter((item) => !item.uncertain_label && item.confidence === "likely")
+        .filter(
+          (item) =>
+            !confirmationsByPatternKey.has(item.pattern_key) &&
+            !item.uncertain_label &&
+            item.confidence === "likely"
+        )
         .slice(0, 3)
         .map((item) =>
-        `${item.label}: ${item.occurrences} recent ${item.cadence} inflow(s) averaging ${formatMoney(
+        `${item.label}: ${item.occurrences} recent ${item.cadence} amounts of money in, about ${formatMoney(
           item.average_cents,
           item.currency
-        )}.`
+        )} each.`
+      );
+      const hasUnreviewedUnclearPayments = outflows.likely_regular_outflows.some(
+        (item) => item.uncertain_label && !confirmationsByPatternKey.has(item.pattern_key)
       );
       const formallyMapped = mappedBills.length > 0;
       const incomeMapped = mappedIncome.length > 0;
@@ -955,22 +1008,42 @@ export async function POST(req: Request) {
         outflows.month_outflow_by_currency
       );
       const summary = focus === "income"
-        ? incomeMapped
+        ? confirmedIncome.length > 0
+          ? `You’ve confirmed ${confirmedIncome.length} ${confirmedIncome.length === 1 ? "income pattern" : "income patterns"}. Here they are first, followed by money in this month.`
+          : incomeMapped
           ? "Here is the money that has come in this month, alongside income you have already set up."
           : outflows.inflow_transaction_count > 0
             ? "Here is the money that has come in so far this month from your connected bank data."
             : "Income has not been set up yet, and there is no money in to show for this month."
         : focus === "regular"
-          ? formallyMapped
+          ? confirmedBills.length > 0
+            ? `You’ve confirmed ${confirmedBills.length} ${confirmedBills.length === 1 ? "regular payment" : "regular payments"}.`
+            : formallyMapped
             ? "These regular payments have been set up in Life CFO."
-            : "Regular payments have not been confirmed yet. Your connected bank data shows repeated activity."
+            : regularLines.length > 0
+              ? "Regular payments have not been confirmed yet. Your connected bank data shows repeated activity."
+              : "No confirmed regular payments are showing yet."
           : focus === "bills"
-          ? formallyMapped
+          ? confirmedBills.length > 0
+            ? `You’ve confirmed ${confirmedBills.length} ${confirmedBills.length === 1 ? "bill" : "bills"}. Here they are first, followed by money out this month.`
+            : formallyMapped
             ? "Here is the money that has gone out this month, alongside bills you have already set up."
             : outflows.transaction_count > 0
               ? "Bills have not been set up yet. Here is the money that has gone out so far this month from your connected bank data."
               : "Bills have not been set up yet, and there is no money out to show for this month."
           : monthlyPositionSummary;
+      const caveat =
+        focus === "month"
+          ? confirmedBills.length || confirmedIncome.length
+            ? "This combines connected bank data with the patterns you have confirmed."
+            : "Bills and income have not been confirmed yet, so this is a first look based on your connected bank data."
+          : focus === "bills" || focus === "regular"
+            ? confirmedBills.length > 0
+              ? null
+              : "Payments have not been confirmed yet, so this is a first look from your connected bank data."
+            : confirmedIncome.length > 0
+              ? null
+              : "Income has not been confirmed yet, so this is a first look rather than a final income summary.";
 
       return NextResponse.json({
         ok: true,
@@ -982,15 +1055,17 @@ export async function POST(req: Request) {
             focus === "income"
               ? "Income this month"
               : focus === "regular"
-                ? formallyMapped
-                  ? "Regular payments"
-                  : "Possible regular payments"
+                ? confirmedBills.length > 0
+                  ? "Confirmed regular payments"
+                  : formallyMapped
+                    ? "Regular payments"
+                    : "Possible regular payments"
               : focus === "bills"
-                ? formallyMapped
-                  ? "Bills this month"
-                  : "Bills this month"
+                ? "Bills this month"
                 : "This month so far",
           summary,
+          confirmed: focus === "bills" || focus === "regular" ? confirmedBillLines : [],
+          confirmed_income: focus === "income" ? confirmedIncomeLines : [],
           mapped: focus === "income" ? [] : mappedLines,
           mapped_income: focus === "bills" || focus === "regular" ? [] : mappedIncomeLines,
           current_month: focus === "income" ? [] : monthOutflowLines,
@@ -1006,23 +1081,12 @@ export async function POST(req: Request) {
               : null,
           source_note: null,
           label_note:
-            (focus === "bills" || focus === "regular") && outflows.has_unlabelled_repeated_outflows
+            (focus === "bills" || focus === "regular") && hasUnreviewedUnclearPayments
               ? focus === "bills"
                 ? "The bank labels are unclear, so Life CFO cannot reliably name these as bills yet."
                 : "The bank labels are too unclear for Life CFO to reliably name the payments yet."
               : null,
-          caveat:
-            focus === "month"
-              ? "Bills and income have not been confirmed yet, so this is a first look based on your connected bank data."
-              : focus === "bills" || focus === "regular"
-                ? null
-            : formallyMapped && incomeMapped
-                ? "The items you have set up are shown alongside recent bank activity."
-                : focus === "income"
-                  ? "Income has not been confirmed yet, so this is a first look rather than a final income summary."
-                  : focus === "bills"
-                    ? "Bills have not been confirmed yet, so this is a first look from your connected bank data."
-                    : "Payments have not been confirmed yet, so this is a first look from your connected bank data.",
+          caveat,
         },
       });
     }

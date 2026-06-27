@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type {
   AccountsTruthRow,
   ExternalConnectionsTruthRow,
+  TransactionPatternConfirmationTruthRow,
   GetHouseholdMoneyTruthParams,
   HouseholdMoneyTruth,
   LiabilitiesTruthRow,
@@ -71,6 +72,7 @@ export async function getHouseholdMoneyTruth(
     liabilitiesRes,
     budgetItemsRes,
     connectionsRes,
+    confirmationsRes,
     investmentAccountsRes,
   ] = await Promise.all([
     supabase
@@ -162,6 +164,14 @@ export async function getHouseholdMoneyTruth(
       .order("updated_at", { ascending: false }),
 
     supabase
+      .from("transaction_pattern_confirmations")
+      .select(
+        "id,pattern_key,kind,label,amount_cents,currency,cadence,confidence,source_provider,first_seen_at,last_seen_at,created_at,updated_at"
+      )
+      .eq("household_id", householdId)
+      .order("updated_at", { ascending: false }),
+
+    supabase
       .from("investment_accounts")
       .select("id", { count: "exact", head: true })
       .eq("household_id", householdId),
@@ -177,6 +187,7 @@ export async function getHouseholdMoneyTruth(
   if (liabilitiesRes.error) throw liabilitiesRes.error;
   if (budgetItemsRes.error) throw budgetItemsRes.error;
   if (connectionsRes.error) throw connectionsRes.error;
+  if (confirmationsRes.error) throw confirmationsRes.error;
   if (investmentAccountsRes.error) throw investmentAccountsRes.error;
 
   return {
@@ -197,6 +208,7 @@ export async function getHouseholdMoneyTruth(
     goals: (goalsRes.data ?? []) as MoneyGoalsTruthRow[],
     liabilities: (liabilitiesRes.data ?? []) as LiabilitiesTruthRow[],
     external_connections: (connectionsRes.data ?? []) as ExternalConnectionsTruthRow[],
+    transaction_pattern_confirmations: (confirmationsRes.data ?? []) as TransactionPatternConfirmationTruthRow[],
     counts: {
       budget_items: budgetItemsRes.count ?? 0,
       investment_accounts: investmentAccountsRes.count ?? 0,

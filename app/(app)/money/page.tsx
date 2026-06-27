@@ -132,6 +132,21 @@ function formatMoneyRows(rows: MoneyRow[]) {
   return rows.map((row) => formatMoney(row.cents, row.currency)).join(" | ");
 }
 
+function confirmedPatternSummary(
+  patterns: PatternConfirmation[],
+  singular: string,
+  plural: string
+): string {
+  const count = patterns.length;
+  if (!count) return `No ${plural} confirmed yet.`;
+  const labels = patterns
+    .map((pattern) => pattern.label?.trim())
+    .filter((label): label is string => Boolean(label))
+    .slice(0, 2);
+  const lead = `You’ve confirmed ${count} ${count === 1 ? singular : plural}.`;
+  return labels.length ? `${lead.slice(0, -1)}: ${labels.join(" and ")}.` : lead;
+}
+
 function softDate(isoOrDate: string | null | undefined) {
   if (!isoOrDate) return "";
   const ms = Date.parse(isoOrDate);
@@ -355,6 +370,23 @@ export default function MoneyClientNext() {
       confirmation.pattern_key,
       confirmation,
     ])
+  );
+  const detectedPatternsByKey = new Map(
+    [
+      ...(transactionOutflows?.likely_regular_outflows ?? []),
+      ...(transactionOutflows?.likely_income ?? []),
+    ].map((pattern) => [pattern.pattern_key, pattern])
+  );
+  const confirmedPatterns = (data?.pattern_confirmations ?? []).map((confirmation) => ({
+    ...confirmation,
+    label:
+      confirmation.label || detectedPatternsByKey.get(confirmation.pattern_key)?.label || null,
+  }));
+  const confirmedBills = confirmedPatterns.filter(
+    (confirmation) => confirmation.kind === "bill"
+  );
+  const confirmedIncome = confirmedPatterns.filter(
+    (confirmation) => confirmation.kind === "income"
   );
   const mergePatterns = (
     patterns: DetectedPattern[],
@@ -738,26 +770,27 @@ export default function MoneyClientNext() {
             <FlowCard
               title="In"
               rows={[
-                `Recurring income: ${snapshot ? formatMoney(snapshot.income.recurringMonthlyCents) : loading ? "Loading..." : "-"}`,
+                confirmedPatternSummary(confirmedIncome, "income pattern", "income patterns"),
+                `Regular income you’ve set up: ${snapshot ? formatMoney(snapshot.income.recurringMonthlyCents) : loading ? "Loading..." : "-"}`,
                 transactionOutflows?.month_inflow_by_currency?.length
-                  ? `This month’s observed inflows: ${formatMoneyRows(
+                  ? `Observed money in this month: ${formatMoneyRows(
                       transactionOutflows.month_inflow_by_currency
                     )}.`
                   : snapshot
-                    ? `${snapshot.income.sourceCount} recurring source(s) tracked.`
+                    ? `${snapshot.income.sourceCount} regular income source(s) set up.`
                     : "Income sources will show here.",
-                transactionOutflows?.likely_income?.[0]
-                  ? `Likely ${transactionOutflows.likely_income[0].cadence} income: ${transactionOutflows.likely_income[0].label} (${formatMoney(
-                      transactionOutflows.likely_income[0].average_cents,
-                      transactionOutflows.likely_income[0].currency
-                    )} average).`
+                reviewIncome[0]
+                  ? `This looks regular: ${reviewIncome[0].label}, about ${formatMoney(
+                      reviewIncome[0].average_cents,
+                      reviewIncome[0].currency
+                    )} each time.`
                   : "Repeated income will appear here when the transaction pattern is clear.",
                 explanation?.pressure.timing || "Income timing notes will appear here.",
               ]}
               note={
                 snapshot?.income.sourceCount === 0 && transactionOutflows?.inflow_transaction_count
-                  ? "Connected inflows are available. They are observed transactions until you choose to confirm an income pattern."
-                  : "See income details and recent inflows."
+                  ? "Connected money in is available. It stays observed until you confirm an income pattern."
+                  : "See income details and recent money in."
               }
               links={[
                 { href: "/money/in", label: "Open In" },
@@ -768,29 +801,30 @@ export default function MoneyClientNext() {
             <FlowCard
               title="Out"
               rows={[
-                `Recurring commitments: ${snapshot ? formatMoney(snapshot.commitments.recurringMonthlyCents) : loading ? "Loading..." : "-"}`,
+                confirmedPatternSummary(confirmedBills, "regular payment", "regular payments"),
+                `Regular payments you’ve set up: ${snapshot ? formatMoney(snapshot.commitments.recurringMonthlyCents) : loading ? "Loading..." : "-"}`,
                 snapshot
                   ? snapshot.commitments.billCount > 0
-                    ? `${snapshot.commitments.billCount} bill(s) mapped.`
-                    : "No bills are formally mapped yet."
+                    ? `${snapshot.commitments.billCount} bill(s) set up.`
+                    : "No bills are set up yet."
                   : "Bill coverage will show here.",
                 transactionOutflows?.month_outflow_by_currency?.length
-                  ? `This month’s connected outflows: ${formatMoneyRows(
+                  ? `Observed money out this month: ${formatMoneyRows(
                       transactionOutflows.month_outflow_by_currency
                     )}.`
                   : latestImported
-                    ? `Latest imported outflow cue: ${latestImportedName} (${latestImportedAmount}).`
+                    ? `Latest imported payment: ${latestImportedName} (${latestImportedAmount}).`
                     : `Flexible spending (30 days): ${snapshot ? formatMoney(snapshot.discretionary.last30DayOutflowCents) : loading ? "Loading..." : "-"}`,
-                transactionOutflows?.likely_regular_outflows?.[0]
-                  ? `Likely ${transactionOutflows.likely_regular_outflows[0].cadence} payment: ${transactionOutflows.likely_regular_outflows[0].label} (${formatMoney(
-                      transactionOutflows.likely_regular_outflows[0].average_cents,
-                      transactionOutflows.likely_regular_outflows[0].currency
-                    )} average${transactionOutflows.likely_regular_outflows[0].confidence === "low" ? "; label needs confirmation" : ""}).`
+                reviewPayments[0]
+                  ? `This looks regular: ${reviewPayments[0].label}, about ${formatMoney(
+                      reviewPayments[0].average_cents,
+                      reviewPayments[0].currency
+                    )} each time.`
                   : "Repeated payments will appear here when the transaction labels are clear.",
               ]}
               note={
                 snapshot?.commitments.billCount === 0 && transactionOutflows?.transaction_count
-                  ? "Connected transactions are available. Bills are not formally mapped yet, so this view is using recent outflows as a starting point."
+                  ? "Connected transactions are available. No bills are set up yet, so this starts with recent money out."
                   : explanation?.pressure.structural || "Spending pressure notes will appear here."
               }
               links={[
