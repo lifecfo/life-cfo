@@ -26,24 +26,43 @@ function nullableText(value: string | null | undefined): string | null {
 }
 
 export async function POST(request: Request) {
+  console.info("decision_create_route", { route_reached: true });
+
   try {
     const supabase = await supabaseRoute();
     const {
       data: { user },
       error: userError,
     } = await supabase.auth.getUser();
+    const hasAuthenticatedUser = !userError && Boolean(user?.id);
 
-    if (userError || !user?.id) {
+    console.info("decision_create_auth", {
+      has_authenticated_user: hasAuthenticatedUser,
+    });
+
+    if (!hasAuthenticatedUser || !user?.id) {
       return NextResponse.json(
-        { ok: false, error: "Please sign in again before saving this decision." },
+        {
+          ok: false,
+          code: "not_authenticated",
+          error: "Please sign in again before saving this decision.",
+        },
         { status: 401 }
       );
     }
 
     const householdId = await resolveHouseholdIdRoute(supabase, user.id);
+    console.info("decision_create_household", {
+      active_household_resolved: Boolean(householdId),
+    });
+
     if (!householdId) {
       return NextResponse.json(
-        { ok: false, error: "Choose an active household before saving this decision." },
+        {
+          ok: false,
+          code: "no_active_household",
+          error: "Choose an active household before saving this decision.",
+        },
         { status: 400 }
       );
     }
@@ -58,11 +77,25 @@ export async function POST(request: Request) {
       supabase.rpc("is_household_owner_or_editor", { p_household_id: householdId }),
     ]);
 
+    const ownerEditorCheckPassed =
+      !membershipError &&
+      !ownerCheckResult.error &&
+      isOwnerOrEditor(membership?.role) &&
+      ownerCheckResult.data === true;
+
+    console.info("decision_create_permission", {
+      owner_editor_check_passed: ownerEditorCheckPassed,
+    });
+
     if (membershipError) throw membershipError;
     if (ownerCheckResult.error) throw ownerCheckResult.error;
-    if (!isOwnerOrEditor(membership?.role) || ownerCheckResult.data !== true) {
+    if (!ownerEditorCheckPassed) {
       return NextResponse.json(
-        { ok: false, error: "Only a household owner or editor can save this decision." },
+        {
+          ok: false,
+          code: "not_household_editor",
+          error: "Only a household owner or editor can save this decision.",
+        },
         { status: 403 }
       );
     }
@@ -70,7 +103,11 @@ export async function POST(request: Request) {
     const parsed = createDecisionSchema.safeParse(await request.json().catch(() => ({})));
     if (!parsed.success) {
       return NextResponse.json(
-        { ok: false, error: "Life CFO couldn’t save this decision yet. Please check it and try again." },
+        {
+          ok: false,
+          code: "invalid_payload",
+          error: "Life CFO couldn’t save this decision yet. Please check it and try again.",
+        },
         { status: 400 }
       );
     }
@@ -97,16 +134,51 @@ export async function POST(request: Request) {
       .select("id")
       .single();
 
-    if (insertError || !decision?.id) {
-      throw insertError ?? new Error("Decision insert returned no id.");
+    if (insertError) {
+      console.error("decision_create_insert_failed", {
+        code: insertError.code ?? null,
+        message: insertError.message ?? null,
+        details: insertError.details ?? null,
+        hint: insertError.hint ?? null,
+      });
+      return NextResponse.json(
+        {
+          ok: false,
+          code: "decision_insert_failed",
+          error: "Life CFO couldn’t save this decision yet. Please try again.",
+        },
+        { status: 500 }
+      );
+    }
+
+    if (!decision?.id) {
+      console.error("decision_create_insert_failed", {
+        code: null,
+        message: "Decision insert returned no id.",
+        details: null,
+        hint: null,
+      });
+      return NextResponse.json(
+        {
+          ok: false,
+          code: "decision_insert_failed",
+          error: "Life CFO couldn’t save this decision yet. Please try again.",
+        },
+        { status: 500 }
+      );
     }
 
     return NextResponse.json({ ok: true, decision: { id: decision.id } });
-  } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : "Decision creation failed";
-    console.error("decision_create_failed", { message });
+  } catch {
+    console.error("decision_create_unexpected_error", {
+      code: "unexpected_error",
+    });
     return NextResponse.json(
-      { ok: false, error: "Life CFO couldn’t save this decision yet. Please try again." },
+      {
+        ok: false,
+        code: "unexpected_error",
+        error: "Life CFO couldn’t save this decision yet. Please try again.",
+      },
       { status: 500 }
     );
   }
