@@ -87,7 +87,7 @@ export async function getHouseholdMoneyTruth(
     supabase
       .from("transactions")
       .select(
-        "id,date,description,merchant,category,pending,amount,amount_cents,currency,account_id,created_at,updated_at"
+        "id,date,description,merchant,category,pending,amount,amount_cents,currency,account_id,provider,created_at,updated_at"
       )
       .eq("household_id", householdId)
       .order("date", { ascending: false })
@@ -97,7 +97,7 @@ export async function getHouseholdMoneyTruth(
     supabase
       .from("transactions")
       .select(
-        "id,date,description,merchant,category,pending,amount,amount_cents,currency,account_id,created_at,updated_at"
+        "id,date,description,merchant,category,pending,amount,amount_cents,currency,account_id,provider,created_at,updated_at"
       )
       .eq("household_id", householdId)
       .gte("date", monthStartIso)
@@ -108,7 +108,7 @@ export async function getHouseholdMoneyTruth(
     supabase
       .from("transactions")
       .select(
-        "id,date,description,merchant,category,pending,amount,amount_cents,currency,account_id,created_at,updated_at"
+        "id,date,description,merchant,category,pending,amount,amount_cents,currency,account_id,provider,created_at,updated_at"
       )
       .eq("household_id", householdId)
       .gte("date", rollingStartIso)

@@ -11,6 +11,7 @@ export type TransactionOutflowItem = {
 };
 
 export type LikelyRegularOutflow = {
+  pattern_key: string;
   label: string;
   occurrences: number;
   total_cents: number;
@@ -19,9 +20,13 @@ export type LikelyRegularOutflow = {
   uncertain_label: boolean;
   cadence: "weekly" | "fortnightly" | "monthly" | "repeated";
   confidence: "likely" | "low";
+  source_provider: string | null;
+  first_seen_at: string | null;
+  last_seen_at: string | null;
 };
 
 export type LikelyIncome = {
+  pattern_key: string;
   label: string;
   occurrences: number;
   total_cents: number;
@@ -30,6 +35,9 @@ export type LikelyIncome = {
   cadence: "weekly" | "fortnightly" | "monthly" | "repeated";
   uncertain_label: boolean;
   confidence: "likely" | "low";
+  source_provider: string | null;
+  first_seen_at: string | null;
+  last_seen_at: string | null;
 };
 
 export type TransactionOutflowSummary = {
@@ -78,6 +86,25 @@ function groupKey(label: string): string {
     .replace(/[^A-Z0-9]+/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function sourceProviderFor(providers: string[]): string | null {
+  const unique = Array.from(
+    new Set(providers.map((provider) => provider.trim().toLowerCase()).filter(Boolean))
+  ).sort();
+  return unique.length ? unique.join(",") : null;
+}
+
+function observedRange(dates: string[]): { first: string | null; last: string | null } {
+  const values = dates
+    .map((date) => Date.parse(date))
+    .filter((value) => Number.isFinite(value))
+    .sort((left, right) => left - right);
+  if (!values.length) return { first: null, last: null };
+  return {
+    first: new Date(values[0]).toISOString(),
+    last: new Date(values[values.length - 1]).toISOString(),
+  };
 }
 
 function cadenceFor(dates: string[]): "weekly" | "fortnightly" | "monthly" | "repeated" {
@@ -158,7 +185,15 @@ export function deriveTransactionOutflowSummary(params: {
 
   const grouped = new Map<
     string,
-    { label: string; cents: number[]; currency: string; uncertain: boolean; dates: string[] }
+    {
+      patternKey: string;
+      label: string;
+      cents: number[];
+      currency: string;
+      uncertain: boolean;
+      dates: string[];
+      providers: string[];
+    }
   >();
   for (const transaction of params.rollingTransactions) {
     const cents = centsFor(transaction);
@@ -168,14 +203,17 @@ export function deriveTransactionOutflowSummary(params: {
     if (!keyPart) continue;
     const key = `${currencyFor(transaction)}:${keyPart}`;
     const existing = grouped.get(key) ?? {
+      patternKey: `outflow:${key}`,
       label,
       cents: [],
       currency: currencyFor(transaction),
       uncertain: isUncertainLabel(label),
       dates: [],
+      providers: [],
     };
     existing.cents.push(Math.abs(cents));
     if (transaction.date) existing.dates.push(transaction.date);
+    if (transaction.provider) existing.providers.push(transaction.provider);
     grouped.set(key, existing);
   }
 
@@ -184,7 +222,9 @@ export function deriveTransactionOutflowSummary(params: {
     .map((group): LikelyRegularOutflow => {
       const total = group.cents.reduce((sum, cents) => sum + cents, 0);
       const cadence = cadenceFor(group.dates);
+      const observed = observedRange(group.dates);
       return {
+        pattern_key: group.patternKey,
         label: group.label,
         occurrences: group.cents.length,
         total_cents: total,
@@ -193,6 +233,9 @@ export function deriveTransactionOutflowSummary(params: {
         uncertain_label: group.uncertain,
         cadence,
         confidence: group.uncertain || cadence === "repeated" ? "low" : "likely",
+        source_provider: sourceProviderFor(group.providers),
+        first_seen_at: observed.first,
+        last_seen_at: observed.last,
       };
     })
     .sort((left, right) => right.total_cents - left.total_cents)
@@ -200,7 +243,15 @@ export function deriveTransactionOutflowSummary(params: {
 
   const incomeGroups = new Map<
     string,
-    { label: string; cents: number[]; currency: string; uncertain: boolean; dates: string[] }
+    {
+      patternKey: string;
+      label: string;
+      cents: number[];
+      currency: string;
+      uncertain: boolean;
+      dates: string[];
+      providers: string[];
+    }
   >();
   for (const transaction of params.rollingTransactions) {
     const cents = centsFor(transaction);
@@ -209,14 +260,17 @@ export function deriveTransactionOutflowSummary(params: {
     const keyPart = groupKey(label) || `amount:${cents}`;
     const key = `${currencyFor(transaction)}:${keyPart}`;
     const existing = incomeGroups.get(key) ?? {
+      patternKey: `income:${key}`,
       label,
       cents: [],
       currency: currencyFor(transaction),
       uncertain: isUncertainLabel(label),
       dates: [],
+      providers: [],
     };
     existing.cents.push(cents);
     if (transaction.date) existing.dates.push(transaction.date);
+    if (transaction.provider) existing.providers.push(transaction.provider);
     incomeGroups.set(key, existing);
   }
 
@@ -227,7 +281,9 @@ export function deriveTransactionOutflowSummary(params: {
       const cadence = cadenceFor(group.dates);
       const wagesLike = isWagesLike(group.label);
       if (cadence === "repeated" && group.cents.length < 3 && !wagesLike) return null;
+      const observed = observedRange(group.dates);
       return {
+        pattern_key: group.patternKey,
         label: group.label,
         occurrences: group.cents.length,
         total_cents: total,
@@ -236,6 +292,9 @@ export function deriveTransactionOutflowSummary(params: {
         cadence,
         uncertain_label: group.uncertain,
         confidence: group.uncertain || cadence === "repeated" ? "low" : "likely",
+        source_provider: sourceProviderFor(group.providers),
+        first_seen_at: observed.first,
+        last_seen_at: observed.last,
       };
     })
     .filter((pattern): pattern is LikelyIncome => pattern !== null)

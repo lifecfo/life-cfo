@@ -83,6 +83,7 @@ export type TransactionsTruthRow = {
   amount_cents: number | null;
   currency: string | null;
   account_id: string | null;
+  provider: string | null;
   created_at: string | null;
   updated_at: string | null;
 };

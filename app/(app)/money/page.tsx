@@ -45,11 +45,53 @@ type OverviewResponse = {
   snapshot: FinancialSnapshot;
   explanation: SnapshotExplanation;
   transaction_outflows?: TransactionOutflowSummary;
+  pattern_confirmations?: PatternConfirmation[];
 };
 
 type MoneyRow = {
   currency: string;
   cents: number;
+};
+
+type DetectedPattern = {
+  pattern_key: string;
+  label: string;
+  occurrences: number;
+  average_cents: number;
+  currency: string;
+  uncertain_label: boolean;
+  cadence: string;
+  confidence: "likely" | "low";
+  source_provider: string | null;
+  first_seen_at: string | null;
+  last_seen_at: string | null;
+};
+
+type PatternConfirmationKind = "bill" | "income" | "transfer" | "ignore";
+
+type PatternConfirmation = {
+  id: string;
+  pattern_key: string;
+  kind: PatternConfirmationKind;
+  label: string | null;
+  amount_cents: number | null;
+  currency: string;
+  cadence: string | null;
+  confidence: string | null;
+  source_provider: string | null;
+  first_seen_at: string | null;
+  last_seen_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+type ReviewPattern = DetectedPattern & {
+  detected_kind: "bill" | "income";
+  confirmation: PatternConfirmation | null;
+};
+
+type PatternConfirmationResponse = {
+  confirmation: PatternConfirmation;
 };
 
 type TransactionOutflowSummary = {
@@ -59,24 +101,8 @@ type TransactionOutflowSummary = {
   month_inflow_by_currency: MoneyRow[];
   largest_outflows: Array<{ label: string; cents: number; currency: string; uncertain_label: boolean }>;
   largest_inflows: Array<{ label: string; cents: number; currency: string; uncertain_label: boolean }>;
-  likely_regular_outflows: Array<{
-    label: string;
-    occurrences: number;
-    average_cents: number;
-    currency: string;
-    uncertain_label: boolean;
-    cadence: string;
-    confidence: "likely" | "low";
-  }>;
-  likely_income: Array<{
-    label: string;
-    occurrences: number;
-    average_cents: number;
-    currency: string;
-    uncertain_label: boolean;
-    cadence: string;
-    confidence: "likely" | "low";
-  }>;
+  likely_regular_outflows: DetectedPattern[];
+  likely_income: DetectedPattern[];
   has_unlabelled_repeated_outflows: boolean;
   has_unlabelled_repeated_income: boolean;
   source_note: string | null;
@@ -207,6 +233,107 @@ function buildSmartInsight(
   };
 }
 
+function ReviewPatternCard({
+  pattern,
+  saving,
+  onSave,
+}: {
+  pattern: ReviewPattern;
+  saving: boolean;
+  onSave: (
+    pattern: ReviewPattern,
+    kind: PatternConfirmationKind,
+    label?: string | null
+  ) => Promise<boolean>;
+}) {
+  const [naming, setNaming] = useState(false);
+  const [nameDraft, setNameDraft] = useState("");
+  const confirmed =
+    pattern.confirmation?.kind === "bill" ||
+    pattern.confirmation?.kind === "income" ||
+    pattern.confirmation?.kind === "transfer";
+
+  const startNaming = () => {
+    setNameDraft(pattern.confirmation?.label || pattern.label);
+    setNaming(true);
+  };
+
+  const saveName = () => {
+    const label = nameDraft.trim();
+    if (!label) return;
+    const kind =
+      pattern.confirmation && pattern.confirmation.kind !== "ignore"
+        ? pattern.confirmation.kind
+        : pattern.detected_kind;
+    void onSave(pattern, kind, label).then((saved) => {
+      if (saved) setNaming(false);
+    });
+  };
+
+  return (
+    <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-3">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div className="text-sm font-medium text-zinc-900">{pattern.label}</div>
+        {confirmed ? (
+          <div className="text-xs font-medium text-emerald-700">Confirmed</div>
+        ) : null}
+      </div>
+      <div className="mt-1 text-xs text-zinc-600">
+        This looks regular: about {formatMoney(pattern.average_cents, pattern.currency)}{" "}
+        {pattern.cadence}.
+      </div>
+
+      {naming ? (
+        <form
+          className="mt-3 flex flex-wrap items-center gap-2"
+          onSubmit={(event) => {
+            event.preventDefault();
+            saveName();
+          }}
+        >
+          <input
+            value={nameDraft}
+            onChange={(event) => setNameDraft(event.target.value)}
+            maxLength={160}
+            autoFocus
+            aria-label="Pattern name"
+            className="min-w-0 flex-1 rounded-xl border border-zinc-300 bg-white px-3 py-1.5 text-sm text-zinc-900 outline-none focus:border-brand-aqua"
+          />
+          <Chip onClick={saveName} disabled={saving || !nameDraft.trim()}>
+            Save
+          </Chip>
+          <Chip onClick={() => setNaming(false)} disabled={saving}>
+            Cancel
+          </Chip>
+        </form>
+      ) : (
+        <div className="mt-3 flex flex-wrap gap-2">
+          <Chip
+            active={pattern.confirmation?.kind === "bill"}
+            onClick={() => void onSave(pattern, "bill")}
+            disabled={saving}
+          >
+            Confirm as bill
+          </Chip>
+          <Chip
+            active={pattern.confirmation?.kind === "income"}
+            onClick={() => void onSave(pattern, "income")}
+            disabled={saving}
+          >
+            Confirm as income
+          </Chip>
+          <Chip onClick={() => void onSave(pattern, "ignore")} disabled={saving}>
+            Ignore
+          </Chip>
+          <Chip onClick={startNaming} disabled={saving}>
+            Give this a name
+          </Chip>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function MoneyClientNext() {
   const router = useRouter();
   const { showToast } = useToast();
@@ -216,22 +343,40 @@ export default function MoneyClientNext() {
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<OverviewResponse | null>(null);
   const [recentTransactions, setRecentTransactions] = useState<TransactionRow[]>([]);
+  const [savingPatternKey, setSavingPatternKey] = useState<string | null>(null);
+  const [confirmationError, setConfirmationError] = useState<string | null>(null);
 
   const snapshot = data?.snapshot;
   const explanation = data?.explanation;
   const interpretation = explanation?.interpretation;
   const transactionOutflows = data?.transaction_outflows;
-  const reviewPayments = (transactionOutflows?.likely_regular_outflows ?? []).filter(
-    (pattern) => pattern.confidence === "likely" && !pattern.uncertain_label
+  const confirmationsByPatternKey = new Map(
+    (data?.pattern_confirmations ?? []).map((confirmation) => [
+      confirmation.pattern_key,
+      confirmation,
+    ])
   );
-  const reviewIncome = (transactionOutflows?.likely_income ?? []).filter(
-    (pattern) => pattern.confidence === "likely" && !pattern.uncertain_label
+  const mergePatterns = (
+    patterns: DetectedPattern[],
+    detectedKind: "bill" | "income"
+  ): ReviewPattern[] =>
+    patterns
+      .map((pattern) => {
+        const confirmation = confirmationsByPatternKey.get(pattern.pattern_key) ?? null;
+        return {
+          ...pattern,
+          label: confirmation?.label || pattern.label,
+          detected_kind: detectedKind,
+          confirmation,
+        };
+      })
+      .filter((pattern) => pattern.confirmation?.kind !== "ignore");
+  const reviewPayments = mergePatterns(
+    transactionOutflows?.likely_regular_outflows ?? [],
+    "bill"
   );
-  const hasReviewItems =
-    reviewPayments.length > 0 ||
-    reviewIncome.length > 0 ||
-    transactionOutflows?.has_unlabelled_repeated_outflows ||
-    transactionOutflows?.has_unlabelled_repeated_income;
+  const reviewIncome = mergePatterns(transactionOutflows?.likely_income ?? [], "income");
+  const hasReviewItems = reviewPayments.length > 0 || reviewIncome.length > 0;
 
   const refresh = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
@@ -254,6 +399,65 @@ export default function MoneyClientNext() {
       if (!silent) setLoading(false);
     }
   }, [showToast]);
+
+  const savePatternConfirmation = async (
+    pattern: ReviewPattern,
+    kind: PatternConfirmationKind,
+    label?: string | null
+  ): Promise<boolean> => {
+    setSavingPatternKey(pattern.pattern_key);
+    setConfirmationError(null);
+
+    try {
+      const response = await fetch("/api/money/pattern-confirmations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          pattern_key: pattern.pattern_key,
+          kind,
+          label: label === undefined ? pattern.confirmation?.label ?? null : label,
+          amount_cents: pattern.average_cents,
+          currency: pattern.currency,
+          cadence: pattern.cadence,
+          confidence: pattern.confidence,
+          source_provider: pattern.source_provider,
+          first_seen_at: pattern.first_seen_at,
+          last_seen_at: pattern.last_seen_at,
+        }),
+      });
+      const json = (await response.json().catch(() => ({}))) as Partial<
+        PatternConfirmationResponse & { error: string }
+      >;
+
+      if (!response.ok || !json.confirmation) {
+        throw new Error(json.error || "We could not save that just now.");
+      }
+
+      setData((current) => {
+        if (!current) return current;
+        const previous = current.pattern_confirmations ?? [];
+        return {
+          ...current,
+          pattern_confirmations: [
+            json.confirmation as PatternConfirmation,
+            ...previous.filter(
+              (confirmation) => confirmation.pattern_key !== pattern.pattern_key
+            ),
+          ],
+        };
+      });
+
+      const message = kind === "ignore" ? "Ignored" : label !== undefined ? "Name saved" : "Confirmed";
+      showToast({ message }, 1800);
+      return true;
+    } catch (saveError: unknown) {
+      const message = getErrorMessage(saveError, "We could not save that just now.");
+      setConfirmationError(message);
+      return false;
+    } finally {
+      setSavingPatternKey(null);
+    }
+  };
 
   useEffect(() => {
     void refresh(false);
@@ -489,46 +693,30 @@ export default function MoneyClientNext() {
                 <div>
                   <div className="text-sm font-semibold text-zinc-900">Review what Life CFO found</div>
                   <div className="mt-1 text-xs leading-relaxed text-zinc-600">
-                    These items look regular from your connected bank data. This first view does not change your bills or income.
+                    These items look regular from your connected bank data. Confirming them here does not change your bills or income.
                   </div>
                 </div>
 
                 {reviewPayments.slice(0, 3).map((pattern) => (
-                  <div
-                    key={`payment-${pattern.label}-${pattern.average_cents}-${pattern.cadence}-${pattern.currency}`}
-                    className="rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-2"
-                  >
-                    <div className="text-sm font-medium text-zinc-900">{pattern.label}</div>
-                    <div className="mt-1 text-xs text-zinc-600">
-                      This looks regular: about {formatMoney(pattern.average_cents, pattern.currency)} {pattern.cadence}.
-                    </div>
-                    <div className="mt-2 text-xs text-zinc-500">Needs checking before it becomes a bill.</div>
-                  </div>
+                  <ReviewPatternCard
+                    key={pattern.pattern_key}
+                    pattern={pattern}
+                    saving={savingPatternKey === pattern.pattern_key}
+                    onSave={savePatternConfirmation}
+                  />
                 ))}
 
                 {reviewIncome.slice(0, 3).map((pattern) => (
-                  <div
-                    key={`income-${pattern.label}-${pattern.average_cents}-${pattern.cadence}-${pattern.currency}`}
-                    className="rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-2"
-                  >
-                    <div className="text-sm font-medium text-zinc-900">{pattern.label}</div>
-                    <div className="mt-1 text-xs text-zinc-600">
-                      This looks regular: about {formatMoney(pattern.average_cents, pattern.currency)} {pattern.cadence}.
-                    </div>
-                    <div className="mt-2 text-xs text-zinc-500">Needs checking before it becomes income you have set up.</div>
-                  </div>
+                  <ReviewPatternCard
+                    key={pattern.pattern_key}
+                    pattern={pattern}
+                    saving={savingPatternKey === pattern.pattern_key}
+                    onSave={savePatternConfirmation}
+                  />
                 ))}
 
-                {transactionOutflows?.has_unlabelled_repeated_outflows ? (
-                  <div className="rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-800">
-                    Repeated payments were found, but the bank labels are too unclear to give them a useful name yet.
-                  </div>
-                ) : null}
-
-                {transactionOutflows?.has_unlabelled_repeated_income ? (
-                  <div className="rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-800">
-                    Repeated money in was found, but the bank labels are too unclear to give it a useful name yet.
-                  </div>
+                {confirmationError ? (
+                  <div className="text-xs text-red-600">{confirmationError}</div>
                 ) : null}
               </CardContent>
             </Card>
