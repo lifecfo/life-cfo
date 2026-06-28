@@ -5,6 +5,7 @@ import { getHouseholdMoneyTruth } from "@/lib/money/reasoning/getHouseholdMoneyT
 import { buildFinancialSnapshot } from "@/lib/money/reasoning/buildFinancialSnapshot";
 import { explainSnapshot } from "@/lib/money/reasoning/explainSnapshot";
 import { deriveTransactionOutflowSummary } from "@/lib/money/reasoning/deriveTransactionOutflows";
+import { deriveEffectiveMoneyTruth } from "@/lib/money/reasoning/effectiveMoneySources";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -39,7 +40,8 @@ export async function GET() {
       );
     }
 
-    const truth = await getHouseholdMoneyTruth(supabase, { householdId });
+    const rawTruth = await getHouseholdMoneyTruth(supabase, { householdId });
+    const { truth, dataCoverage } = deriveEffectiveMoneyTruth(rawTruth);
     const snapshot = buildFinancialSnapshot(truth);
     const explanation = explainSnapshot(snapshot);
     const transactionOutflows = deriveTransactionOutflowSummary({
@@ -54,6 +56,8 @@ export async function GET() {
       explanation,
       transaction_outflows: transactionOutflows,
       pattern_confirmations: truth.transaction_pattern_confirmations,
+      recent_transactions: truth.recent_transactions,
+      data_coverage: dataCoverage,
     });
   } catch (e: unknown) {
     return NextResponse.json(

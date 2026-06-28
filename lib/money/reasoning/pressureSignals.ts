@@ -125,7 +125,7 @@ function evaluateStructuralPressure(truth: LegacyPressureTruth): PressureSignal 
 
   const summary =
     !hasIncome && !hasBills
-      ? "Recurring income and commitments are not mapped yet."
+      ? "Recurring income and regular payments are not set up yet."
       : !hasIncome && hasBills
         ? "Recurring bills are tracked but recurring income is missing."
         : share >= 0.75
@@ -169,16 +169,16 @@ function evaluateDiscretionaryDrift(truth: LegacyPressureTruth): PressureSignal 
   const drivers: string[] = [];
   if (priorOut > 0) {
     const pct = Math.round(((recentOut - priorOut) / priorOut) * 100);
-    drivers.push(`Recent discretionary-like outflow is ${pct >= 0 ? "+" : ""}${pct}% vs prior 30 days.`);
+    drivers.push(`Recent flexible money out is ${pct >= 0 ? "+" : ""}${pct}% vs prior 30 days.`);
   } else if (recentOut > 0) {
-    drivers.push("No prior window spending; recent outflow present.");
+    drivers.push("No prior window spending; recent money out is present.");
   } else {
-    drivers.push("No discretionary outflow detected in either window.");
+    drivers.push("No flexible money out detected in either window.");
   }
 
   const summary =
     priorOut === 0 && recentOut === 0
-      ? "Discretionary drift cannot be assessed because no recent outflow exists."
+      ? "Recent spending changes cannot be assessed because no recent money out exists."
       : score >= 0.6
         ? "Flexible spending is running well above the prior period."
         : score >= 0.3
@@ -204,7 +204,7 @@ function evaluateDiscretionaryDrift(truth: LegacyPressureTruth): PressureSignal 
 
 function evaluateTimingMismatch(truth: LegacyPressureTruth): PressureSignal {
   const asOfMs = safeDate(truth.asOf);
-  const nextIncome = earliestActiveDate(truth.recurringIncome, "next_pay_at", asOfMs);
+  const nextIncome = earliestActiveDate(truth.recurringIncome, asOfMs);
   const obligationsBeforeNext = sumDueBefore(truth.recurringBills, asOfMs, nextIncome?.ms);
   const availableCash = sumAvailableCash(truth.accounts);
 
@@ -336,8 +336,8 @@ function evaluateStabilityRisk(truth: LegacyPressureTruth): PressureSignal {
 
 function sumMonthly(items: RecurringBillTruth[] | RecurringIncomeTruth[]): number {
   return items
-    .filter((i) => (i as any)?.active !== false)
-    .reduce((sum, item: any) => {
+    .filter((item) => item.active !== false)
+    .reduce((sum, item) => {
       const cents = safeCents(item.amount_cents);
       const factor = monthlyFactor(item.cadence as MoneyCadence);
       return sum + cents * factor;
@@ -365,13 +365,12 @@ function sumOutflows(
 
 function earliestActiveDate(
   items: RecurringIncomeTruth[],
-  field: "next_pay_at",
   asOfMs: number | null
 ): { ms: number; date: string; amount_cents: number } | null {
   const filtered = items
     .filter((i) => i.active !== false)
     .map((i) => {
-      const ms = safeDate((i as any)[field]);
+      const ms = safeDate(i.next_pay_at);
       return { item: i, ms };
     })
     .filter((x) => x.ms !== null && (asOfMs === null || (x.ms as number) >= asOfMs))
@@ -381,7 +380,7 @@ function earliestActiveDate(
   const first = filtered[0];
   return {
     ms: first.ms as number,
-    date: (first.item as any)[field] as string,
+    date: first.item.next_pay_at as string,
     amount_cents: first.item.amount_cents,
   };
 }

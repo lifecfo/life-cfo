@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Page } from "@/components/Page";
 import { Card, CardContent, Chip, useToast } from "@/components/ui";
+import type { MoneyDataCoverage } from "@/lib/money/reasoning/types";
 
 type FinancialSnapshot = {
   asOf: string;
@@ -15,22 +16,17 @@ type FinancialSnapshot = {
   connections: { total: number; stale: number; maxAgeDays: number };
 };
 
-type SnapshotExplanation = {
-  headline: string;
-  summary: string;
-  insights: string[];
-  pressure: {
-    structural: string;
-    discretionary: string;
-    timing: string;
-    stability: string;
-  };
-};
-
 type OverviewResponse = {
   snapshot: FinancialSnapshot;
-  explanation: SnapshotExplanation;
+  data_coverage?: MoneyDataCoverage;
 };
+
+function sourceNames(sources: MoneyDataCoverage["included_sources"]) {
+  if (!sources.length) return "No current connected sources";
+  return sources
+    .map((source) => source.provider.charAt(0).toUpperCase() + source.provider.slice(1))
+    .join(" and ");
+}
 
 function formatMoney(cents: number | undefined | null, currency = "AUD") {
   const n = typeof cents === "number" && Number.isFinite(cents) ? cents : 0;
@@ -78,7 +74,7 @@ export default function SavedClient() {
   const [data, setData] = useState<OverviewResponse | null>(null);
 
   const snapshot = data?.snapshot;
-  const explanation = data?.explanation;
+  const coverage = data?.data_coverage;
 
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
@@ -120,20 +116,22 @@ export default function SavedClient() {
 
         <Card className="border-zinc-200 bg-white">
           <CardContent className="space-y-2">
-            <div className="text-sm font-semibold text-zinc-900">Saved posture</div>
+            <div className="text-sm font-semibold text-zinc-900">Balances at a glance</div>
             <ul className="space-y-1 text-xs text-zinc-700">
               <li>
                 Available cash: {snapshot ? formatMoney(snapshot.liquidity.availableCashCents) : loading ? "Loading..." : "-"}
               </li>
               <li>
-                Accounts included: {snapshot ? snapshot.liquidity.accountCount : loading ? "Loading..." : "-"}
+                Accounts included: {coverage ? coverage.account_count : loading ? "Loading..." : "-"}
               </li>
               <li>
-                Connection freshness: {snapshot ? `${snapshot.connections.stale} stale of ${snapshot.connections.total}` : loading ? "Loading..." : "-"}
+                Current sources: {coverage ? sourceNames(coverage.included_sources) : loading ? "Loading..." : "-"}
               </li>
             </ul>
             <div className="text-xs text-zinc-500">
-              {explanation?.pressure.stability || "Stability notes will appear here."}
+              {coverage?.has_reference_only_sources
+                ? "Older linked sources are kept for reference and are not included in these balances."
+                : "These balances use the current connected sources in this view."}
             </div>
           </CardContent>
         </Card>
@@ -142,12 +140,8 @@ export default function SavedClient() {
           <CardContent className="space-y-3">
             <div className="text-sm font-semibold text-zinc-900">Highlights</div>
             <ul className="space-y-1 text-xs text-zinc-700">
-              {(explanation?.insights ?? []).slice(0, 3).map((line, idx) => (
-                <li key={idx}>{line}</li>
-              ))}
-              {!loading && (!explanation?.insights || explanation.insights.length === 0) ? (
-                <li>No saved notes yet.</li>
-              ) : null}
+              <li>{coverage?.label_quality_note || (loading ? "Checking connected data..." : "Connected data details will appear here.")}</li>
+              <li>{coverage?.transaction_count ?? 0} recent transaction(s) support this view.</li>
               {loading ? <li>Loading highlights...</li> : null}
             </ul>
             <div className="text-xs text-zinc-500">
@@ -174,7 +168,7 @@ export default function SavedClient() {
               </Link>
             </div>
             <div className="text-xs text-zinc-500">
-              Go deeper into account balances, savings goals, and data freshness.
+              Go deeper into account balances, savings goals, and connected sources.
             </div>
           </CardContent>
         </Card>

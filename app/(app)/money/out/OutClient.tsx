@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { Page } from "@/components/Page";
 import { Card, CardContent, Chip, useToast } from "@/components/ui";
 import { formatMoneyFromCents } from "@/lib/money/formatMoney";
+import type { MoneyDataCoverage } from "@/lib/money/reasoning/types";
 
 type MoneyRow = {
   currency: string;
@@ -47,6 +48,7 @@ type UpcomingBillRow = {
 type OutResponse = {
   ok: boolean;
   household_id: string | null;
+  data_coverage?: MoneyDataCoverage;
   out_flow: {
     month_total_by_currency: MoneyRow[];
     top_categories: CategoryRow[];
@@ -144,7 +146,7 @@ export default function OutClient() {
   );
 
   return (
-    <Page title="Out" subtitle="Bills, spending, and outgoing pressure." right={right}>
+    <Page title="Out" subtitle="Bills, spending, and money leaving the household." right={right}>
       <div className="mx-auto w-full max-w-[860px] space-y-4 px-4 sm:px-6">
         {error ? <div className="text-sm text-red-600">{error}</div> : null}
 
@@ -152,8 +154,9 @@ export default function OutClient() {
           <CardContent className="space-y-2">
             <div className="text-sm font-semibold text-zinc-900">Out at a glance</div>
             <ul className="space-y-1 text-xs text-zinc-700">
-              <li>This month outflow: {loading ? "Loading..." : renderMoneyRows(out?.month_total_by_currency ?? [])}</li>
-              <li>Recurring bills: {loading ? "Loading..." : out?.recurring_bills_count ?? 0}</li>
+              <li>Money out this month: {loading ? "Loading..." : renderMoneyRows(out?.month_total_by_currency ?? [])}</li>
+              <li>Confirmed regular payments: {loading ? "Loading..." : data?.data_coverage?.confirmed_regular_payment_count ?? 0}</li>
+              <li>Bills formally set up: {loading ? "Loading..." : out?.recurring_bills_count ?? 0}</li>
               <li>Upcoming bills (30 days): {loading ? "Loading..." : out?.upcoming_bills_count_next_30_days ?? 0}</li>
             </ul>
             <div className="text-xs text-zinc-500">
@@ -183,7 +186,7 @@ export default function OutClient() {
               ) : null}
             </div>
 
-            <div className="text-xs text-zinc-500">Recent outflows</div>
+            <div className="text-xs text-zinc-500">Recent money out</div>
             <div className="space-y-2">
               {(out?.recent_out_transactions ?? []).slice(0, 3).map((tx) => {
                 const cents =
@@ -210,7 +213,7 @@ export default function OutClient() {
                 );
               })}
               {!loading && (out?.recent_out_transactions ?? []).length === 0 ? (
-                <div className="text-xs text-zinc-500">No recent outflows found.</div>
+                <div className="text-xs text-zinc-500">No recent money out found.</div>
               ) : null}
               {loading ? <div className="text-xs text-zinc-500">Loading highlights...</div> : null}
             </div>
@@ -221,8 +224,11 @@ export default function OutClient() {
           <CardContent className="space-y-3">
             <div className="text-sm font-semibold text-zinc-900">Open related pages</div>
             <div className="space-y-1 text-xs text-zinc-500">
-              <div>Top category: {(out?.top_categories ?? [])[0]?.category || "Not enough data yet."}</div>
-              <div>Top merchant: {(out?.top_merchants ?? [])[0]?.merchant || "Not enough data yet."}</div>
+              <div>Top category: {(out?.top_categories ?? [])[0]?.category || "No clear category yet."}</div>
+              <div>Top merchant: {(out?.top_merchants ?? [])[0]?.merchant || "No clear merchant name yet."}</div>
+              {data?.data_coverage?.has_reference_only_sources ? (
+                <div>Older linked sources are kept for reference and are not included here.</div>
+              ) : null}
             </div>
             <div className="flex flex-wrap gap-2">
               <Link href="/money">

@@ -3,6 +3,7 @@ import { getHouseholdMoneyTruth } from "./getHouseholdMoneyTruth";
 import { buildFinancialSnapshot } from "./buildFinancialSnapshot";
 import { explainSnapshot } from "./explainSnapshot";
 import { interpretPressure } from "./interpretPressure";
+import { deriveEffectiveMoneyTruth } from "./effectiveMoneySources";
 
 export type HouseholdMoneyReasoningResult = {
   truth: Awaited<ReturnType<typeof getHouseholdMoneyTruth>>;
@@ -25,7 +26,8 @@ export async function runHouseholdMoneyReasoning(
   supabase: SupabaseClient,
   params: { householdId: string }
 ): Promise<HouseholdMoneyReasoningResult> {
-  const truth = await getHouseholdMoneyTruth(supabase, { householdId: params.householdId });
+  const rawTruth = await getHouseholdMoneyTruth(supabase, { householdId: params.householdId });
+  const { truth } = deriveEffectiveMoneyTruth(rawTruth);
   const snapshot = buildFinancialSnapshot(truth);
   const explanation = explainSnapshot(snapshot);
   const interpretation = interpretPressure(snapshot);
@@ -53,4 +55,3 @@ export async function tryRunHouseholdMoneyReasoning(
     return { ok: false, error: message };
   }
 }
-

@@ -10,6 +10,7 @@ import type { PressureInterpretation } from "@/lib/money/reasoning/interpretPres
 import { formatMoneyFromCents } from "@/lib/money/formatMoney";
 import { joinNonEmptyWithSpace } from "@/lib/ask/responseComposition";
 import type { MiniSignalLevel } from "@/components/ui/MiniSignal";
+import type { MoneyDataCoverage } from "@/lib/money/reasoning/types";
 
 const MONEY_SMART_INSIGHT_PREVIEW_KEY = "lifecfo:money-smart-insight-preview";
 
@@ -46,6 +47,8 @@ type OverviewResponse = {
   explanation: SnapshotExplanation;
   transaction_outflows?: TransactionOutflowSummary;
   pattern_confirmations?: PatternConfirmation[];
+  recent_transactions?: TransactionRow[];
+  data_coverage?: MoneyDataCoverage;
 };
 
 type MoneyRow = {
@@ -124,10 +127,6 @@ type TransactionRow = {
   provider: string | null;
 };
 
-type TransactionsResponse = {
-  transactions?: TransactionRow[];
-};
-
 function formatMoney(cents: number | undefined | null, currency = "AUD") {
   return formatMoneyFromCents(cents, currency);
 }
@@ -135,6 +134,13 @@ function formatMoney(cents: number | undefined | null, currency = "AUD") {
 function formatMoneyRows(rows: MoneyRow[]) {
   if (!rows.length) return "-";
   return rows.map((row) => formatMoney(row.cents, row.currency)).join(" | ");
+}
+
+function sourceNames(coverage: MoneyDataCoverage | undefined, key: "included_sources" | "reference_only_sources") {
+  const names = (coverage?.[key] ?? []).map(
+    (source) => source.provider.charAt(0).toUpperCase() + source.provider.slice(1)
+  );
+  return names.length ? names.join(" and ") : "none";
 }
 
 function confirmedPatternSummary(
@@ -210,13 +216,13 @@ function buildSmartInsight(
     return {
       headline: "Your money picture looks fairly steady right now.",
       supporting:
-        "No single pressure point is standing out, so day-to-day money should feel more even.",
+        "No single concern is standing out, so day-to-day money should feel more even.",
     };
   }
 
   if (main.key === "structural") {
     return {
-      headline: "Regular commitments are creating most of the pressure right now.",
+      headline: "Regular commitments are taking up most of the room right now.",
       supporting: joinNonEmptyWithSpace([
         sentence(main.why_now),
         "That usually leaves less breathing room between pay cycles.",
@@ -226,7 +232,7 @@ function buildSmartInsight(
 
   if (main.key === "discretionary") {
     return {
-      headline: "Recent spending drift is the main pressure right now.",
+      headline: "Recent spending has shifted the most right now.",
       supporting: joinNonEmptyWithSpace([
         sentence(main.why_now),
         "That can make leftover cash feel thinner week to week.",
@@ -236,7 +242,7 @@ function buildSmartInsight(
 
   if (main.key === "timing") {
     return {
-      headline: "Cash-flow timing is the main pressure point right now.",
+      headline: "The timing of money in and bills matters most right now.",
       supporting: joinNonEmptyWithSpace([
         sentence(main.why_now),
         "That can make parts of the month feel tighter even when totals look manageable.",
@@ -245,7 +251,7 @@ function buildSmartInsight(
   }
 
   return {
-    headline: "Data freshness or income stability is the main uncertainty right now.",
+    headline: "Some income or connection details need a closer look.",
     supporting: joinNonEmptyWithSpace([
       sentence(main.why_now),
       "That can make the overall picture feel less certain from one week to the next.",
@@ -479,7 +485,6 @@ export default function MoneyClientNext() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<OverviewResponse | null>(null);
-  const [recentTransactions, setRecentTransactions] = useState<TransactionRow[]>([]);
   const [savingPatternKey, setSavingPatternKey] = useState<string | null>(null);
   const [confirmationError, setConfirmationError] = useState<string | null>(null);
   const [reviewedPatternsOpen, setReviewedPatternsOpen] = useState(false);
@@ -488,6 +493,8 @@ export default function MoneyClientNext() {
   const explanation = data?.explanation;
   const interpretation = explanation?.interpretation;
   const transactionOutflows = data?.transaction_outflows;
+  const dataCoverage = data?.data_coverage;
+  const recentTransactions = data?.recent_transactions ?? [];
   const confirmationsByPatternKey = new Map(
     (data?.pattern_confirmations ?? []).map((confirmation) => [
       confirmation.pattern_key,
@@ -553,13 +560,6 @@ export default function MoneyClientNext() {
     try {
       const overview = await fetchJson<OverviewResponse>("/api/money/overview");
       setData(overview);
-
-      try {
-        const tx = await fetchJson<TransactionsResponse>("/api/money/transactions?limit=6");
-        setRecentTransactions((tx.transactions ?? []).slice(0, 6));
-      } catch {
-        setRecentTransactions([]);
-      }
     } catch (e: unknown) {
       const message = getErrorMessage(e, "Unable to load money overview.");
       setError(message);
@@ -724,18 +724,8 @@ export default function MoneyClientNext() {
     latestImported?.currency || "AUD"
   );
 
-  const connectionFreshnessLine = snapshot
-    ? snapshot.connections.total === 0
-      ? "No live connections yet."
-      : snapshot.connections.stale === 0
-        ? `All ${snapshot.connections.total} connection(s) look recent.`
-        : `${snapshot.connections.stale} of ${snapshot.connections.total} connection(s) may need a refresh.`
-    : "Connection freshness will show here.";
-
   const askAboutDataQuestion =
-    snapshot?.connections.total && snapshot.connections.stale > 0
-      ? "How much could stale connection data be affecting this view?"
-      : latestImported
+    latestImported
         ? "What changed in our recent imported spending?"
         : "Are we okay this month?";
 
@@ -856,17 +846,17 @@ export default function MoneyClientNext() {
               {snapshot ? (
                 <div className="grid gap-2 sm:grid-cols-2">
                   <MiniSignal
-                    label="Structural pressure"
+                    label="Regular money picture"
                     level={toMiniSignalLevel(snapshot.pressure.structural_pressure.level)}
                     summary={snapshot.pressure.structural_pressure.summary}
                   />
                   <MiniSignal
-                    label="Discretionary pressure"
+                    label="Recent spending"
                     level={toMiniSignalLevel(snapshot.pressure.discretionary_drift.level)}
                     summary={snapshot.pressure.discretionary_drift.summary}
                   />
                   <MiniSignal
-                    label="Timing pressure"
+                    label="Upcoming timing"
                     level={toMiniSignalLevel(snapshot.pressure.timing_mismatch.level)}
                     summary={snapshot.pressure.timing_mismatch.summary}
                   />
@@ -890,26 +880,34 @@ export default function MoneyClientNext() {
 
           <Card className="border-zinc-200 bg-white">
             <CardContent className="space-y-2">
-              <div className="text-sm font-semibold text-zinc-900">Connected data</div>
+              <div className="text-sm font-semibold text-zinc-900">What Life CFO can see</div>
               <div className="text-xs text-zinc-600">
-                {latestImported
-                  ? `Latest imported activity: ${latestImportedName} ${softDate(
-                      latestImported.date
-                    )} (${latestImportedAmount}).`
-                  : snapshot?.connections.total
-                    ? "Connected data is available. New imported activity will appear here."
-                    : "Connect a bank to bring in recent account and transaction activity."}
+                {dataCoverage && (dataCoverage.account_count > 0 || dataCoverage.transaction_count > 0)
+                  ? "Connected bank data is available."
+                  : "Connect a bank to bring account balances and recent transactions into view."}
               </div>
-              {transactionOutflows?.source_note ? (
-                <div className="text-xs text-zinc-500">{transactionOutflows.source_note}</div>
-              ) : null}
               <ul className="list-disc space-y-1 pl-4 text-xs text-zinc-600">
-                <li>{connectionFreshnessLine}</li>
                 <li>
-                  Showing {Math.min(6, recentTransactions.length)} recent transaction(s), with{" "}
-                  {importedRecent.length} imported from connected providers.
+                  Life CFO can see {dataCoverage?.account_count ?? 0} account(s) and{" "}
+                  {dataCoverage?.transaction_count ?? 0} recent transaction(s) in this view.
                 </li>
+                <li>Money in this month: {formatMoneyRows(dataCoverage?.current_month_money_in ?? [])}.</li>
+                <li>Money out this month: {formatMoneyRows(dataCoverage?.current_month_money_out ?? [])}.</li>
+                <li>Included sources: {sourceNames(dataCoverage, "included_sources")}.</li>
+                {dataCoverage?.has_reference_only_sources ? (
+                  <li>
+                    Older or unavailable sources ({sourceNames(dataCoverage, "reference_only_sources")}) are kept for reference and are not leading this view.
+                  </li>
+                ) : null}
               </ul>
+              <div className="text-xs text-zinc-500">
+                {dataCoverage?.label_quality_note || "Transaction name quality will appear here."}
+              </div>
+              {dataCoverage?.latest_transaction_date ? (
+                <div className="text-xs text-zinc-500">
+                  Latest transaction used: {softDate(dataCoverage.latest_transaction_date)}.
+                </div>
+              ) : null}
               <div className="flex flex-wrap gap-2">
                 <Chip onClick={() => openWithQuestion(askAboutDataQuestion)}>
                   Ask about this data
@@ -1027,8 +1025,6 @@ export default function MoneyClientNext() {
             <FlowCard
               title="In"
               rows={[
-                confirmedPatternSummary(confirmedIncome, "income pattern", "income patterns"),
-                `Regular income you’ve set up: ${snapshot ? formatMoney(snapshot.income.recurringMonthlyCents) : loading ? "Loading..." : "-"}`,
                 transactionOutflows?.month_inflow_by_currency?.length
                   ? `Observed money in this month: ${formatMoneyRows(
                       transactionOutflows.month_inflow_by_currency
@@ -1036,13 +1032,15 @@ export default function MoneyClientNext() {
                   : snapshot
                     ? `${snapshot.income.sourceCount} regular income source(s) set up.`
                     : "Income sources will show here.",
+                confirmedPatternSummary(confirmedIncome, "income pattern", "income patterns"),
+                `Regular income you’ve set up: ${snapshot ? formatMoney(snapshot.income.recurringMonthlyCents) : loading ? "Loading..." : "-"}`,
                 reviewIncome[0]
                   ? `This looks regular: ${reviewIncome[0].label}, about ${formatMoney(
                       reviewIncome[0].average_cents,
                       reviewIncome[0].currency
                     )} each time.`
                   : "Repeated income will appear here when the transaction pattern is clear.",
-                explanation?.pressure.timing || "Income timing notes will appear here.",
+                "Confirmed patterns and formal income setup stay separate.",
               ]}
               note={
                 snapshot?.income.sourceCount === 0 && transactionOutflows?.inflow_transaction_count
@@ -1058,6 +1056,13 @@ export default function MoneyClientNext() {
             <FlowCard
               title="Out"
               rows={[
+                transactionOutflows?.month_outflow_by_currency?.length
+                  ? `Observed money out this month: ${formatMoneyRows(
+                      transactionOutflows.month_outflow_by_currency
+                    )}.`
+                  : latestImported
+                    ? `Latest imported payment: ${latestImportedName} (${latestImportedAmount}).`
+                    : `Recent money out (30 days): ${snapshot ? formatMoney(snapshot.discretionary.last30DayOutflowCents) : loading ? "Loading..." : "-"}`,
                 confirmedPatternSummary(confirmedBills, "regular payment", "regular payments"),
                 `Regular payments you’ve set up: ${snapshot ? formatMoney(snapshot.commitments.recurringMonthlyCents) : loading ? "Loading..." : "-"}`,
                 snapshot
@@ -1065,13 +1070,6 @@ export default function MoneyClientNext() {
                     ? `${snapshot.commitments.billCount} bill(s) set up.`
                     : "No bills are set up yet."
                   : "Bill coverage will show here.",
-                transactionOutflows?.month_outflow_by_currency?.length
-                  ? `Observed money out this month: ${formatMoneyRows(
-                      transactionOutflows.month_outflow_by_currency
-                    )}.`
-                  : latestImported
-                    ? `Latest imported payment: ${latestImportedName} (${latestImportedAmount}).`
-                    : `Flexible spending (30 days): ${snapshot ? formatMoney(snapshot.discretionary.last30DayOutflowCents) : loading ? "Loading..." : "-"}`,
                 reviewPayments[0]
                   ? `This looks regular: ${reviewPayments[0].label}, about ${formatMoney(
                       reviewPayments[0].average_cents,
@@ -1082,7 +1080,7 @@ export default function MoneyClientNext() {
               note={
                 snapshot?.commitments.billCount === 0 && transactionOutflows?.transaction_count
                   ? "Connected transactions are available. No bills are set up yet, so this starts with recent money out."
-                  : explanation?.pressure.structural || "Spending pressure notes will appear here."
+                  : "Recent money out and formally set up bills stay separate."
               }
               links={[
                 { href: "/money/out", label: "Open Out" },
@@ -1094,14 +1092,12 @@ export default function MoneyClientNext() {
               title="Saved"
               rows={[
                 `Available cash: ${snapshot ? formatMoney(snapshot.liquidity.availableCashCents) : loading ? "Loading..." : "-"}`,
-                snapshot
-                  ? `${snapshot.liquidity.accountCount} account(s) included.`
-                  : "Saved position will show here.",
-                snapshot
-                  ? `${snapshot.connections.stale} of ${snapshot.connections.total} connection(s) are stale.`
-                  : "Connection freshness will show here.",
+                `${dataCoverage?.account_count ?? 0} account(s) included from current sources.`,
+                dataCoverage?.has_reference_only_sources
+                  ? "Older linked sources are kept for reference and are not included here."
+                  : "Current connected sources are leading this view.",
               ]}
-              note={explanation?.pressure.stability || "Stability notes will appear here."}
+              note="Balances come from the current sources shown above."
               links={[
                 { href: "/money/saved", label: "Open Saved" },
                 { href: "/accounts", label: "Accounts" },
@@ -1111,13 +1107,9 @@ export default function MoneyClientNext() {
             <FlowCard
               title="Planned"
               rows={[
-                snapshot
-                  ? `Snapshot date: ${softDate(snapshot.asOf)}`
-                  : loading
-                    ? "Loading..."
-                    : "No snapshot date yet.",
-                explanation?.pressure.timing || "Upcoming timing notes will appear here.",
-                explanation?.pressure.discretionary || "Plan updates will appear here.",
+                `Observed money out this month: ${formatMoneyRows(dataCoverage?.current_month_money_out ?? [])}.`,
+                `${confirmedBills.length} confirmed regular payment(s).`,
+                `${snapshot?.commitments.billCount ?? 0} bill(s) formally set up.`,
               ]}
               note="Use planned pages for goals, commitments, and next steps."
               links={[

@@ -11,6 +11,7 @@ import {
   ACTIVE_HOUSEHOLD_STORAGE_KEY,
   resolveActiveHouseholdIdClient,
 } from "@/lib/households/resolveActiveHouseholdClient";
+import type { MoneyDataCoverage } from "@/lib/money/reasoning/types";
 
 type FinancialSnapshot = {
   asOf: string;
@@ -21,21 +22,9 @@ type FinancialSnapshot = {
   connections: { total: number; stale: number; maxAgeDays: number };
 };
 
-type SnapshotExplanation = {
-  headline: string;
-  summary: string;
-  insights: string[];
-  pressure: {
-    structural: string;
-    discretionary: string;
-    timing: string;
-    stability: string;
-  };
-};
-
 type OverviewResponse = {
   snapshot: FinancialSnapshot;
-  explanation: SnapshotExplanation;
+  data_coverage?: MoneyDataCoverage;
 };
 
 type GoalStatus = "active" | "paused" | "done" | "archived";
@@ -61,6 +50,11 @@ function formatMoney(cents: number | undefined | null, currency = "AUD") {
   } catch {
     return `${currency} ${amt.toFixed(2)}`;
   }
+}
+
+function formatMoneyRows(rows: MoneyDataCoverage["current_month_money_out"]) {
+  if (!rows.length) return "No money out recorded this month yet";
+  return rows.map((row) => formatMoney(row.cents, row.currency)).join(" | ");
 }
 
 function softDate(isoOrDate: string | null | undefined) {
@@ -124,7 +118,7 @@ export default function PlannedClient() {
   const householdIdRef = useRef<string | null>(null);
 
   const snapshot = data?.snapshot;
-  const explanation = data?.explanation;
+  const coverage = data?.data_coverage;
 
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
@@ -243,33 +237,29 @@ export default function PlannedClient() {
   );
 
   return (
-    <Page title="Planned" subtitle="Upcoming commitments, goals, and near-term timing." right={right}>
+    <Page title="Planned" subtitle="Upcoming bills, goals, and what is already in view." right={right}>
       <div className="mx-auto w-full max-w-[860px] space-y-4 px-4 sm:px-6">
         {error ? <div className="text-sm text-red-600">{error}</div> : null}
 
         <Card className="border-zinc-200 bg-white">
           <CardContent className="space-y-2">
-            <div className="text-sm font-semibold text-zinc-900">Upcoming commitments</div>
+            <div className="text-sm font-semibold text-zinc-900">Planned money at a glance</div>
             <ul className="space-y-1 text-xs text-zinc-700">
-              <li>
-                Recurring commitments: {snapshot ? formatMoney(snapshot.commitments.recurringMonthlyCents) : loading ? "Loading..." : "-"}
-              </li>
-              <li>
-                Bills tracked: {snapshot ? snapshot.commitments.billCount : loading ? "Loading..." : "-"}
-              </li>
-              <li>{explanation?.pressure.timing || "Timing notes will appear here."}</li>
+              <li>Money out this month: {loading ? "Loading..." : formatMoneyRows(coverage?.current_month_money_out ?? [])}</li>
+              <li>Confirmed regular payments: {loading ? "Loading..." : coverage?.confirmed_regular_payment_count ?? 0}</li>
+              <li>Bills formally set up: {snapshot ? snapshot.commitments.billCount : loading ? "Loading..." : "-"}</li>
             </ul>
-            <div className="text-xs text-zinc-500">{explanation?.pressure.structural || "Commitment notes will appear here."}</div>
+            <div className="text-xs text-zinc-500">Formal bill total: {snapshot ? formatMoney(snapshot.commitments.recurringMonthlyCents) : loading ? "Loading..." : "-"}</div>
           </CardContent>
         </Card>
 
         <Card className="border-zinc-200 bg-white">
           <CardContent className="space-y-3">
-            <div className="text-sm font-semibold text-zinc-900">Timing notes</div>
+            <div className="text-sm font-semibold text-zinc-900">What is known</div>
             <ul className="space-y-1 text-xs text-zinc-700">
-              <li>{explanation?.pressure.timing || (loading ? "Loading..." : "Timing notes will appear here.")}</li>
-              <li>{explanation?.pressure.structural || (loading ? "Loading..." : "Commitment notes will appear here.")}</li>
-              <li>{explanation?.pressure.discretionary || (loading ? "Loading..." : "Spending rhythm notes will appear here.")}</li>
+              <li>{coverage?.transaction_count ?? 0} recent transaction(s) are included.</li>
+              <li>{coverage?.label_quality_note || (loading ? "Checking transaction names..." : "Transaction name quality will appear here.")}</li>
+              <li>Confirmed patterns and formally set up bills stay separate.</li>
             </ul>
             <div className="text-xs text-zinc-500">
               Snapshot date: {snapshot?.asOf ? softDate(snapshot.asOf) : loading ? "Loading..." : "No date"}
@@ -301,7 +291,7 @@ export default function PlannedClient() {
               <li>
                 Commitments in view: {snapshot ? `${snapshot.commitments.billCount} bill(s)` : loading ? "Loading..." : "-"}
               </li>
-              <li>{explanation?.pressure.timing || "Timing notes will appear here."}</li>
+              <li>Use confirmed patterns as context while formal bill timing remains separate.</li>
             </ul>
             <div className="flex flex-wrap gap-2">
               <Link href="/money/goals">

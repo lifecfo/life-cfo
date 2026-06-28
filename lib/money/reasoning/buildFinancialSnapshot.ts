@@ -46,11 +46,7 @@ type LegacySnapshotTruth = {
 export function buildFinancialSnapshot(truth: HouseholdMoneyTruth): FinancialSnapshot {
   const normalized = normalizeSnapshotTruth(truth);
   const asOfMs = safeDate(normalized.asOf);
-  const accounts = shouldPreferFreshBasiq(normalized.connections, normalized.asOf)
-    ? normalized.accounts.filter((account) => account.provider !== "plaid")
-    : normalized.accounts;
-
-  const liquidity = computeLiquidity(accounts);
+  const liquidity = computeLiquidity(normalized.accounts);
   const income = computeRecurringIncome(normalized.recurringIncome);
   const commitments = computeRecurringBills(normalized.recurringBills);
   const discretionary = computeDiscretionary(normalized.transactions, asOfMs);
@@ -124,19 +120,6 @@ function computeConnections(connections: ConnectionTruth[], asOf: string) {
     stale,
     maxAgeDays: Number.isFinite(maxAgeDays) ? Number(maxAgeDays.toFixed(1)) : Infinity,
   };
-}
-
-function shouldPreferFreshBasiq(connections: ConnectionTruth[], asOf: string): boolean {
-  const asOfMs = safeDate(asOf);
-  if (asOfMs === null) return false;
-  const maxAgeMs = msFromDays(7);
-
-  return connections.some((connection) => {
-    if (String(connection.provider || "").trim().toLowerCase() !== "basiq") return false;
-    if (String(connection.status || "").trim().toLowerCase() !== "active") return false;
-    const updatedMs = safeDate(connection.last_sync_at || connection.updated_at || null);
-    return updatedMs !== null && asOfMs - updatedMs <= maxAgeMs;
-  });
 }
 
 // Helpers (mirroring pressureSignals.ts logic)

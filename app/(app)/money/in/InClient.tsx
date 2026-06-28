@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Page } from "@/components/Page";
 import { Card, CardContent, Chip, useToast } from "@/components/ui";
+import type { MoneyDataCoverage } from "@/lib/money/reasoning/types";
 
 type FinancialSnapshot = {
   asOf: string;
@@ -15,21 +16,9 @@ type FinancialSnapshot = {
   connections: { total: number; stale: number; maxAgeDays: number };
 };
 
-type SnapshotExplanation = {
-  headline: string;
-  summary: string;
-  insights: string[];
-  pressure: {
-    structural: string;
-    discretionary: string;
-    timing: string;
-    stability: string;
-  };
-};
-
 type OverviewResponse = {
   snapshot: FinancialSnapshot;
-  explanation: SnapshotExplanation;
+  data_coverage?: MoneyDataCoverage;
 };
 
 function formatMoney(cents: number | undefined | null, currency = "AUD") {
@@ -40,6 +29,11 @@ function formatMoney(cents: number | undefined | null, currency = "AUD") {
   } catch {
     return `${currency} ${amt.toFixed(2)}`;
   }
+}
+
+function formatMoneyRows(rows: MoneyDataCoverage["current_month_money_in"]) {
+  if (!rows.length) return "No money in recorded this month yet";
+  return rows.map((row) => formatMoney(row.cents, row.currency)).join(" | ");
 }
 
 function softDate(isoOrDate: string | null | undefined) {
@@ -78,7 +72,7 @@ export default function InClient() {
   const [data, setData] = useState<OverviewResponse | null>(null);
 
   const snapshot = data?.snapshot;
-  const explanation = data?.explanation;
+  const coverage = data?.data_coverage;
 
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
@@ -120,15 +114,11 @@ export default function InClient() {
 
         <Card className="border-zinc-200 bg-white">
           <CardContent className="space-y-2">
-            <div className="text-sm font-semibold text-zinc-900">Income at a glance</div>
+            <div className="text-sm font-semibold text-zinc-900">Money in at a glance</div>
             <ul className="space-y-1 text-xs text-zinc-700">
-              <li>
-                Recurring income: {snapshot ? formatMoney(snapshot.income.recurringMonthlyCents) : loading ? "Loading..." : "-"}
-              </li>
-              <li>
-                Sources tracked: {snapshot ? snapshot.income.sourceCount : loading ? "Loading..." : "-"}
-              </li>
-              <li>{explanation?.pressure.timing || "Income timing notes will appear here."}</li>
+              <li>Money in this month: {loading ? "Loading..." : formatMoneyRows(coverage?.current_month_money_in ?? [])}</li>
+              <li>Confirmed income patterns: {loading ? "Loading..." : coverage?.confirmed_income_pattern_count ?? 0}</li>
+              <li>Income formally set up: {snapshot ? `${snapshot.income.sourceCount} source(s), ${formatMoney(snapshot.income.recurringMonthlyCents)}` : loading ? "Loading..." : "-"}</li>
             </ul>
             <div className="text-xs text-zinc-500">
               Snapshot date: {snapshot?.asOf ? softDate(snapshot.asOf) : loading ? "Loading..." : "No date"}
@@ -140,16 +130,12 @@ export default function InClient() {
           <CardContent className="space-y-3">
             <div className="text-sm font-semibold text-zinc-900">Highlights</div>
             <ul className="space-y-1 text-xs text-zinc-700">
-              {(explanation?.insights ?? []).slice(0, 3).map((line, idx) => (
-                <li key={idx}>{line}</li>
-              ))}
-              {!loading && (!explanation?.insights || explanation.insights.length === 0) ? (
-                <li>No income notes yet.</li>
-              ) : null}
+              <li>{coverage?.label_quality_note || (loading ? "Checking transaction names..." : "Transaction name quality will appear here.")}</li>
+              <li>{coverage?.latest_transaction_date ? `Latest transaction used: ${softDate(coverage.latest_transaction_date)}.` : loading ? "Checking recent transactions..." : "No recent transaction date is available."}</li>
               {loading ? <li>Loading highlights...</li> : null}
             </ul>
             <div className="text-xs text-zinc-500">
-              {explanation?.summary || "This section shows short, current income context."}
+              Connected money in is shown separately from income you have formally set up.
             </div>
           </CardContent>
         </Card>
@@ -172,7 +158,7 @@ export default function InClient() {
               </Link>
             </div>
             <div className="text-xs text-zinc-500">
-              Go deeper into inflows, account coverage, and connection health.
+              Go deeper into money in, account coverage, and connected sources.
             </div>
           </CardContent>
         </Card>

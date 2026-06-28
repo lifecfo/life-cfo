@@ -73,8 +73,8 @@ function buildHeadline(params: {
   if (!hasIncome && !hasBills) {
     return hasConnectedData
       ? discretionaryCents > 0
-        ? "Connected transactions are available. Bills are not formally mapped yet, so recent outflows are the starting point."
-        : "Connected data is coming through. Income and commitments still need mapping."
+        ? "Connected transactions are available. Bills are not formally set up yet, so recent money out is the starting point."
+        : "Connected data is coming through. Income and regular payments can still be confirmed or set up."
       : "Recurring income and commitments are not set up yet.";
   }
 
@@ -122,12 +122,12 @@ function buildSummary(params: {
   } else if (incomeCents <= 0 && commitmentsCents > 0) {
     parts.push("Recurring bills are tracked but recurring income is missing.");
   } else if (incomeCents > 0 && commitmentsCents === 0) {
-    parts.push("Recurring income is mapped. Commitments are still light or not fully mapped.");
+    parts.push("Recurring income is set up. Regular payments are still light or not fully set up.");
   } else {
     parts.push("Recurring income and commitments are not set up yet.");
   }
   parts.push(`Available cash is ${formatCurrency(cashCents)}.`);
-  parts.push(`Flexible outflow over the last 30 days is ${formatCurrency(discretionaryCents)}.`);
+  parts.push(`Flexible money out over the last 30 days is ${formatCurrency(discretionaryCents)}.`);
   parts.push(connectionSummaryLine(connections));
 
   return parts.join(" ");
@@ -154,7 +154,7 @@ function buildInsights(params: {
   } else if (incomeCents <= 0 && commitmentsCents > 0) {
     insights.push("Recurring bills are recorded but recurring income is missing.");
   } else if (incomeCents > 0 && commitmentsCents === 0) {
-    insights.push("Recurring income exists; commitments are not mapped yet.");
+    insights.push("Recurring income is set up; regular payments are not fully set up yet.");
   } else {
     insights.push("Recurring income and commitments have not been set up.");
   }
@@ -166,7 +166,7 @@ function buildInsights(params: {
   }
 
   insights.push(
-    `Flexible outflow over the last 30 days is ${formatCurrency(discretionaryCents)}.`
+    `Flexible money out over the last 30 days is ${formatCurrency(discretionaryCents)}.`
   );
 
   return insights.slice(0, 5);
@@ -179,7 +179,7 @@ function connectionSummaryLine(connections: FinancialSnapshot["connections"]): s
   if (connections.stale === 0) {
     return `Connected data looks fresh across ${connections.total} source(s).`;
   }
-  return `${connections.stale} of ${connections.total} connected source(s) may be stale (up to ${formatNumber(
+  return `${connections.stale} of ${connections.total} connected source(s) may need a refresh (up to ${formatNumber(
     connections.maxAgeDays
   )} day(s)).`;
 }

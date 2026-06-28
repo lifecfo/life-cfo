@@ -129,10 +129,9 @@ function isWagesLike(label: string): boolean {
   return /\b(payroll|salary|wages?|payg|employer)\b/i.test(label);
 }
 
-function hasFreshActiveBasiq(connections: ExternalConnectionsTruthRow[], nowMs: number): boolean {
+function hasFreshActiveConnection(connections: ExternalConnectionsTruthRow[], nowMs: number): boolean {
   const maxAgeMs = 7 * 24 * 60 * 60 * 1000;
   return connections.some((connection) => {
-    if (String(connection.provider || "").trim().toLowerCase() !== "basiq") return false;
     if (String(connection.status || "").trim().toLowerCase() !== "active") return false;
     const updatedMs = Date.parse(connection.last_sync_at || connection.updated_at || "");
     return Number.isFinite(updatedMs) && nowMs - updatedMs <= maxAgeMs;
@@ -326,8 +325,8 @@ export function deriveTransactionOutflowSummary(params: {
       (pattern) => pattern.uncertain_label
     ),
     has_unlabelled_repeated_income: likelyIncome.some((pattern) => pattern.uncertain_label),
-    source_note: hasFreshActiveBasiq(params.connections, nowMs)
-      ? "A fresh Basiq connection is available. Older linked sources may need review."
+    source_note: hasFreshActiveConnection(params.connections, nowMs)
+      ? "Recent connected bank data is available."
       : null,
     confirmation_note:
       likelyRegularOutflows.length || likelyIncome.length

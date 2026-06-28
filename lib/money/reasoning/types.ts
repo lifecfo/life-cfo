@@ -60,6 +60,7 @@ export type ConnectionTruth = {
 export type AccountsTruthRow = {
   id: string;
   household_id: string;
+  connection_id?: string | null;
   name: string | null;
   provider: string | null;
   type: string | null;
@@ -74,6 +75,8 @@ export type AccountsTruthRow = {
 
 export type TransactionsTruthRow = {
   id: string;
+  connection_id?: string | null;
+  external_connection_id?: string | null;
   date: string | null;
   description: string | null;
   merchant: string | null;
@@ -188,4 +191,35 @@ export type HouseholdMoneyTruth = {
     budget_items: number;
     investment_accounts: number;
   };
+};
+
+export type MoneyByCurrencyRow = {
+  currency: string;
+  cents: number;
+};
+
+export type MoneySourceCoverage = {
+  provider: string;
+  connection_count: number;
+  account_count: number;
+  transaction_count: number;
+};
+
+export type MoneyDataCoverage = {
+  included_sources: MoneySourceCoverage[];
+  reference_only_sources: MoneySourceCoverage[];
+  account_count: number;
+  transaction_count: number;
+  transaction_window: {
+    start_date: string;
+    end_date: string;
+  } | null;
+  latest_transaction_date: string | null;
+  current_month_money_in: MoneyByCurrencyRow[];
+  current_month_money_out: MoneyByCurrencyRow[];
+  confirmed_regular_payment_count: number;
+  confirmed_income_pattern_count: number;
+  unclear_label_count: number;
+  label_quality_note: string;
+  has_reference_only_sources: boolean;
 };

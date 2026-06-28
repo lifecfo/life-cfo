@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { supabaseRoute } from "@/lib/supabaseRoute";
 import { resolveHouseholdIdRoute } from "@/lib/households/resolveHouseholdIdRoute";
 import { getHouseholdMoneyTruth } from "@/lib/money/reasoning/getHouseholdMoneyTruth";
+import { deriveEffectiveMoneyTruth } from "@/lib/money/reasoning/effectiveMoneySources";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -59,7 +60,8 @@ export async function GET() {
       );
     }
 
-    const truth = await getHouseholdMoneyTruth(supabase, { householdId });
+    const rawTruth = await getHouseholdMoneyTruth(supabase, { householdId });
+    const { truth, dataCoverage } = deriveEffectiveMoneyTruth(rawTruth);
     const monthTransactions = truth.month_transactions ?? [];
     const recentTransactions = truth.recent_transactions ?? [];
     const recurringBills = truth.recurring_bills ?? [];
@@ -133,6 +135,7 @@ export async function GET() {
     return NextResponse.json({
       ok: true,
       household_id: householdId,
+      data_coverage: dataCoverage,
       out_flow: {
         month_total_by_currency: mapToRows(outMonthByCurrency),
         top_categories: topCategories,
@@ -145,9 +148,12 @@ export async function GET() {
         upcoming_bills: upcomingBills.slice(0, 8),
       },
     });
-  } catch (e: any) {
+  } catch (error: unknown) {
+    const message = error instanceof Error && error.message
+      ? error.message
+      : "Money out fetch failed";
     return NextResponse.json(
-      { ok: false, error: e?.message ?? "Money out fetch failed" },
+      { ok: false, error: message },
       { status: 500 }
     );
   }
