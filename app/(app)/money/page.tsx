@@ -10,7 +10,10 @@ import type { PressureInterpretation } from "@/lib/money/reasoning/interpretPres
 import { formatMoneyFromCents } from "@/lib/money/formatMoney";
 import { joinNonEmptyWithSpace } from "@/lib/ask/responseComposition";
 import type { MiniSignalLevel } from "@/components/ui/MiniSignal";
-import type { MoneyDataCoverage } from "@/lib/money/reasoning/types";
+import type {
+  MoneyDataCoverage,
+  MoneySetupStatus,
+} from "@/lib/money/reasoning/types";
 
 const MONEY_SMART_INSIGHT_PREVIEW_KEY = "lifecfo:money-smart-insight-preview";
 
@@ -49,6 +52,7 @@ type OverviewResponse = {
   pattern_confirmations?: PatternConfirmation[];
   recent_transactions?: TransactionRow[];
   data_coverage?: MoneyDataCoverage;
+  setup_status?: MoneySetupStatus;
 };
 
 type MoneyRow = {
@@ -494,6 +498,7 @@ export default function MoneyClientNext() {
   const interpretation = explanation?.interpretation;
   const transactionOutflows = data?.transaction_outflows;
   const dataCoverage = data?.data_coverage;
+  const setupStatus = data?.setup_status;
   const recentTransactions = data?.recent_transactions ?? [];
   const confirmationsByPatternKey = new Map(
     (data?.pattern_confirmations ?? []).map((confirmation) => [
@@ -924,8 +929,84 @@ export default function MoneyClientNext() {
             </CardContent>
           </Card>
 
-          {transactionOutflows ? (
+          {setupStatus ? (
             <Card className="border-zinc-200 bg-white">
+              <CardContent className="space-y-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-semibold text-zinc-900">Money setup</div>
+                    <div className="mt-1 text-xs leading-relaxed text-zinc-600">
+                      {setupStatus.summary}
+                    </div>
+                  </div>
+                  <span
+                    className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-medium ${
+                      setupStatus.status === "ready"
+                        ? "bg-emerald-50 text-emerald-700"
+                        : setupStatus.status === "needs_review"
+                          ? "bg-amber-50 text-amber-700"
+                          : "bg-zinc-100 text-zinc-700"
+                    }`}
+                  >
+                    {setupStatus.label}
+                  </span>
+                </div>
+
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {(
+                    [
+                      ["in", "In"],
+                      ["out", "Out"],
+                      ["saved", "Saved"],
+                      ["planned", "Planned"],
+                    ] as const
+                  ).map(([key, title]) => {
+                    const flow = setupStatus.flows[key];
+                    return (
+                      <Link
+                        key={key}
+                        href={flow.href}
+                        className="rounded-xl border border-zinc-200 px-3 py-2.5 transition-colors hover:bg-zinc-50"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-xs font-semibold text-zinc-900">{title}</span>
+                          <span className="text-[11px] font-medium text-zinc-500">{flow.label}</span>
+                        </div>
+                        <div className="mt-1 text-xs leading-relaxed text-zinc-600">
+                          {flow.summary}
+                        </div>
+                      </Link>
+                    );
+                  })}
+                </div>
+
+                {setupStatus.next_step ? (
+                  <div className="rounded-xl bg-zinc-50 px-3 py-2.5">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-xs font-semibold text-zinc-900">
+                        {setupStatus.next_step.title}
+                      </span>
+                      {setupStatus.next_step.optional ? (
+                        <span className="text-[11px] text-zinc-500">Optional</span>
+                      ) : null}
+                    </div>
+                    <div className="mt-1 text-xs leading-relaxed text-zinc-600">
+                      {setupStatus.next_step.detail}
+                    </div>
+                    <Link
+                      href={setupStatus.next_step.href}
+                      className="mt-2 inline-block text-xs font-medium text-zinc-800 underline decoration-zinc-300 underline-offset-4"
+                    >
+                      {setupStatus.next_step.action_label}
+                    </Link>
+                  </div>
+                ) : null}
+              </CardContent>
+            </Card>
+          ) : null}
+
+          {transactionOutflows ? (
+            <Card id="money-review" className="border-zinc-200 bg-white">
               <CardContent className="space-y-3">
                 <div>
                   <div className="text-sm font-semibold text-zinc-900">Review what Life CFO found</div>

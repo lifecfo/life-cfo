@@ -226,3 +226,48 @@ export type MoneyDataCoverage = {
   has_reference_only_sources: boolean;
   has_demo_sources: boolean;
 };
+
+export type MoneySetupStatusCode =
+  | "ready"
+  | "needs_review"
+  | "needs_setup"
+  | "refresh_needed";
+
+export type MoneySetupFlow = "in" | "out" | "saved" | "planned";
+
+export type MoneyFlowReadiness = {
+  status: MoneySetupStatusCode;
+  label: string;
+  summary: string;
+  href: string;
+};
+
+export type MoneySetupNextStep = {
+  key: string;
+  flow: MoneySetupFlow | null;
+  title: string;
+  detail: string;
+  action_label: string;
+  href: string;
+  optional: boolean;
+};
+
+export type MoneySetupStatus = {
+  version: 1;
+  status: MoneySetupStatusCode;
+  usable_now: boolean;
+  label: string;
+  summary: string;
+  next_step: MoneySetupNextStep | null;
+  flows: Record<MoneySetupFlow, MoneyFlowReadiness>;
+  evidence: {
+    account_count: number;
+    transaction_count: number;
+    confirmed_income_count: number;
+    confirmed_regular_payment_count: number;
+    formal_income_count: number;
+    formal_bill_count: number;
+    goal_count: number;
+    pending_review_count: number;
+  };
+};

@@ -6,6 +6,7 @@ import { buildFinancialSnapshot } from "@/lib/money/reasoning/buildFinancialSnap
 import { explainSnapshot } from "@/lib/money/reasoning/explainSnapshot";
 import { deriveTransactionOutflowSummary } from "@/lib/money/reasoning/deriveTransactionOutflows";
 import { deriveEffectiveMoneyTruth } from "@/lib/money/reasoning/effectiveMoneySources";
+import { deriveMoneySetupStatus } from "@/lib/money/reasoning/deriveMoneySetupStatus";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -50,6 +51,11 @@ export async function GET() {
       connections: truth.external_connections,
       nowIso: truth.as_of_iso,
     });
+    const setupStatus = deriveMoneySetupStatus({
+      truth,
+      dataCoverage,
+      transactionOutflows,
+    });
 
     return NextResponse.json({
       snapshot,
@@ -58,6 +64,7 @@ export async function GET() {
       pattern_confirmations: truth.transaction_pattern_confirmations,
       recent_transactions: truth.recent_transactions,
       data_coverage: dataCoverage,
+      setup_status: setupStatus,
     });
   } catch (e: unknown) {
     return NextResponse.json(
