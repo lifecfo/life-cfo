@@ -7,6 +7,7 @@ import {
   RecurringIncomeTruth,
   ConnectionTruth,
 } from "./types";
+import { isDemoMoneySource } from "./effectiveMoneySources";
 import { evaluatePressureSignals, PressureSignals } from "./pressureSignals";
 
 export type FinancialSnapshot = {
@@ -30,6 +31,7 @@ export type FinancialSnapshot = {
     total: number;
     stale: number;
     maxAgeDays: number;
+    demo?: number;
   };
   pressure: PressureSignals;
 };
@@ -111,14 +113,17 @@ function computeConnections(connections: ConnectionTruth[], asOf: string) {
   const total = connections.length;
   const maxAgeDays = maxConnectionAgeDays(connections, asOf);
   const stale = connections.filter((c) => {
+    if (isDemoMoneySource(c)) return false;
     const age = ageDays(c.last_sync_at || c.updated_at || null, asOf);
     return age !== null && age > 7; // treat >7 days as stale for now
   }).length;
+  const demo = connections.filter(isDemoMoneySource).length;
 
   return {
     total,
     stale,
     maxAgeDays: Number.isFinite(maxAgeDays) ? Number(maxAgeDays.toFixed(1)) : Infinity,
+    demo,
   };
 }
 
@@ -195,7 +200,7 @@ function ageDays(targetIso: string | null | undefined, asOfIso: string): number 
 function maxConnectionAgeDays(connections: ConnectionTruth[], asOf: string): number {
   if (!connections.length) return Infinity;
   const ages = connections
-    .map((c) => ageDays(c.last_sync_at || c.updated_at || null, asOf))
+    .map((c) => isDemoMoneySource(c) ? 0 : ageDays(c.last_sync_at || c.updated_at || null, asOf))
     .filter((d): d is number => d !== null && Number.isFinite(d) && d >= 0);
 
   if (!ages.length) return Infinity;
@@ -252,6 +257,7 @@ function normalizeSnapshotTruth(truth: HouseholdMoneyTruth): LegacySnapshotTruth
     last_sync_at: c.last_sync_at ?? null,
     updated_at: c.updated_at ?? null,
     provider: c.provider ?? null,
+    metadata: c.metadata ?? null,
   }));
 
   return {

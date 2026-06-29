@@ -159,7 +159,7 @@ export async function getHouseholdMoneyTruth(
 
     supabase
       .from("external_connections")
-      .select("id,status,last_sync_at,updated_at,provider")
+      .select("id,status,last_sync_at,updated_at,provider,metadata")
       .eq("household_id", householdId)
       .order("updated_at", { ascending: false }),
 

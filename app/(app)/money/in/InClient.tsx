@@ -135,7 +135,7 @@ export default function InClient() {
               {loading ? <li>Loading highlights...</li> : null}
             </ul>
             <div className="text-xs text-zinc-500">
-              Connected money in is shown separately from income you have formally set up.
+              {coverage?.has_demo_sources ? "Demo money in" : "Connected money in"} is shown separately from income you have formally set up.
             </div>
           </CardContent>
         </Card>

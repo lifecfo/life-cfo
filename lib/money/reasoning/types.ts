@@ -55,6 +55,7 @@ export type ConnectionTruth = {
   last_sync_at?: string | null;
   updated_at?: string | null;
   provider?: string | null;
+  metadata?: Record<string, unknown> | null;
 };
 
 export type AccountsTruthRow = {
@@ -142,6 +143,7 @@ export type ExternalConnectionsTruthRow = {
   last_sync_at: string | null;
   updated_at: string | null;
   provider: string | null;
+  metadata?: Record<string, unknown> | null;
 };
 
 export type TransactionPatternConfirmationTruthRow = {
@@ -222,4 +224,5 @@ export type MoneyDataCoverage = {
   unclear_label_count: number;
   label_quality_note: string;
   has_reference_only_sources: boolean;
+  has_demo_sources: boolean;
 };

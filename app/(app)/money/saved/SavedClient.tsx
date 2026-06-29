@@ -131,7 +131,9 @@ export default function SavedClient() {
             <div className="text-xs text-zinc-500">
               {coverage?.has_reference_only_sources
                 ? "Older linked sources are kept for reference and are not included in these balances."
-                : "These balances use the current connected sources in this view."}
+                : coverage?.has_demo_sources
+                  ? "These balances use manual demo data."
+                  : "These balances use the current connected sources in this view."}
             </div>
           </CardContent>
         </Card>

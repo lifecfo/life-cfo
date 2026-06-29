@@ -14,6 +14,29 @@ function normalizedProvider(value: string | null | undefined): string {
   return String(value || "unknown").trim().toLowerCase() || "unknown";
 }
 
+type DemoMoneySourceCandidate = {
+  provider?: string | null;
+  status?: string | null;
+  metadata?: Record<string, unknown> | null;
+};
+
+export function isDemoMoneySource(connection: DemoMoneySourceCandidate): boolean {
+  const scenario = connection.metadata?.scenario;
+  return (
+    normalizedProvider(connection.provider) === "manual" &&
+    String(connection.status || "").trim().toLowerCase() === "demo" &&
+    connection.metadata?.demo === true &&
+    typeof scenario === "string" &&
+    scenario.trim().length > 0
+  );
+}
+
+function sourceLabel(connection: ExternalConnectionsTruthRow): string {
+  return isDemoMoneySource(connection)
+    ? "manual demo data"
+    : normalizedProvider(connection.provider);
+}
+
 function connectionUpdatedAt(connection: ExternalConnectionsTruthRow): number | null {
   const value = Date.parse(connection.last_sync_at || connection.updated_at || "");
   return Number.isFinite(value) ? value : null;
@@ -25,7 +48,10 @@ function isIncludedConnection(
 ): boolean {
   const provider = normalizedProvider(connection.provider);
   const status = String(connection.status || "").trim().toLowerCase();
-  if (provider === "manual") return status === "manual" || status === "active";
+  if (isDemoMoneySource(connection)) return true;
+  if (provider === "manual") {
+    return status === "manual" || status === "active";
+  }
   if (status !== "active") return false;
   const updatedAt = connectionUpdatedAt(connection);
   if (updatedAt === null) return false;
@@ -75,8 +101,10 @@ function sourceSummary(
   transactions: TransactionsTruthRow[]
 ): MoneySourceCoverage[] {
   const byProvider = new Map<string, MoneySourceCoverage>();
+  const labelsByConnectionId = new Map<string, string>();
   for (const connection of connections) {
-    const provider = normalizedProvider(connection.provider);
+    const provider = sourceLabel(connection);
+    labelsByConnectionId.set(connection.id, provider);
     const existing = byProvider.get(provider) ?? {
       provider,
       connection_count: 0,
@@ -88,12 +116,17 @@ function sourceSummary(
   }
 
   for (const account of accounts) {
-    const provider = normalizedProvider(account.provider);
+    const provider = account.connection_id
+      ? labelsByConnectionId.get(account.connection_id) ?? normalizedProvider(account.provider)
+      : normalizedProvider(account.provider);
     const existing = byProvider.get(provider);
     if (existing) existing.account_count += 1;
   }
   for (const transaction of transactions) {
-    const provider = normalizedProvider(transaction.provider);
+    const connectionId = connectionIdForTransaction(transaction);
+    const provider = connectionId
+      ? labelsByConnectionId.get(connectionId) ?? normalizedProvider(transaction.provider)
+      : normalizedProvider(transaction.provider);
     const existing = byProvider.get(provider);
     if (existing) existing.transaction_count += 1;
   }
@@ -193,6 +226,7 @@ export function deriveEffectiveMoneyTruth(rawTruth: HouseholdMoneyTruth): {
           ? "Some bank labels are unclear, so a few names may need review."
           : "Recent transaction names look clear enough to use.",
       has_reference_only_sources: referenceConnections.length > 0,
+      has_demo_sources: includedConnections.some(isDemoMoneySource),
     },
   };
 }

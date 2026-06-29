@@ -883,7 +883,9 @@ export default function MoneyClientNext() {
               <div className="text-sm font-semibold text-zinc-900">What Life CFO can see</div>
               <div className="text-xs text-zinc-600">
                 {dataCoverage && (dataCoverage.account_count > 0 || dataCoverage.transaction_count > 0)
-                  ? "Connected bank data is available."
+                  ? dataCoverage.has_demo_sources
+                    ? "Demo data is available."
+                    : "Connected bank data is available."
                   : "Connect a bank to bring account balances and recent transactions into view."}
               </div>
               <ul className="list-disc space-y-1 pl-4 text-xs text-zinc-600">
@@ -928,7 +930,7 @@ export default function MoneyClientNext() {
                 <div>
                   <div className="text-sm font-semibold text-zinc-900">Review what Life CFO found</div>
                   <div className="mt-1 text-xs leading-relaxed text-zinc-600">
-                    These items look regular from your connected bank data. Confirming them here does not change your bills or income.
+                    These items look regular from {dataCoverage?.has_demo_sources ? "your demo data" : "your connected bank data"}. Confirming them here does not change your bills or income.
                   </div>
                 </div>
 
@@ -977,7 +979,7 @@ export default function MoneyClientNext() {
                     Reviewed money patterns
                   </div>
                   <div className="mt-1 text-xs leading-relaxed text-zinc-600">
-                    These are the regular payments and income patterns you’ve reviewed from connected bank data.
+                    These are the regular payments and income patterns you’ve reviewed from {dataCoverage?.has_demo_sources ? "demo data" : "connected bank data"}.
                   </div>
                 </div>
                 <Chip onClick={() => setReviewedPatternsOpen((open) => !open)}>
@@ -1044,7 +1046,9 @@ export default function MoneyClientNext() {
               ]}
               note={
                 snapshot?.income.sourceCount === 0 && transactionOutflows?.inflow_transaction_count
-                  ? "Connected money in is available. It stays observed until you confirm an income pattern."
+                  ? dataCoverage?.has_demo_sources
+                    ? "Demo money in is available. It stays observed until you confirm an income pattern."
+                    : "Connected money in is available. It stays observed until you confirm an income pattern."
                   : "See income details and recent money in."
               }
               links={[
@@ -1095,7 +1099,9 @@ export default function MoneyClientNext() {
                 `${dataCoverage?.account_count ?? 0} account(s) included from current sources.`,
                 dataCoverage?.has_reference_only_sources
                   ? "Older linked sources are kept for reference and are not included here."
-                  : "Current connected sources are leading this view.",
+                  : dataCoverage?.has_demo_sources
+                    ? "Manual demo data is leading this view."
+                    : "Current connected sources are leading this view.",
               ]}
               note="Balances come from the current sources shown above."
               links={[

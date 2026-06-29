@@ -7,6 +7,7 @@ import {
   ConnectionTruth,
   MoneyCadence,
 } from "./types";
+import { isDemoMoneySource } from "./effectiveMoneySources";
 
 type PressureLevel = "none" | "low" | "medium" | "high";
 
@@ -417,7 +418,7 @@ function maxConnectionAgeDays(connections: ConnectionTruth[], asOf: string): num
   if (asOfMs === null) return Infinity;
 
   const ages = connections
-    .map((c) => safeDate(c.last_sync_at || c.updated_at || null))
+    .map((c) => isDemoMoneySource(c) ? asOfMs : safeDate(c.last_sync_at || c.updated_at || null))
     .filter((ms): ms is number => ms !== null)
     .map((ms) => (asOfMs - ms) / msFromDays(1))
     .filter((d) => Number.isFinite(d) && d >= 0);
@@ -480,6 +481,7 @@ function normalizePressureTruth(truth: HouseholdMoneyTruth): LegacyPressureTruth
     last_sync_at: c.last_sync_at ?? null,
     updated_at: c.updated_at ?? null,
     provider: c.provider ?? null,
+    metadata: c.metadata ?? null,
   }));
 
   return {

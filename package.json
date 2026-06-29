@@ -6,7 +6,10 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "demo:inspect": "node scripts/demo-household.mjs inspect",
+    "demo:seed": "node scripts/demo-household.mjs seed",
+    "demo:reset": "node scripts/demo-household.mjs reset"
   },
   "dependencies": {
     "@supabase/ssr": "^0.8.0",

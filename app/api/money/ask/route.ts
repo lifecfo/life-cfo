@@ -896,6 +896,11 @@ export async function POST(req: Request) {
         householdId,
       });
       const { truth, snapshot } = money;
+      const observedDataLabel = truth.external_connections.some(
+        (connection) => connection.metadata?.demo === true
+      )
+        ? "demo data"
+        : "connected bank data";
       const mappedBills = (truth.recurring_bills ?? []).filter((bill) => bill.active !== false);
       const mappedIncome = (truth.recurring_income ?? []).filter((income) => income.active !== false);
       const outflows = deriveTransactionOutflowSummary({
@@ -1013,7 +1018,7 @@ export async function POST(req: Request) {
           : incomeMapped
           ? "Here is the money that has come in this month, alongside income you have already set up."
           : outflows.inflow_transaction_count > 0
-            ? "Here is the money that has come in so far this month from your connected bank data."
+            ? `Here is the money that has come in so far this month from your ${observedDataLabel}.`
             : "Income has not been set up yet, and there is no money in to show for this month."
         : focus === "regular"
           ? confirmedBills.length > 0
@@ -1021,7 +1026,7 @@ export async function POST(req: Request) {
             : formallyMapped
             ? "These regular payments have been set up in Life CFO."
             : regularLines.length > 0
-              ? "Regular payments have not been confirmed yet. Your connected bank data shows repeated activity."
+              ? `Regular payments have not been confirmed yet. Your ${observedDataLabel} shows repeated activity.`
               : "No confirmed regular payments are showing yet."
           : focus === "bills"
           ? confirmedBills.length > 0
@@ -1029,18 +1034,18 @@ export async function POST(req: Request) {
             : formallyMapped
             ? "Here is the money that has gone out this month, alongside bills you have already set up."
             : outflows.transaction_count > 0
-              ? "Bills have not been set up yet. Here is the money that has gone out so far this month from your connected bank data."
+              ? `Bills have not been set up yet. Here is the money that has gone out so far this month from your ${observedDataLabel}.`
               : "Bills have not been set up yet, and there is no money out to show for this month."
           : monthlyPositionSummary;
       const caveat =
         focus === "month"
           ? confirmedBills.length || confirmedIncome.length
-            ? "This combines connected bank data with the patterns you have confirmed."
-            : "Bills and income have not been confirmed yet, so this is a first look based on your connected bank data."
+            ? `This combines ${observedDataLabel} with the patterns you have confirmed.`
+            : `Bills and income have not been confirmed yet, so this is a first look based on your ${observedDataLabel}.`
           : focus === "bills" || focus === "regular"
             ? confirmedBills.length > 0
               ? null
-              : "Payments have not been confirmed yet, so this is a first look from your connected bank data."
+              : `Payments have not been confirmed yet, so this is a first look from your ${observedDataLabel}.`
             : confirmedIncome.length > 0
               ? null
               : "Income has not been confirmed yet, so this is a first look rather than a final income summary.";

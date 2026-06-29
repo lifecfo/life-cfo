@@ -69,8 +69,14 @@ function buildHeadline(params: {
   const hasBills = commitmentsCents > 0;
   const hasConnectedData = connections.total > 0;
   const hasFreshConnectedData = hasConnectedData && connections.stale === 0;
+  const hasDemoData = (connections.demo ?? 0) > 0;
 
   if (!hasIncome && !hasBills) {
+    if (hasDemoData) {
+      return discretionaryCents > 0
+        ? "Demo transactions are available. Bills are not formally set up yet, so recent money out is the starting point."
+        : "Demo data is available. Income and regular payments can still be confirmed or set up.";
+    }
     return hasConnectedData
       ? discretionaryCents > 0
         ? "Connected transactions are available. Bills are not formally set up yet, so recent money out is the starting point."
@@ -177,6 +183,9 @@ function connectionSummaryLine(connections: FinancialSnapshot["connections"]): s
     return "No connected sources yet, so this read is based on manual and recurring setup data.";
   }
   if (connections.stale === 0) {
+    if ((connections.demo ?? 0) > 0) {
+      return "Manual demo data is current for this household.";
+    }
     return `Connected data looks fresh across ${connections.total} source(s).`;
   }
   return `${connections.stale} of ${connections.total} connected source(s) may need a refresh (up to ${formatNumber(
