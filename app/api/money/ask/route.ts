@@ -105,6 +105,36 @@ function outflowPatternKey(currency: string, label: string): string {
   return `outflow:${String(currency || "AUD").toUpperCase()}:${normalizedLabel}`;
 }
 
+function outgoingCategoriesByPatternKey(
+  transactions: Array<{
+    amount?: number | null;
+    amount_cents?: number | null;
+    merchant?: string | null;
+    description?: string | null;
+    category?: string | null;
+    currency?: string | null;
+  }>
+): Map<string, string> {
+  const categories = new Map<string, string>();
+  for (const transaction of transactions) {
+    const cents =
+      typeof transaction.amount_cents === "number"
+        ? transaction.amount_cents
+        : typeof transaction.amount === "number"
+          ? Math.round(transaction.amount * 100)
+          : 0;
+    if (cents >= 0) continue;
+    const label = safeStr(transaction.merchant || transaction.description).trim();
+    const category = safeStr(transaction.category).trim();
+    if (!label || !category) continue;
+    categories.set(
+      outflowPatternKey(transaction.currency || "AUD", label),
+      category
+    );
+  }
+  return categories;
+}
+
 type OutgoingPatternBucket = "commitment" | "spending" | "transfer" | "ignored";
 
 function classifyOutgoingPattern(input: {
@@ -1160,23 +1190,9 @@ export async function POST(req: Request) {
           pattern,
         ])
       );
-      const categoryByPatternKey = new Map<string, string>();
-      for (const transaction of truth.rolling_transactions) {
-        const cents =
-          typeof transaction.amount_cents === "number"
-            ? transaction.amount_cents
-            : typeof transaction.amount === "number"
-              ? Math.round(transaction.amount * 100)
-              : 0;
-        if (cents >= 0) continue;
-        const label = safeStr(transaction.merchant || transaction.description).trim();
-        const category = safeStr(transaction.category).trim();
-        if (!label || !category) continue;
-        categoryByPatternKey.set(
-          outflowPatternKey(transaction.currency || "AUD", label),
-          category
-        );
-      }
+      const categoryByPatternKey = outgoingCategoriesByPatternKey(
+        truth.rolling_transactions
+      );
       const confirmedBills = confirmations.filter(
         (confirmation) => confirmation.kind === "bill"
       );
@@ -1753,15 +1769,27 @@ export async function POST(req: Request) {
         lowerQ,
         familyContext,
       });
+      const scenarioDetectedPatterns = new Map(
+        [...outflows.likely_regular_outflows, ...outflows.likely_income].map((pattern) => [
+          pattern.pattern_key,
+          pattern,
+        ])
+      );
+      const scenarioCategories = outgoingCategoriesByPatternKey(
+        truth.rolling_transactions
+      );
       const scenarioPatternCounts = truth.transaction_pattern_confirmations.reduce(
         (counts, confirmation) => {
           if (confirmation.kind === "income") {
             counts.income += 1;
             return counts;
           }
+          const detected = scenarioDetectedPatterns.get(confirmation.pattern_key);
           const bucket = classifyOutgoingPattern({
             kind: confirmation.kind,
-            label: safeStr(confirmation.label) || "Money pattern",
+            label:
+              safeStr(confirmation.label || detected?.label) || "Money pattern",
+            category: scenarioCategories.get(confirmation.pattern_key),
             cadence: confirmation.cadence,
           });
           if (bucket === "commitment") counts.commitments += 1;
@@ -1778,7 +1806,7 @@ export async function POST(req: Request) {
         `Available cash is ${formatMoney(snapshot.liquidity.availableCashCents)} across ${
           snapshot.liquidity.accountCount
         } account(s).`,
-        `${scenarioPatternCounts.commitments} regular commitment pattern(s), ${scenarioPatternCounts.spending} regular spending pattern(s), and ${scenarioPatternCounts.income} income pattern(s) are confirmed or reviewed.`,
+        `Your current pattern layer includes ${scenarioPatternCounts.commitments} regular commitment${scenarioPatternCounts.commitments === 1 ? "" : "s"}, ${scenarioPatternCounts.spending} regular spending pattern${scenarioPatternCounts.spending === 1 ? "" : "s"}, and ${scenarioPatternCounts.income} income pattern${scenarioPatternCounts.income === 1 ? "" : "s"}.`,
       ];
 
       if (explicitMonthlyCost && explicitMonthlyCost > 0) {
