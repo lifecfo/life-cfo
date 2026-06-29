@@ -82,15 +82,18 @@ export function deriveAskLanguageContext(params: {
 
   const data: AskLanguageContext["data"] = includesAny(joined, [
     "stale",
-    "old",
-    "cannot be assessed",
-    "missing",
-    "not set up yet",
-    "no active money connections",
-    "no connection freshness",
+    "out of date",
+    "needs a refresh",
+    "may need a refresh",
   ])
     ? "stale"
-    : includesAny(joined, ["recently synced", "appear stable", "adequate"])
+    : includesAny(joined, [
+        "recently synced",
+        "current demo data",
+        "demo transactions are current",
+        "appear stable",
+        "adequate",
+      ])
       ? "fresh"
       : "unknown";
 

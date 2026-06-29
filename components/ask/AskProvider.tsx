@@ -583,6 +583,37 @@ export function AskProvider({ children }: { children: ReactNode }) {
             paragraph(caveat),
           ]);
           tone = tone || "overview";
+        } else if (isMoneyScope && json?.mode === "data_layers") {
+          const layers = json?.data_layers || {};
+          const headline =
+            typeof layers?.headline === "string"
+              ? layers.headline
+              : "What Life CFO can see";
+          const summary =
+            typeof layers?.summary === "string" ? layers.summary : "";
+          const observed = Array.isArray(layers?.observed)
+            ? (layers.observed as string[]).filter(
+                (line) => typeof line === "string" && line.trim()
+              )
+            : [];
+          const confirmed = Array.isArray(layers?.confirmed)
+            ? (layers.confirmed as string[]).filter(
+                (line) => typeof line === "string" && line.trim()
+              )
+            : [];
+          const formal = Array.isArray(layers?.formal)
+            ? (layers.formal as string[]).filter(
+                (line) => typeof line === "string" && line.trim()
+              )
+            : [];
+          content = composeMessage([
+            headline,
+            summary,
+            section("Observed:", observed),
+            section("Confirmed:", confirmed),
+            section("Formally set up:", formal),
+          ]);
+          tone = tone || "overview";
         } else if (isMoneyScope && json?.mode === "planning") {
           const planning = json?.planning || {};
           const headline =

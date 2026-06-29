@@ -25,6 +25,8 @@ const SNAPSHOT_SIGNALS: WeightedSignal[] = [
 
 const DIAGNOSIS_SIGNALS: WeightedSignal[] = [
   { value: "why does money feel tight", weight: 6 },
+  { value: "why does this month feel tighter", weight: 7 },
+  { value: "why does this feel tighter", weight: 7 },
   { value: "what changed recently", weight: 5 },
   { value: "what changed", weight: 4 },
   { value: "what is the main pressure", weight: 5 },
@@ -81,6 +83,13 @@ const SCENARIO_SIGNALS: WeightedSignal[] = [
   { value: "what happens if we move", weight: 5 },
   { value: "what happens if we add another bill", weight: 5 },
   { value: "what happens if we pause saving", weight: 5 },
+  { value: "private school", weight: 5 },
+  { value: "school fees", weight: 5 },
+  { value: "mortgage increase", weight: 5 },
+  { value: "childcare increase", weight: 5 },
+  { value: "renovation", weight: 4 },
+  { value: "holiday", weight: 4 },
+  { value: "new car", weight: 4 },
 ];
 
 function normalizeForIntent(input: string): string {
@@ -120,6 +129,14 @@ function hasScenarioTopicHint(lowerQ: string): boolean {
     "rent",
     "mortgage",
     "commitment",
+    "school",
+    "private school",
+    "childcare",
+    "daycare",
+    "holiday",
+    "vacation",
+    "car",
+    "renovation",
   ];
   return hints.some((hint) => lowerQ.includes(hint));
 }
@@ -134,7 +151,7 @@ function scoreSignals(lowerQ: string, signals: WeightedSignal[]): number {
 function hasStrongWhyDiagnosisCue(lowerQ: string): boolean {
   const hasWhy = /\bwhy\b/i.test(lowerQ);
   const hasDiagnosisTopic =
-    /\b(tight|stretched|pressure|off|worse|changed|driving|going on|strain|stress)\b/i.test(lowerQ);
+    /\b(tight|tighter|stretched|pressure|off|worse|changed|driving|going on|strain|stress)\b/i.test(lowerQ);
   return hasWhy && hasDiagnosisTopic;
 }
 
@@ -153,6 +170,12 @@ function scoreIntentModes(lowerQ: string): Record<IntentMode, number> {
   }
 
   if (/\bwhat if\b|\bwhat happens if\b/i.test(lowerQ)) scores.scenario += 5;
+  if (/\bwhat would .+ do to\b|\bhow would .+ affect\b/i.test(lowerQ)) {
+    scores.scenario += 5;
+  }
+  if (/\bbreathing room\b/i.test(lowerQ) && hasScenarioTopicHint(lowerQ)) {
+    scores.scenario += 4;
+  }
   if ((lowerQ.includes("what if") || lowerQ.includes("what happens if")) && hasScenarioTopicHint(lowerQ)) {
     scores.scenario += 3;
   }

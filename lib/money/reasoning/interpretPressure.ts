@@ -159,7 +159,8 @@ function deriveEvidence(snapshot: FinancialSnapshot, main: SignalDetail): "clear
 
 function confidenceNote(
   freshness: "fresh" | "stale" | "no_connections",
-  evidence: "clear" | "limited"
+  evidence: "clear" | "limited",
+  hasDemoData: boolean
 ): string {
   if (freshness === "stale") {
     return "Some connected data may be out of date, but this is still a useful read of where things stand.";
@@ -168,9 +169,13 @@ function confidenceNote(
     return "This view is based on current setup data, so treat it as a starting point while connections are still being added.";
   }
   if (evidence === "limited") {
-    return "This is a useful first read, and a little more data will make it sharper.";
+    return hasDemoData
+      ? "This uses current demo data. Formal income and bill setup would add another layer, but the observed transactions are already useful."
+      : "This is a useful first read, and a little more data will make it sharper.";
   }
-  return "This read is based on recent connected household data and should be a solid guide for your next question.";
+  return hasDemoData
+    ? "This read is based on current demo household data."
+    : "This read is based on recent connected household data and should be a solid guide for your next question.";
 }
 
 export function interpretPressure(snapshot: FinancialSnapshot): PressureInterpretation {
@@ -227,7 +232,7 @@ export function interpretPressure(snapshot: FinancialSnapshot): PressureInterpre
     confidence: {
       freshness,
       evidence,
-      note: confidenceNote(freshness, evidence),
+      note: confidenceNote(freshness, evidence, (snapshot.connections.demo ?? 0) > 0),
     },
   };
 }
