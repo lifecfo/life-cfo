@@ -8,6 +8,11 @@ import { Card, CardContent, Chip, Button, useToast } from "@/components/ui";
 import { useAsk } from "@/components/ask/AskProvider";
 import { useRouter } from "next/navigation";
 import { maybeCrisisIntercept } from "@/lib/safety/guard";
+import { formatMoneyFromCents } from "@/lib/money/formatMoney";
+import type {
+  MoneyByCurrencyRow,
+  MoneyDataCoverage,
+} from "@/lib/money/reasoning/types";
 
 export const dynamic = "force-dynamic";
 
@@ -154,20 +159,42 @@ function calmAssumptions(): string[] {
   return ["Bills and due dates are up to date", "Account balances are current", "No large untracked expenses are pending"];
 }
 
-/* ---------- status presentation (top check-in) ---------- */
-
-function statusBorderClass(status: "all_clear" | "tight" | "attention" | "unknown") {
-  if (status === "attention") return "border-l-4 border-l-red-300";
-  if (status === "tight") return "border-l-4 border-l-amber-300";
-  if (status === "unknown") return "border-l-4 border-l-zinc-200";
-  return "border-l-4 border-l-transparent";
+function formatMoneyRows(rows: MoneyByCurrencyRow[]) {
+  if (!rows.length) return "Not visible yet";
+  return rows
+    .map((row) => formatMoneyFromCents(row.cents, row.currency))
+    .join(" | ");
 }
 
-function statusOpeningLine(status: "all_clear" | "tight" | "attention" | "unknown") {
-  if (status === "attention") return "One thing needs attention right now.";
-  if (status === "tight") return "Things are mostly fine, but worth keeping an eye on.";
-  if (status === "unknown") return "Not enough data yet to be confident.";
-  return "Nothing needs attention right now.";
+function sourceNames(coverage: MoneyDataCoverage) {
+  const names = coverage.included_sources.map(
+    (source) => source.provider.charAt(0).toUpperCase() + source.provider.slice(1)
+  );
+  return names.length ? names.join(" and ") : "No current source";
+}
+
+function hasVisibleMoney(coverage: MoneyDataCoverage) {
+  return coverage.account_count > 0 || coverage.transaction_count > 0;
+}
+
+function visibleMoneySummary(coverage: MoneyDataCoverage) {
+  const hasAccounts = coverage.account_count > 0;
+  const hasTransactions = coverage.transaction_count > 0;
+  const formalSetupNote = " Formal income and bill setup is still separate.";
+
+  if (hasAccounts && hasTransactions) {
+    return coverage.has_demo_sources
+      ? `Life CFO can see demo accounts and recent transactions for this household.${formalSetupNote}`
+      : `Life CFO can see account balances and recent transactions for this household.${formalSetupNote}`;
+  }
+  if (hasAccounts) {
+    return coverage.has_demo_sources
+      ? `Life CFO can see demo account balances for this household.${formalSetupNote}`
+      : `Life CFO can see account balances for this household.${formalSetupNote}`;
+  }
+  return coverage.has_demo_sources
+    ? `Life CFO can see recent demo transactions for this household.${formalSetupNote}`
+    : `Life CFO can see recent transactions for this household.${formalSetupNote}`;
 }
 
 /* ---------- types ---------- */
@@ -185,20 +212,20 @@ type AskState =
     }
   | { status: "error"; question: string; message: string };
 
-type StatusRun = {
-  id: string;
-  user_id: string;
-  status: "all_clear" | "tight" | "attention" | "unknown";
-  reasons: unknown;
-  facts_snapshot: Record<string, unknown> | null;
-  memo_text: string | null;
-  checked_at: string;
+type HomeMoneyOverview = {
+  snapshot: {
+    asOf: string;
+    liquidity: { availableCashCents: number; accountCount: number };
+    income: { sourceCount: number };
+    commitments: { billCount: number };
+  };
+  data_coverage: MoneyDataCoverage;
 };
 
-type StatusState =
+type HomeMoneyState =
   | { status: "idle" }
   | { status: "loading" }
-  | { status: "ready"; run: StatusRun }
+  | { status: "ready"; overview: HomeMoneyOverview }
   | { status: "error"; message: string };
 
 type TriageState =
@@ -250,7 +277,7 @@ export default function LifeCFOHomePage() {
   const [showWhy, setShowWhy] = useState(false);
   const [showAssumptions, setShowAssumptions] = useState(false);
 
-  const [statusMemo, setStatusMemo] = useState<StatusState>({ status: "idle" });
+  const [homeMoney, setHomeMoney] = useState<HomeMoneyState>({ status: "idle" });
   const [triage, setTriage] = useState<TriageState>({ status: "idle" });
   const [showQuickAsk, setShowQuickAsk] = useState(false);
 
@@ -316,55 +343,34 @@ export default function LifeCFOHomePage() {
     };
   }, [userId]);
 
-  /* ---------- status memo (always-on CFO check-in) ---------- */
+  /* ---------- household money check-in ---------- */
 
-  async function fetchLatestStatus(u: string) {
-    const { data, error } = await supabase
-      .from("home_status_latest")
-      .select("id,user_id,status,reasons,facts_snapshot,memo_text,checked_at")
-      .eq("user_id", u)
-      .maybeSingle();
-
-    if (error) return { ok: false as const, error: error.message };
-    if (!data) return { ok: true as const, run: null as StatusRun | null };
-
-    return { ok: true as const, run: data as unknown as StatusRun };
-  }
-
-  async function runStatusCheck(opts?: { force?: boolean }) {
+  async function runStatusCheck() {
     if (!userId) return;
 
-    setStatusMemo((s) => (s.status === "ready" ? s : { status: "loading" }));
+    setHomeMoney((state) => (state.status === "ready" ? state : { status: "loading" }));
 
     try {
-      // stale-aware runner (server decides whether it actually runs)
-      await fetch("/api/home/status/run", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId, force: opts?.force === true }),
+      const response = await fetch("/api/money/overview", {
+        method: "GET",
+        cache: "no-store",
       });
+      const overview = (await response.json().catch(() => null)) as HomeMoneyOverview | null;
 
-      const latest = await fetchLatestStatus(userId);
-      if (!latest.ok) {
-        setStatusMemo({ status: "error", message: "I couldn’t load your latest check-in." });
+      if (!response.ok || !overview?.snapshot || !overview.data_coverage) {
+        setHomeMoney({ status: "error", message: "I couldn’t load your household picture right now." });
         return;
       }
 
-      if (!latest.run) {
-        setStatusMemo({ status: "error", message: "No check-in yet. Run a check when you’re ready." });
-        return;
-      }
-
-      setStatusMemo({ status: "ready", run: latest.run });
+      setHomeMoney({ status: "ready", overview });
     } catch {
-      setStatusMemo({ status: "error", message: "I couldn’t run the check-in right now." });
+      setHomeMoney({ status: "error", message: "I couldn’t load your household picture right now." });
     }
   }
 
-  // Auto-run status check after sign-in (quietly; server skips if not stale)
   useEffect(() => {
     if (authStatus !== "signed_in" || !userId) return;
-    void runStatusCheck({ force: false });
+    void runStatusCheck();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authStatus, userId]);
 
@@ -617,43 +623,48 @@ Follow-up question: ${fu}`
       items.push(item);
     };
 
-    if (statusMemo.status === "ready") {
-      if (statusMemo.run.status === "attention") {
+    if (homeMoney.status === "ready") {
+      const { data_coverage: coverage, snapshot } = homeMoney.overview;
+      if (!hasVisibleMoney(coverage)) {
         push({
-          key: "status_attention",
-          title: "Attention now",
-          detail: "Your latest check-in flagged one area worth handling first.",
-          href: "/money",
-          priority: 100,
-        });
-      } else if (statusMemo.run.status === "tight") {
-        push({
-          key: "status_tight",
-          title: "A bit tight",
-          detail: "Nothing urgent, but this month could use tighter timing.",
-          href: "/money",
-          priority: 80,
-        });
-      } else if (statusMemo.run.status === "unknown") {
-        push({
-          key: "status_unknown",
+          key: "money_visibility",
           title: "Needs more visibility",
-          detail: "Connect or refresh data to improve your check-in confidence.",
+          detail: "Add or refresh a money source to bring household balances and transactions into view.",
           href: "/money",
           priority: 70,
         });
-      }
-
-      const facts = statusMemo.run.facts_snapshot as { due_soon?: unknown } | null;
-      const dueSoon = Array.isArray(facts?.due_soon) ? facts.due_soon : [];
-      if (dueSoon.length > 0) {
-        push({
-          key: "bills_due_soon",
-          title: dueSoon.length === 1 ? "1 bill due soon" : `${dueSoon.length} bills due soon`,
-          detail: "Money has the latest bill timing and pressure context.",
-          href: "/money",
-          priority: 75,
-        });
+      } else {
+        if (coverage.current_month_money_in.length || coverage.current_month_money_out.length) {
+          push({
+            key: "month_activity",
+            title: "This month’s money is visible",
+            detail: `${formatMoneyRows(coverage.current_month_money_in)} in and ${formatMoneyRows(coverage.current_month_money_out)} out.`,
+            href: "/money",
+            priority: 72,
+          });
+        }
+        if (coverage.account_count > 0) {
+          const currency =
+            coverage.current_month_money_in[0]?.currency ||
+            coverage.current_month_money_out[0]?.currency ||
+            "AUD";
+          push({
+            key: "available_cash",
+            title: `Available cash: ${formatMoneyFromCents(snapshot.liquidity.availableCashCents, currency)}`,
+            detail: `${coverage.account_count} current account${coverage.account_count === 1 ? "" : "s"} are included in this household picture.`,
+            href: "/money/saved",
+            priority: 68,
+          });
+        }
+        if (snapshot.income.sourceCount === 0 || snapshot.commitments.billCount === 0) {
+          push({
+            key: "formal_setup",
+            title: "Observed money is already available",
+            detail: "Formal income and bill setup stays separate from observed and confirmed patterns.",
+            href: "/money",
+            priority: 40,
+          });
+        }
       }
     }
 
@@ -698,7 +709,15 @@ Follow-up question: ${fu}`
     }
 
     return items.sort((a, b) => b.priority - a.priority).slice(0, 3);
-  }, [authStatus, statusMemo, triage]);
+  }, [authStatus, homeMoney, triage]);
+
+  const readyOverview = homeMoney.status === "ready" ? homeMoney.overview : null;
+  const readyCoverage = readyOverview?.data_coverage ?? null;
+  const homeHasMoney = readyCoverage ? hasVisibleMoney(readyCoverage) : false;
+  const homeCurrency =
+    readyCoverage?.current_month_money_in[0]?.currency ||
+    readyCoverage?.current_month_money_out[0]?.currency ||
+    "AUD";
 
   const subtitle = preferredName ? `Good to see you, ${preferredName}.` : undefined;
   const canType = authStatus === "signed_in";
@@ -707,7 +726,7 @@ Follow-up question: ${fu}`
     <Page title="Home" subtitle={subtitle}>
       <div className="mx-auto max-w-[760px] space-y-6">
         {/* TOP: Always-on CFO check-in memo */}
-        <Card className={`border-zinc-200 bg-white shadow-none ${statusMemo.status === "ready" ? statusBorderClass(statusMemo.run.status) : ""}`}>
+        <Card className={`border-zinc-200 bg-white shadow-none ${readyOverview && !homeHasMoney ? "border-l-4 border-l-zinc-200" : ""}`}>
           <CardContent className="p-0">
             <div className="px-6 py-5">
               <div className="space-y-3">
@@ -724,16 +743,16 @@ Follow-up question: ${fu}`
                   <div className="text-sm text-zinc-700">Sign in to get a household check-in and ask a question.</div>
                 ) : (
                   <>
-                    {statusMemo.status === "idle" || statusMemo.status === "loading" ? (
+                    {homeMoney.status === "idle" || homeMoney.status === "loading" ? (
                       <div className="space-y-2">
                         <div className="text-sm text-zinc-700">Checking in…</div>
                         <div className="text-xs text-zinc-500">This is a calm status snapshot. Nothing saves unless you choose.</div>
                       </div>
-                    ) : statusMemo.status === "error" ? (
+                    ) : homeMoney.status === "error" ? (
                       <div className="space-y-2">
-                        <div className="text-sm text-zinc-700">{statusMemo.message}</div>
+                        <div className="text-sm text-zinc-700">{homeMoney.message}</div>
                         <div className="flex flex-wrap gap-2">
-                          <Chip className="text-xs" title="Run check now" onClick={() => void runStatusCheck({ force: true })}>
+                          <Chip className="text-xs" title="Run check now" onClick={() => void runStatusCheck()}>
                             Run check now
                           </Chip>
                         </div>
@@ -744,21 +763,39 @@ Follow-up question: ${fu}`
                           <div className="space-y-1">
                             <div className="text-xs text-zinc-500">
                               <span className="font-medium text-zinc-600">Check-in</span> <span className="text-zinc-400">•</span>{" "}
-                              <span>Last checked: {formatCheckedAt(statusMemo.run.checked_at)}</span>
+                              <span>As of: {formatCheckedAt(homeMoney.overview.snapshot.asOf)}</span>
                             </div>
                           </div>
                         </div>
 
                         <div className="space-y-2">
-                          <div className="text-[15px] font-medium leading-relaxed text-zinc-900">{statusOpeningLine(statusMemo.run.status)}</div>
-
-                          <div className="whitespace-pre-wrap text-[15px] leading-relaxed text-zinc-800">
-                            {cleanAnswer(statusMemo.run.memo_text || "") || ""}
+                          <div className="text-[15px] font-medium leading-relaxed text-zinc-900">
+                            {homeHasMoney ? "Your household picture is visible." : "Needs more visibility."}
                           </div>
+                          <div className="text-[15px] leading-relaxed text-zinc-800">
+                            {homeHasMoney
+                              ? visibleMoneySummary(homeMoney.overview.data_coverage)
+                              : "Life CFO cannot yet see account balances or recent transactions for this household."}
+                          </div>
+                          {homeHasMoney ? (
+                            <ul className="list-disc space-y-1 pl-4 text-sm text-zinc-700">
+                              <li>Money in this month: {formatMoneyRows(homeMoney.overview.data_coverage.current_month_money_in)}.</li>
+                              <li>Money out this month: {formatMoneyRows(homeMoney.overview.data_coverage.current_month_money_out)}.</li>
+                              <li>Available cash: {formatMoneyFromCents(homeMoney.overview.snapshot.liquidity.availableCashCents, homeCurrency)}.</li>
+                              <li>Source: {sourceNames(homeMoney.overview.data_coverage)}.</li>
+                              {homeMoney.overview.data_coverage.confirmed_regular_payment_count > 0 ||
+                              homeMoney.overview.data_coverage.confirmed_income_pattern_count > 0 ? (
+                                <li>
+                                  Confirmed patterns: {homeMoney.overview.data_coverage.confirmed_regular_payment_count} regular payment(s) and{" "}
+                                  {homeMoney.overview.data_coverage.confirmed_income_pattern_count} income pattern(s).
+                                </li>
+                              ) : null}
+                            </ul>
+                          ) : null}
                         </div>
 
                         <div className="flex flex-wrap gap-2">
-                          <Chip className="text-xs" title="Check now" onClick={() => void runStatusCheck({ force: true })}>
+                          <Chip className="text-xs" title="Check now" onClick={() => void runStatusCheck()}>
                             Check now
                           </Chip>
 
@@ -780,7 +817,7 @@ Follow-up question: ${fu}`
                   </>
                 )}
 
-                {authStatus !== "signed_out" && buildStamp && statusMemo.status !== "ready" ? <div className="text-[11px] text-zinc-400">Build {buildStamp}</div> : null}
+                {authStatus !== "signed_out" && buildStamp && homeMoney.status !== "ready" ? <div className="text-[11px] text-zinc-400">Build {buildStamp}</div> : null}
               </div>
             </div>
           </CardContent>
@@ -795,7 +832,7 @@ Follow-up question: ${fu}`
                   <div className="text-sm font-semibold text-zinc-900">What matters now</div>
                   <div className="text-xs text-zinc-500">Top priorities only, so this stays calm.</div>
                 </div>
-                <Chip className="text-xs" title="Refresh check-in" onClick={() => void runStatusCheck({ force: true })}>
+                <Chip className="text-xs" title="Refresh check-in" onClick={() => void runStatusCheck()}>
                   Refresh
                 </Chip>
               </div>
