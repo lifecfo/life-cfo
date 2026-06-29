@@ -413,26 +413,10 @@ export function AskProvider({ children }: { children: ReactNode }) {
           const insights = Array.isArray(json?.explanation?.insights)
             ? (json.explanation.insights as string[]).filter((s) => typeof s === "string" && s.trim())
             : [];
-          const hasEvidence = insights.length > 0;
-          const languageContext = deriveAskLanguageContext({
-            lines: [
-              headline,
-              summary,
-              ...insights,
-              ...interpretationLines.main,
-              ...interpretationLines.confidence,
-            ],
-            hasEvidence,
-          });
-
           const lines = composeMessage([
             headline,
             summary,
-            section("What stands out right now:", insights),
-            section("Main pressure right now:", interpretationLines.main),
-            section("What to ask next:", interpretationLines.next),
-            section("Confidence note:", interpretationLines.confidence),
-            stableGroundLine({ mode: "snapshot", hasEvidence, context: languageContext }),
+            section("Key points:", insights.slice(0, 3)),
           ]);
 
           content = lines;
@@ -448,6 +432,9 @@ export function AskProvider({ children }: { children: ReactNode }) {
           const drivers = Array.isArray(diag?.drivers)
             ? (diag.drivers as string[]).filter((d) => typeof d === "string" && d.trim())
             : [];
+          const concise = diag?.concise === true;
+          const followUp =
+            typeof diag?.follow_up === "string" ? diag.follow_up.trim() : "";
 
           const hasEvidence =
             drivers.length > 0 ||
@@ -464,18 +451,24 @@ export function AskProvider({ children }: { children: ReactNode }) {
             hasEvidence,
           });
 
-          const lines = composeMessage([
-            headline,
-            summary,
-            section("What seems to be driving this:", drivers),
-            section("What to ask next:", interpretationLines.next),
-            section("Confidence note:", interpretationLines.confidence),
-            stableGroundLine({
-              mode: "diagnosis",
-              hasEvidence,
-              context: languageContext,
-            }),
-          ]);
+          const lines = concise
+            ? composeMessage([
+                headline,
+                summary,
+                section("Key reasons:", drivers.slice(0, 3)),
+                paragraph(followUp ? `Ask next: “${followUp}”` : null),
+              ])
+            : composeMessage([
+                headline,
+                summary,
+                section("Key reasons:", drivers.slice(0, 3)),
+                section("What to ask next:", interpretationLines.next.slice(0, 1)),
+                stableGroundLine({
+                  mode: "diagnosis",
+                  hasEvidence,
+                  context: languageContext,
+                }),
+              ]);
 
           content = lines;
           tone = tone || "overview";
@@ -555,65 +548,53 @@ export function AskProvider({ children }: { children: ReactNode }) {
             typeof commitments?.available_cash === "string" ? commitments.available_cash : "";
           const labelNote = typeof commitments?.label_note === "string" ? commitments.label_note : "";
           const caveat = typeof commitments?.caveat === "string" ? commitments.caveat : "";
-          const observedLines =
-            focus === "income"
-              ? currentMonthIncome
-              : focus === "month"
-                ? []
-                : currentMonth;
-          content = composeMessage([
-            headline,
-            summary,
-            section(
-              focus === "income"
-                ? "Confirmed income patterns:"
-                : focus === "regular"
-                  ? "Confirmed regular commitments:"
-                  : "Confirmed bills:",
-              focus === "income" ? confirmedIncome : focus === "month" ? [] : confirmed
-            ),
-            section(
-              "Regular spending patterns:",
-              focus === "regular" ? regularSpending : []
-            ),
-            section(
-              "Transfers / savings movements:",
-              focus === "regular" ? transfers : []
-            ),
-            section(
-              "Commitments that look regular but are not confirmed:",
-              focus === "regular" ? possibleCommitments : []
-            ),
-            section("This month so far:", observedLines),
-            section("Money in and out:", focus === "month" ? [] : monthlyPosition),
-            section("Available cash:", availableCash ? [availableCash] : []),
-            section(
-              focus === "regular" ? "Bills formally set up:" : "Bills you have set up:",
-              focus === "income" ? [] : mapped
-            ),
-            section("Income you have set up:", focus === "bills" || focus === "regular" ? [] : mappedIncome),
-            section("Largest amounts that went out:", focus === "bills" || focus === "regular" ? largest : []),
-            section(
-              "Largest amounts without a clear name:",
-              (focus === "bills" || focus === "regular") &&
-                largest.length === 0 &&
-                largestUnlabelled.length > 0
-                ? largestUnlabelled
-                : []
-            ),
-            section(
-              focus === "regular" ? "Payments that look regular:" : "Payments that may be regular:",
-              focus === "bills" || focus === "regular" ? regular : []
-            ),
-            section("Income that looks regular:", focus === "income" ? likelyIncome : []),
-            paragraph(labelNote),
-            paragraph(caveat),
-            paragraph(
-              focus === "regular"
-                ? "A useful follow-up is: “Which regular spending patterns changed recently?”"
-                : null
-            ),
-          ]);
+          if (focus === "month") {
+            content = composeMessage([
+              headline,
+              summary,
+              section("Key numbers:", monthlyPosition),
+              paragraph(availableCash),
+              section("One thing to watch:", caveat ? [caveat] : []),
+            ]);
+          } else if (focus === "regular") {
+            content = composeMessage([
+              headline,
+              summary,
+              section("Regular payments:", confirmed),
+              section("Regular spending:", regularSpending),
+              section("Transfers / savings movements:", transfers),
+              section("Seen regularly but not confirmed:", possibleCommitments),
+              section("Set up in Life CFO:", mapped),
+              paragraph(caveat),
+              paragraph("Ask next: “Which regular spending changed recently?”"),
+            ]);
+          } else if (focus === "income") {
+            content = composeMessage([
+              headline,
+              summary,
+              section("Confirmed income:", confirmedIncome),
+              section("Money in this month:", currentMonthIncome),
+              section("Set up in Life CFO:", mappedIncome),
+              section("Seen regularly in transactions:", likelyIncome),
+              paragraph(caveat),
+            ]);
+          } else {
+            content = composeMessage([
+              headline,
+              summary,
+              section("Confirmed bills:", confirmed),
+              section("Money out this month:", currentMonth),
+              section("Set up in Life CFO:", mapped),
+              section("Largest payments:", largest.slice(0, 3)),
+              section(
+                "Unclear payment names:",
+                largest.length === 0 ? largestUnlabelled.slice(0, 3) : []
+              ),
+              section("Seen regularly but not confirmed:", regular),
+              paragraph(labelNote),
+              paragraph(caveat),
+            ]);
+          }
           tone = tone || "overview";
         } else if (isMoneyScope && json?.mode === "data_layers") {
           const layers = json?.data_layers || {};
@@ -682,7 +663,7 @@ export function AskProvider({ children }: { children: ReactNode }) {
             summary,
             section("What is coming up:", upcoming),
             section("A helpful note:", notes),
-            section("What to ask next:", interpretationLines.next),
+            section("What to ask next:", interpretationLines.next.slice(0, 1)),
             section("Confidence note:", interpretationLines.confidence),
             stableGroundLine({
               mode: "planning",
@@ -730,7 +711,7 @@ export function AskProvider({ children }: { children: ReactNode }) {
             summary,
             section("What this is showing right now:", signals),
             section("What would make this clearer:", caveat ? [caveat] : []),
-            section("What to ask next:", interpretationLines.next),
+            section("What to ask next:", hasCaveat ? [] : interpretationLines.next.slice(0, 1)),
             section("Confidence note:", hasCaveat ? [] : interpretationLines.confidence),
             stableGroundLine({
               mode: "affordability",
@@ -759,34 +740,12 @@ export function AskProvider({ children }: { children: ReactNode }) {
             typeof scenario?.caveat === "string" && scenario.caveat.trim()
               ? scenario.caveat
               : null;
-          const hasEvidence = watch.length > 0;
-          const hasCaveat = !!caveat;
-          const languageContext = deriveAskLanguageContext({
-            lines: [
-              headline,
-              summary,
-              ...watch,
-              caveat,
-              ...interpretationLines.next,
-              ...interpretationLines.confidence,
-            ],
-            hasEvidence,
-            hasCaveat,
-          });
 
           const lines = composeMessage([
             headline,
             summary,
-            section("If this changes, keep an eye on:", watch),
-            section("What would make this clearer:", caveat ? [caveat] : []),
-            section("What to ask next:", hasCaveat ? [] : interpretationLines.next),
-            section("Confidence note:", hasCaveat ? [] : interpretationLines.confidence),
-            stableGroundLine({
-              mode: "scenario",
-              hasCaveat,
-              hasEvidence,
-              context: languageContext,
-            }),
+            section("Examples:", watch.slice(0, 3)),
+            paragraph(caveat),
           ]);
 
           content = lines;
