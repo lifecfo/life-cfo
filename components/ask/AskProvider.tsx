@@ -510,6 +510,21 @@ export function AskProvider({ children }: { children: ReactNode }) {
                 (line) => typeof line === "string" && line.trim()
               )
             : [];
+          const regularSpending = Array.isArray(commitments?.regular_spending)
+            ? (commitments.regular_spending as string[]).filter(
+                (line) => typeof line === "string" && line.trim()
+              )
+            : [];
+          const transfers = Array.isArray(commitments?.transfers)
+            ? (commitments.transfers as string[]).filter(
+                (line) => typeof line === "string" && line.trim()
+              )
+            : [];
+          const possibleCommitments = Array.isArray(commitments?.possible_commitments)
+            ? (commitments.possible_commitments as string[]).filter(
+                (line) => typeof line === "string" && line.trim()
+              )
+            : [];
           const mappedIncome = Array.isArray(commitments?.mapped_income)
             ? (commitments.mapped_income as string[]).filter((line) => typeof line === "string" && line.trim())
             : [];
@@ -553,15 +568,27 @@ export function AskProvider({ children }: { children: ReactNode }) {
               focus === "income"
                 ? "Confirmed income patterns:"
                 : focus === "regular"
-                  ? "Confirmed regular payments:"
+                  ? "Confirmed regular commitments:"
                   : "Confirmed bills:",
               focus === "income" ? confirmedIncome : focus === "month" ? [] : confirmed
+            ),
+            section(
+              "Regular spending patterns:",
+              focus === "regular" ? regularSpending : []
+            ),
+            section(
+              "Transfers / savings movements:",
+              focus === "regular" ? transfers : []
+            ),
+            section(
+              "Commitments that look regular but are not confirmed:",
+              focus === "regular" ? possibleCommitments : []
             ),
             section("This month so far:", observedLines),
             section("Money in and out:", focus === "month" ? [] : monthlyPosition),
             section("Available cash:", availableCash ? [availableCash] : []),
             section(
-              focus === "regular" ? "Payments you have set up:" : "Bills you have set up:",
+              focus === "regular" ? "Bills formally set up:" : "Bills you have set up:",
               focus === "income" ? [] : mapped
             ),
             section("Income you have set up:", focus === "bills" || focus === "regular" ? [] : mappedIncome),
@@ -581,6 +608,11 @@ export function AskProvider({ children }: { children: ReactNode }) {
             section("Income that looks regular:", focus === "income" ? likelyIncome : []),
             paragraph(labelNote),
             paragraph(caveat),
+            paragraph(
+              focus === "regular"
+                ? "A useful follow-up is: “Which regular spending patterns changed recently?”"
+                : null
+            ),
           ]);
           tone = tone || "overview";
         } else if (isMoneyScope && json?.mode === "data_layers") {
@@ -747,7 +779,7 @@ export function AskProvider({ children }: { children: ReactNode }) {
             summary,
             section("If this changes, keep an eye on:", watch),
             section("What would make this clearer:", caveat ? [caveat] : []),
-            section("What to ask next:", interpretationLines.next),
+            section("What to ask next:", hasCaveat ? [] : interpretationLines.next),
             section("Confidence note:", hasCaveat ? [] : interpretationLines.confidence),
             stableGroundLine({
               mode: "scenario",

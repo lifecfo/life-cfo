@@ -105,6 +105,66 @@ function outflowPatternKey(currency: string, label: string): string {
   return `outflow:${String(currency || "AUD").toUpperCase()}:${normalizedLabel}`;
 }
 
+type OutgoingPatternBucket = "commitment" | "spending" | "transfer" | "ignored";
+
+function classifyOutgoingPattern(input: {
+  kind?: "bill" | "income" | "transfer" | "ignore" | null;
+  label: string;
+  category?: string | null;
+  cadence?: string | null;
+}): OutgoingPatternBucket {
+  const kind = input.kind ?? null;
+  const label = safeStr(input.label).trim();
+  const category = safeStr(input.category).trim();
+  const text = `${label} ${category}`.toLowerCase();
+
+  if (kind === "ignore") return "ignored";
+  if (
+    kind === "transfer" ||
+    looksTransferLabel(label) ||
+    /\b(transfer|savings movement|internal movement)\b/i.test(category)
+  ) {
+    return "transfer";
+  }
+  if (
+    /\b(aldi|coles|woolworths|supermarket|grocer(?:y|ies)?|food|dining|restaurant|cafe|fuel|petrol|pharmacy|shopping)\b/i.test(
+      text
+    )
+  ) {
+    return "spending";
+  }
+  if (
+    /\b(home loan|mortgage|rent|childcare|daycare|school fees?|insurance|electric(?:ity)?|gas|water|internet|phone|mobile|rates|repayment|subscription)\b/i.test(
+      text
+    )
+  ) {
+    return "commitment";
+  }
+  if (kind === "bill") return "commitment";
+  if (/\b(weekly|fortnightly|monthly)\b/i.test(safeStr(input.cadence))) {
+    return "spending";
+  }
+  return "spending";
+}
+
+function patternLine(input: {
+  label: string;
+  amountCents: number | null | undefined;
+  currency?: string | null;
+  cadence?: string | null;
+  occurrences?: number;
+}): string {
+  const amount =
+    typeof input.amountCents === "number"
+      ? `about ${formatMoney(input.amountCents, input.currency || "AUD")}`
+      : "amount not recorded";
+  const cadence = safeStr(input.cadence).trim();
+  const observed = input.occurrences
+    ? `${input.occurrences} recent ${cadence || "repeated"} payments, `
+    : "";
+  return `${input.label}: ${observed}${amount}${cadence && !input.occurrences ? ` ${cadence}` : ""}.`;
+}
+
 function safeSearchTerm(input: string): string {
   return String(input || "")
     .replace(/[^a-z0-9\s&-]/gi, " ")
@@ -997,10 +1057,30 @@ export async function POST(req: Request) {
         nowIso: truth.as_of_iso,
       });
       const confirmations = truth.transaction_pattern_confirmations ?? [];
-      const confirmedBills = confirmations.filter((confirmation) => confirmation.kind === "bill");
+      const detectedPatterns = new Map(
+        [...outflows.likely_regular_outflows, ...outflows.likely_income].map((pattern) => [
+          pattern.pattern_key,
+          pattern,
+        ])
+      );
+      const outgoingBuckets = confirmations.reduce(
+        (counts, confirmation) => {
+          if (confirmation.kind === "income") return counts;
+          const label =
+            safeStr(confirmation.label) ||
+            detectedPatterns.get(confirmation.pattern_key)?.label ||
+            "Money pattern";
+          const bucket = classifyOutgoingPattern({
+            kind: confirmation.kind,
+            label,
+            cadence: confirmation.cadence,
+          });
+          counts[bucket] += 1;
+          return counts;
+        },
+        { commitment: 0, spending: 0, transfer: 0, ignored: 0 }
+      );
       const confirmedIncome = confirmations.filter((confirmation) => confirmation.kind === "income");
-      const ignored = confirmations.filter((confirmation) => confirmation.kind === "ignore");
-      const transfers = confirmations.filter((confirmation) => confirmation.kind === "transfer");
       const formalBills = (truth.recurring_bills ?? []).filter((bill) => bill.active !== false);
       const formalIncome = (truth.recurring_income ?? []).filter((income) => income.active !== false);
 
@@ -1020,9 +1100,10 @@ export async function POST(req: Request) {
             `Available cash is ${formatMoney(snapshot.liquidity.availableCashCents)}.`,
           ],
           confirmed: [
-            `${confirmedBills.length} regular payment pattern${confirmedBills.length === 1 ? "" : "s"} confirmed.`,
+            `${outgoingBuckets.commitment} regular commitment pattern${outgoingBuckets.commitment === 1 ? "" : "s"} confirmed.`,
+            `${outgoingBuckets.spending} regular spending pattern${outgoingBuckets.spending === 1 ? "" : "s"} reviewed.`,
             `${confirmedIncome.length} income pattern${confirmedIncome.length === 1 ? "" : "s"} confirmed.`,
-            `${ignored.length} pattern${ignored.length === 1 ? "" : "s"} ignored${transfers.length ? ` and ${transfers.length} marked as transfer${transfers.length === 1 ? "" : "s"}` : ""}. Ignored patterns are excluded from regular-payment and income summaries.`,
+            `${outgoingBuckets.ignored} pattern${outgoingBuckets.ignored === 1 ? "" : "s"} ignored${outgoingBuckets.transfer ? ` and ${outgoingBuckets.transfer} marked as transfer${outgoingBuckets.transfer === 1 ? "" : "s"}` : ""}. Ignored patterns are excluded from payment, spending, and income summaries.`,
           ],
           formal: [
             `${formalBills.length} recurring bill${formalBills.length === 1 ? " is" : "s are"} formally set up.`,
@@ -1079,35 +1160,78 @@ export async function POST(req: Request) {
           pattern,
         ])
       );
+      const categoryByPatternKey = new Map<string, string>();
+      for (const transaction of truth.rolling_transactions) {
+        const cents =
+          typeof transaction.amount_cents === "number"
+            ? transaction.amount_cents
+            : typeof transaction.amount === "number"
+              ? Math.round(transaction.amount * 100)
+              : 0;
+        if (cents >= 0) continue;
+        const label = safeStr(transaction.merchant || transaction.description).trim();
+        const category = safeStr(transaction.category).trim();
+        if (!label || !category) continue;
+        categoryByPatternKey.set(
+          outflowPatternKey(transaction.currency || "AUD", label),
+          category
+        );
+      }
       const confirmedBills = confirmations.filter(
         (confirmation) => confirmation.kind === "bill"
       );
       const confirmedIncome = confirmations.filter(
         (confirmation) => confirmation.kind === "income"
       );
-      const confirmedBillLines = confirmedBills.slice(0, 6).map((confirmation) => {
-        const label =
-          safeStr(confirmation.label) ||
-          detectedPatternsByKey.get(confirmation.pattern_key)?.label ||
-          "Regular payment";
-        const amount =
-          typeof confirmation.amount_cents === "number"
-            ? `about ${formatMoney(confirmation.amount_cents, confirmation.currency || "AUD")}`
-            : "amount not recorded";
-        const timing = safeStr(confirmation.cadence);
-        return `${label}: ${amount}${timing ? ` ${timing}` : ""}.`;
+      const hasIgnoredTransfer = confirmations.some((confirmation) => {
+        if (confirmation.kind !== "ignore") return false;
+        const detectedLabel = detectedPatternsByKey.get(confirmation.pattern_key)?.label;
+        const label = safeStr(confirmation.label || detectedLabel);
+        return looksTransferLabel(label) || /\btransfer\b/i.test(confirmation.pattern_key);
       });
+      const confirmedCommitmentLines: string[] = [];
+      const regularSpendingLines: string[] = [];
+      const transferLines: string[] = [];
+
+      for (const confirmation of confirmations) {
+        if (confirmation.kind === "income") continue;
+        const detected = detectedPatternsByKey.get(confirmation.pattern_key);
+        const label = safeStr(confirmation.label || detected?.label) || "Regular payment";
+        const bucket = classifyOutgoingPattern({
+          kind: confirmation.kind,
+          label,
+          category: categoryByPatternKey.get(confirmation.pattern_key),
+          cadence: confirmation.cadence,
+        });
+        if (bucket === "ignored") continue;
+        if (
+          bucket === "transfer" &&
+          hasIgnoredTransfer &&
+          confirmation.kind !== "transfer"
+        ) {
+          continue;
+        }
+        const line = patternLine({
+          label,
+          amountCents: confirmation.amount_cents,
+          currency: confirmation.currency,
+          cadence: confirmation.cadence,
+        });
+        if (bucket === "commitment") confirmedCommitmentLines.push(line);
+        if (bucket === "spending") regularSpendingLines.push(line);
+        if (bucket === "transfer") transferLines.push(line);
+      }
       const confirmedIncomeLines = confirmedIncome.slice(0, 6).map((confirmation) => {
         const label =
           safeStr(confirmation.label) ||
           detectedPatternsByKey.get(confirmation.pattern_key)?.label ||
           "Income pattern";
-        const amount =
-          typeof confirmation.amount_cents === "number"
-            ? `about ${formatMoney(confirmation.amount_cents, confirmation.currency || "AUD")}`
-            : "amount not recorded";
-        const timing = safeStr(confirmation.cadence);
-        return `${label}: ${amount}${timing ? ` ${timing}` : ""}.`;
+        return patternLine({
+          label,
+          amountCents: confirmation.amount_cents,
+          currency: confirmation.currency,
+          cadence: confirmation.cadence,
+        });
       });
       const mappedLines = mappedBills.slice(0, 4).map((bill) => {
         const label = safeStr(bill.name) || "Bill";
@@ -1136,21 +1260,32 @@ export async function POST(req: Request) {
         .filter((item) => item.uncertain_label)
         .slice(0, 3)
         .map((item) => formatMoney(item.cents, item.currency));
-      const regularLines = outflows.likely_regular_outflows
-        .filter(
-          (item) =>
-            !confirmationsByPatternKey.has(item.pattern_key) &&
-            !item.uncertain_label &&
-            !looksTransferLabel(item.label) &&
-            item.confidence === "likely"
-        )
-        .slice(0, 3)
-        .map((item) =>
-        `${item.label}: ${item.occurrences} recent ${item.cadence} payments, about ${formatMoney(
-          item.average_cents,
-          item.currency
-        )} each.`
-      );
+      const possibleCommitmentLines: string[] = [];
+      for (const item of outflows.likely_regular_outflows) {
+        if (
+          confirmationsByPatternKey.has(item.pattern_key) ||
+          item.uncertain_label ||
+          item.confidence !== "likely"
+        ) {
+          continue;
+        }
+        const bucket = classifyOutgoingPattern({
+          label: item.label,
+          category: categoryByPatternKey.get(item.pattern_key),
+          cadence: item.cadence,
+        });
+        if (bucket === "transfer" && hasIgnoredTransfer) continue;
+        const line = patternLine({
+          label: item.label,
+          amountCents: item.average_cents,
+          currency: item.currency,
+          cadence: item.cadence,
+          occurrences: item.occurrences,
+        });
+        if (bucket === "commitment") possibleCommitmentLines.push(line);
+        if (bucket === "spending") regularSpendingLines.push(line);
+        if (bucket === "transfer") transferLines.push(line);
+      }
       const likelyIncomeLines = outflows.likely_income
         .filter(
           (item) =>
@@ -1189,16 +1324,16 @@ export async function POST(req: Request) {
             ? `Here is the money that has come in so far this month from your ${observedDataLabel}.`
             : "Income has not been set up yet, and there is no money in to show for this month."
         : focus === "regular"
-          ? confirmedBills.length > 0
-            ? `You’ve confirmed ${confirmedBills.length} ${confirmedBills.length === 1 ? "regular payment" : "regular payments"}.${confirmedBills.length > 6 ? " The first 6 are listed below." : ""}`
+          ? confirmedCommitmentLines.length > 0 || regularSpendingLines.length > 0
+            ? `Life CFO found ${confirmedCommitmentLines.length} confirmed regular commitment${confirmedCommitmentLines.length === 1 ? "" : "s"} and ${regularSpendingLines.length} regular spending pattern${regularSpendingLines.length === 1 ? "" : "s"}.${transferLines.length ? ` ${transferLines.length} transfer or savings movement${transferLines.length === 1 ? " is" : "s are"} shown separately.` : ""}`
             : formallyMapped
             ? "These regular payments have been set up in Life CFO."
-            : regularLines.length > 0
-              ? `Regular payments have not been confirmed yet. Your ${observedDataLabel} shows repeated activity.`
-              : "No confirmed regular payments are showing yet."
+            : possibleCommitmentLines.length > 0
+              ? `Your ${observedDataLabel} shows possible regular commitments that have not been confirmed yet.`
+              : "No regular commitments or clear spending patterns are showing yet."
           : focus === "bills"
-          ? confirmedBills.length > 0
-            ? `You’ve confirmed ${confirmedBills.length} ${confirmedBills.length === 1 ? "bill" : "bills"}. Here they are first, followed by money out this month.`
+          ? confirmedCommitmentLines.length > 0
+            ? `You’ve confirmed ${confirmedCommitmentLines.length} ${confirmedCommitmentLines.length === 1 ? "bill" : "bills"}. Here they are first, followed by money out this month.`
             : formallyMapped
             ? "Here is the money that has gone out this month, alongside bills you have already set up."
             : outflows.transaction_count > 0
@@ -1210,10 +1345,12 @@ export async function POST(req: Request) {
           ? confirmedBills.length || confirmedIncome.length
             ? `This combines ${observedDataLabel} with the patterns you have confirmed.`
             : `Bills and income have not been confirmed yet, so this is a first look based on your ${observedDataLabel}.`
-          : focus === "bills" || focus === "regular"
-            ? confirmedBills.length > 0
+          : focus === "regular"
+            ? "These sections use saved decisions plus merchant and category clues. They do not change your confirmations or formal setup."
+          : focus === "bills"
+            ? confirmedCommitmentLines.length > 0
               ? null
-              : `Payments have not been confirmed yet, so this is a first look from your ${observedDataLabel}.`
+              : `Bills have not been confirmed yet, so this is a first look from your ${observedDataLabel}.`
             : confirmedIncome.length > 0
               ? null
               : "Income has not been confirmed yet, so this is a first look rather than a final income summary.";
@@ -1228,24 +1365,26 @@ export async function POST(req: Request) {
             focus === "income"
               ? "Income this month"
               : focus === "regular"
-                ? confirmedBills.length > 0
-                  ? "Confirmed regular payments"
-                  : formallyMapped
-                    ? "Regular payments"
-                    : "Possible regular payments"
+                ? "Regular commitments and spending patterns"
               : focus === "bills"
                 ? "Bills this month"
                 : "This month so far",
           summary,
-          confirmed: focus === "bills" || focus === "regular" ? confirmedBillLines : [],
+          confirmed: focus === "bills" || focus === "regular" ? confirmedCommitmentLines.slice(0, 6) : [],
           confirmed_income: focus === "income" ? confirmedIncomeLines : [],
+          regular_spending: focus === "regular" ? regularSpendingLines.slice(0, 6) : [],
+          transfers: focus === "regular" ? transferLines.slice(0, 4) : [],
+          possible_commitments:
+            focus === "bills" || focus === "regular"
+              ? possibleCommitmentLines.slice(0, 4)
+              : [],
           mapped: focus === "income" ? [] : mappedLines,
           mapped_income: focus === "bills" || focus === "regular" ? [] : mappedIncomeLines,
-          current_month: focus === "income" ? [] : monthOutflowLines,
+          current_month: focus === "income" || focus === "regular" ? [] : monthOutflowLines,
           current_month_income: focus === "bills" || focus === "regular" ? [] : monthInflowLines,
-          largest_outflows: focus === "bills" || focus === "regular" ? largestLines : [],
-          largest_unlabelled_outflows: focus === "bills" || focus === "regular" ? largestUnlabelledLines : [],
-          likely_regular: focus === "bills" || focus === "regular" ? regularLines : [],
+          largest_outflows: focus === "bills" ? largestLines : [],
+          largest_unlabelled_outflows: focus === "bills" ? largestUnlabelledLines : [],
+          likely_regular: focus === "bills" ? possibleCommitmentLines.slice(0, 4) : [],
           likely_income: focus === "income" ? likelyIncomeLines : [],
           monthly_position: focus === "month" ? monthlyPosition : [],
           available_cash:
@@ -1614,6 +1753,24 @@ export async function POST(req: Request) {
         lowerQ,
         familyContext,
       });
+      const scenarioPatternCounts = truth.transaction_pattern_confirmations.reduce(
+        (counts, confirmation) => {
+          if (confirmation.kind === "income") {
+            counts.income += 1;
+            return counts;
+          }
+          const bucket = classifyOutgoingPattern({
+            kind: confirmation.kind,
+            label: safeStr(confirmation.label) || "Money pattern",
+            cadence: confirmation.cadence,
+          });
+          if (bucket === "commitment") counts.commitments += 1;
+          if (bucket === "spending") counts.spending += 1;
+          if (bucket === "transfer") counts.transfers += 1;
+          return counts;
+        },
+        { commitments: 0, spending: 0, transfers: 0, income: 0 }
+      );
       const watch: string[] = [
         currentMovement >= 0
           ? `This month currently shows ${formatMoney(currentMovement, primaryCurrency)} more money in than money out.`
@@ -1621,7 +1778,7 @@ export async function POST(req: Request) {
         `Available cash is ${formatMoney(snapshot.liquidity.availableCashCents)} across ${
           snapshot.liquidity.accountCount
         } account(s).`,
-        `${truth.transaction_pattern_confirmations.filter((confirmation) => confirmation.kind === "bill").length} regular payment pattern(s) and ${truth.transaction_pattern_confirmations.filter((confirmation) => confirmation.kind === "income").length} income pattern(s) are confirmed.`,
+        `${scenarioPatternCounts.commitments} regular commitment pattern(s), ${scenarioPatternCounts.spending} regular spending pattern(s), and ${scenarioPatternCounts.income} income pattern(s) are confirmed or reviewed.`,
       ];
 
       if (explicitMonthlyCost && explicitMonthlyCost > 0) {
