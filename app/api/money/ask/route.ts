@@ -246,13 +246,14 @@ function buildMonthlyPositionLines(
   }
 
   const showCurrency = byCurrency.size > 1;
-  return Array.from(byCurrency.entries()).map(([currency, values]) => {
+  return Array.from(byCurrency.entries()).flatMap(([currency, values]) => {
     const net = values.inflow - values.outflow;
-    const prefix = showCurrency ? `${currency}: ` : "";
-    return `${prefix}Money in: ${formatMoney(values.inflow, currency)}. Money out: ${formatMoney(
-      values.outflow,
-      currency
-    )}. Difference: ${formatMoney(Math.abs(net), currency)} ${net >= 0 ? "ahead" : "behind"}.`;
+    const prefix = showCurrency ? `${currency} ` : "";
+    return [
+      `${prefix}Money in: ${formatMoney(values.inflow, currency)}.`,
+      `${prefix}Money out: ${formatMoney(values.outflow, currency)}.`,
+      `${prefix}Difference: ${formatMoney(Math.abs(net), currency)} ${net >= 0 ? "ahead" : "behind"}.`,
+    ];
   });
 }
 
@@ -608,12 +609,25 @@ function isIncomeLikeTx(tx: ChangeTx): boolean {
   return /\b(salary|payroll|wage|pay|income|deposit|benefit|pension)\b/i.test(txText(tx));
 }
 
-function buildRecentChangeDiagnosisLines(params: {
+type RecentChangeComparison = {
+  currency: string;
+  recentMoneyOutCents: number;
+  priorMoneyOutCents: number;
+  moneyOutDifferenceCents: number;
+  recentMoneyInCents: number;
+  priorMoneyInCents: number;
+  moneyInDifferenceCents: number;
+  topCategories: Array<{ label: string; cents: number }>;
+  largestPayments: Array<{ label: string; cents: number }>;
+  lines: string[];
+};
+
+function buildRecentChangeComparison(params: {
   nowIso: string;
   rollingTransactions: ChangeTx[];
-}): string[] {
+}): RecentChangeComparison | null {
   const nowMs = Date.parse(params.nowIso);
-  if (!Number.isFinite(nowMs)) return [];
+  if (!Number.isFinite(nowMs)) return null;
 
   const dayMs = 24 * 60 * 60 * 1000;
   const recentStart = nowMs - 30 * dayMs;
@@ -649,7 +663,7 @@ function buildRecentChangeDiagnosisLines(params: {
 
   const recent = txs.filter(inRecent);
   const prior = txs.filter(inPrior);
-  if (!recent.length || !prior.length) return [];
+  if (!recent.length || !prior.length) return null;
 
   const currency = safeStr(recent[0]?.currency || prior[0]?.currency) || "AUD";
   const recentOutflow = sumOutflow(recent);
@@ -727,7 +741,18 @@ function buildRecentChangeDiagnosisLines(params: {
     }
   }
 
-  return lines.slice(0, 4);
+  return {
+    currency,
+    recentMoneyOutCents: recentOutflow,
+    priorMoneyOutCents: priorOutflow,
+    moneyOutDifferenceCents: recentOutflow - priorOutflow,
+    recentMoneyInCents: recentIncome,
+    priorMoneyInCents: priorIncome,
+    moneyInDifferenceCents: recentIncome - priorIncome,
+    topCategories: topCategories.map(([label, cents]) => ({ label, cents })),
+    largestPayments,
+    lines: lines.slice(0, 4),
+  };
 }
 
 function buildDiagnosisDrivers(
@@ -1097,15 +1122,21 @@ export async function POST(req: Request) {
           headline: "Life CFO keeps three types of money data separate.",
           summary: `${wording.source} is current for this household.`,
           observed: [
-            `Seen in accounts and transactions: ${truth.accounts.length} account${truth.accounts.length === 1 ? "" : "s"} and ${truth.rolling_transactions.length} recent transaction${truth.rolling_transactions.length === 1 ? "" : "s"}.`,
+            "Seen in accounts and transactions.",
+            `${truth.accounts.length} account${truth.accounts.length === 1 ? "" : "s"} and ${truth.rolling_transactions.length} recent transaction${truth.rolling_transactions.length === 1 ? "" : "s"}.`,
             `Cash buffer: ${formatMoney(snapshot.liquidity.availableCashCents)}.`,
           ],
           confirmed: [
-            `User-reviewed: ${outgoingBuckets.commitment} regular payment${outgoingBuckets.commitment === 1 ? "" : "s"}, ${outgoingBuckets.spending} regular spending pattern${outgoingBuckets.spending === 1 ? "" : "s"}, and ${confirmedIncome.length} income pattern${confirmedIncome.length === 1 ? "" : "s"}.`,
+            "User-reviewed patterns.",
+            `${outgoingBuckets.commitment} regular payment${outgoingBuckets.commitment === 1 ? "" : "s"}.`,
+            `${outgoingBuckets.spending} regular spending pattern${outgoingBuckets.spending === 1 ? "" : "s"}.`,
+            `${confirmedIncome.length} income pattern${confirmedIncome.length === 1 ? "" : "s"}.`,
             `${outgoingBuckets.ignored} pattern${outgoingBuckets.ignored === 1 ? "" : "s"} ignored${outgoingBuckets.transfer ? ` and ${outgoingBuckets.transfer} marked as a transfer or savings movement` : ""}.`,
           ],
           formal: [
-            `Set up in Life CFO: ${formalBills.length} recurring bill${formalBills.length === 1 ? "" : "s"} and ${formalIncome.length} income source${formalIncome.length === 1 ? "" : "s"}.`,
+            "Set up in Life CFO.",
+            `${formalBills.length} recurring bill${formalBills.length === 1 ? "" : "s"}.`,
+            `${formalIncome.length} income source${formalIncome.length === 1 ? "" : "s"}.`,
           ],
         },
       });
@@ -1173,6 +1204,9 @@ export async function POST(req: Request) {
       const confirmedCommitmentLines: string[] = [];
       const regularSpendingLines: string[] = [];
       const transferLines: string[] = [];
+      const regularPaymentNames: string[] = [];
+      const regularSpendingNames: string[] = [];
+      const transferNames: string[] = [];
 
       for (const confirmation of confirmations) {
         if (confirmation.kind === "income") continue;
@@ -1198,9 +1232,18 @@ export async function POST(req: Request) {
           currency: confirmation.currency,
           cadence: confirmation.cadence,
         });
-        if (bucket === "commitment") confirmedCommitmentLines.push(line);
-        if (bucket === "spending") regularSpendingLines.push(line);
-        if (bucket === "transfer") transferLines.push(line);
+        if (bucket === "commitment") {
+          confirmedCommitmentLines.push(line);
+          regularPaymentNames.push(label);
+        }
+        if (bucket === "spending") {
+          regularSpendingLines.push(line);
+          regularSpendingNames.push(label);
+        }
+        if (bucket === "transfer") {
+          transferLines.push(line);
+          transferNames.push(label);
+        }
       }
       const confirmedIncomeLines = confirmedIncome.slice(0, 6).map((confirmation) => {
         const label =
@@ -1264,8 +1307,14 @@ export async function POST(req: Request) {
           occurrences: item.occurrences,
         });
         if (bucket === "commitment") possibleCommitmentLines.push(line);
-        if (bucket === "spending") regularSpendingLines.push(line);
-        if (bucket === "transfer") transferLines.push(line);
+        if (bucket === "spending") {
+          regularSpendingLines.push(line);
+          regularSpendingNames.push(item.label);
+        }
+        if (bucket === "transfer") {
+          transferLines.push(line);
+          transferNames.push(item.label);
+        }
       }
       const likelyIncomeLines = outflows.likely_income
         .filter(
@@ -1304,6 +1353,19 @@ export async function POST(req: Request) {
           (row) => row.currency === primaryMonthCurrency
         )?.cents ?? 0;
       const primaryMonthDifference = primaryMonthIn - primaryMonthOut;
+      const monthlyComparison = buildRecentChangeComparison({
+        nowIso: truth.windows?.now_iso || truth.as_of_iso,
+        rollingTransactions: (truth.rolling_transactions ?? []) as ChangeTx[],
+      });
+      const monthlyWatch =
+        monthlyComparison && monthlyComparison.moneyInDifferenceCents < 0
+          ? "Income timing is lower than last month, so it may still feel tighter day to day."
+          : mappedBills.length === 0 &&
+              (confirmedCommitmentLines.length > 0 || possibleCommitmentLines.length > 0)
+            ? "Regular bills are visible in transactions, but not fully set up yet."
+            : largestLines[0]
+              ? `Largest payment this month: ${largestLines[0]}`
+              : "No single payment stands out this month.";
       const summary = focus === "income"
         ? confirmedIncome.length > 0
           ? `Life CFO found ${confirmedIncome.length} confirmed income pattern${confirmedIncome.length === 1 ? "" : "s"}.`
@@ -1331,7 +1393,7 @@ export async function POST(req: Request) {
           : `Based on ${wording.transactions}.`;
       const caveat =
         focus === "month"
-          ? "Formal bills and income are still separate from transaction activity."
+          ? monthlyWatch
           : focus === "regular"
             ? "These are confirmed or seen repeatedly in transactions. Bills set up in Life CFO stay separate."
           : focus === "bills"
@@ -1361,8 +1423,13 @@ export async function POST(req: Request) {
           summary,
           confirmed: focus === "bills" || focus === "regular" ? confirmedCommitmentLines.slice(0, 6) : [],
           confirmed_income: focus === "income" ? confirmedIncomeLines : [],
+          regular_payment_names:
+            focus === "regular" ? regularPaymentNames.slice(0, 6) : [],
           regular_spending: focus === "regular" ? regularSpendingLines.slice(0, 6) : [],
+          regular_spending_names:
+            focus === "regular" ? regularSpendingNames.slice(0, 6) : [],
           transfers: focus === "regular" ? transferLines.slice(0, 4) : [],
+          transfer_names: focus === "regular" ? transferNames.slice(0, 4) : [],
           possible_commitments:
             focus === "bills" || focus === "regular"
               ? possibleCommitmentLines.slice(0, 4)
@@ -1439,32 +1506,22 @@ export async function POST(req: Request) {
       ].sort((a, b) => b.score - a.score);
 
       const drivers = buildDiagnosisDrivers(rankedSignals, interpretation);
-      const comparisonRequested =
-        isRecentChangeQuestion(lowerQ) || looksTightnessQuestion(lowerQ);
-      const recentChangeLines = comparisonRequested
-        ? buildRecentChangeDiagnosisLines({
+      const tightnessQuestion = looksTightnessQuestion(lowerQ);
+      const spendingChangeQuestion = isRecentChangeQuestion(lowerQ) && !tightnessQuestion;
+      const comparisonRequested = tightnessQuestion || spendingChangeQuestion;
+      const recentComparison = comparisonRequested
+        ? buildRecentChangeComparison({
             nowIso: truth.windows?.now_iso || truth.as_of_iso,
             rollingTransactions: (truth.rolling_transactions ?? []) as ChangeTx[],
           })
-        : [];
-      const outflows = deriveTransactionOutflowSummary({
-        monthTransactions: truth.month_transactions,
-        rollingTransactions: truth.rolling_transactions,
-        connections: truth.external_connections,
-        nowIso: truth.as_of_iso,
-      });
-      const monthlyLines = buildMonthlyPositionLines(
-        outflows.month_inflow_by_currency,
-        outflows.month_outflow_by_currency
-      );
-      const cashLine = `Available cash is ${formatMoney(snapshot.liquidity.availableCashCents)} across ${snapshot.liquidity.accountCount} account${snapshot.liquidity.accountCount === 1 ? "" : "s"}.`;
-      const spendingComparison = recentChangeLines[0] || "";
-      const incomeLooksLower = recentChangeLines.some((line) =>
-        line.startsWith("Income-like money in was")
-      );
-      const spendingLooksLower = spendingComparison.includes(" less than ");
-      const spendingLooksHigher = spendingComparison.includes(" more than ");
-      const comparisonHeadline = incomeLooksLower && spendingLooksLower
+        : null;
+      const comparisonCurrency = recentComparison?.currency || "AUD";
+      const moneyInDifference = recentComparison?.moneyInDifferenceCents ?? 0;
+      const moneyOutDifference = recentComparison?.moneyOutDifferenceCents ?? 0;
+      const incomeLooksLower = moneyInDifference < 0;
+      const spendingLooksLower = moneyOutDifference < 0;
+      const spendingLooksHigher = moneyOutDifference > 0;
+      const tightnessHeadline = incomeLooksLower && spendingLooksLower
         ? "It may feel tighter because money in is lower, even though spending is down."
         : incomeLooksLower
           ? "It may feel tighter because money in is lower than the prior 30 days."
@@ -1473,8 +1530,40 @@ export async function POST(req: Request) {
             : spendingLooksLower
               ? "It does not look tighter from spending alone."
               : "Recent spending is broadly similar to the prior 30 days.";
+      const spendingHeadline = spendingLooksHigher
+        ? "Spending is up compared with the prior 30 days."
+        : spendingLooksLower
+          ? "Spending is down compared with the prior 30 days."
+          : "Spending is about the same as the prior 30 days.";
+      const tightnessDrivers = recentComparison
+        ? [
+            incomeLooksLower
+              ? `Money in is ${formatMoney(Math.abs(moneyInDifference), comparisonCurrency)} lower than the prior 30 days.`
+              : null,
+            `Money out is ${formatMoney(Math.abs(moneyOutDifference), comparisonCurrency)} ${spendingLooksHigher ? "higher" : spendingLooksLower ? "lower" : "about the same"} than the prior 30 days.`,
+            `Cash buffer: ${formatMoney(snapshot.liquidity.availableCashCents)}.`,
+            recentComparison.largestPayments[0]
+              ? `Largest payment: ${recentComparison.largestPayments[0].label} (${formatMoney(recentComparison.largestPayments[0].cents, comparisonCurrency)}).`
+              : null,
+          ].filter((line): line is string => Boolean(line))
+        : [];
+      const spendingDrivers = recentComparison
+        ? [
+            `Last 30 days: ${formatMoney(recentComparison.recentMoneyOutCents, comparisonCurrency)}.`,
+            `Prior 30 days: ${formatMoney(recentComparison.priorMoneyOutCents, comparisonCurrency)}.`,
+            `Difference: ${formatMoney(Math.abs(moneyOutDifference), comparisonCurrency)} ${spendingLooksHigher ? "higher" : spendingLooksLower ? "lower" : "change"}.`,
+            recentComparison.topCategories.length
+              ? `Largest categories: ${recentComparison.topCategories.map((category) => category.label).join(" and ")}.`
+              : null,
+            recentComparison.largestPayments.length
+              ? `Largest payments: ${recentComparison.largestPayments.map((payment) => payment.label).join(" and ")}.`
+              : null,
+          ].filter((line): line is string => Boolean(line))
+        : [];
       const diagnosisDrivers = comparisonRequested
-        ? [...recentChangeLines.slice(1), ...monthlyLines.slice(0, 1), cashLine, ...drivers].slice(0, 5)
+        ? tightnessQuestion
+          ? tightnessDrivers
+          : spendingDrivers
         : drivers;
 
       const diagnosisNarrative = buildCausalNarrative({
@@ -1494,14 +1583,19 @@ export async function POST(req: Request) {
 
       const diagnosis = {
         headline: comparisonRequested
-          ? comparisonHeadline
+          ? tightnessQuestion
+            ? tightnessHeadline
+            : spendingHeadline
           : diagnosisNarrative.headline,
         summary: comparisonRequested
-          ? `${spendingComparison || "There is not enough prior activity for a clean 30-day comparison yet."} Based on current ${sourceWording(truth.external_connections).transactions}.`
+          ? recentComparison
+            ? `Based on current ${sourceWording(truth.external_connections).transactions}.`
+            : "There is not enough prior activity for a clean 30-day comparison yet."
           : joinNonEmptyWithSpace([diagnosisNarrative.summary, familyNarrativeTail]),
-        drivers: comparisonRequested ? diagnosisDrivers.slice(0, 3) : diagnosisDrivers,
+        drivers: diagnosisDrivers,
         concise: comparisonRequested,
-        follow_up: comparisonRequested ? "Which payments changed the most?" : null,
+        max_items: tightnessQuestion ? 4 : spendingChangeQuestion ? 5 : 3,
+        follow_up: tightnessQuestion ? "Which payments changed the most?" : null,
         signals: {
           structural: signals.structural_pressure.summary,
           discretionary: signals.discretionary_drift.summary,
@@ -1801,10 +1895,14 @@ export async function POST(req: Request) {
                 : /\brenovation\b/i.test(lowerQ)
                   ? "A renovation"
                   : "This change";
-      const summary = `Right now, this household is ${formatMoney(Math.abs(currentMovement), primaryCurrency)} ${currentMovement >= 0 ? "ahead" : "behind"} this month. Based on ${sourceWording(truth.external_connections).transactions}.`;
+      const summary = `Based on ${sourceWording(truth.external_connections).transactions}.`;
       const scenario = {
         headline: `${scenarioSubject} would reduce your monthly breathing room.`,
         summary,
+        current_picture: [
+          `Breathing room: ${formatMoney(Math.abs(currentMovement), primaryCurrency)} ${currentMovement >= 0 ? "ahead" : "behind"} this month.`,
+          `Cash buffer: ${formatMoney(snapshot.liquidity.availableCashCents, primaryCurrency)}.`,
+        ],
         watch: watch.slice(0, 3),
         caveat,
         pattern_counts: scenarioPatternCounts,

@@ -435,6 +435,10 @@ export function AskProvider({ children }: { children: ReactNode }) {
           const concise = diag?.concise === true;
           const followUp =
             typeof diag?.follow_up === "string" ? diag.follow_up.trim() : "";
+          const maxItems =
+            typeof diag?.max_items === "number" && Number.isFinite(diag.max_items)
+              ? Math.max(1, Math.min(5, Math.round(diag.max_items)))
+              : 3;
 
           const hasEvidence =
             drivers.length > 0 ||
@@ -455,7 +459,7 @@ export function AskProvider({ children }: { children: ReactNode }) {
             ? composeMessage([
                 headline,
                 summary,
-                section("Key reasons:", drivers.slice(0, 3)),
+                section("Key reasons:", drivers.slice(0, maxItems)),
                 paragraph(followUp ? `Ask next: “${followUp}”` : null),
               ])
             : composeMessage([
@@ -508,8 +512,23 @@ export function AskProvider({ children }: { children: ReactNode }) {
                 (line) => typeof line === "string" && line.trim()
               )
             : [];
+          const regularPaymentNames = Array.isArray(commitments?.regular_payment_names)
+            ? (commitments.regular_payment_names as string[]).filter(
+                (line) => typeof line === "string" && line.trim()
+              )
+            : [];
+          const regularSpendingNames = Array.isArray(commitments?.regular_spending_names)
+            ? (commitments.regular_spending_names as string[]).filter(
+                (line) => typeof line === "string" && line.trim()
+              )
+            : [];
           const transfers = Array.isArray(commitments?.transfers)
             ? (commitments.transfers as string[]).filter(
+                (line) => typeof line === "string" && line.trim()
+              )
+            : [];
+          const transferNames = Array.isArray(commitments?.transfer_names)
+            ? (commitments.transfer_names as string[]).filter(
                 (line) => typeof line === "string" && line.trim()
               )
             : [];
@@ -552,17 +571,28 @@ export function AskProvider({ children }: { children: ReactNode }) {
             content = composeMessage([
               headline,
               summary,
-              section("Key numbers:", monthlyPosition),
-              paragraph(availableCash),
+              section("Key numbers:", [
+                ...monthlyPosition,
+                ...(availableCash ? [availableCash] : []),
+              ]),
               section("One thing to watch:", caveat ? [caveat] : []),
             ]);
           } else if (focus === "regular") {
             content = composeMessage([
               headline,
               summary,
-              section("Regular payments:", confirmed),
-              section("Regular spending:", regularSpending),
-              section("Transfers / savings movements:", transfers),
+              section(
+                "Regular payments:",
+                regularPaymentNames.length ? regularPaymentNames : confirmed
+              ),
+              section(
+                "Regular spending:",
+                regularSpendingNames.length ? regularSpendingNames : regularSpending
+              ),
+              section(
+                "Transfers / savings movements:",
+                transferNames.length ? transferNames : transfers
+              ),
               section("Seen regularly but not confirmed:", possibleCommitments),
               section("Set up in Life CFO:", mapped),
               paragraph(caveat),
@@ -736,6 +766,11 @@ export function AskProvider({ children }: { children: ReactNode }) {
           const watch = Array.isArray(scenario?.watch)
             ? (scenario.watch as string[]).filter((s) => typeof s === "string" && s.trim())
             : [];
+          const currentPicture = Array.isArray(scenario?.current_picture)
+            ? (scenario.current_picture as string[]).filter(
+                (line) => typeof line === "string" && line.trim()
+              )
+            : [];
           const caveat =
             typeof scenario?.caveat === "string" && scenario.caveat.trim()
               ? scenario.caveat
@@ -744,6 +779,7 @@ export function AskProvider({ children }: { children: ReactNode }) {
           const lines = composeMessage([
             headline,
             summary,
+            section("Current picture:", currentPicture),
             section("Examples:", watch.slice(0, 3)),
             paragraph(caveat),
           ]);
