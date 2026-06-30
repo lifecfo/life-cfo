@@ -26,6 +26,10 @@ function isOwnerOrEditor(role: unknown) {
   return r === "owner" || r === "editor";
 }
 
+function errorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error && error.message ? error.message : fallback;
+}
+
 function isReusableBasiqStatus(status: unknown) {
   const s = typeof status === "string" ? status.trim().toLowerCase() : "";
   return s === "needs_auth" || s === "error";
@@ -76,10 +80,8 @@ export async function GET() {
 
     if (error) throw error;
 
-    return NextResponse.json({
-      ok: true,
-      household_id: householdId,
-      connections: (data ?? []).map((connection) => {
+    const connections = await Promise.all(
+      (data ?? []).map(async (connection) => {
         const provider = normalizeProvider(connection.provider);
         const status = typeof connection.status === "string" ? connection.status.trim() : "";
         const can_refresh_after_consent =
@@ -88,12 +90,51 @@ export async function GET() {
           hasBasiqConsentMetadata(connection.item_id);
         const { item_id: _itemId, ...safeConnection } = connection;
         void _itemId;
-        return { ...safeConnection, can_refresh_after_consent };
-      }),
+
+        if (provider !== "manual") {
+          return {
+            ...safeConnection,
+            can_refresh_after_consent,
+            linked_account_count: null,
+            linked_transaction_count: null,
+          };
+        }
+
+        const [accountResult, transactionResult] = await Promise.all([
+          supabase
+            .from("accounts")
+            .select("id", { count: "exact", head: true })
+            .eq("household_id", householdId)
+            .eq("connection_id", connection.id),
+          supabase
+            .from("transactions")
+            .select("id", { count: "exact", head: true })
+            .eq("household_id", householdId)
+            .or(
+              `connection_id.eq.${connection.id},external_connection_id.eq.${connection.id}`
+            ),
+        ]);
+
+        if (accountResult.error) throw accountResult.error;
+        if (transactionResult.error) throw transactionResult.error;
+
+        return {
+          ...safeConnection,
+          can_refresh_after_consent,
+          linked_account_count: accountResult.count ?? 0,
+          linked_transaction_count: transactionResult.count ?? 0,
+        };
+      })
+    );
+
+    return NextResponse.json({
+      ok: true,
+      household_id: householdId,
+      connections,
     });
-  } catch (e: any) {
+  } catch (e: unknown) {
     return NextResponse.json(
-      { ok: false, error: e?.message ?? "Connections fetch failed" },
+      { ok: false, error: errorMessage(e, "Connections fetch failed") },
       { status: 500 }
     );
   }
@@ -192,7 +233,7 @@ export async function POST(req: Request) {
       if (existingErr) throw existingErr;
 
       const active = (existingRows ?? []).find(
-        (row: any) =>
+        (row) =>
           typeof row?.status === "string" &&
           row.status.trim().toLowerCase() === "active"
       );
@@ -206,7 +247,7 @@ export async function POST(req: Request) {
         });
       }
 
-      const reusable = (existingRows ?? []).find((row: any) =>
+      const reusable = (existingRows ?? []).find((row) =>
         isReusableBasiqStatus(row?.status)
       );
 
@@ -286,7 +327,7 @@ export async function POST(req: Request) {
 
     if (countErr) throw countErr;
 
-    let seeded_accounts: any[] = [];
+    let seeded_accounts: unknown[] = [];
 
     if (provider === "manual" && (existingCount ?? 0) === 0) {
       const seed = [
@@ -324,9 +365,9 @@ export async function POST(req: Request) {
       connection,
       seeded_accounts,
     });
-  } catch (e: any) {
+  } catch (e: unknown) {
     return NextResponse.json(
-      { ok: false, error: e?.message ?? "Connection create failed" },
+      { ok: false, error: errorMessage(e, "Connection create failed") },
       { status: 500 }
     );
   }

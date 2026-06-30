@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Page } from "@/components/Page";
 import { Button, Card, CardContent, Chip } from "@/components/ui";
 import type {
@@ -66,7 +67,9 @@ function foundColumns(columns: BankCsvDetectedColumns | undefined) {
   ].filter((item): item is { label: string; value: string } => Boolean(item.value));
 }
 
-export default function MoneyImportPage() {
+function MoneyImportPageContent() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<PreviewResponse | null>(null);
   const [selectedAccountId, setSelectedAccountId] = useState("");
@@ -92,8 +95,13 @@ export default function MoneyImportPage() {
       const json = (await response.json().catch(() => ({}))) as PreviewResponse;
       if (!response.ok) throw new Error(json.error || "We couldn’t read this file safely.");
       setPreview(json);
-      const firstAccount = json.account_choices?.[0]?.id || "";
-      setSelectedAccountId(firstAccount);
+      const requestedAccountId = searchParams.get("accountId") || "";
+      const requestedAccountExists = json.account_choices?.some(
+        (account) => account.id === requestedAccountId
+      );
+      setSelectedAccountId(
+        requestedAccountExists ? requestedAccountId : json.account_choices?.[0]?.id || ""
+      );
     } catch (checkError: unknown) {
       setError(
         checkError instanceof Error && checkError.message
@@ -254,20 +262,35 @@ export default function MoneyImportPage() {
                   <div className="mt-1 text-xs text-zinc-600">Nothing will be linked or created in this preview.</div>
                 </div>
                 {accounts.length ? (
-                  <select
-                    value={selectedAccountId}
-                    onChange={(event) => setSelectedAccountId(event.target.value)}
-                    className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800 outline-none focus:ring-2 focus:ring-zinc-200"
-                  >
-                    {accounts.map((account) => (
-                      <option key={account.id} value={account.id}>
-                        {account.name || "Manual account"}{account.currency ? ` (${account.currency})` : ""}
-                      </option>
-                    ))}
-                  </select>
+                  <div className="space-y-2">
+                    <select
+                      value={selectedAccountId}
+                      onChange={(event) => setSelectedAccountId(event.target.value)}
+                      className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800 outline-none focus:ring-2 focus:ring-zinc-200"
+                    >
+                      {accounts.map((account) => (
+                        <option key={account.id} value={account.id}>
+                          {account.name || "Manual account"}{account.currency ? ` (${account.currency})` : ""}
+                        </option>
+                      ))}
+                    </select>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      onClick={() => router.push("/money/accounts/new")}
+                    >
+                      Create a new account
+                    </Button>
+                  </div>
                 ) : (
-                  <div className="text-sm text-zinc-600">
-                    You’ll choose or create an account before importing in the next step.
+                  <div className="space-y-2">
+                    <div className="text-sm text-zinc-600">Add an account first.</div>
+                    <Button
+                      type="button"
+                      onClick={() => router.push("/money/accounts/new")}
+                    >
+                      Add manual account
+                    </Button>
                   </div>
                 )}
                 <Button type="button" disabled>
@@ -280,5 +303,13 @@ export default function MoneyImportPage() {
         ) : null}
       </div>
     </Page>
+  );
+}
+
+export default function MoneyImportPage() {
+  return (
+    <Suspense fallback={null}>
+      <MoneyImportPageContent />
+    </Suspense>
   );
 }

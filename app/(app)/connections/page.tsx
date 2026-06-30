@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Page } from "@/components/Page";
 import { Card, CardContent, Chip, Button, useToast } from "@/components/ui";
@@ -16,6 +16,8 @@ type Connection = {
   created_at: string | null;
   updated_at?: string | null;
   can_refresh_after_consent?: boolean;
+  linked_account_count?: number | null;
+  linked_transaction_count?: number | null;
 };
 
 type PlaidLinkOnSuccessMetadata = {
@@ -81,28 +83,37 @@ function coerceStr(v: unknown) {
   return typeof v === "string" ? v : "";
 }
 
+function recordValue(value: unknown, key: string): unknown {
+  if (!value || typeof value !== "object") return undefined;
+  return (value as Record<string, unknown>)[key];
+}
+
+function errorMessage(error: unknown, fallback = "Request failed") {
+  return error instanceof Error && error.message ? error.message : fallback;
+}
+
 function hasSuccessfulSync(connection: Connection) {
   return Boolean(connection.last_sync_at);
 }
 
-function syncFailureMessage(status: number, json: any) {
+function syncFailureMessage(status: number, json: unknown) {
   if (status === 400) return "This connection didn't complete. Try reconnecting.";
-  return coerceStr(json?.error) || "Sync failed";
+  return coerceStr(recordValue(json, "error")) || "Sync failed";
 }
 
-function pickRedirectUrl(json: any) {
-  const consent = coerceStr(json?.consent_url);
+function pickRedirectUrl(json: unknown) {
+  const consent = coerceStr(recordValue(json, "consent_url"));
   if (consent) return consent;
 
-  const auth = coerceStr(json?.auth_link_url);
+  const auth = coerceStr(recordValue(json, "auth_link_url"));
   if (auth) return auth;
 
   return "";
 }
 
-function safeErrMsg(json: any) {
-  const step = coerceStr(json?.step);
-  const err = coerceStr(json?.error);
+function safeErrMsg(json: unknown) {
+  const step = coerceStr(recordValue(json, "step"));
+  const err = coerceStr(recordValue(json, "error"));
   if (step && err) return `${step}: ${err}`;
   return err || "Request failed";
 }
@@ -163,7 +174,8 @@ function syncLine(c: Connection) {
     return `Last updated ${softDateTime(c.last_sync_at)}.`;
   }
 
-  if (c.status === "manual") return "Manual account.";
+  if (c.status === "manual") return "Manual data.";
+  if (c.status === "demo") return "Demo data.";
   if (c.status === "needs_auth") return "Connection in progress.";
   if (c.status === "error") return "Update needs review.";
   return "";
@@ -172,7 +184,7 @@ function syncLine(c: Connection) {
 function connectionSubline(c: Connection) {
   const parts = [syncLine(c)];
 
-  if (c.status === "active" || c.status === "manual") {
+  if (c.status === "active" || c.status === "manual" || c.status === "demo") {
     parts.push(`Source: ${providerLabel(c.provider)}`);
   }
 
@@ -392,7 +404,6 @@ function ConnectionsPageClient() {
 
   const [items, setItems] = useState<Connection[]>([]);
   const [loading, setLoading] = useState(true);
-  const [creatingManual, setCreatingManual] = useState(false);
   const [creatingBasiq, setCreatingBasiq] = useState(false);
   const [creatingPlaid, setCreatingPlaid] = useState(false);
   const [syncingId, setSyncingId] = useState<string | null>(null);
@@ -407,24 +418,25 @@ function ConnectionsPageClient() {
   const basiqJobsPending = searchParams.get("basiq_jobs_pending") === "1";
   const basiqJobStatus = coerceStr(searchParams.get("basiq_job_status"));
 
-  async function load() {
+  const load = useCallback(async () => {
     setLoading(true);
     try {
       const res = await fetch("/api/money/connections", { cache: "no-store" });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json?.error || "Load failed");
-      setItems(sortConnections(json.connections ?? []));
-    } catch (e: any) {
-      toast({ title: "Couldn't load", description: e?.message });
+      const json = (await res.json()) as unknown;
+      if (!res.ok) throw new Error(coerceStr(recordValue(json, "error")) || "Load failed");
+      const connections = recordValue(json, "connections");
+      setItems(sortConnections(Array.isArray(connections) ? (connections as Connection[]) : []));
+    } catch (e: unknown) {
+      toast({ title: "Couldn't load", description: errorMessage(e) });
       setItems([]);
     } finally {
       setLoading(false);
     }
-  }
+  }, [toast]);
 
   useEffect(() => {
     void load();
-  }, []);
+  }, [load]);
 
   useEffect(() => {
     if (cameFromBasiqReturn && basiqReturnError) {
@@ -531,27 +543,6 @@ function ConnectionsPageClient() {
     };
   }, [items, loading, connectingId, syncingId, basiqReturnConnectionId, cameFromBasiqReturn, basiqJobsPending, router]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  async function createManual() {
-    setCreatingManual(true);
-    try {
-      const res = await fetch("/api/money/connections", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ provider: "manual" }),
-      });
-
-      const json = await res.json();
-      if (!res.ok) throw new Error(json?.error || "Create failed");
-
-      toast({ title: "Manual account added" });
-      await load();
-    } catch (e: any) {
-      toast({ title: "Couldn't create", description: e?.message });
-    } finally {
-      setCreatingManual(false);
-    }
-  }
-
   async function startBasiqAuth(connectionId: string) {
     setConnectingId(connectionId);
     try {
@@ -568,8 +559,8 @@ function ConnectionsPageClient() {
       if (!url) throw new Error("Missing consent_url/auth_link_url");
 
       window.location.assign(url);
-    } catch (e: any) {
-      toast({ title: "Couldn't start connection", description: e?.message });
+    } catch (e: unknown) {
+      toast({ title: "Couldn't start connection", description: errorMessage(e) });
       setConnectingId(null);
     }
   }
@@ -602,8 +593,8 @@ function ConnectionsPageClient() {
 
       toast({ title: "Opening secure bank connection..." });
       await startBasiqAuth(connectionId);
-    } catch (e: any) {
-      toast({ title: "Couldn't add bank", description: e?.message });
+    } catch (e: unknown) {
+      toast({ title: "Couldn't add bank", description: errorMessage(e) });
     } finally {
       setCreatingBasiq(false);
     }
@@ -666,8 +657,8 @@ function ConnectionsPageClient() {
             });
             await load();
             router.refresh();
-          } catch (e: any) {
-            toast({ title: "Couldn't finish connection", description: e?.message });
+          } catch (e: unknown) {
+            toast({ title: "Couldn't finish connection", description: errorMessage(e) });
           } finally {
             setConnectingId(null);
             handler.destroy?.();
@@ -686,8 +677,8 @@ function ConnectionsPageClient() {
       });
 
       handler.open();
-    } catch (e: any) {
-      toast({ title: "Couldn't start connection", description: e?.message });
+    } catch (e: unknown) {
+      toast({ title: "Couldn't start connection", description: errorMessage(e) });
       setConnectingId(null);
     }
   }
@@ -713,8 +704,8 @@ function ConnectionsPageClient() {
 
       toast({ title: "Opening secure bank connection..." });
       await startPlaidAuth(connectionId);
-    } catch (e: any) {
-      toast({ title: "Couldn't add bank", description: e?.message });
+    } catch (e: unknown) {
+      toast({ title: "Couldn't add bank", description: errorMessage(e) });
     } finally {
       setCreatingPlaid(false);
     }
@@ -729,8 +720,8 @@ function ConnectionsPageClient() {
 
       toast({ title: "Connection refreshed" });
       await load();
-    } catch (e: any) {
-      toast({ title: "Couldn't sync", description: e?.message });
+    } catch (e: unknown) {
+      toast({ title: "Couldn't sync", description: errorMessage(e) });
     } finally {
       setSyncingId(null);
     }
@@ -792,7 +783,21 @@ function ConnectionsPageClient() {
   }
 
   const activeItems = useMemo(
-    () => items.filter((c) => c.status === "active" || c.status === "manual"),
+    () =>
+      items.filter((connection) => {
+        const provider = coerceStr(connection.provider).toLowerCase();
+        const isVisibleStatus =
+          connection.status === "active" ||
+          connection.status === "manual" ||
+          connection.status === "demo";
+        const isEmptyManualConnection =
+          provider === "manual" &&
+          connection.status === "manual" &&
+          connection.linked_account_count === 0 &&
+          connection.linked_transaction_count === 0;
+
+        return isVisibleStatus && !isEmptyManualConnection;
+      }),
     [items]
   );
 
@@ -966,35 +971,41 @@ function ConnectionsPageClient() {
               <div className="flex flex-wrap items-center gap-2">
                 <Button
                   onClick={() => void createBasiqAndConnect()}
-                  disabled={creatingBasiq || creatingManual || creatingPlaid}
+                  disabled={creatingBasiq || creatingPlaid}
                   className="rounded-2xl"
                 >
-                  {creatingBasiq ? "Starting..." : "Connect your bank"}
+                  {creatingBasiq ? "Starting..." : "Connect Australian bank"}
                 </Button>
 
                 <Button
                   onClick={() => void createPlaidAndConnect()}
-                  disabled={creatingPlaid || creatingManual || creatingBasiq}
+                  disabled={creatingPlaid || creatingBasiq}
                   variant="ghost"
                   className="rounded-2xl"
                 >
-                  {creatingPlaid ? "Starting..." : "Connect US bank (Plaid)"}
+                  {creatingPlaid ? "Starting..." : "Connect US bank"}
                 </Button>
 
                 <Button
-                  onClick={() => void createManual()}
-                  disabled={creatingManual || creatingBasiq || creatingPlaid}
+                  onClick={() => router.push("/money/import")}
                   variant="ghost"
                   className="rounded-2xl"
                 >
-                  {creatingManual ? "Adding..." : "Add manual account"}
+                  Upload bank file
+                </Button>
+
+                <Button
+                  onClick={() => router.push("/money/accounts/new")}
+                  variant="ghost"
+                  className="rounded-2xl"
+                >
+                  Add manual account
                 </Button>
               </div>
             </div>
 
             <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs text-zinc-600">
-              We'll bring in your recent balances and transactions automatically. You can refresh
-              any connection at any time.
+              Choose what works for you. Connect a bank, upload a file, or add an account yourself.
             </div>
 
             <div className="mt-6 space-y-3">
@@ -1318,7 +1329,7 @@ function ConnectionsPageClient() {
                   {incompleteSetupItems.length > 0 ? (
                     <div className="space-y-3 pt-2">
                       <div className="text-xs font-medium uppercase tracking-wide text-zinc-500">
-                        Setups that didn't complete
+                        Setups that didn&apos;t complete
                       </div>
 
                       {incompleteSetupItems.map((c) => (
