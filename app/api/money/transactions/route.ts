@@ -50,8 +50,59 @@ export async function GET(req: Request) {
     const { data, error } = await q;
     if (error) throw error;
 
-    return NextResponse.json({ ok: true, household_id: householdId, transactions: data ?? [] });
-  } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message ?? "Transactions fetch failed" }, { status: 500 });
+    const connectionIds = Array.from(
+      new Set(
+        (data ?? [])
+          .map((transaction) => transaction.connection_id)
+          .filter((value): value is string => Boolean(value))
+      )
+    );
+    const { data: connections, error: connectionsError } = connectionIds.length
+      ? await supabase
+          .from("external_connections")
+          .select("id,provider,metadata")
+          .eq("household_id", householdId)
+          .in("id", connectionIds)
+      : { data: [], error: null };
+    if (connectionsError) throw connectionsError;
+
+    const uploadedConnectionIds = new Set(
+      (connections ?? [])
+        .filter((connection) => {
+          const metadata =
+            connection.metadata && typeof connection.metadata === "object"
+              ? (connection.metadata as Record<string, unknown>)
+              : null;
+          return (
+            connection.provider === "manual" &&
+            metadata?.manual_csv === true &&
+            metadata?.source_type === "csv_upload"
+          );
+        })
+        .map((connection) => connection.id)
+    );
+
+    return NextResponse.json({
+      ok: true,
+      household_id: householdId,
+      transactions: (data ?? []).map((transaction) => ({
+        ...transaction,
+        source_label:
+          transaction.connection_id && uploadedConnectionIds.has(transaction.connection_id)
+            ? "Uploaded bank file"
+            : null,
+      })),
+    });
+  } catch (error: unknown) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error:
+          error instanceof Error && error.message
+            ? error.message
+            : "Transactions fetch failed",
+      },
+      { status: 500 }
+    );
   }
 }

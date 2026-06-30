@@ -20,6 +20,7 @@ type Tx = {
   currency: string | null;
   account_id: string | null;
   provider: string | null;
+  source_label?: string | null;
   created_at: string | null;
   updated_at: string | null;
 };
@@ -448,9 +449,11 @@ export default function TransactionsClient() {
                       : 0;
 
                   const abs = Math.abs(cents);
-                  const source = providerLabel(t.provider);
+                  const source = t.source_label || providerLabel(t.provider);
                   const sourceLine =
-                    source === "Manual"
+                    t.source_label
+                      ? t.source_label
+                      : source === "Manual"
                       ? "Manual entry"
                       : `${isOlderPlaidTransaction(t) ? "Older test data via" : "Imported via"} ${source}`;
 

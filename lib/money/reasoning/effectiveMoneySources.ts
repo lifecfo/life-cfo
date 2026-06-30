@@ -31,10 +31,18 @@ export function isDemoMoneySource(connection: DemoMoneySourceCandidate): boolean
   );
 }
 
+function isManualCsvMoneySource(connection: DemoMoneySourceCandidate): boolean {
+  return (
+    normalizedProvider(connection.provider) === "manual" &&
+    connection.metadata?.manual_csv === true &&
+    connection.metadata?.source_type === "csv_upload"
+  );
+}
+
 function sourceLabel(connection: ExternalConnectionsTruthRow): string {
-  return isDemoMoneySource(connection)
-    ? "manual demo data"
-    : normalizedProvider(connection.provider);
+  if (isDemoMoneySource(connection)) return "manual demo data";
+  if (isManualCsvMoneySource(connection)) return "uploaded bank file";
+  return normalizedProvider(connection.provider);
 }
 
 function connectionUpdatedAt(connection: ExternalConnectionsTruthRow): number | null {

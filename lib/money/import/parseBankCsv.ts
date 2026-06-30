@@ -1,6 +1,7 @@
 import { parse } from "csv-parse/sync";
 
 export const BANK_CSV_MAX_ROWS = 10_000;
+export const BANK_CSV_MAX_FILE_BYTES = 5 * 1024 * 1024;
 
 type DateFormat = "iso" | "dmy" | "mdy" | "ambiguous" | null;
 type AmountMode = "signed" | "debit_credit" | null;
@@ -26,6 +27,13 @@ export type BankCsvSampleRow = {
   reference: string | null;
 };
 
+export type BankCsvImportRow = {
+  date: string;
+  description: string;
+  amount_cents: number;
+  reference: string | null;
+};
+
 export type BankCsvPreview = {
   ok: boolean;
   row_count: number;
@@ -39,6 +47,12 @@ export type BankCsvPreview = {
     amount_direction: boolean;
     account: boolean;
   };
+};
+
+export type BankCsvImportParse = {
+  preview: BankCsvPreview;
+  rows: BankCsvImportRow[];
+  rejected_count: number;
 };
 
 const HEADER_ALIASES = {
@@ -169,7 +183,7 @@ function emptyDetectedColumns(): BankCsvDetectedColumns {
   };
 }
 
-export function parseBankCsv(text: string): BankCsvPreview {
+function parseBankCsvInternal(text: string): BankCsvImportParse {
   const issues: string[] = [];
   const warnings: string[] = [];
   let records: string[][];
@@ -184,27 +198,35 @@ export function parseBankCsv(text: string): BankCsvPreview {
     }) as string[][];
   } catch {
     return {
-      ok: false,
-      row_count: 0,
-      date_range: null,
-      detected_columns: emptyDetectedColumns(),
-      sample_rows: [],
-      issues: ["We couldn’t read this file safely."],
-      warnings: [],
-      needs_user_choice: { date_format: false, amount_direction: false, account: true },
+      preview: {
+        ok: false,
+        row_count: 0,
+        date_range: null,
+        detected_columns: emptyDetectedColumns(),
+        sample_rows: [],
+        issues: ["We couldn’t read this file safely."],
+        warnings: [],
+        needs_user_choice: { date_format: false, amount_direction: false, account: true },
+      },
+      rows: [],
+      rejected_count: 0,
     };
   }
 
   if (records.length < 2) {
     return {
-      ok: false,
-      row_count: 0,
-      date_range: null,
-      detected_columns: emptyDetectedColumns(),
-      sample_rows: [],
-      issues: ["This file does not contain any transaction rows."],
-      warnings: [],
-      needs_user_choice: { date_format: false, amount_direction: false, account: true },
+      preview: {
+        ok: false,
+        row_count: 0,
+        date_range: null,
+        detected_columns: emptyDetectedColumns(),
+        sample_rows: [],
+        issues: ["This file does not contain any transaction rows."],
+        warnings: [],
+        needs_user_choice: { date_format: false, amount_direction: false, account: true },
+      },
+      rows: [],
+      rejected_count: 0,
     };
   }
 
@@ -309,21 +331,52 @@ export function parseBankCsv(text: string): BankCsvPreview {
     reference: cell(row, indexes.reference) || null,
   }));
 
+  const importRows = rows
+    .map((row): BankCsvImportRow | null => {
+      const date = normalizedDate(cell(row, indexes.date), dateFormat);
+      const amount = amountMode ? amountForRow(row, indexes, amountMode) : null;
+      const description = cell(row, indexes.description);
+      if (!date || amount === null || !description) return null;
+
+      const amountCents = Math.round(amount * 100);
+      if (!Number.isSafeInteger(amountCents)) return null;
+
+      return {
+        date,
+        description,
+        amount_cents: amountCents,
+        reference: cell(row, indexes.reference) || null,
+      };
+    })
+    .filter((row): row is BankCsvImportRow => row !== null);
+
   return {
-    ok: issues.length === 0,
-    row_count: rows.length,
-    date_range:
-      readableDates.length === rows.length && readableDates.length > 0
-        ? { start: readableDates[0], end: readableDates[readableDates.length - 1] }
-        : null,
-    detected_columns: detectedColumns,
-    sample_rows: sampleRows,
-    issues,
-    warnings,
-    needs_user_choice: {
-      date_format: dateFormat === "ambiguous",
-      amount_direction: amountDirectionChoice,
-      account: true,
+    preview: {
+      ok: issues.length === 0,
+      row_count: rows.length,
+      date_range:
+        readableDates.length === rows.length && readableDates.length > 0
+          ? { start: readableDates[0], end: readableDates[readableDates.length - 1] }
+          : null,
+      detected_columns: detectedColumns,
+      sample_rows: sampleRows,
+      issues,
+      warnings,
+      needs_user_choice: {
+        date_format: dateFormat === "ambiguous",
+        amount_direction: amountDirectionChoice,
+        account: true,
+      },
     },
+    rows: importRows,
+    rejected_count: rows.length - importRows.length,
   };
+}
+
+export function parseBankCsv(text: string): BankCsvPreview {
+  return parseBankCsvInternal(text).preview;
+}
+
+export function parseBankCsvForImport(text: string): BankCsvImportParse {
+  return parseBankCsvInternal(text);
 }

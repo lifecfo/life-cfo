@@ -33,6 +33,15 @@ type PreviewResponse = {
   };
 };
 
+type ImportResponse = {
+  ok?: boolean;
+  error?: string;
+  imported?: number;
+  already_present?: number;
+  rejected?: number;
+  date_range?: { start: string; end: string } | null;
+};
+
 function displayDate(value: string) {
   const time = Date.parse(`${value}T00:00:00Z`);
   if (!Number.isFinite(time)) return value;
@@ -74,7 +83,10 @@ function MoneyImportPageContent() {
   const [preview, setPreview] = useState<PreviewResponse | null>(null);
   const [selectedAccountId, setSelectedAccountId] = useState("");
   const [loading, setLoading] = useState(false);
+  const [importing, setImporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [importError, setImportError] = useState<string | null>(null);
+  const [importResult, setImportResult] = useState<ImportResponse | null>(null);
 
   async function checkFile() {
     if (!file) {
@@ -84,6 +96,8 @@ function MoneyImportPageContent() {
 
     setLoading(true);
     setError(null);
+    setImportError(null);
+    setImportResult(null);
     setPreview(null);
     try {
       const form = new FormData();
@@ -113,8 +127,44 @@ function MoneyImportPageContent() {
     }
   }
 
+  async function importTransactions() {
+    if (!file || !selectedAccountId) return;
+
+    setImporting(true);
+    setImportError(null);
+    try {
+      const form = new FormData();
+      form.set("file", file);
+      form.set("account_id", selectedAccountId);
+      const response = await fetch("/api/money/import/csv/commit", {
+        method: "POST",
+        body: form,
+      });
+      const json = (await response.json().catch(() => ({}))) as ImportResponse;
+      if (!response.ok) {
+        throw new Error(json.error || "Life CFO couldn’t import this file yet.");
+      }
+      setImportResult(json);
+    } catch (commitError: unknown) {
+      setImportError(
+        commitError instanceof Error && commitError.message
+          ? commitError.message
+          : "Life CFO couldn’t import this file yet. Please try again."
+      );
+    } finally {
+      setImporting(false);
+    }
+  }
+
   const columns = foundColumns(preview?.detected_columns);
   const accounts = preview?.account_choices ?? [];
+  const needsAnotherChoice = Boolean(
+    preview?.needs_user_choice?.date_format ||
+      preview?.needs_user_choice?.amount_direction
+  );
+  const canImport = Boolean(
+    preview?.ok && selectedAccountId && !needsAnotherChoice && file
+  );
 
   return (
     <Page
@@ -141,6 +191,8 @@ function MoneyImportPageContent() {
                 setFile(event.target.files?.[0] ?? null);
                 setPreview(null);
                 setError(null);
+                setImportError(null);
+                setImportResult(null);
               }}
               className="block w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-700 file:mr-3 file:rounded-lg file:border-0 file:bg-zinc-100 file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-zinc-700"
             />
@@ -255,6 +307,38 @@ function MoneyImportPageContent() {
               </Card>
             ) : null}
 
+            {importResult?.ok ? (
+              <Card className="border-zinc-200 bg-white">
+                <CardContent className="space-y-3">
+                  <div>
+                    <div className="text-sm font-semibold text-zinc-900">Import complete</div>
+                    <div className="mt-1 text-sm text-zinc-600">
+                      Done — Life CFO can use these transactions.
+                    </div>
+                  </div>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <div className="rounded-xl bg-zinc-50 px-3 py-2 text-sm text-zinc-700">
+                      Imported: {importResult.imported ?? 0}
+                    </div>
+                    <div className="rounded-xl bg-zinc-50 px-3 py-2 text-sm text-zinc-700">
+                      Already here: {importResult.already_present ?? 0}
+                    </div>
+                    <div className="rounded-xl bg-zinc-50 px-3 py-2 text-sm text-zinc-700">
+                      Could not import: {importResult.rejected ?? 0}
+                    </div>
+                    <div className="rounded-xl bg-zinc-50 px-3 py-2 text-sm text-zinc-700">
+                      Date range: {importResult.date_range
+                        ? `${displayDate(importResult.date_range.start)} to ${displayDate(importResult.date_range.end)}`
+                        : "Not available"}
+                    </div>
+                  </div>
+                  <Link href="/transactions">
+                    <Chip>View transactions</Chip>
+                  </Link>
+                </CardContent>
+              </Card>
+            ) : null}
+
             <Card className="border-zinc-200 bg-white">
               <CardContent className="space-y-3">
                 <div>
@@ -293,10 +377,22 @@ function MoneyImportPageContent() {
                     </Button>
                   </div>
                 )}
-                <Button type="button" disabled>
-                  Import coming next
+                {needsAnotherChoice ? (
+                  <div className="text-sm text-zinc-600">
+                    This file needs one more check before it can be imported.
+                  </div>
+                ) : null}
+                {importError ? <div className="text-sm text-zinc-600">{importError}</div> : null}
+                <Button
+                  type="button"
+                  disabled={!canImport || importing}
+                  onClick={() => void importTransactions()}
+                >
+                  {importing ? "Importing…" : "Import transactions"}
                 </Button>
-                <div className="text-xs text-zinc-500">Nothing has been saved yet.</div>
+                {!importResult?.ok ? (
+                  <div className="text-xs text-zinc-500">Nothing has been saved yet.</div>
+                ) : null}
               </CardContent>
             </Card>
           </>

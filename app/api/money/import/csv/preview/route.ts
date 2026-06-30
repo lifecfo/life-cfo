@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { resolveHouseholdIdRoute } from "@/lib/households/resolveHouseholdIdRoute";
 import {
+  BANK_CSV_MAX_FILE_BYTES,
   BANK_CSV_MAX_ROWS,
   parseBankCsv,
 } from "@/lib/money/import/parseBankCsv";
@@ -8,8 +9,6 @@ import { supabaseRoute } from "@/lib/supabaseRoute";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-const MAX_FILE_BYTES = 5 * 1024 * 1024;
 
 function isOwnerOrEditor(role: unknown): boolean {
   return role === "owner" || role === "editor";
@@ -80,7 +79,7 @@ export async function POST(request: Request) {
         { status: 400 }
       );
     }
-    if (file.size > MAX_FILE_BYTES) {
+    if (file.size > BANK_CSV_MAX_FILE_BYTES) {
       return NextResponse.json(
         { ok: false, error: "Choose a CSV file smaller than 5 MB." },
         { status: 413 }
@@ -105,7 +104,7 @@ export async function POST(request: Request) {
       ...preview,
       account_choices: accounts ?? [],
       limits: {
-        max_file_bytes: MAX_FILE_BYTES,
+        max_file_bytes: BANK_CSV_MAX_FILE_BYTES,
         max_rows: BANK_CSV_MAX_ROWS,
       },
     });
