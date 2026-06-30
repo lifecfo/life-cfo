@@ -12,6 +12,8 @@ export const dynamic = "force-dynamic";
 
 type SourceKind =
   | "plaid_active"
+  | "plaid_disconnected"
+  | "plaid_disconnect_in_progress"
   | "basiq_active"
   | "uploaded_bank_files"
   | "manual_empty"
@@ -67,6 +69,15 @@ function classifySource(input: {
   if (isDemo(input.metadata, input.provider, input.status)) return "demo";
   if (isUploadedBankFile(input.metadata, input.provider)) return "uploaded_bank_files";
   if (input.status === "needs_auth" || input.status === "error") return "incomplete";
+  if (input.provider === "plaid" && input.status === "disconnected") {
+    return "plaid_disconnected";
+  }
+  if (input.provider === "plaid" && input.status === "disconnecting") {
+    return "plaid_disconnect_in_progress";
+  }
+  if (input.provider === "plaid" && input.status === "disconnect_failed") {
+    return "plaid_active";
+  }
   if (input.provider === "plaid" && input.status === "active") return "plaid_active";
   if (input.provider === "basiq" && input.status === "active") return "basiq_active";
   if (input.provider === "manual") {
@@ -101,15 +112,15 @@ function sourceLabel(
 function preflightDetails(sourceKind: SourceKind) {
   if (sourceKind === "plaid_active") {
     return {
-      message: "Self-service disconnection is not available yet.",
-      supportRequired: true,
+      message: "You can stop new updates and keep past transactions.",
+      supportRequired: false,
       choices: [
         {
           key: "disconnect_keep_history",
           label: "Disconnect and keep history",
-          detail: "Stop new updates and keep past transactions.",
-          available: false,
-          reason: "Contact support during private beta.",
+          detail: "New updates will stop. Past transactions will stay in Life CFO.",
+          available: true,
+          reason: null,
         },
         {
           key: "disconnect_delete_imported_data",
@@ -119,6 +130,22 @@ function preflightDetails(sourceKind: SourceKind) {
           reason: "This is not available yet.",
         },
       ],
+    };
+  }
+
+  if (sourceKind === "plaid_disconnected") {
+    return {
+      message: "This bank is disconnected. Past transactions are still here.",
+      supportRequired: false,
+      choices: [],
+    };
+  }
+
+  if (sourceKind === "plaid_disconnect_in_progress") {
+    return {
+      message: "This bank is being disconnected. Nothing else needs to be done right now.",
+      supportRequired: false,
+      choices: [],
     };
   }
 
@@ -331,7 +358,7 @@ export async function GET(
         (lifecycleJobResult.data as ActiveLifecycleJob | null) ?? null,
       account_count: accountCount,
       transaction_count: transactionCount,
-      self_service_available: false,
+      self_service_available: sourceKind === "plaid_active",
       support_required: details.supportRequired,
       choices: details.choices,
       message: details.message,

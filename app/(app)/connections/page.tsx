@@ -41,6 +41,11 @@ type DisconnectPreflight = {
   message: string;
 };
 
+type DisconnectConfirmation = {
+  connectionId: string;
+  idempotencyKey: string;
+};
+
 type PlaidLinkOnSuccessMetadata = {
   institution?: {
     institution_id?: string | null;
@@ -199,6 +204,10 @@ function syncLine(c: Connection) {
   if (c.status === "demo") return "Demo data.";
   if (c.status === "needs_auth") return "Connection in progress.";
   if (c.status === "error") return "Update needs review.";
+  if (c.status === "disconnecting") return "Disconnecting this bank.";
+  if (c.status === "disconnected") return "Disconnected bank history.";
+  if (c.status === "disconnect_failed") return "Disconnection needs another try.";
+  if (c.status === "support_required") return "Support is needed for this connection.";
   return "";
 }
 
@@ -434,6 +443,9 @@ function ConnectionsPageClient() {
   const [disconnectLoadingId, setDisconnectLoadingId] = useState<string | null>(null);
   const [disconnectPreflight, setDisconnectPreflight] =
     useState<DisconnectPreflight | null>(null);
+  const [disconnectConfirmation, setDisconnectConfirmation] =
+    useState<DisconnectConfirmation | null>(null);
+  const [disconnectingBankId, setDisconnectingBankId] = useState<string | null>(null);
   const [showAllRecentPending, setShowAllRecentPending] = useState(false);
   const [showOlderPending, setShowOlderPending] = useState(false);
   const [showOlderSources, setShowOlderSources] = useState(false);
@@ -779,6 +791,30 @@ function ConnectionsPageClient() {
       );
     }
 
+    if (status === "disconnecting") {
+      return (
+        <span className={`${base} border-amber-200 bg-amber-50 text-amber-700`}>
+          Disconnecting
+        </span>
+      );
+    }
+
+    if (status === "disconnected") {
+      return (
+        <span className={`${base} border-zinc-200 bg-zinc-50 text-zinc-700`}>
+          Disconnected
+        </span>
+      );
+    }
+
+    if (status === "disconnect_failed" || status === "support_required") {
+      return (
+        <span className={`${base} border-amber-200 bg-amber-50 text-amber-700`}>
+          Needs support
+        </span>
+      );
+    }
+
     return (
       <span className={`${base} border-emerald-200 bg-emerald-50 text-emerald-700`}>
         Connected
@@ -810,9 +846,11 @@ function ConnectionsPageClient() {
   async function showDisconnectOptions(id: string) {
     if (disconnectPreflight?.connection_id === id) {
       setDisconnectPreflight(null);
+      setDisconnectConfirmation(null);
       return;
     }
 
+    setDisconnectConfirmation(null);
     setDisconnectLoadingId(id);
     try {
       const res = await fetch(
@@ -836,6 +874,48 @@ function ConnectionsPageClient() {
     }
   }
 
+  async function disconnectPlaidBank() {
+    if (!disconnectConfirmation) return;
+
+    setDisconnectingBankId(disconnectConfirmation.connectionId);
+    try {
+      const res = await fetch(
+        `/api/money/connections/${disconnectConfirmation.connectionId}/disconnect`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "disconnect_keep_history",
+            idempotency_key: disconnectConfirmation.idempotencyKey,
+          }),
+        }
+      );
+      const json = (await res.json().catch(() => ({}))) as unknown;
+      if (!res.ok) {
+        throw new Error(
+          coerceStr(recordValue(json, "error")) ||
+            "We couldn’t disconnect this yet. Try again or contact support."
+        );
+      }
+
+      toast({
+        title: "Disconnected",
+        description: "Past transactions are still here.",
+      });
+      setDisconnectConfirmation(null);
+      setDisconnectPreflight(null);
+      await load();
+    } catch (error: unknown) {
+      toast({
+        title: "We couldn’t disconnect this yet",
+        description: errorMessage(error, "Try again or contact support."),
+      });
+      setDisconnectConfirmation(null);
+    } finally {
+      setDisconnectingBankId(null);
+    }
+  }
+
   function disconnectOptionsPanel(connectionId: string) {
     if (disconnectLoadingId === connectionId) {
       return <div className="mt-4 text-sm text-zinc-600">Checking options...</div>;
@@ -852,7 +932,10 @@ function ConnectionsPageClient() {
           </div>
           <button
             type="button"
-            onClick={() => setDisconnectPreflight(null)}
+            onClick={() => {
+              setDisconnectPreflight(null);
+              setDisconnectConfirmation(null);
+            }}
             className="text-sm text-zinc-500 hover:text-zinc-800"
             aria-label="Close disconnect options"
           >
@@ -876,9 +959,54 @@ function ConnectionsPageClient() {
               {choice.reason ? (
                 <div className="mt-1 text-xs text-zinc-500">{choice.reason}</div>
               ) : null}
+              {choice.key === "disconnect_keep_history" &&
+              choice.available &&
+              disconnectPreflight.self_service_available ? (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="mt-2"
+                  onClick={() =>
+                    setDisconnectConfirmation({
+                      connectionId,
+                      idempotencyKey: crypto.randomUUID(),
+                    })
+                  }
+                >
+                  Disconnect and keep history
+                </Button>
+              ) : null}
             </div>
           ))}
         </div>
+
+        {disconnectConfirmation?.connectionId === connectionId ? (
+          <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-3">
+            <div className="text-sm font-semibold text-zinc-900">Disconnect this bank?</div>
+            <div className="mt-1 text-sm text-zinc-700">
+              New updates will stop. Past transactions will stay in Life CFO.
+            </div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Button
+                size="sm"
+                onClick={() => void disconnectPlaidBank()}
+                disabled={disconnectingBankId === connectionId}
+              >
+                {disconnectingBankId === connectionId
+                  ? "Disconnecting..."
+                  : "Disconnect bank"}
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setDisconnectConfirmation(null)}
+                disabled={disconnectingBankId === connectionId}
+              >
+                Cancel
+              </Button>
+            </div>
+          </div>
+        ) : null}
 
         {disconnectPreflight.support_required ? (
           <a
@@ -909,6 +1037,19 @@ function ConnectionsPageClient() {
 
         return isVisibleStatus && !isEmptyManualConnection;
       }),
+    [items]
+  );
+
+  const lifecycleItems = useMemo(
+    () =>
+      items.filter((connection) =>
+        [
+          "disconnecting",
+          "disconnected",
+          "disconnect_failed",
+          "support_required",
+        ].includes(connection.status)
+      ),
     [items]
   );
 
@@ -1511,8 +1652,61 @@ function ConnectionsPageClient() {
                     </div>
                   ) : null}
 
+                  {lifecycleItems.length > 0 ? (
+                    <div className="space-y-3 pt-2">
+                      <div className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+                        Past bank connections
+                      </div>
+                      {lifecycleItems.map((c) => {
+                        const title = displayTitle(c);
+                        return (
+                          <div
+                            key={c.id}
+                            className="rounded-3xl border border-zinc-200 bg-zinc-50/60 px-4 py-4 sm:px-5"
+                          >
+                            <div className="flex items-start justify-between gap-4 flex-wrap">
+                              <div className="flex min-w-[240px] flex-1 items-start gap-3">
+                                <div
+                                  className={`mt-0.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border text-sm font-semibold ${institutionIconClass(
+                                    c.provider
+                                  )}`}
+                                  aria-hidden="true"
+                                >
+                                  {institutionMonogram(title)}
+                                </div>
+                                <div className="min-w-0 flex-1">
+                                  <div className="text-base font-semibold text-zinc-900">
+                                    {title}
+                                  </div>
+                                  <div className="mt-1 text-sm text-zinc-600">
+                                    {syncLine(c)}
+                                  </div>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => void showDisconnectOptions(c.id)}
+                                  disabled={disconnectLoadingId === c.id}
+                                >
+                                  {disconnectLoadingId === c.id
+                                    ? "Checking..."
+                                    : "Disconnect options"}
+                                </Button>
+                                {statusChip(c.status)}
+                              </div>
+                            </div>
+                            {disconnectOptionsPanel(c.id)}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : null}
+
                   {!loading &&
                   activeItems.length === 0 &&
+                  lifecycleItems.length === 0 &&
                   pendingItems.length === 0 &&
                   incompleteSetupItems.length === 0 ? (
                     <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-600">

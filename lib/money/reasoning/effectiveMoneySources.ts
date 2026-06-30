@@ -40,6 +40,9 @@ function isManualCsvMoneySource(connection: DemoMoneySourceCandidate): boolean {
 }
 
 function sourceLabel(connection: ExternalConnectionsTruthRow): string {
+  if (String(connection.status || "").trim().toLowerCase() === "disconnected") {
+    return "disconnected bank history";
+  }
   if (isDemoMoneySource(connection)) return "manual demo data";
   if (isManualCsvMoneySource(connection)) return "uploaded bank file";
   return normalizedProvider(connection.provider);
