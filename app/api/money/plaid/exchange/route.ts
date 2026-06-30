@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { supabaseRoute } from "@/lib/supabaseRoute";
 import { resolveHouseholdIdRoute } from "@/lib/households/resolveHouseholdIdRoute";
 import { getPlaidClient, getPlaidDiag } from "@/lib/money/plaidClient";
+import { encryptPlaidToken } from "@/lib/server/security/plaidTokenCrypto";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -96,9 +97,15 @@ export async function POST(req: Request) {
       );
     }
 
+    const encryptedAccessToken = encryptPlaidToken(accessToken, {
+      provider: "plaid",
+      household_id: householdId,
+      connection_id: connectionId,
+    });
+
     const update: Record<string, unknown> = {
       status: "active",
-      encrypted_access_token: accessToken,
+      encrypted_access_token: encryptedAccessToken,
       item_id: itemId,
       provider_item_id: itemId,
       provider_connection_id: itemId,
@@ -117,7 +124,7 @@ export async function POST(req: Request) {
       .eq("id", connectionId)
       .eq("household_id", householdId)
       .select(
-        "id, household_id, provider, status, encrypted_access_token, item_id, provider_item_id, provider_connection_id, provider_institution_id, provider_institution_name"
+        "id, household_id, provider, status"
       )
       .maybeSingle();
 
@@ -142,28 +149,22 @@ export async function POST(req: Request) {
     return NextResponse.json({
       ok: true,
       connection_id: connectionId,
-      item_id: itemId,
       institution_id: institutionId || null,
       institution_name: institutionName || null,
       status: updatedRow.status,
-      debug: {
-        saved_access_token: Boolean(updatedRow.encrypted_access_token),
-        saved_item_id: updatedRow.item_id,
-        saved_provider_item_id: updatedRow.provider_item_id,
-        saved_provider_connection_id: updatedRow.provider_connection_id,
-      },
-      diag,
+      token_stored: true,
     });
-  } catch (e: any) {
+  } catch (error: unknown) {
+    const code =
+      error instanceof Error && error.message.startsWith("plaid_token_")
+        ? error.message
+        : "plaid_exchange_failed";
+    console.error("plaid_exchange_failed", { code });
     return NextResponse.json(
       {
         ok: false,
-        error:
-          e?.response?.data?.error_message ||
-          e?.message ||
-          "Plaid public token exchange failed",
-        plaid_error: e?.response?.data ?? null,
-        diag,
+        error: "Life CFO couldn’t finish this bank connection yet.",
+        code,
       },
       { status: 500 }
     );

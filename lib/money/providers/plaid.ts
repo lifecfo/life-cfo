@@ -1,6 +1,10 @@
 import type { MoneyProvider, ProviderSyncResult } from "./types";
 import { getPlaidClient } from "@/lib/money/plaidClient";
 import { supabaseRoute } from "@/lib/supabaseRoute";
+import {
+  decryptPlaidToken,
+  isEncryptedPlaidToken,
+} from "@/lib/server/security/plaidTokenCrypto";
 
 type ConnectionRow = {
   id: string;
@@ -12,6 +16,11 @@ type ConnectionRow = {
   provider_item_id: string | null;
   transactions_cursor: string | null;
 };
+
+type RouteSupabase = Awaited<ReturnType<typeof supabaseRoute>>;
+type PlaidClient = ReturnType<typeof getPlaidClient>;
+type AccountUpsertRow = { id: string; provider_account_id: string | null };
+type AccountMapRow = { id?: unknown; provider_account_id?: unknown };
 
 type PlaidAccount = {
   account_id: string;
@@ -136,14 +145,14 @@ async function getContext(connectionId: string) {
 }
 
 async function upsertAccounts(params: {
-  supabase: any;
+  supabase: RouteSupabase;
   householdId: string;
   connectionId: string;
   accounts: PlaidAccount[];
 }) {
   const { supabase, householdId, connectionId, accounts } = params;
 
-  if (!accounts.length) return { rows: [] as any[], count: 0 };
+  if (!accounts.length) return { rows: [] as AccountUpsertRow[], count: 0 };
 
   const rows = accounts.map((a) => {
     const currency =
@@ -210,7 +219,7 @@ async function upsertAccounts(params: {
 }
 
 async function buildAccountMap(params: {
-  supabase: any;
+  supabase: RouteSupabase;
   householdId: string;
   connectionId: string;
 }) {
@@ -228,8 +237,9 @@ async function buildAccountMap(params: {
 
   const map = new Map<string, string>();
   for (const row of data ?? []) {
-    const providerAccountId = safeStr((row as any)?.provider_account_id);
-    const id = safeStr((row as any)?.id);
+    const account = row as AccountMapRow;
+    const providerAccountId = safeStr(account.provider_account_id);
+    const id = safeStr(account.id);
     if (providerAccountId && id) map.set(providerAccountId, id);
   }
 
@@ -237,8 +247,8 @@ async function buildAccountMap(params: {
 }
 
 async function syncTransactions(params: {
-  supabase: any;
-  plaid: any;
+  supabase: RouteSupabase;
+  plaid: PlaidClient;
   householdId: string;
   connectionId: string;
   accessToken: string;
@@ -347,15 +357,24 @@ export const plaidProvider: MoneyProvider = {
   async sync(connectionId: string): Promise<ProviderSyncResult> {
     const { supabase, connection } = await getContext(connectionId);
 
-    const accessToken = safeStr(connection.encrypted_access_token);
-    if (!accessToken) {
-      throw new Error("Plaid connection missing access token.");
-    }
-
     const householdId = safeStr(connection.household_id);
     if (!householdId) {
       throw new Error("Plaid connection missing household id.");
     }
+
+    const encryptedAccessToken = safeStr(connection.encrypted_access_token);
+    if (!encryptedAccessToken) {
+      throw new Error("plaid_token_unavailable");
+    }
+    if (!isEncryptedPlaidToken(encryptedAccessToken)) {
+      throw new Error("plaid_token_migration_required");
+    }
+
+    const accessToken = decryptPlaidToken(encryptedAccessToken, {
+      provider: "plaid",
+      household_id: householdId,
+      connection_id: connection.id,
+    });
 
     const plaid = getPlaidClient();
 

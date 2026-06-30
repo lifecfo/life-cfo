@@ -9,7 +9,10 @@
     "lint": "eslint",
     "demo:inspect": "node scripts/demo-household.mjs inspect",
     "demo:seed": "node scripts/demo-household.mjs seed",
-    "demo:reset": "node scripts/demo-household.mjs reset"
+    "demo:reset": "node scripts/demo-household.mjs reset",
+    "security:plaid-tokens:inspect": "node scripts/security/inspect-plaid-token-storage.mjs",
+    "security:plaid-tokens:migrate": "node scripts/security/migrate-plaid-tokens.mjs",
+    "security:plaid-tokens:smoke": "node scripts/security/smoke-plaid-token-crypto.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.8.0",
