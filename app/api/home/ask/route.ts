@@ -330,8 +330,9 @@ async function buildFactsPack(scope: { userId: string; householdId: string }) {
   try {
     const { data, error } = await supabase
       .from("family_members")
-      .select("id,name,birth_year,relationship,about,created_at")
+      .select("id,name,birth_year,relationship,about,archived_at,created_at")
       .eq("user_id", userId)
+      .is("archived_at", null)
       .order("created_at", { ascending: true })
       .limit(30);
 
@@ -355,7 +356,13 @@ async function buildFactsPack(scope: { userId: string; householdId: string }) {
   }
 
   try {
-    const { data, error } = await supabase.from("pets").select("id,name,type,notes,created_at").eq("user_id", userId).order("created_at", { ascending: true }).limit(20);
+    const { data, error } = await supabase
+      .from("pets")
+      .select("id,name,type,notes,archived_at,created_at")
+      .eq("user_id", userId)
+      .is("archived_at", null)
+      .order("created_at", { ascending: true })
+      .limit(20);
 
     petsErrFlag = !!error;
     if (!error && Array.isArray(data)) {

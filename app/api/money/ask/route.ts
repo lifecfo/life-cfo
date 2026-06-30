@@ -502,6 +502,7 @@ async function readHouseholdFamilyContext(
       .from("family_members")
       .select("relationship")
       .eq("household_id", householdId)
+      .is("archived_at", null)
       .limit(100);
 
     if (error || !Array.isArray(data) || data.length === 0) {

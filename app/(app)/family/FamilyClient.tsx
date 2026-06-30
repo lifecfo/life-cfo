@@ -16,6 +16,7 @@ type FamilyMember = {
   birth_year: number | null;
   relationship: string | null;
   about: string | null;
+  archived_at: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -27,6 +28,7 @@ type Pet = {
   name: string;
   type: string | null;
   notes: string | null;
+  archived_at: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -52,9 +54,10 @@ type PetDraft = {
 
 type Drafts = Record<string, MeDraft | FamilyDraft | PetDraft>;
 
-type DeleteConfirm =
+type ActionConfirm =
   | {
       open: true;
+      action: "archive" | "delete";
       kind: "family" | "pet";
       id: string;
     }
@@ -104,6 +107,8 @@ export default function FamilyClient() {
 
   const [family, setFamily] = useState<FamilyMember[]>([]);
   const [pets, setPets] = useState<Pet[]>([]);
+  const [archivedFamily, setArchivedFamily] = useState<FamilyMember[]>([]);
+  const [archivedPets, setArchivedPets] = useState<Pet[]>([]);
 
   const [addingFamily, setAddingFamily] = useState(false);
   const [addingPet, setAddingPet] = useState(false);
@@ -113,7 +118,7 @@ export default function FamilyClient() {
   const [editingKey, setEditingKey] = useState<string | null>(null); // "me" | "fm:<id>" | "pet:<id>"
   const [drafts, setDrafts] = useState<Drafts>({});
 
-  const [deleteConfirm, setDeleteConfirm] = useState<DeleteConfirm>({ open: false });
+  const [actionConfirm, setActionConfirm] = useState<ActionConfirm>({ open: false });
 
   // Top-5 default (V1 pattern)
   const DEFAULT_LIMIT = 5;
@@ -147,17 +152,26 @@ export default function FamilyClient() {
   const ensureMeRow = async (householdId: string, uid: string) => {
     const { data, error } = await supabase
       .from("family_members")
-      .select("id,relationship")
+      .select("id,relationship,archived_at")
       .eq("household_id", householdId)
       .limit(200);
 
     if (error) return;
 
-    const hasMe = (data ?? []).some(
+    const meRow = (data ?? []).find(
       (row: { relationship?: unknown }) =>
         String(row.relationship ?? "").toLowerCase().trim() === "me"
     );
-    if (hasMe) return;
+    if (meRow) {
+      if (meRow.archived_at) {
+        await supabase
+          .from("family_members")
+          .update({ archived_at: null, updated_at: new Date().toISOString() })
+          .eq("id", meRow.id)
+          .eq("household_id", householdId);
+      }
+      return;
+    }
 
     await supabase.from("family_members").insert({
       household_id: householdId,
@@ -181,6 +195,8 @@ export default function FamilyClient() {
         setActiveHouseholdId(null);
         setFamily([]);
         setPets([]);
+        setArchivedFamily([]);
+        setArchivedPets([]);
         setStatusLine("Not signed in.");
         return;
       }
@@ -196,6 +212,8 @@ export default function FamilyClient() {
         setActiveHouseholdId(null);
         setFamily([]);
         setPets([]);
+        setArchivedFamily([]);
+        setArchivedPets([]);
         setStatusLine("No household selected.");
         return;
       }
@@ -204,27 +222,47 @@ export default function FamilyClient() {
 
       await ensureMeRow(hhId, user.id);
 
-      const [fRes, pRes] = await Promise.all([
+      const [fRes, pRes, archivedFamilyRes, archivedPetsRes] = await Promise.all([
         supabase
           .from("family_members")
-          .select("id,user_id,household_id,name,birth_year,relationship,about,created_at,updated_at")
+          .select("id,user_id,household_id,name,birth_year,relationship,about,archived_at,created_at,updated_at")
           .eq("household_id", hhId)
+          .is("archived_at", null)
           .order("created_at", { ascending: true }),
         supabase
           .from("pets")
-          .select("id,user_id,household_id,name,type,notes,created_at,updated_at")
+          .select("id,user_id,household_id,name,type,notes,archived_at,created_at,updated_at")
           .eq("household_id", hhId)
+          .is("archived_at", null)
+          .order("created_at", { ascending: true }),
+        supabase
+          .from("family_members")
+          .select("id,user_id,household_id,name,birth_year,relationship,about,archived_at,created_at,updated_at")
+          .eq("household_id", hhId)
+          .not("archived_at", "is", null)
+          .order("archived_at", { ascending: false }),
+        supabase
+          .from("pets")
+          .select("id,user_id,household_id,name,type,notes,archived_at,created_at,updated_at")
+          .eq("household_id", hhId)
+          .not("archived_at", "is", null)
           .order("created_at", { ascending: true }),
       ]);
 
       if (fRes.error) throw fRes.error;
       if (pRes.error) throw pRes.error;
+      if (archivedFamilyRes.error) throw archivedFamilyRes.error;
+      if (archivedPetsRes.error) throw archivedPetsRes.error;
 
       const fam = (fRes.data as FamilyMember[]) ?? [];
       const pts = (pRes.data as Pet[]) ?? [];
+      const archivedFam = (archivedFamilyRes.data as FamilyMember[]) ?? [];
+      const archivedPts = (archivedPetsRes.data as Pet[]) ?? [];
 
       setFamily(fam);
       setPets(pts);
+      setArchivedFamily(archivedFam);
+      setArchivedPets(archivedPts);
 
       const famCount = fam.filter((m) => !isMe(m)).length;
       const petCount = pts.length;
@@ -395,29 +433,37 @@ export default function FamilyClient() {
     setStatusLine("Saved.");
   };
 
-  const requestRemoveFamily = (m: FamilyMember) => {
+  const requestArchiveFamily = (m: FamilyMember) => {
     if (isMe(m)) return;
-    setDeleteConfirm({
+    setActionConfirm({
       open: true,
+      action: "archive",
       kind: "family",
       id: m.id,
     });
   };
 
-  const requestRemovePet = (p: Pet) => {
-    setDeleteConfirm({
+  const requestArchivePet = (p: Pet) => {
+    setActionConfirm({
       open: true,
+      action: "archive",
       kind: "pet",
       id: p.id,
     });
   };
 
-  const performDelete = async () => {
-    if (!activeHouseholdId) return;
-    if (!deleteConfirm.open) return;
+  const requestDeleteFamily = (m: FamilyMember) => {
+    if (isMe(m)) return;
+    setActionConfirm({ open: true, action: "delete", kind: "family", id: m.id });
+  };
 
-    const { kind, id } = deleteConfirm;
-    setDeleteConfirm({ open: false });
+  const requestDeletePet = (p: Pet) => {
+    setActionConfirm({ open: true, action: "delete", kind: "pet", id: p.id });
+  };
+
+  const performArchive = async (kind: "family" | "pet", id: string) => {
+    if (!activeHouseholdId) return;
+    const archivedAt = new Date().toISOString();
 
     try {
       if (kind === "family") {
@@ -425,12 +471,16 @@ export default function FamilyClient() {
         if (!row) return;
         if (isMe(row)) return;
 
-        setFamily((prev) => prev.filter((x) => x.id !== id));
-
-        const { error } = await supabase.from("family_members").delete().eq("id", id).eq("household_id", activeHouseholdId);
+        const { error } = await supabase
+          .from("family_members")
+          .update({ archived_at: archivedAt, updated_at: archivedAt })
+          .eq("id", id)
+          .eq("household_id", activeHouseholdId);
         if (error) throw error;
 
-        setStatusLine("Deleted.");
+        setFamily((prev) => prev.filter((x) => x.id !== id));
+        setArchivedFamily((prev) => [{ ...row, archived_at: archivedAt, updated_at: archivedAt }, ...prev]);
+        setStatusLine("Moved to Archived.");
         return;
       }
 
@@ -438,19 +488,104 @@ export default function FamilyClient() {
         const row = pets.find((x) => x.id === id);
         if (!row) return;
 
-        setPets((prev) => prev.filter((x) => x.id !== id));
-
-        const { error } = await supabase.from("pets").delete().eq("id", id).eq("household_id", activeHouseholdId);
+        const { error } = await supabase
+          .from("pets")
+          .update({ archived_at: archivedAt, updated_at: archivedAt })
+          .eq("id", id)
+          .eq("household_id", activeHouseholdId);
         if (error) throw error;
 
-        setStatusLine("Deleted.");
+        setPets((prev) => prev.filter((x) => x.id !== id));
+        setArchivedPets((prev) => [{ ...row, archived_at: archivedAt, updated_at: archivedAt }, ...prev]);
+        setStatusLine("Moved to Archived.");
         return;
       }
+    } catch (e: unknown) {
+      toast({ title: "Couldn’t remove", description: errorMessage(e) });
+      setStatusLine("Couldn’t remove right now.");
+      await load();
+    }
+  };
+
+  const restoreFamily = async (row: FamilyMember) => {
+    if (!activeHouseholdId) return;
+    const updatedAt = new Date().toISOString();
+    const { error } = await supabase
+      .from("family_members")
+      .update({ archived_at: null, updated_at: updatedAt })
+      .eq("id", row.id)
+      .eq("household_id", activeHouseholdId);
+
+    if (error) {
+      toast({ title: "Couldn’t restore", description: error.message });
+      return;
+    }
+
+    setArchivedFamily((prev) => prev.filter((item) => item.id !== row.id));
+    setFamily((prev) => [...prev, { ...row, archived_at: null, updated_at: updatedAt }]);
+    setStatusLine("Restored.");
+  };
+
+  const restorePet = async (row: Pet) => {
+    if (!activeHouseholdId) return;
+    const updatedAt = new Date().toISOString();
+    const { error } = await supabase
+      .from("pets")
+      .update({ archived_at: null, updated_at: updatedAt })
+      .eq("id", row.id)
+      .eq("household_id", activeHouseholdId);
+
+    if (error) {
+      toast({ title: "Couldn’t restore", description: error.message });
+      return;
+    }
+
+    setArchivedPets((prev) => prev.filter((item) => item.id !== row.id));
+    setPets((prev) => [...prev, { ...row, archived_at: null, updated_at: updatedAt }]);
+    setStatusLine("Restored.");
+  };
+
+  const performDelete = async (kind: "family" | "pet", id: string) => {
+    if (!activeHouseholdId) return;
+
+    try {
+      if (kind === "family") {
+        const row = family.find((item) => item.id === id) ?? archivedFamily.find((item) => item.id === id);
+        if (!row || isMe(row)) return;
+        const { error } = await supabase
+          .from("family_members")
+          .delete()
+          .eq("id", id)
+          .eq("household_id", activeHouseholdId);
+        if (error) throw error;
+        setFamily((prev) => prev.filter((item) => item.id !== id));
+        setArchivedFamily((prev) => prev.filter((item) => item.id !== id));
+      } else {
+        const row = pets.find((item) => item.id === id) ?? archivedPets.find((item) => item.id === id);
+        if (!row) return;
+        const { error } = await supabase
+          .from("pets")
+          .delete()
+          .eq("id", id)
+          .eq("household_id", activeHouseholdId);
+        if (error) throw error;
+        setPets((prev) => prev.filter((item) => item.id !== id));
+        setArchivedPets((prev) => prev.filter((item) => item.id !== id));
+      }
+      setStatusLine("Deleted.");
     } catch (e: unknown) {
       toast({ title: "Couldn’t delete", description: errorMessage(e) });
       setStatusLine("Couldn’t delete right now.");
       await load();
     }
+  };
+
+  const performConfirmedAction = async () => {
+    if (!actionConfirm.open) return;
+    const { action, kind, id } = actionConfirm;
+    setActionConfirm({ open: false });
+    if (action === "archive") await performArchive(kind, id);
+    else await performDelete(kind, id);
   };
 
   const startAddingFamily = () => {
@@ -485,7 +620,7 @@ export default function FamilyClient() {
           relationship: newFamilyDraft.relationship.trim() || null,
           about: newFamilyDraft.about.trim() || null,
         })
-        .select("id,user_id,household_id,name,birth_year,relationship,about,created_at,updated_at")
+        .select("id,user_id,household_id,name,birth_year,relationship,about,archived_at,created_at,updated_at")
         .single();
 
       if (error) throw error;
@@ -532,7 +667,7 @@ export default function FamilyClient() {
           type: newPetDraft.type.trim() || null,
           notes: newPetDraft.notes.trim() || null,
         })
-        .select("id,user_id,household_id,name,type,notes,created_at,updated_at")
+        .select("id,user_id,household_id,name,type,notes,archived_at,created_at,updated_at")
         .single();
 
       if (error) throw error;
@@ -770,7 +905,8 @@ export default function FamilyClient() {
                           ) : (
                             <div className="flex items-center gap-2">
                               <Chip onClick={() => startEditFamily(m)}>Edit</Chip>
-                              <Chip onClick={() => requestRemoveFamily(m)}>Delete forever</Chip>
+                              <Chip onClick={() => requestArchiveFamily(m)}>Remove from current family</Chip>
+                              <Chip onClick={() => requestDeleteFamily(m)}>Delete forever</Chip>
                             </div>
                           )}
                         </div>
@@ -983,7 +1119,8 @@ export default function FamilyClient() {
                           ) : (
                             <div className="flex items-center gap-2">
                               <Chip onClick={() => startEditPet(p)}>Edit</Chip>
-                              <Chip onClick={() => requestRemovePet(p)}>Delete forever</Chip>
+                              <Chip onClick={() => requestArchivePet(p)}>Remove from current family</Chip>
+                              <Chip onClick={() => requestDeletePet(p)}>Delete forever</Chip>
                             </div>
                           )}
                         </div>
@@ -1058,20 +1195,74 @@ export default function FamilyClient() {
           </CardContent>
         </Card>
 
-        {/* Confirm delete modal */}
-        {deleteConfirm.open ? (
+        {archivedFamily.length > 0 || archivedPets.length > 0 ? (
+          <Card className="border-zinc-200 bg-white">
+            <CardContent className="space-y-3">
+              <div>
+                <div className="text-sm font-semibold text-zinc-900">Archived</div>
+                <div className="mt-1 text-xs text-zinc-500">
+                  Kept here in case you want them later.
+                </div>
+              </div>
+
+              <div className="divide-y divide-zinc-100">
+                {archivedFamily.map((member) => (
+                  <div key={`archived-family:${member.id}`} className="flex flex-wrap items-center justify-between gap-3 py-3">
+                    <div>
+                      <div className="text-sm font-medium text-zinc-900">{member.name}</div>
+                      <div className="text-xs text-zinc-500">
+                        {member.relationship || "Family"}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Chip onClick={() => void restoreFamily(member)}>Restore</Chip>
+                      {!isMe(member) ? (
+                        <Chip onClick={() => requestDeleteFamily(member)}>Delete forever</Chip>
+                      ) : null}
+                    </div>
+                  </div>
+                ))}
+
+                {archivedPets.map((pet) => (
+                  <div key={`archived-pet:${pet.id}`} className="flex flex-wrap items-center justify-between gap-3 py-3">
+                    <div>
+                      <div className="text-sm font-medium text-zinc-900">{pet.name}</div>
+                      <div className="text-xs text-zinc-500">{pet.type || "Pet"}</div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Chip onClick={() => void restorePet(pet)}>Restore</Chip>
+                      <Chip onClick={() => requestDeletePet(pet)}>Delete forever</Chip>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        ) : null}
+
+        {actionConfirm.open ? (
           <div className="fixed inset-0 z-40 flex items-end justify-center bg-black/20 p-4 sm:items-center">
             <div className="w-full max-w-[520px] rounded-2xl border border-zinc-200 bg-white shadow-lg">
               <div className="space-y-2 p-4 sm:p-5">
-                <div className="text-sm font-semibold text-zinc-900">Delete forever?</div>
-                <div className="text-sm text-zinc-600">This cannot be undone.</div>
+                <div className="text-sm font-semibold text-zinc-900">
+                  {actionConfirm.action === "archive" ? "Remove from current family?" : "Delete forever?"}
+                </div>
+                <div className="text-sm text-zinc-600">
+                  {actionConfirm.action === "archive"
+                    ? "This keeps the details in Archived in case you want them later."
+                    : "This cannot be undone."}
+                </div>
 
                 <div className="mt-4 flex items-center justify-end gap-2">
-                  <Chip onClick={() => setDeleteConfirm({ open: false })} title="Cancel">
+                  <Chip onClick={() => setActionConfirm({ open: false })} title="Cancel">
                     Cancel
                   </Chip>
-                  <Chip onClick={() => void performDelete()} title="Delete forever" className="border-zinc-900 bg-zinc-900 text-white hover:bg-zinc-800">
-                    Delete forever
+                  <Chip
+                    onClick={() => void performConfirmedAction()}
+                    title={actionConfirm.action === "archive" ? "Remove" : "Delete forever"}
+                    className="border-zinc-900 bg-zinc-900 text-white hover:bg-zinc-800"
+                  >
+                    {actionConfirm.action === "archive" ? "Remove" : "Delete forever"}
                   </Chip>
                 </div>
               </div>
