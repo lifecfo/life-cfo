@@ -268,6 +268,8 @@ export default function TransactionsClient() {
         Refresh
       </Chip>
 
+      <Chip onClick={() => router.push("/money/import")}>Upload a bank file</Chip>
+
       <Chip onClick={() => router.push("/money")}>Back to Money</Chip>
     </div>
   );

@@ -146,7 +146,7 @@ export default function MoneySetupPage() {
           : setupStatus.status === "refresh_needed"
             ? "Worth checking"
             : "When you can",
-        href: "/connections",
+        href: "/money/import",
       },
       {
         key: "income",
