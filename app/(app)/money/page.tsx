@@ -4,51 +4,30 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Page } from "@/components/Page";
-import { Card, CardContent, Chip, MeterBar, MiniSignal, useToast } from "@/components/ui";
+import { Card, CardContent, Chip, useToast } from "@/components/ui";
 import { useAsk } from "@/components/ask/AskProvider";
-import type { PressureInterpretation } from "@/lib/money/reasoning/interpretPressure";
 import { formatMoneyFromCents } from "@/lib/money/formatMoney";
-import { joinNonEmptyWithSpace } from "@/lib/ask/responseComposition";
-import type { MiniSignalLevel } from "@/components/ui/MiniSignal";
-import type { MoneyDataCoverage } from "@/lib/money/reasoning/types";
-
-const MONEY_SMART_INSIGHT_PREVIEW_KEY = "lifecfo:money-smart-insight-preview";
+import type {
+  BreathingRoomSummary,
+  MoneyDataCoverage,
+  MoneyPrimaryGoalSummary,
+  MoneySetupStatus,
+} from "@/lib/money/reasoning/types";
 
 type FinancialSnapshot = {
   asOf: string;
   liquidity: { availableCashCents: number; accountCount: number };
-  income: { recurringMonthlyCents: number; sourceCount: number };
-  commitments: { recurringMonthlyCents: number; billCount: number };
-  discretionary: { last30DayOutflowCents: number };
-  connections: { total: number; stale: number; maxAgeDays: number };
-  pressure: {
-    structural_pressure: { level: "none" | "low" | "medium" | "high"; summary: string };
-    discretionary_drift: { level: "none" | "low" | "medium" | "high"; summary: string };
-    timing_mismatch: { level: "none" | "low" | "medium" | "high"; summary: string };
-    stability_risk: { level: "none" | "low" | "medium" | "high"; summary: string };
-  };
-};
-
-type SnapshotExplanation = {
-  headline: string;
-  summary: string;
-  insights: string[];
-  pressure: {
-    structural: string;
-    discretionary: string;
-    timing: string;
-    stability: string;
-  };
-  interpretation?: PressureInterpretation;
 };
 
 type OverviewResponse = {
   snapshot: FinancialSnapshot;
-  explanation: SnapshotExplanation;
   transaction_outflows?: TransactionOutflowSummary;
   pattern_confirmations?: PatternConfirmation[];
-  recent_transactions?: TransactionRow[];
   data_coverage?: MoneyDataCoverage;
+  setup_status?: MoneySetupStatus;
+  breathing_room?: BreathingRoomSummary;
+  cash_by_currency?: MoneyRow[];
+  primary_goal?: MoneyPrimaryGoalSummary | null;
 };
 
 type MoneyRow = {
@@ -117,16 +96,6 @@ type TransactionOutflowSummary = {
   confirmation_note: string | null;
 };
 
-type TransactionRow = {
-  id: string;
-  date: string | null;
-  description: string | null;
-  merchant: string | null;
-  amount_cents: number | null;
-  currency: string | null;
-  provider: string | null;
-};
-
 function formatMoney(cents: number | undefined | null, currency = "AUD") {
   return formatMoneyFromCents(cents, currency);
 }
@@ -134,21 +103,6 @@ function formatMoney(cents: number | undefined | null, currency = "AUD") {
 function formatMoneyRows(rows: MoneyRow[]) {
   if (!rows.length) return "-";
   return rows.map((row) => formatMoney(row.cents, row.currency)).join(" | ");
-}
-
-function confirmedPatternSummary(
-  patterns: PatternConfirmation[],
-  singular: string,
-  plural: string
-): string {
-  const count = patterns.length;
-  if (!count) return `No ${plural} confirmed yet.`;
-  const labels = patterns
-    .map((pattern) => pattern.label?.trim())
-    .filter((label): label is string => Boolean(label))
-    .slice(0, 2);
-  const lead = `You’ve confirmed ${count} ${count === 1 ? singular : plural}.`;
-  return labels.length ? `${lead.slice(0, -1)}: ${labels.join(" and ")}.` : lead;
 }
 
 function softDate(isoOrDate: string | null | undefined) {
@@ -180,76 +134,16 @@ function getErrorMessage(error: unknown, fallback: string) {
   return fallback;
 }
 
-function toMiniSignalLevel(level: "none" | "low" | "medium" | "high"): MiniSignalLevel {
-  if (level === "none") return "steady";
-  if (level === "low") return "low";
-  if (level === "medium") return "moderate";
-  return "high";
-}
-
-function sentence(input: string | null | undefined): string {
-  const text = String(input || "").trim();
-  if (!text) return "";
-  return /[.!?]$/.test(text) ? text : `${text}.`;
-}
-
-function buildSmartInsight(
-  explanation: SnapshotExplanation | undefined,
-  interpretation: PressureInterpretation | undefined
-): { headline: string; supporting: string } {
-  if (!interpretation) {
-    return {
-      headline: explanation?.headline || "Pulling together your latest household money picture...",
-      supporting: explanation?.summary || "Already reading your latest income, commitments, and timing so this view lands grounded.",
-    };
-  }
-
-  const main = interpretation.main_pressure;
-  if (main.key === "none") {
-    return {
-      headline: "Your money picture looks fairly steady right now.",
-      supporting:
-        "No single concern is standing out, so day-to-day money should feel more even.",
-    };
-  }
-
-  if (main.key === "structural") {
-    return {
-      headline: "Regular commitments are taking up most of the room right now.",
-      supporting: joinNonEmptyWithSpace([
-        sentence(main.why_now),
-        "That usually leaves less breathing room between pay cycles.",
-      ]),
-    };
-  }
-
-  if (main.key === "discretionary") {
-    return {
-      headline: "Recent spending has shifted the most right now.",
-      supporting: joinNonEmptyWithSpace([
-        sentence(main.why_now),
-        "That can make leftover cash feel thinner week to week.",
-      ]),
-    };
-  }
-
-  if (main.key === "timing") {
-    return {
-      headline: "The timing of money in and bills matters most right now.",
-      supporting: joinNonEmptyWithSpace([
-        sentence(main.why_now),
-        "That can make parts of the month feel tighter even when totals look manageable.",
-      ]),
-    };
-  }
-
-  return {
-    headline: "Some income or connection details need a closer look.",
-    supporting: joinNonEmptyWithSpace([
-      sentence(main.why_now),
-      "That can make the overall picture feel less certain from one week to the next.",
-    ]),
-  };
+function nextStepCopy(setupStatus: MoneySetupStatus | undefined): string | null {
+  const key = setupStatus?.next_step?.key;
+  if (!key) return null;
+  if (key === "add_bill_dates") return "Add bill dates when you can.";
+  if (key === "add_income_timing") return "Check income timing when you can.";
+  if (key === "review_patterns") return "Review one money pattern when you can.";
+  if (key === "refresh_sources") return "Refresh a money source when you can.";
+  if (key === "add_source") return "Add your money when you’re ready.";
+  if (key === "add_goal") return "Add one goal when you can.";
+  return setupStatus?.next_step?.title || null;
 }
 
 function ReviewPatternCard({
@@ -473,7 +367,7 @@ function ReviewedPatternItem({
 export default function MoneyClientNext() {
   const router = useRouter();
   const { showToast } = useToast();
-  const { openAsk } = useAsk();
+  const { openAsk, setDraft } = useAsk();
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -483,11 +377,12 @@ export default function MoneyClientNext() {
   const [reviewedPatternsOpen, setReviewedPatternsOpen] = useState(false);
 
   const snapshot = data?.snapshot;
-  const explanation = data?.explanation;
-  const interpretation = explanation?.interpretation;
   const transactionOutflows = data?.transaction_outflows;
   const dataCoverage = data?.data_coverage;
-  const recentTransactions = data?.recent_transactions ?? [];
+  const setupStatus = data?.setup_status;
+  const breathingRoom = data?.breathing_room;
+  const cashByCurrency = data?.cash_by_currency ?? [];
+  const primaryGoal = data?.primary_goal ?? null;
   const confirmationsByPatternKey = new Map(
     (data?.pattern_confirmations ?? []).map((confirmation) => [
       confirmation.pattern_key,
@@ -699,64 +594,35 @@ export default function MoneyClientNext() {
     return () => window.removeEventListener("focus", onFocus);
   }, [refresh]);
 
-  const importedRecent = recentTransactions.filter((t) => {
-    const provider = String(t.provider || "").toLowerCase();
-    return provider !== "" && provider !== "manual";
-  });
-
-  const latestImported = importedRecent[0] ?? null;
-  const latestImportedName =
-    latestImported?.merchant || latestImported?.description || "Recent transaction";
-  const latestImportedAmount = formatMoney(
-    Math.abs(Number(latestImported?.amount_cents ?? 0)),
-    latestImported?.currency || "AUD"
+  const monthIn = dataCoverage?.current_month_money_in ?? [];
+  const monthOut = dataCoverage?.current_month_money_out ?? [];
+  const monthCurrencies = Array.from(
+    new Set([...monthIn.map((row) => row.currency), ...monthOut.map((row) => row.currency)])
   );
+  const monthPositions = monthCurrencies.map((currency) => {
+    const moneyIn = monthIn.find((row) => row.currency === currency)?.cents ?? 0;
+    const moneyOut = monthOut.find((row) => row.currency === currency)?.cents ?? 0;
+    return { currency, cents: moneyIn - moneyOut, activity: moneyIn + moneyOut };
+  });
+  const primaryPosition = [...monthPositions].sort(
+    (left, right) => right.activity - left.activity
+  )[0];
+  const monthHeadline = !primaryPosition
+    ? "This month is still taking shape."
+    : primaryPosition.cents > 0
+      ? "You’re ahead this month."
+      : primaryPosition.cents < 0
+        ? "More went out than came in this month."
+        : "This month is looking steady.";
+  const plannedValue = primaryGoal
+    ? `${primaryGoal.title}: ${primaryGoal.progress_percent}%.`
+    : "Goals and plans live here.";
+  const nextStep = nextStepCopy(setupStatus);
 
-  const committedIncomePercent =
-    snapshot && snapshot.income.recurringMonthlyCents > 0
-      ? Math.round(
-          (Math.max(0, snapshot.commitments.recurringMonthlyCents) /
-            snapshot.income.recurringMonthlyCents) *
-            100
-        )
-      : null;
-
-  const smartInsight = buildSmartInsight(explanation, interpretation);
-  const openAskFromMoney = useCallback(() => {
-    try {
-      if (smartInsight.headline && smartInsight.headline !== "Your money picture is loading.") {
-        window.sessionStorage.setItem(
-          MONEY_SMART_INSIGHT_PREVIEW_KEY,
-          JSON.stringify({
-            headline: smartInsight.headline,
-            supporting: smartInsight.supporting,
-          })
-        );
-      }
-    } catch {
-      // ignore storage availability issues
-    }
+  const askAboutBreathingRoom = () => {
+    setDraft(breathingRoom?.ask_prompt || "Why does this month feel tighter?");
     openAsk();
-  }, [openAsk, smartInsight.headline, smartInsight.supporting]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    try {
-      if (!smartInsight.headline || smartInsight.headline === "Your money picture is loading.") {
-        window.sessionStorage.removeItem(MONEY_SMART_INSIGHT_PREVIEW_KEY);
-        return;
-      }
-      window.sessionStorage.setItem(
-        MONEY_SMART_INSIGHT_PREVIEW_KEY,
-        JSON.stringify({
-          headline: smartInsight.headline,
-          supporting: smartInsight.supporting,
-        })
-      );
-    } catch {
-      // ignore storage availability issues
-    }
-  }, [smartInsight.headline, smartInsight.supporting]);
+  };
 
   return (
     <Page title="Money" subtitle="A calm view of money coming in, going out, saved, and planned.">
@@ -775,108 +641,62 @@ export default function MoneyClientNext() {
 
         <div className="mt-5 grid gap-4">
           <Card className="border-zinc-200 bg-white">
-            <CardContent className="space-y-1">
-              <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                How things are looking right now
-              </div>
-              <button
-                type="button"
-                onClick={openAskFromMoney}
-                className="w-full text-left text-sm leading-relaxed text-zinc-800 transition-colors hover:text-zinc-900"
-              >
-                {smartInsight.headline}
-              </button>
-              <button
-                type="button"
-                onClick={openAskFromMoney}
-                className="w-full text-left text-xs leading-relaxed text-zinc-500 transition-colors hover:text-zinc-600"
-              >
-                {smartInsight.supporting}
-              </button>
-              <button
-                type="button"
-                onClick={openAskFromMoney}
-                className="text-xs text-zinc-500 underline-offset-2 hover:text-zinc-700 hover:underline"
-              >
-                If you want to go deeper, just ask.
-              </button>
-            </CardContent>
-          </Card>
-
-          <Card className="border-zinc-200 bg-white">
-            <CardContent className="space-y-2">
-              <div className="text-sm font-semibold text-zinc-900">
-                {explanation?.headline || (loading ? "Loading..." : "Money at a glance")}
-              </div>
-              <div className="text-xs leading-relaxed text-zinc-600">
-                {explanation?.summary ||
-                  (loading
-                    ? "Loading..."
-                    : "This page gives a short view of your household money right now.")}
-              </div>
-              <MeterBar
-                label="Committed income"
-                value={snapshot?.commitments.recurringMonthlyCents ?? 0}
-                total={snapshot?.income.recurringMonthlyCents ?? 0}
-                valueLabel={snapshot ? formatMoney(snapshot.commitments.recurringMonthlyCents) : undefined}
-                totalLabel={snapshot ? formatMoney(snapshot.income.recurringMonthlyCents) : undefined}
-              />
-              <div className="text-xs leading-relaxed text-zinc-600">
-                {committedIncomePercent === null
-                  ? "Monthly commitments use 0% of recurring income"
-                  : `Monthly commitments use ${committedIncomePercent}% of recurring income`}
-              </div>
-              {snapshot ? (
-                <div className="grid gap-2 sm:grid-cols-2">
-                  <MiniSignal
-                    label="Regular money picture"
-                    level={toMiniSignalLevel(snapshot.pressure.structural_pressure.level)}
-                    summary={snapshot.pressure.structural_pressure.summary}
-                  />
-                  <MiniSignal
-                    label="Recent spending"
-                    level={toMiniSignalLevel(snapshot.pressure.discretionary_drift.level)}
-                    summary={snapshot.pressure.discretionary_drift.summary}
-                  />
-                  <MiniSignal
-                    label="Upcoming timing"
-                    level={toMiniSignalLevel(snapshot.pressure.timing_mismatch.level)}
-                    summary={snapshot.pressure.timing_mismatch.summary}
-                  />
-                  <MiniSignal
-                    label="Income stability"
-                    level={toMiniSignalLevel(snapshot.pressure.stability_risk.level)}
-                    summary={snapshot.pressure.stability_risk.summary}
-                  />
+            <CardContent className="space-y-3">
+              <div>
+                <div className="text-lg font-semibold text-zinc-900">{monthHeadline}</div>
+                <div className="mt-1 text-xs text-zinc-500">
+                  {dataCoverage?.has_demo_sources ? "Based on demo data." : "Based on your current money data."}
                 </div>
-              ) : null}
-              <ul className="list-disc space-y-1 pl-4 text-xs text-zinc-600">
-                {(explanation?.insights ?? []).slice(0, 3).map((line, idx) => (
-                  <li key={idx}>{line}</li>
+              </div>
+              <ul className="space-y-1 text-sm text-zinc-700">
+                <li>Money in: {loading ? "Loading..." : formatMoneyRows(monthIn)}</li>
+                <li>Money out: {loading ? "Loading..." : formatMoneyRows(monthOut)}</li>
+                {monthPositions.map((position) => (
+                  <li key={position.currency}>
+                    {position.cents >= 0 ? "Ahead so far" : "Behind so far"}: {formatMoney(Math.abs(position.cents), position.currency)}
+                  </li>
                 ))}
-                {!loading && (!explanation?.insights || explanation.insights.length === 0) ? (
-                  <li>No highlights yet.</li>
-                ) : null}
+                <li>Cash: {loading ? "Loading..." : formatMoneyRows(cashByCurrency)}</li>
               </ul>
             </CardContent>
           </Card>
 
-          <div className="flex flex-col gap-2 rounded-xl border border-zinc-200 bg-white px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <div className="text-sm font-medium text-zinc-900">What Life CFO can see</div>
-              <div className="mt-0.5 text-xs text-zinc-600">
-                {dataCoverage && (dataCoverage.account_count > 0 || dataCoverage.transaction_count > 0)
-                  ? `${dataCoverage.has_demo_sources ? "Demo data includes" : "Life CFO can see"} ${dataCoverage.account_count} account${dataCoverage.account_count === 1 ? "" : "s"} and ${dataCoverage.transaction_count} recent transaction${dataCoverage.transaction_count === 1 ? "" : "s"}.`
-                  : "Start by adding accounts or transactions when you’re ready."}
-              </div>
+          {breathingRoom ? (
+            <Card className="border-zinc-200 bg-white">
+              <CardContent className="space-y-3">
+                <div>
+                  <div className="text-sm font-semibold text-zinc-900">Breathing room</div>
+                  <div className="mt-1 text-base font-medium text-zinc-800">
+                    {breathingRoom.label}
+                  </div>
+                </div>
+                <ul className="list-disc space-y-1 pl-4 text-sm leading-relaxed text-zinc-600">
+                  {breathingRoom.reasons.slice(0, 3).map((reason) => (
+                    <li key={reason}>{reason}</li>
+                  ))}
+                </ul>
+                <button
+                  type="button"
+                  onClick={askAboutBreathingRoom}
+                  className="text-left text-xs font-medium text-zinc-700 underline decoration-zinc-300 underline-offset-4 hover:text-zinc-900"
+                >
+                  Ask: “{breathingRoom.ask_prompt}”
+                </button>
+              </CardContent>
+            </Card>
+          ) : null}
+
+          {nextStep ? (
+            <div className="flex flex-col gap-2 rounded-xl border border-zinc-200 bg-white px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="text-sm text-zinc-700">{nextStep}</div>
+              <Link
+                href="/money/setup"
+                className="shrink-0 text-xs font-medium text-zinc-700 underline decoration-zinc-300 underline-offset-4 hover:text-zinc-900"
+              >
+                Start here
+              </Link>
             </div>
-            <Link
-              href="/money/setup"
-              className="shrink-0 text-xs font-medium text-zinc-700 underline decoration-zinc-300 underline-offset-4 hover:text-zinc-900"
-            >
-              Start here
-            </Link>
-          </div>
+          ) : null}
 
           {transactionOutflows && hasPendingReviewItems ? (
             <Card id="money-review" className="border-zinc-200 bg-white">
@@ -917,7 +737,18 @@ export default function MoneyClientNext() {
             </Card>
           ) : null}
 
-          <Card className="border-zinc-200 bg-white">
+          {!reviewedPatternsOpen ? (
+            <button
+              type="button"
+              onClick={() => setReviewedPatternsOpen(true)}
+              className="order-last w-fit text-xs font-medium text-zinc-600 underline decoration-zinc-300 underline-offset-4 hover:text-zinc-900"
+            >
+              View reviewed patterns
+            </button>
+          ) : null}
+
+          {reviewedPatternsOpen ? (
+            <Card className="order-last border-zinc-200 bg-white">
             <CardContent className="space-y-3">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
@@ -967,107 +798,54 @@ export default function MoneyClientNext() {
                 <div className="text-xs text-red-600">{confirmationError}</div>
               ) : null}
             </CardContent>
-          </Card>
+            </Card>
+          ) : null}
 
           <div className="grid gap-4 md:grid-cols-2">
             <FlowCard
               title="In"
-              rows={[
-                transactionOutflows?.month_inflow_by_currency?.length
-                  ? `Observed money in this month: ${formatMoneyRows(
-                      transactionOutflows.month_inflow_by_currency
-                    )}.`
-                  : snapshot
-                    ? `${snapshot.income.sourceCount} regular income source(s) set up.`
-                    : "Income sources will show here.",
-                confirmedPatternSummary(confirmedIncome, "income pattern", "income patterns"),
-                `Regular income you’ve set up: ${snapshot ? formatMoney(snapshot.income.recurringMonthlyCents) : loading ? "Loading..." : "-"}`,
-                reviewIncome[0]
-                  ? `This looks regular: ${reviewIncome[0].label}, about ${formatMoney(
-                      reviewIncome[0].average_cents,
-                      reviewIncome[0].currency
-                    )} each time.`
-                  : "Repeated income will appear here when the transaction pattern is clear.",
-                "Confirmed patterns and formal income setup stay separate.",
-              ]}
-              note={
-                snapshot?.income.sourceCount === 0 && transactionOutflows?.inflow_transaction_count
-                  ? dataCoverage?.has_demo_sources
-                    ? "Demo money in is available. It stays observed until you confirm an income pattern."
-                    : "Connected money in is available. It stays observed until you confirm an income pattern."
-                  : "See income details and recent money in."
+              value={
+                loading
+                  ? "Loading..."
+                  : monthIn.length
+                    ? `${formatMoneyRows(monthIn)} came in this month.`
+                    : "No money in is visible this month."
               }
-              links={[
-                { href: "/money/in", label: "Open In" },
-                { href: "/transactions", label: "Transactions" },
-              ]}
+              href="/money/in"
+              actionLabel="Open In"
             />
 
             <FlowCard
               title="Out"
-              rows={[
-                transactionOutflows?.month_outflow_by_currency?.length
-                  ? `Observed money out this month: ${formatMoneyRows(
-                      transactionOutflows.month_outflow_by_currency
-                    )}.`
-                  : latestImported
-                    ? `Latest imported payment: ${latestImportedName} (${latestImportedAmount}).`
-                    : `Recent money out (30 days): ${snapshot ? formatMoney(snapshot.discretionary.last30DayOutflowCents) : loading ? "Loading..." : "-"}`,
-                confirmedPatternSummary(confirmedBills, "regular payment", "regular payments"),
-                `Regular payments you’ve set up: ${snapshot ? formatMoney(snapshot.commitments.recurringMonthlyCents) : loading ? "Loading..." : "-"}`,
-                snapshot
-                  ? snapshot.commitments.billCount > 0
-                    ? `${snapshot.commitments.billCount} bill(s) set up.`
-                    : "No bills are set up yet."
-                  : "Bill coverage will show here.",
-                reviewPayments[0]
-                  ? `This looks regular: ${reviewPayments[0].label}, about ${formatMoney(
-                      reviewPayments[0].average_cents,
-                      reviewPayments[0].currency
-                    )} each time.`
-                  : "Repeated payments will appear here when the transaction labels are clear.",
-              ]}
-              note={
-                snapshot?.commitments.billCount === 0 && transactionOutflows?.transaction_count
-                  ? "Connected transactions are available. No bills are set up yet, so this starts with recent money out."
-                  : "Recent money out and formally set up bills stay separate."
+              value={
+                loading
+                  ? "Loading..."
+                  : monthOut.length
+                    ? `${formatMoneyRows(monthOut)} went out this month.`
+                    : "No money out is visible this month."
               }
-              links={[
-                { href: "/money/out", label: "Open Out" },
-                { href: "/bills", label: "Bills" },
-              ]}
+              href="/money/out"
+              actionLabel="Open Out"
             />
 
             <FlowCard
               title="Saved"
-              rows={[
-                `Available cash: ${snapshot ? formatMoney(snapshot.liquidity.availableCashCents) : loading ? "Loading..." : "-"}`,
-                `${dataCoverage?.account_count ?? 0} account(s) included from current sources.`,
-                dataCoverage?.has_reference_only_sources
-                  ? "Older linked sources are kept for reference and are not included here."
-                  : dataCoverage?.has_demo_sources
-                    ? "Manual demo data is leading this view."
-                    : "Current connected sources are leading this view.",
-              ]}
-              note="Balances come from the current sources shown above."
-              links={[
-                { href: "/money/saved", label: "Open Saved" },
-                { href: "/accounts", label: "Accounts" },
-              ]}
+              value={
+                loading
+                  ? "Loading..."
+                  : cashByCurrency.length
+                    ? `${formatMoneyRows(cashByCurrency)} cash.`
+                    : "Account balances will appear here."
+              }
+              href="/money/saved"
+              actionLabel="Open Saved"
             />
 
             <FlowCard
               title="Planned"
-              rows={[
-                `Observed money out this month: ${formatMoneyRows(dataCoverage?.current_month_money_out ?? [])}.`,
-                `${confirmedBills.length} confirmed regular payment(s).`,
-                `${snapshot?.commitments.billCount ?? 0} bill(s) formally set up.`,
-              ]}
-              note="Use planned pages for goals, commitments, and next steps."
-              links={[
-                { href: "/money/planned", label: "Open Planned" },
-                { href: "/money/goals", label: "Goals" },
-              ]}
+              value={plannedValue}
+              href="/money/planned"
+              actionLabel="Open Planned"
             />
           </div>
         </div>
@@ -1078,32 +856,23 @@ export default function MoneyClientNext() {
 
 function FlowCard({
   title,
-  rows,
-  note,
-  links,
+  value,
+  href,
+  actionLabel,
 }: {
   title: string;
-  rows: string[];
-  note?: string;
-  links: Array<{ href: string; label: string }>;
+  value: string;
+  href: string;
+  actionLabel: string;
 }) {
   return (
     <Card className="border-zinc-200 bg-white">
       <CardContent className="space-y-3">
         <div className="text-sm font-semibold text-zinc-900">{title}</div>
-        <ul className="space-y-1 text-xs text-zinc-700">
-          {rows.slice(0, 3).map((row, idx) => (
-            <li key={idx}>{row}</li>
-          ))}
-        </ul>
-        {note ? <div className="text-xs text-zinc-500">{note}</div> : null}
-        <div className="flex flex-wrap gap-2">
-          {links.map((link) => (
-            <Link key={`${title}_${link.href}_${link.label}`} href={link.href}>
-              <Chip>{link.label}</Chip>
-            </Link>
-          ))}
-        </div>
+        <div className="text-sm text-zinc-700">{value}</div>
+        <Link href={href}>
+          <Chip>{actionLabel}</Chip>
+        </Link>
       </CardContent>
     </Card>
   );

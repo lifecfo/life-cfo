@@ -271,3 +271,19 @@ export type MoneySetupStatus = {
     pending_review_count: number;
   };
 };
+
+export type BreathingRoomSummary = {
+  version: 1;
+  status: "okay" | "watch" | "tight" | "closer_look";
+  label: string;
+  reasons: string[];
+  ask_prompt: string;
+};
+
+export type MoneyPrimaryGoalSummary = {
+  title: string;
+  currency: string;
+  current_cents: number;
+  target_cents: number;
+  progress_percent: number;
+};
