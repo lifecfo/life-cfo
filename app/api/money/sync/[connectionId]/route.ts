@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseRoute } from "@/lib/supabaseRoute";
 import { getProvider } from "@/lib/money/providers";
+import { connectionSyncGuard, normalizeSourceStatus } from "@/lib/money/sourceLifecycle";
 import { resolveHouseholdIdRoute } from "@/lib/households/resolveHouseholdIdRoute";
 import { assertFinePrintAccepted } from "@/lib/finePrint";
 
@@ -14,10 +15,6 @@ type ConnectionStatusRow = {
   status: string | null;
   last_sync_at: string | null;
 };
-
-function normalizeStatus(status: unknown): string {
-  return typeof status === "string" ? status.trim().toLowerCase() : "";
-}
 
 function syncErrorMessage(error: unknown): string {
   const message = error instanceof Error ? error.message : "";
@@ -80,10 +77,23 @@ export async function POST(
       );
     }
 
+    const syncGuard = connectionSyncGuard(connection.status);
+    if (!syncGuard.allowed) {
+      return NextResponse.json(
+        {
+          ok: false,
+          code: "source_sync_unavailable",
+          error: syncGuard.message,
+          status: syncGuard.status || null,
+        },
+        { status: 409 }
+      );
+    }
+
     const provider = getProvider(connection.provider);
     const result = await provider.sync(connection.id);
 
-    if (normalizeStatus(connection.provider) !== "basiq") {
+    if (normalizeSourceStatus(connection.provider) !== "basiq") {
       await supabase
         .from("external_connections")
         .update({
@@ -111,7 +121,9 @@ export async function POST(
 
     if (statusAfterSyncErr) throw statusAfterSyncErr;
 
-    const previousStatus = normalizeStatus((statusAfterSync as ConnectionStatusRow | null)?.status);
+    const previousStatus = normalizeSourceStatus(
+      (statusAfterSync as ConnectionStatusRow | null)?.status
+    );
 
     if (previousStatus === "active") {
       return NextResponse.json({
@@ -180,7 +192,7 @@ export async function POST(
       );
     }
 
-    const currentStatus = normalizeStatus(
+    const currentStatus = normalizeSourceStatus(
       (statusAfterFallback as ConnectionStatusRow | null)?.status
     );
 

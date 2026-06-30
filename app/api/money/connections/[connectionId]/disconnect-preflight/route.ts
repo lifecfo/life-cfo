@@ -1,5 +1,10 @@
 import { NextResponse } from "next/server";
 import { resolveHouseholdIdRoute } from "@/lib/households/resolveHouseholdIdRoute";
+import type {
+  SourceHistoryRetention,
+  SourceLifecycleAction,
+  SourceLifecycleJobStatus,
+} from "@/lib/money/sourceLifecycle";
 import { supabaseRoute } from "@/lib/supabaseRoute";
 
 export const runtime = "nodejs";
@@ -16,6 +21,13 @@ type SourceKind =
   | "unknown";
 
 type ConnectionMetadata = Record<string, unknown>;
+
+type ActiveLifecycleJob = {
+  action: SourceLifecycleAction;
+  status: SourceLifecycleJobStatus;
+  created_at: string;
+  started_at: string | null;
+};
 
 function normalize(value: unknown): string {
   return typeof value === "string" ? value.trim().toLowerCase() : "";
@@ -249,7 +261,7 @@ export async function GET(
     const { data: connection, error: connectionError } = await supabase
       .from("external_connections")
       .select(
-        "id,provider,status,display_name,institution_name,provider_institution_name,metadata"
+        "id,provider,status,display_name,institution_name,provider_institution_name,metadata,disconnect_requested_at,provider_access_ended_at,disconnected_at,history_retention"
       )
       .eq("id", connectionId)
       .eq("household_id", householdId)
@@ -263,7 +275,7 @@ export async function GET(
       );
     }
 
-    const [accountResult, transactionResult] = await Promise.all([
+    const [accountResult, transactionResult, lifecycleJobResult] = await Promise.all([
       supabase
         .from("accounts")
         .select("id", { count: "exact", head: true })
@@ -274,10 +286,20 @@ export async function GET(
         .select("id", { count: "exact", head: true })
         .eq("household_id", householdId)
         .or(`connection_id.eq.${connectionId},external_connection_id.eq.${connectionId}`),
+      supabase
+        .from("source_lifecycle_jobs")
+        .select("action,status,created_at,started_at")
+        .eq("household_id", householdId)
+        .eq("connection_id", connectionId)
+        .in("status", ["queued", "processing"])
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
     ]);
 
     if (accountResult.error) throw accountResult.error;
     if (transactionResult.error) throw transactionResult.error;
+    if (lifecycleJobResult.error) throw lifecycleJobResult.error;
 
     const provider = normalize(connection.provider);
     const status = normalize(connection.status);
@@ -298,6 +320,15 @@ export async function GET(
       label: sourceLabel(sourceKind, connection),
       source_kind: sourceKind,
       status,
+      lifecycle: {
+        disconnect_requested_at: connection.disconnect_requested_at,
+        provider_access_ended_at: connection.provider_access_ended_at,
+        disconnected_at: connection.disconnected_at,
+        history_retention:
+          (connection.history_retention as SourceHistoryRetention | null) ?? null,
+      },
+      active_lifecycle_job:
+        (lifecycleJobResult.data as ActiveLifecycleJob | null) ?? null,
       account_count: accountCount,
       transaction_count: transactionCount,
       self_service_available: false,
