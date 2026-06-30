@@ -1,8 +1,10 @@
 // app/(app)/how-life-cfo-works/page.tsx
 "use client";
 
+import Link from "next/link";
+
 import { Page } from "@/components/Page";
-import { Card, CardContent } from "@/components/ui";
+import { Card, CardContent, Chip } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
 
@@ -59,7 +61,63 @@ function Diagram() {
   );
 }
 
-export default function HowKeystoneWorksPage() {
+const lifeCfoSections = [
+  {
+    title: "Add your money",
+    body: "Connect your accounts or upload a bank file. Life CFO uses this to see money in, money out, saved, and planned.",
+  },
+  {
+    title: "See the picture",
+    body: "Life CFO turns the details into a calmer view of what is happening.",
+  },
+  {
+    title: "Ask questions",
+    body: "You can ask things like ‘How are we looking this month?’ or ‘Why does this feel tight?’",
+  },
+  {
+    title: "Choose what gets saved",
+    body: "Life CFO does not save every thought automatically. You choose what to keep.",
+  },
+  {
+    title: "Important note",
+    body: "Life CFO provides analysis and decision support, not financial advice.",
+  },
+];
+
+export default function HowLifeCfoWorksPage() {
+  return (
+    <Page
+      title="How Life CFO works"
+      subtitle="Life CFO helps you understand your household money picture and think through decisions."
+    >
+      <div className="mx-auto max-w-3xl space-y-4">
+        <Card>
+          <CardContent className="space-y-6 p-6">
+            {lifeCfoSections.map((section) => (
+              <section key={section.title} className="space-y-1">
+                <h2 className="text-base font-semibold text-zinc-900">
+                  {section.title}
+                </h2>
+                <p className="text-sm leading-6 text-zinc-600">{section.body}</p>
+              </section>
+            ))}
+          </CardContent>
+        </Card>
+
+        <div className="flex flex-wrap gap-2">
+          <Link href="/money/setup">
+            <Chip>Start here</Chip>
+          </Link>
+          <Link href="/fine-print">
+            <Chip>Important information</Chip>
+          </Link>
+        </div>
+      </div>
+    </Page>
+  );
+}
+
+export function LegacyHowKeystoneWorksPage() {
   return (
     <Page
       title="How it works"
