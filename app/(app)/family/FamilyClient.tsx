@@ -57,9 +57,21 @@ type DeleteConfirm =
       open: true;
       kind: "family" | "pet";
       id: string;
-      label: string;
     }
   | { open: false };
+
+const EMPTY_FAMILY_DRAFT: FamilyDraft = {
+  name: "",
+  relationship: "",
+  birth_year: null,
+  about: "",
+};
+
+const EMPTY_PET_DRAFT: PetDraft = {
+  name: "",
+  type: "",
+  notes: "",
+};
 
 function clampYear(y: string) {
   const n = Number(y);
@@ -72,6 +84,10 @@ function clampYear(y: string) {
 
 function safeStr(v: unknown) {
   return typeof v === "string" ? v : "";
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error && error.message ? error.message : "Please try again.";
 }
 
 function isMe(m: FamilyMember) {
@@ -89,7 +105,10 @@ export default function FamilyClient() {
   const [family, setFamily] = useState<FamilyMember[]>([]);
   const [pets, setPets] = useState<Pet[]>([]);
 
-  const [addOpen, setAddOpen] = useState(false);
+  const [addingFamily, setAddingFamily] = useState(false);
+  const [addingPet, setAddingPet] = useState(false);
+  const [newFamilyDraft, setNewFamilyDraft] = useState<FamilyDraft>(EMPTY_FAMILY_DRAFT);
+  const [newPetDraft, setNewPetDraft] = useState<PetDraft>(EMPTY_PET_DRAFT);
 
   const [editingKey, setEditingKey] = useState<string | null>(null); // "me" | "fm:<id>" | "pet:<id>"
   const [drafts, setDrafts] = useState<Drafts>({});
@@ -134,7 +153,10 @@ export default function FamilyClient() {
 
     if (error) return;
 
-    const hasMe = (data ?? []).some((r: any) => String(r?.relationship ?? "").toLowerCase().trim() === "me");
+    const hasMe = (data ?? []).some(
+      (row: { relationship?: unknown }) =>
+        String(row.relationship ?? "").toLowerCase().trim() === "me"
+    );
     if (hasMe) return;
 
     await supabase.from("family_members").insert({
@@ -209,8 +231,8 @@ export default function FamilyClient() {
 
       if (famCount === 0 && petCount === 0) setStatusLine("Add a couple of names whenever you’re ready.");
       else setStatusLine("Updated.");
-    } catch (e: any) {
-      toast({ title: "Couldn’t load Family", description: e?.message ?? "Please try again." });
+    } catch (e: unknown) {
+      toast({ title: "Couldn’t load Family", description: errorMessage(e) });
       setStatusLine("Couldn’t load right now.");
     } finally {
       setLoading(false);
@@ -379,7 +401,6 @@ export default function FamilyClient() {
       open: true,
       kind: "family",
       id: m.id,
-      label: `Remove ${m.name}?`,
     });
   };
 
@@ -388,7 +409,6 @@ export default function FamilyClient() {
       open: true,
       kind: "pet",
       id: p.id,
-      label: `Remove ${p.name}?`,
     });
   };
 
@@ -410,7 +430,7 @@ export default function FamilyClient() {
         const { error } = await supabase.from("family_members").delete().eq("id", id).eq("household_id", activeHouseholdId);
         if (error) throw error;
 
-        setStatusLine("Removed.");
+        setStatusLine("Deleted.");
         return;
       }
 
@@ -423,23 +443,48 @@ export default function FamilyClient() {
         const { error } = await supabase.from("pets").delete().eq("id", id).eq("household_id", activeHouseholdId);
         if (error) throw error;
 
-        setStatusLine("Removed.");
+        setStatusLine("Deleted.");
         return;
       }
-    } catch (e: any) {
-      toast({ title: "Couldn’t remove", description: e?.message ?? "Please try again." });
-      setStatusLine("Couldn’t remove right now.");
+    } catch (e: unknown) {
+      toast({ title: "Couldn’t delete", description: errorMessage(e) });
+      setStatusLine("Couldn’t delete right now.");
       await load();
     }
   };
 
-  const addFamilyMember = async () => {
+  const startAddingFamily = () => {
+    setEditingKey(null);
+    setAddingPet(false);
+    setAddingFamily(true);
+    setNewFamilyDraft(EMPTY_FAMILY_DRAFT);
+  };
+
+  const cancelAddingFamily = () => {
+    setAddingFamily(false);
+    setNewFamilyDraft(EMPTY_FAMILY_DRAFT);
+  };
+
+  const saveNewFamilyMember = async () => {
     if (!userId || !activeHouseholdId) return;
+
+    const name = newFamilyDraft.name.trim();
+    if (!name) {
+      toast({ title: "Name is required", description: "Just a simple name is enough." });
+      return;
+    }
 
     try {
       const { data, error } = await supabase
         .from("family_members")
-        .insert({ household_id: activeHouseholdId, user_id: userId, name: "New person", birth_year: null, relationship: null, about: null })
+        .insert({
+          household_id: activeHouseholdId,
+          user_id: userId,
+          name,
+          birth_year: newFamilyDraft.birth_year,
+          relationship: newFamilyDraft.relationship.trim() || null,
+          about: newFamilyDraft.about.trim() || null,
+        })
         .select("id,user_id,household_id,name,birth_year,relationship,about,created_at,updated_at")
         .single();
 
@@ -447,22 +492,46 @@ export default function FamilyClient() {
 
       const row = data as FamilyMember;
       setFamily((prev) => [...prev, row]);
-      setAddOpen(false);
+      setAddingFamily(false);
+      setNewFamilyDraft(EMPTY_FAMILY_DRAFT);
       setStatusLine("Added.");
-      startEditFamily(row);
-    } catch (e: any) {
-      toast({ title: "Couldn’t add", description: e?.message ?? "Please try again." });
+    } catch (e: unknown) {
+      toast({ title: "Couldn’t add", description: errorMessage(e) });
       setStatusLine("Couldn’t add right now.");
     }
   };
 
-  const addPet = async () => {
+  const startAddingPet = () => {
+    setEditingKey(null);
+    setAddingFamily(false);
+    setAddingPet(true);
+    setNewPetDraft(EMPTY_PET_DRAFT);
+  };
+
+  const cancelAddingPet = () => {
+    setAddingPet(false);
+    setNewPetDraft(EMPTY_PET_DRAFT);
+  };
+
+  const saveNewPet = async () => {
     if (!userId || !activeHouseholdId) return;
+
+    const name = newPetDraft.name.trim();
+    if (!name) {
+      toast({ title: "Name is required", description: "Just a simple name is enough." });
+      return;
+    }
 
     try {
       const { data, error } = await supabase
         .from("pets")
-        .insert({ household_id: activeHouseholdId, user_id: userId, name: "New pet", type: null, notes: null })
+        .insert({
+          household_id: activeHouseholdId,
+          user_id: userId,
+          name,
+          type: newPetDraft.type.trim() || null,
+          notes: newPetDraft.notes.trim() || null,
+        })
         .select("id,user_id,household_id,name,type,notes,created_at,updated_at")
         .single();
 
@@ -470,21 +539,18 @@ export default function FamilyClient() {
 
       const row = data as Pet;
       setPets((prev) => [...prev, row]);
-      setAddOpen(false);
+      setAddingPet(false);
+      setNewPetDraft(EMPTY_PET_DRAFT);
       setStatusLine("Added.");
-      startEditPet(row);
-    } catch (e: any) {
-      toast({ title: "Couldn’t add", description: e?.message ?? "Please try again." });
+    } catch (e: unknown) {
+      toast({ title: "Couldn’t add", description: errorMessage(e) });
       setStatusLine("Couldn’t add right now.");
     }
   };
 
   return (
-    <Page title="Family" subtitle="People (and pets) Life CFO can keep in mind when helping with decisions.">
+    <Page title="Family" subtitle="People and pets Life CFO can keep in mind.">
       <div className="mx-auto w-full max-w-[760px] space-y-6">
-        <div className="text-sm text-zinc-600">
-          This helps Life CFO understand your household context when thinking through money and decisions.
-        </div>
         <div className="text-xs text-zinc-500">{loading ? "Loading…" : statusLine}</div>
 
         {/* Me */}
@@ -588,45 +654,98 @@ export default function FamilyClient() {
           </CardContent>
         </Card>
 
-        {/* Add */}
-        <Card className="border-zinc-200 bg-white">
-          <CardContent className="space-y-2">
-            <div className="text-sm font-semibold text-zinc-900">Add someone</div>
-            <div className="text-sm text-zinc-700">Names only is fine.</div>
-
-            {!addOpen ? (
-              <div className="pt-1">
-                <Chip onClick={() => setAddOpen(true)}>Add…</Chip>
-              </div>
-            ) : (
-              <div className="space-y-2 pt-1">
-                <div className="text-sm text-zinc-700">What are you adding?</div>
-                <div className="flex flex-wrap gap-2">
-                  <Chip onClick={() => void addFamilyMember()}>A family member</Chip>
-                  <Chip onClick={() => void addPet()}>A pet</Chip>
-                  <Chip onClick={() => setAddOpen(false)}>Cancel</Chip>
-                </div>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
         {/* Family members */}
         <Card className="border-zinc-200 bg-white">
           <CardContent className="space-y-3">
             <div className="flex items-center justify-between gap-2">
-              <div>
-                <div className="text-sm font-semibold text-zinc-900">Family</div>
-                <div className="text-xs text-zinc-500">A small surface. The rest stays searchable.</div>
-              </div>
+              <div className="text-sm font-semibold text-zinc-900">Family</div>
 
-              {others.length > DEFAULT_LIMIT ? (
-                <Chip onClick={() => setShowAllFamily((v) => !v)}>{showAllFamily ? "Show less" : "Show all"}</Chip>
-              ) : null}
+              <div className="flex items-center gap-2">
+                {others.length > DEFAULT_LIMIT ? (
+                  <Chip onClick={() => setShowAllFamily((v) => !v)}>{showAllFamily ? "Show less" : "Show all"}</Chip>
+                ) : null}
+                <button
+                  type="button"
+                  aria-label="Add family member"
+                  title="Add family member"
+                  disabled={loading || !userId || !activeHouseholdId}
+                  onClick={startAddingFamily}
+                  className="flex h-8 w-8 items-center justify-center rounded-full border border-zinc-200 bg-white text-lg leading-none text-zinc-700 hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  +
+                </button>
+              </div>
             </div>
 
-            {others.length === 0 ? (
-              <div className="text-sm text-zinc-600">No one added yet.</div>
+            {addingFamily ? (
+              <Card className="border-zinc-200 bg-zinc-50/50">
+                <CardContent className="space-y-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="text-sm font-semibold text-zinc-900">Add family</div>
+                    <div className="flex items-center gap-2">
+                      <Chip onClick={() => void saveNewFamilyMember()}>Save</Chip>
+                      <Chip onClick={cancelAddingFamily}>Cancel</Chip>
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    <div className="text-xs text-zinc-500">Name</div>
+                    <input
+                      autoFocus
+                      className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800"
+                      value={newFamilyDraft.name}
+                      onChange={(event) =>
+                        setNewFamilyDraft((current) => ({ ...current, name: event.target.value }))
+                      }
+                      placeholder="e.g. Alex"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <div className="text-xs text-zinc-500">Relationship (optional)</div>
+                    <input
+                      className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800"
+                      value={newFamilyDraft.relationship}
+                      onChange={(event) =>
+                        setNewFamilyDraft((current) => ({ ...current, relationship: event.target.value }))
+                      }
+                      placeholder="e.g. Partner, child, parent"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <div className="text-xs text-zinc-500">Year of birth (optional)</div>
+                    <input
+                      type="number"
+                      inputMode="numeric"
+                      className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800"
+                      value={newFamilyDraft.birth_year == null ? "" : String(newFamilyDraft.birth_year)}
+                      onChange={(event) =>
+                        setNewFamilyDraft((current) => ({
+                          ...current,
+                          birth_year: event.target.value ? clampYear(event.target.value) : null,
+                        }))
+                      }
+                      placeholder="e.g. 2019"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <div className="text-xs text-zinc-500">About (optional)</div>
+                    <textarea
+                      className="min-h-[88px] w-full resize-y rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800"
+                      value={newFamilyDraft.about}
+                      onChange={(event) =>
+                        setNewFamilyDraft((current) => ({ ...current, about: event.target.value }))
+                      }
+                      placeholder="Anything helpful to keep in mind…"
+                    />
+                  </div>
+                </CardContent>
+              </Card>
+            ) : others.length === 0 ? (
+              <div className="space-y-1 text-sm text-zinc-600">
+                <div>No family added yet.</div>
+                <div className="text-xs text-zinc-500">
+                  Example: Partner, child, parent, or anyone Life CFO should keep in mind.
+                </div>
+              </div>
             ) : (
               <div className="grid gap-3">
                 {visibleFamily.map((m) => {
@@ -651,7 +770,7 @@ export default function FamilyClient() {
                           ) : (
                             <div className="flex items-center gap-2">
                               <Chip onClick={() => startEditFamily(m)}>Edit</Chip>
-                              <Chip onClick={() => requestRemoveFamily(m)}>Remove</Chip>
+                              <Chip onClick={() => requestRemoveFamily(m)}>Delete forever</Chip>
                             </div>
                           )}
                         </div>
@@ -768,18 +887,78 @@ export default function FamilyClient() {
         <Card className="border-zinc-200 bg-white">
           <CardContent className="space-y-3">
             <div className="flex items-center justify-between gap-2">
-              <div>
-                <div className="text-sm font-semibold text-zinc-900">Pets</div>
-                <div className="text-xs text-zinc-500">Optional context (care, routines, costs).</div>
-              </div>
+              <div className="text-sm font-semibold text-zinc-900">Pets</div>
 
-              {sortedPets.length > DEFAULT_LIMIT ? (
-                <Chip onClick={() => setShowAllPets((v) => !v)}>{showAllPets ? "Show less" : "Show all"}</Chip>
-              ) : null}
+              <div className="flex items-center gap-2">
+                {sortedPets.length > DEFAULT_LIMIT ? (
+                  <Chip onClick={() => setShowAllPets((v) => !v)}>{showAllPets ? "Show less" : "Show all"}</Chip>
+                ) : null}
+                <button
+                  type="button"
+                  aria-label="Add pet"
+                  title="Add pet"
+                  disabled={loading || !userId || !activeHouseholdId}
+                  onClick={startAddingPet}
+                  className="flex h-8 w-8 items-center justify-center rounded-full border border-zinc-200 bg-white text-lg leading-none text-zinc-700 hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  +
+                </button>
+              </div>
             </div>
 
-            {sortedPets.length === 0 ? (
-              <div className="text-sm text-zinc-600">No pets added yet.</div>
+            {addingPet ? (
+              <Card className="border-zinc-200 bg-zinc-50/50">
+                <CardContent className="space-y-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="text-sm font-semibold text-zinc-900">Add pet</div>
+                    <div className="flex items-center gap-2">
+                      <Chip onClick={() => void saveNewPet()}>Save</Chip>
+                      <Chip onClick={cancelAddingPet}>Cancel</Chip>
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    <div className="text-xs text-zinc-500">Name</div>
+                    <input
+                      autoFocus
+                      className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800"
+                      value={newPetDraft.name}
+                      onChange={(event) =>
+                        setNewPetDraft((current) => ({ ...current, name: event.target.value }))
+                      }
+                      placeholder="e.g. Milo"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <div className="text-xs text-zinc-500">Type (optional)</div>
+                    <input
+                      className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800"
+                      value={newPetDraft.type}
+                      onChange={(event) =>
+                        setNewPetDraft((current) => ({ ...current, type: event.target.value }))
+                      }
+                      placeholder="e.g. Dog, cat"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <div className="text-xs text-zinc-500">About (optional)</div>
+                    <textarea
+                      className="min-h-[88px] w-full resize-y rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800"
+                      value={newPetDraft.notes}
+                      onChange={(event) =>
+                        setNewPetDraft((current) => ({ ...current, notes: event.target.value }))
+                      }
+                      placeholder="Care, routines, or regular costs…"
+                    />
+                  </div>
+                </CardContent>
+              </Card>
+            ) : sortedPets.length === 0 ? (
+              <div className="space-y-1 text-sm text-zinc-600">
+                <div>No pets added yet.</div>
+                <div className="text-xs text-zinc-500">
+                  Example: Dog, cat, or any pet with regular care or costs.
+                </div>
+              </div>
             ) : (
               <div className="grid gap-3">
                 {visiblePets.map((p) => {
@@ -804,7 +983,7 @@ export default function FamilyClient() {
                           ) : (
                             <div className="flex items-center gap-2">
                               <Chip onClick={() => startEditPet(p)}>Edit</Chip>
-                              <Chip onClick={() => requestRemovePet(p)}>Remove</Chip>
+                              <Chip onClick={() => requestRemovePet(p)}>Delete forever</Chip>
                             </div>
                           )}
                         </div>
@@ -884,15 +1063,15 @@ export default function FamilyClient() {
           <div className="fixed inset-0 z-40 flex items-end justify-center bg-black/20 p-4 sm:items-center">
             <div className="w-full max-w-[520px] rounded-2xl border border-zinc-200 bg-white shadow-lg">
               <div className="space-y-2 p-4 sm:p-5">
-                <div className="text-sm font-semibold text-zinc-900">{deleteConfirm.label}</div>
-                <div className="text-sm text-zinc-600">This can’t be undone.</div>
+                <div className="text-sm font-semibold text-zinc-900">Delete forever?</div>
+                <div className="text-sm text-zinc-600">This cannot be undone.</div>
 
                 <div className="mt-4 flex items-center justify-end gap-2">
                   <Chip onClick={() => setDeleteConfirm({ open: false })} title="Cancel">
                     Cancel
                   </Chip>
-                  <Chip onClick={() => void performDelete()} title="Confirm remove" className="border-zinc-900 bg-zinc-900 text-white hover:bg-zinc-800">
-                    Remove
+                  <Chip onClick={() => void performDelete()} title="Delete forever" className="border-zinc-900 bg-zinc-900 text-white hover:bg-zinc-800">
+                    Delete forever
                   </Chip>
                 </div>
               </div>
