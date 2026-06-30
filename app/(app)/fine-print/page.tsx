@@ -96,7 +96,7 @@ function FinePrintInner() {
 
 export default function FinePrintPage() {
   return (
-    <Page title="Fine print" subtitle="Plain-language boundaries. Trust comes from clarity.">
+    <Page title="Important information" subtitle="A few important things to know before using Life CFO.">
       <Suspense fallback={<div className="mx-auto w-full max-w-[760px] text-sm text-zinc-600">Loading…</div>}>
         <FinePrintInner />
       </Suspense>

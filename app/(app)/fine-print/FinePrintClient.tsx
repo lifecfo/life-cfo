@@ -5,6 +5,7 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { Card, CardContent, Chip, Button, useToast } from "@/components/ui";
+import ImportantInformationContent from "./ImportantInformationContent";
 
 export const dynamic = "force-dynamic";
 
@@ -27,7 +28,7 @@ function safeNext(input: unknown) {
 
 export default function FinePrintClient({ nextPath }: FinePrintClientProps) {
   const router = useRouter();
-  const toastApi: any = useToast();
+  const toastApi = useToast();
 
   const toast = (message: string) => {
     if (toastApi?.showToast) {
@@ -86,8 +87,8 @@ export default function FinePrintClient({ nextPath }: FinePrintClientProps) {
       const dest = safeNext(nextPath || "/home");
       window.location.assign(dest);
       return;
-    } catch (e: any) {
-      const msg = safeStr(e?.message) || "Couldn’t save. Please try again.";
+    } catch (error: unknown) {
+      const msg = safeStr(error instanceof Error ? error.message : "") || "Couldn’t save. Please try again.";
       setStatus(msg);
       toast(`Couldn’t save — ${msg}`);
     } finally {
@@ -97,50 +98,7 @@ export default function FinePrintClient({ nextPath }: FinePrintClientProps) {
 
   return (
     <div className="space-y-4">
-      <Card className="border-zinc-200 bg-white">
-        <CardContent>
-          <div className="space-y-2">
-            <div className="text-sm font-semibold text-zinc-900">What Life CFO is</div>
-            <div className="text-sm text-zinc-700">Life CFO is a calm decision-support system.</div>
-            <div className="text-sm text-zinc-700">
-              It brings together your information — decisions, money, notes, and timing — with AI that helps you understand what’s going on,
-              answer questions about your life, and make informed choices.
-            </div>
-            <div className="text-sm text-zinc-700">
-              Keystone’s job is not to push you to act. It’s to make sure the right information is available, connected, and understandable,
-              so decisions feel clearer and lighter.
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card className="border-zinc-200 bg-white">
-        <CardContent>
-          <div className="space-y-2">
-            <div className="text-sm font-semibold text-zinc-900">What Life CFO is not</div>
-            <ul className="list-disc space-y-1 pl-5 text-sm text-zinc-700">
-              <li>Not financial, legal, medical, or tax advice.</li>
-              <li>Not a forecast or guarantee.</li>
-              <li>Not accounting software.</li>
-              <li>Not a replacement for professional help when you need it.</li>
-            </ul>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card className="border-zinc-200 bg-white">
-        <CardContent>
-          <div className="space-y-2">
-            <div className="text-sm font-semibold text-zinc-900">AI boundaries</div>
-            <ul className="list-disc space-y-1 pl-5 text-sm text-zinc-700">
-              <li>AI helps when you ask.</li>
-              <li>No auto-decisions. No auto-saving.</li>
-              <li>Summaries are preview-first, then explicitly attached by you.</li>
-              <li>When you use Ask, selected household facts may be processed by OpenAI to create a response.</li>
-            </ul>
-          </div>
-        </CardContent>
-      </Card>
+      <ImportantInformationContent />
 
       <Card className="border-zinc-200 bg-white">
         <CardContent>
