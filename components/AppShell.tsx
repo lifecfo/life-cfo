@@ -404,11 +404,11 @@ export function AppShell({ children }: AppShellProps) {
                   </Link>
 
                   <Link
-                    href="/family"
+                    href="/how-life-cfo-works"
                     className={menuItemClass}
                     onClick={() => setMenuOpen(false)}
                   >
-                    Family
+                    How Life CFO works
                   </Link>
 
                   <Link
@@ -416,23 +416,7 @@ export function AppShell({ children }: AppShellProps) {
                     className={menuItemClass}
                     onClick={() => setMenuOpen(false)}
                   >
-                    Fine print
-                  </Link>
-
-                  <Link
-                    href="/how-life-cfo-works"
-                    className={menuItemClass}
-                    onClick={() => setMenuOpen(false)}
-                  >
-                    How it works
-                  </Link>
-
-                  <Link
-                    href="/planned-upgrades"
-                    className={menuItemClass}
-                    onClick={() => setMenuOpen(false)}
-                  >
-                    Planned upgrades
+                    Important information
                   </Link>
 
                   <button
