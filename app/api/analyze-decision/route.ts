@@ -2,6 +2,15 @@ import OpenAI from "openai";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { zodTextFormat } from "openai/helpers/zod";
+import {
+  readLimitedJson,
+  requireAuthenticatedAiUser,
+} from "@/lib/ai/routeSecurity";
+
+const MAX_REQUEST_BYTES = 24 * 1024;
+const MAX_TITLE_LENGTH = 500;
+const MAX_BODY_LENGTH = 12_000;
+const MAX_TYPE_LENGTH = 100;
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY!,
@@ -52,6 +61,9 @@ function computeSuggestedReviewDays(analysis: {
 
 export async function POST(req: Request) {
   try {
+    const auth = await requireAuthenticatedAiUser();
+    if (!auth.ok) return auth.response;
+
     if (!process.env.OPENAI_API_KEY) {
       return NextResponse.json(
         { error: "OPENAI_API_KEY missing in .env.local" },
@@ -59,7 +71,9 @@ export async function POST(req: Request) {
       );
     }
 
-    const body = await req.json().catch(() => ({}));
+    const parsedBody = await readLimitedJson(req, MAX_REQUEST_BYTES);
+    if (!parsedBody.ok) return parsedBody.response;
+    const body = parsedBody.value;
     const title = String(body?.title ?? "").trim();
     const details = body?.body == null ? "" : String(body.body);
     const type = String(body?.type ?? "").trim();
@@ -70,6 +84,16 @@ export async function POST(req: Request) {
 
     if (!title) {
       return NextResponse.json({ error: "Missing title" }, { status: 400 });
+    }
+    if (
+      title.length > MAX_TITLE_LENGTH ||
+      details.length > MAX_BODY_LENGTH ||
+      type.length > MAX_TYPE_LENGTH
+    ) {
+      return NextResponse.json(
+        { error: "That was too much text to send at once." },
+        { status: 413 }
+      );
     }
 
     // Structured Outputs via json_schema requires supported snapshots
@@ -128,10 +152,8 @@ Priority(severity): ${severity ?? "(null)"}
     };
 
     return NextResponse.json({ analysis: finalAnalysis });
-  } catch (err: any) {
-    return NextResponse.json(
-      { error: err?.message ?? "Analysis failed" },
-      { status: 500 }
-    );
+  } catch {
+    console.error("ai_route_failed", { route: "analyze-decision", code: "unexpected_error" });
+    return NextResponse.json({ error: "Analysis failed" }, { status: 500 });
   }
 }

@@ -2,16 +2,33 @@
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
 import { createClient } from "@supabase/supabase-js";
+import {
+  readLimitedJson,
+  requireAuthenticatedAiUser,
+} from "@/lib/ai/routeSecurity";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
+const MAX_REQUEST_BYTES = 4 * 1024;
 
 type Status = "all_clear" | "tight" | "attention" | "unknown";
+type StatusReason = Record<string, unknown>;
+type AccountRow = {
+  current_balance_cents?: number | string | null;
+  currency?: string | null;
+};
+type BillRow = {
+  id?: string | null;
+  name?: string | null;
+  amount_cents?: number | string | null;
+  currency?: string | null;
+  next_due_at?: string | null;
+  autopay?: boolean | null;
+};
 
 type RunRequest = {
-  userId: string;
   force?: boolean; // if true, run even if recently checked
 };
 
@@ -72,7 +89,7 @@ function evaluateStatus(input: {
     return { status: "unknown" as Status, reasons };
   }
 
-  const reasons: any[] = [];
+  const reasons: StatusReason[] = [];
   let anyAttention = false;
   let anyTight = false;
 
@@ -115,8 +132,8 @@ function statusHeadline(status: Status) {
 async function maybeWriteMemo(opts: {
   useAi: boolean;
   status: Status;
-  factsSnapshot: any;
-  reasons: any[];
+  factsSnapshot: Record<string, unknown>;
+  reasons: StatusReason[];
 }) {
   const { useAi, status, factsSnapshot, reasons } = opts;
 
@@ -152,11 +169,14 @@ Rules:
 
 export async function POST(req: Request) {
   try {
-    const body = (await req.json()) as Partial<RunRequest>;
-    const userId = String(body.userId ?? "").trim();
-    const force = body.force === true;
+    const auth = await requireAuthenticatedAiUser();
+    if (!auth.ok) return auth.response;
 
-    if (!userId) return NextResponse.json({ error: "Missing userId" }, { status: 400 });
+    const parsedBody = await readLimitedJson(req, MAX_REQUEST_BYTES);
+    if (!parsedBody.ok) return parsedBody.response;
+    const body = parsedBody.value as Partial<RunRequest>;
+    const userId = auth.user.id;
+    const force = body.force === true;
 
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
     const key = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -196,7 +216,7 @@ export async function POST(req: Request) {
 
     const acctRows = Array.isArray(accounts) ? accounts : [];
     const balancesRows = acctRows
-      .map((a: any) => {
+      .map((a: AccountRow) => {
         const cents =
           typeof a?.current_balance_cents === "number"
             ? a.current_balance_cents
@@ -221,7 +241,7 @@ export async function POST(req: Request) {
 
     const billRows = Array.isArray(bills) ? bills : [];
     const activeBills = billRows
-      .map((b: any) => {
+      .map((b: BillRow) => {
         const cents = typeof b?.amount_cents === "number" ? b.amount_cents : b?.amount_cents == null ? null : Number(b.amount_cents);
         if (typeof cents !== "number" || !Number.isFinite(cents)) return null;
         const cur = String(b?.currency ?? "AUD").toUpperCase();
@@ -351,8 +371,8 @@ export async function POST(req: Request) {
       inserted,
       changed: statusChanged,
     });
-  } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : "Unknown error";
-    return NextResponse.json({ error: msg }, { status: 500 });
+  } catch {
+    console.error("ai_route_failed", { route: "home-status", code: "unexpected_error" });
+    return NextResponse.json({ error: "Life CFO couldn’t update this yet." }, { status: 500 });
   }
 }

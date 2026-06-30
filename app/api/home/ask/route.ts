@@ -6,7 +6,6 @@ import { maybeCrisisIntercept } from "@/lib/safety/guard";
 import { decideHomeTone, type HomeTone } from "@/lib/lifecfo/homeTone";
 import { decideVerdict } from "@/lib/lifecfo/verdictDecision";
 import type { Verdict } from "@/lib/lifecfo/verdict";
-import { supabaseRoute } from "@/lib/supabaseRoute";
 import { resolveHouseholdIdRoute } from "@/lib/households/resolveHouseholdIdRoute";
 import {
   tryRunHouseholdMoneyReasoning,
@@ -17,11 +16,17 @@ import {
   buildMemoAnswer,
   bullets as composeBullets,
 } from "@/lib/ask/responseComposition";
+import {
+  readLimitedJson,
+  requireAuthenticatedAiUser,
+} from "@/lib/ai/routeSecurity";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
+const MAX_REQUEST_BYTES = 16 * 1024;
+const MAX_QUESTION_LENGTH = 4_000;
 
 type Action = "open_money" | "open_decisions" | "open_chapters" | "none";
 type SuggestedNext = "none";
@@ -861,22 +866,26 @@ Return JSON only.
 
 export async function POST(req: Request) {
   try {
-    const body = (await req.json().catch(() => ({}))) as Partial<AskRequest>;
+    const auth = await requireAuthenticatedAiUser();
+    if (!auth.ok) return auth.response;
+
+    const parsedBody = await readLimitedJson(req, MAX_REQUEST_BYTES);
+    if (!parsedBody.ok) return parsedBody.response;
+    const body = parsedBody.value as Partial<AskRequest>;
     const question = typeof body.question === "string" ? body.question.trim() : "";
 
     if (!question) {
       return NextResponse.json({ error: "Missing question" }, { status: 400 });
     }
-
-    const routeSupabase = await supabaseRoute();
-    const {
-      data: { user },
-      error: userErr,
-    } = await routeSupabase.auth.getUser();
-
-    if (userErr || !user?.id) {
-      return NextResponse.json({ error: "Not signed in." }, { status: 401 });
+    if (question.length > MAX_QUESTION_LENGTH) {
+      return NextResponse.json(
+        { error: "That was too much text to send at once." },
+        { status: 413 }
+      );
     }
+
+    const routeSupabase = auth.supabase;
+    const user = auth.user;
 
     const householdId = await resolveHouseholdIdRoute(routeSupabase, user.id);
     if (!householdId) {
@@ -1405,8 +1414,8 @@ export async function POST(req: Request) {
       suggested_next,
       capture_seed,
     });
-  } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : "Unknown error";
-    return NextResponse.json({ error: msg }, { status: 500 });
+  } catch {
+    console.error("ai_route_failed", { route: "home-ask", code: "unexpected_error" });
+    return NextResponse.json({ error: "Life CFO couldn’t answer that yet." }, { status: 500 });
   }
 }

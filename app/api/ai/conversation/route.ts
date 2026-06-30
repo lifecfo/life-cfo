@@ -6,10 +6,20 @@ import type {
   DecisionConversationRequest,
   DecisionConversationResponse,
 } from "@/lib/memory/contracts";
+import {
+  readLimitedJson,
+  requireAuthenticatedAiUser,
+} from "@/lib/ai/routeSecurity";
 
 export const dynamic = "force-dynamic";
 
 const VERSION = "conversation-route:v2026-02-16-002";
+const MAX_REQUEST_BYTES = 64 * 1024;
+const MAX_TITLE_LENGTH = 200;
+const MAX_STATEMENT_LENGTH = 4_000;
+const MAX_MESSAGE_LENGTH = 4_000;
+const MAX_MESSAGES = 50;
+const MAX_CONVERSATION_LENGTH = 30_000;
 
 const client = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -253,13 +263,29 @@ function normalizeMarkdown(raw: string) {
 
 export async function POST(req: Request) {
   try {
-    const body = (await req.json()) as DecisionConversationRequest;
+    const auth = await requireAuthenticatedAiUser();
+    if (!auth.ok) return auth.response;
+
+    const parsedBody = await readLimitedJson(req, MAX_REQUEST_BYTES);
+    if (!parsedBody.ok) return parsedBody.response;
+    const body = parsedBody.value as DecisionConversationRequest;
 
     const decisionTitle = String(body.decisionTitle ?? "").trim();
     const decisionStatement = String(body.decisionStatement ?? "").trim();
     const mode: Mode = body.mode === "summarise" ? "summarise" : "chat";
 
     const messages = Array.isArray(body.messages) ? body.messages : [];
+    if (
+      decisionTitle.length > MAX_TITLE_LENGTH ||
+      decisionStatement.length > MAX_STATEMENT_LENGTH ||
+      messages.length > MAX_MESSAGES
+    ) {
+      return NextResponse.json(
+        { error: "That was too much text to send at once.", version: VERSION },
+        { status: 413 }
+      );
+    }
+
     const safeMessages: InMsg[] = messages
       .filter(
         (m) =>
@@ -269,6 +295,20 @@ export async function POST(req: Request) {
           m.content.trim().length > 0
       )
       .map((m) => ({ role: m.role, content: m.content.trim() }));
+
+    const conversationLength = safeMessages.reduce(
+      (total, message) => total + message.content.length,
+      0
+    );
+    if (
+      safeMessages.some((message) => message.content.length > MAX_MESSAGE_LENGTH) ||
+      conversationLength > MAX_CONVERSATION_LENGTH
+    ) {
+      return NextResponse.json(
+        { error: "That was too much text to send at once.", version: VERSION },
+        { status: 413 }
+      );
+    }
 
     if (!decisionTitle) {
       return NextResponse.json({ error: "Missing decisionTitle.", version: VERSION }, { status: 400 });
@@ -339,8 +379,8 @@ export async function POST(req: Request) {
     const payload: DecisionConversationResponse =
       mode === "summarise" ? { summaryText: text, version: VERSION } : { assistantText: text, version: VERSION };
     return NextResponse.json(payload, { headers: { "x-keystone-ai-version": VERSION } });
-  } catch (err: any) {
-    const message = err?.message ? String(err.message) : "AI request failed.";
-    return NextResponse.json({ error: message, version: VERSION }, { status: 500 });
+  } catch {
+    console.error("ai_route_failed", { route: "conversation", code: "unexpected_error" });
+    return NextResponse.json({ error: "AI request failed.", version: VERSION }, { status: 500 });
   }
 }

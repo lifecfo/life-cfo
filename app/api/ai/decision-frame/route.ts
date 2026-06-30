@@ -2,10 +2,16 @@
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
 import { maybeCrisisIntercept } from "@/lib/safety/guard";
+import {
+  readLimitedJson,
+  requireAuthenticatedAiUser,
+} from "@/lib/ai/routeSecurity";
 
 export const dynamic = "force-dynamic";
 
 const VERSION = "decision-frame-route:v2026-02-18-001";
+const MAX_REQUEST_BYTES = 16 * 1024;
+const MAX_TEXT_LENGTH = 8_000;
 
 const client = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -18,11 +24,11 @@ type FrameResult = {
   questions: string[];
 };
 
-function safeString(x: any) {
+function safeString(x: unknown) {
   return typeof x === "string" ? x : "";
 }
 
-function safeArray(x: any) {
+function safeArray(x: unknown) {
   return Array.isArray(x) ? x.filter((v) => typeof v === "string") : [];
 }
 
@@ -40,7 +46,7 @@ function stripCodeFences(s: string) {
   return t;
 }
 
-function coerceFrame(text: string, parsed: any): FrameResult {
+function coerceFrame(text: string, parsed: Record<string, unknown>): FrameResult {
   const fallbackTitle = titleFromStatement(text);
 
   const title = safeString(parsed?.title).trim() || fallbackTitle;
@@ -62,11 +68,22 @@ function coerceFrame(text: string, parsed: any): FrameResult {
 
 export async function POST(req: Request) {
   try {
-    const body = await req.json().catch(() => ({}));
+    const auth = await requireAuthenticatedAiUser();
+    if (!auth.ok) return auth.response;
+
+    const parsedBody = await readLimitedJson(req, MAX_REQUEST_BYTES);
+    if (!parsedBody.ok) return parsedBody.response;
+    const body = parsedBody.value;
     const text = safeString(body?.text).trim();
 
     if (!text) {
       return NextResponse.json({ error: "Missing text.", version: VERSION }, { status: 400 });
+    }
+    if (text.length > MAX_TEXT_LENGTH) {
+      return NextResponse.json(
+        { error: "That was too much text to send at once.", version: VERSION },
+        { status: 413 }
+      );
     }
 
     // Safety intercept (same pattern as conversation route)
@@ -125,15 +142,21 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Empty AI response.", version: VERSION }, { status: 502 });
     }
 
-    let parsed: any = null;
+    let parsed: Record<string, unknown> | null = null;
     try {
-      parsed = JSON.parse(rawText);
+      const value: unknown = JSON.parse(rawText);
+      parsed = value && typeof value === "object" && !Array.isArray(value)
+        ? (value as Record<string, unknown>)
+        : null;
     } catch {
       // salvage attempt: find first { ... } block
       const m = rawText.match(/\{[\s\S]*\}/);
       if (m) {
         try {
-          parsed = JSON.parse(m[0]);
+          const value: unknown = JSON.parse(m[0]);
+          parsed = value && typeof value === "object" && !Array.isArray(value)
+            ? (value as Record<string, unknown>)
+            : null;
         } catch {
           parsed = null;
         }
@@ -150,7 +173,8 @@ export async function POST(req: Request) {
         };
 
     return NextResponse.json({ frame, version: VERSION }, { headers: { "x-keystone-ai-version": VERSION } });
-  } catch (e: any) {
-    return NextResponse.json({ error: e?.message ?? "Frame failed.", version: VERSION }, { status: 500 });
+  } catch {
+    console.error("ai_route_failed", { route: "decision-frame", code: "unexpected_error" });
+    return NextResponse.json({ error: "Frame failed.", version: VERSION }, { status: 500 });
   }
 }
