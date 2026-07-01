@@ -1,7 +1,7 @@
 // app/api/households/invites/route.ts
 import { NextResponse } from "next/server";
 import { supabaseRoute } from "@/lib/supabaseRoute";
-import { createClient } from "@supabase/supabase-js";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import crypto from "crypto";
 
 export const runtime = "nodejs";
@@ -17,7 +17,18 @@ function adminSupabase() {
   return createClient(url, key, { auth: { persistSession: false } });
 }
 
-async function requireUser(supabase: any) {
+function errorMessage(error: unknown, fallback: string) {
+  return error instanceof Error ? error.message : fallback;
+}
+
+function householdName(value: unknown) {
+  const household = Array.isArray(value) ? value[0] : value;
+  if (!household || typeof household !== "object") return "Household";
+  const name = (household as Record<string, unknown>).name;
+  return typeof name === "string" && name.trim() ? name : "Household";
+}
+
+async function requireUser(supabase: SupabaseClient) {
   const {
     data: { user },
     error,
@@ -27,7 +38,7 @@ async function requireUser(supabase: any) {
   return { user, error: null as string | null };
 }
 
-async function getMembershipRole(supabase: any, userId: string, householdId: string): Promise<string | null> {
+async function getMembershipRole(supabase: SupabaseClient, userId: string, householdId: string): Promise<string | null> {
   const { data, error } = await supabase
     .from("household_members")
     .select("role")
@@ -78,10 +89,10 @@ export async function GET(req: Request) {
     if (invErr) throw invErr;
 
     const invites =
-      (data ?? []).map((r: any) => ({
+      (data ?? []).map((r) => ({
         id: r.id,
         household_id: r.household_id,
-        household_name: r.households?.name ?? "Household",
+        household_name: householdName(r.households),
         email: r.email,
         role: r.role,
         status: r.status,
@@ -89,8 +100,8 @@ export async function GET(req: Request) {
       })) ?? [];
 
     return NextResponse.json({ ok: true, invites });
-  } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message ?? "Invites fetch failed" }, { status: 500 });
+  } catch (error: unknown) {
+    return NextResponse.json({ ok: false, error: errorMessage(error, "Invites fetch failed") }, { status: 500 });
   }
 }
 
@@ -149,8 +160,8 @@ export async function POST(req: Request) {
     if (insErr) throw insErr;
 
     return NextResponse.json({ ok: true });
-  } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message ?? "Invite create failed" }, { status: 500 });
+  } catch (error: unknown) {
+    return NextResponse.json({ ok: false, error: errorMessage(error, "Invite create failed") }, { status: 500 });
   }
 }
 
@@ -215,8 +226,15 @@ export async function PATCH(req: Request) {
         return NextResponse.json({ ok: true });
       }
 
-      // Accept: upsert membership
-      const roleToGrant = (String(inv.role ?? "viewer") as Role) || "viewer";
+      // Accepted invites can add viewers/editors only. Ownership uses the confirmed owner flow.
+      const invitedRole = String(inv.role ?? "").trim().toLowerCase();
+      if (invitedRole !== "viewer" && invitedRole !== "editor") {
+        return NextResponse.json(
+          { ok: false, error: "This invite needs to be replaced before it can be accepted." },
+          { status: 409 },
+        );
+      }
+      const roleToGrant: "viewer" | "editor" = invitedRole;
 
       const { error: upsertErr } = await admin
         .from("household_members")
@@ -235,7 +253,7 @@ export async function PATCH(req: Request) {
     }
 
     return NextResponse.json({ ok: false, error: "Invalid action." }, { status: 400 });
-  } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message ?? "Invite update failed" }, { status: 500 });
+  } catch (error: unknown) {
+    return NextResponse.json({ ok: false, error: errorMessage(error, "Invite update failed") }, { status: 500 });
   }
 }
