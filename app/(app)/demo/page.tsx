@@ -1,5 +1,6 @@
 // app/(app)/demo/page.tsx
 "use client";
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars -- Legacy browser fixture retained only for reference; the routed default export is inert. */
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -20,7 +21,7 @@ type SeedRunRow = {
 
 export const dynamic = "force-dynamic";
 
-export default function DemoPage() {
+function LegacyDemoPage() {
   const router = useRouter();
 
   const toastApi: any = useToast();
@@ -191,6 +192,24 @@ export default function DemoPage() {
           </CardContent>
         </Card>
       </div>
+    </Page>
+  );
+}
+
+export default function DemoPage() {
+  return (
+    <Page>
+      <main className="mx-auto w-full max-w-xl px-4 py-10 sm:px-6">
+        <section className="rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
+          <h1 className="text-2xl font-semibold text-zinc-950">Demo setup has moved.</h1>
+          <p className="mt-3 text-sm leading-6 text-zinc-600">
+            Trusted beta testers use a prepared demo household.
+          </p>
+          <a className="mt-6 inline-flex rounded-full bg-zinc-950 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800" href="/lifecfo-home">
+            Go home
+          </a>
+        </section>
+      </main>
     </Page>
   );
 }
