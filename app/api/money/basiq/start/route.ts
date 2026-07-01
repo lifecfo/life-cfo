@@ -1,6 +1,7 @@
 // app/api/money/basiq/start/route.ts
 import { NextResponse } from "next/server";
 import { supabaseRoute } from "@/lib/supabaseRoute";
+import { getLifeCfoAccess, REAL_DATA_DISABLED_MESSAGE } from "@/lib/server/access/lifeCfoAccess";
 import { resolveHouseholdIdRoute } from "@/lib/households/resolveHouseholdIdRoute";
 import { assertFinePrintAccepted } from "@/lib/finePrint";
 import { basiqFetch, getBasiqClientToken } from "@/lib/money/providers/basiq";
@@ -287,6 +288,9 @@ export async function POST(req: Request) {
 
     if (userErr || !user?.id) {
       return NextResponse.json({ ok: false, error: "Not signed in." }, { status: 401 });
+    }
+    if (!getLifeCfoAccess(user).canUseRealDataSources) {
+      return NextResponse.json({ ok: false, error: REAL_DATA_DISABLED_MESSAGE }, { status: 403 });
     }
 
     await assertFinePrintAccepted(supabase, user.id);

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { resolveHouseholdIdRoute } from "@/lib/households/resolveHouseholdIdRoute";
 import { supabaseRoute } from "@/lib/supabaseRoute";
+import { getLifeCfoAccess, REAL_DATA_DISABLED_MESSAGE } from "@/lib/server/access/lifeCfoAccess";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -51,6 +52,9 @@ export async function POST(request: Request) {
         { ok: false, error: "Please sign in again." },
         { status: 401 }
       );
+    }
+    if (!getLifeCfoAccess(user).canUseRealDataSources) {
+      return NextResponse.json({ ok: false, error: REAL_DATA_DISABLED_MESSAGE }, { status: 403 });
     }
 
     const householdId = await resolveHouseholdIdRoute(supabase, user.id);

@@ -9,6 +9,7 @@ import type {
   BankCsvDetectedColumns,
   BankCsvSampleRow,
 } from "@/lib/money/import/parseBankCsv";
+import { useLifeCfoAccess } from "@/lib/access/useLifeCfoAccess";
 
 type AccountChoice = {
   id: string;
@@ -77,6 +78,7 @@ function foundColumns(columns: BankCsvDetectedColumns | undefined) {
 }
 
 function MoneyImportPageContent() {
+  const access = useLifeCfoAccess();
   const router = useRouter();
   const searchParams = useSearchParams();
   const [file, setFile] = useState<File | null>(null);
@@ -158,6 +160,33 @@ function MoneyImportPageContent() {
 
   const columns = foundColumns(preview?.detected_columns);
   const accounts = preview?.account_choices ?? [];
+
+  if (access.loading) {
+    return (
+      <Page title="Upload bank file" subtitle="Checking access...">
+        <div />
+      </Page>
+    );
+  }
+
+  if (!access.canUseRealDataSources) {
+    return (
+      <Page title="Upload bank file">
+        <div className="mx-auto w-full max-w-[640px] space-y-4">
+          <Card className="border-zinc-200 bg-white">
+            <CardContent className="space-y-3">
+              <div className="text-sm font-semibold text-zinc-900">
+                Bank file uploads are turned off for this demo.
+              </div>
+              <Link href="/money">
+                <Chip>Go back to Money</Chip>
+              </Link>
+            </CardContent>
+          </Card>
+        </div>
+      </Page>
+    );
+  }
   const needsAnotherChoice = Boolean(
     preview?.needs_user_choice?.date_format ||
       preview?.needs_user_choice?.amount_direction

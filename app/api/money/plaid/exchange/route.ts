@@ -3,6 +3,7 @@ import { supabaseRoute } from "@/lib/supabaseRoute";
 import { resolveHouseholdIdRoute } from "@/lib/households/resolveHouseholdIdRoute";
 import { getPlaidClient, getPlaidDiag } from "@/lib/money/plaidClient";
 import { encryptPlaidToken } from "@/lib/server/security/plaidTokenCrypto";
+import { getLifeCfoAccess, REAL_DATA_DISABLED_MESSAGE } from "@/lib/server/access/lifeCfoAccess";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -24,6 +25,9 @@ export async function POST(req: Request) {
 
     if (authErr || !user?.id) {
       return NextResponse.json({ ok: false, error: "Not signed in.", diag }, { status: 401 });
+    }
+    if (!getLifeCfoAccess(user).canUseRealDataSources) {
+      return NextResponse.json({ ok: false, error: REAL_DATA_DISABLED_MESSAGE }, { status: 403 });
     }
 
     const householdId = await resolveHouseholdIdRoute(supabase, user.id);

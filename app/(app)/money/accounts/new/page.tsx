@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Page } from "@/components/Page";
 import { Button, Card, CardContent, Chip } from "@/components/ui";
+import { useLifeCfoAccess } from "@/lib/access/useLifeCfoAccess";
 
 type CreateAccountResponse = {
   ok?: boolean;
@@ -14,6 +15,7 @@ type CreateAccountResponse = {
 };
 
 export default function AddManualAccountPage() {
+  const access = useLifeCfoAccess();
   const router = useRouter();
   const [name, setName] = useState("");
   const [accountType, setAccountType] = useState("everyday");
@@ -22,6 +24,33 @@ export default function AddManualAccountPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [nextHref, setNextHref] = useState<string | null>(null);
+
+  if (access.loading) {
+    return (
+      <Page title="Add manual account" subtitle="Checking access...">
+        <div />
+      </Page>
+    );
+  }
+
+  if (!access.canUseRealDataSources) {
+    return (
+      <Page title="Add manual account">
+        <div className="mx-auto w-full max-w-[640px] space-y-4">
+          <Card className="border-zinc-200 bg-white">
+            <CardContent className="space-y-3">
+              <div className="text-sm font-semibold text-zinc-900">
+                Manual accounts are turned off for this demo.
+              </div>
+              <Link href="/connections">
+                <Chip>Go back to Connections</Chip>
+              </Link>
+            </CardContent>
+          </Card>
+        </div>
+      </Page>
+    );
+  }
 
   async function addAccount(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();

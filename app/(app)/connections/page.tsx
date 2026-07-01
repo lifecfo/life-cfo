@@ -4,6 +4,7 @@ import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import { useRouter, useSearchParams } from "next/navigation";
 import { Page } from "@/components/Page";
 import { Card, CardContent, Chip, Button, useToast } from "@/components/ui";
+import { useLifeCfoAccess } from "@/lib/access/useLifeCfoAccess";
 
 type Connection = {
   id: string;
@@ -454,6 +455,7 @@ function ConnectionActionsMenu({
 }
 
 function ConnectionsPageClient() {
+  const access = useLifeCfoAccess();
   const router = useRouter();
   const searchParams = useSearchParams();
   const { toast } = useToast();
@@ -538,6 +540,7 @@ function ConnectionsPageClient() {
   }, [basiqJobStatus, cameFromBasiqReturn, toast]);
 
   useEffect(() => {
+    if (!access.canUseRealDataSources) return;
     if (loading) return;
     if (connectingId || syncingId) return;
     if (basiqJobsPending) return;
@@ -603,9 +606,10 @@ function ConnectionsPageClient() {
     return () => {
       cancelled = true;
     };
-  }, [items, loading, connectingId, syncingId, basiqReturnConnectionId, cameFromBasiqReturn, basiqJobsPending, router]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [items, loading, connectingId, syncingId, basiqReturnConnectionId, cameFromBasiqReturn, basiqJobsPending, router, access.canUseRealDataSources]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function startBasiqAuth(connectionId: string) {
+    if (!access.canUseRealDataSources) return;
     setConnectingId(connectionId);
     try {
       const res = await fetch("/api/money/basiq/start", {
@@ -628,6 +632,7 @@ function ConnectionsPageClient() {
   }
 
   async function createBasiqAndConnect() {
+    if (!access.canUseRealDataSources) return;
     setCreatingBasiq(true);
     try {
       const res = await fetch("/api/money/connections", {
@@ -663,6 +668,7 @@ function ConnectionsPageClient() {
   }
 
   async function startPlaidAuth(connectionId: string) {
+    if (!access.canUseRealDataSources) return;
     setConnectingId(connectionId);
 
     try {
@@ -746,6 +752,7 @@ function ConnectionsPageClient() {
   }
 
   async function createPlaidAndConnect() {
+    if (!access.canUseRealDataSources) return;
     setCreatingPlaid(true);
     try {
       const res = await fetch("/api/money/connections", {
@@ -774,6 +781,7 @@ function ConnectionsPageClient() {
   }
 
   async function syncConnection(id: string) {
+    if (!access.canUseRealDataSources) return;
     setSyncingId(id);
     try {
       const res = await fetch(`/api/money/sync/${id}`, { method: "POST" });
@@ -1241,7 +1249,7 @@ function ConnectionsPageClient() {
     (c.provider === "basiq" || c.provider === "plaid") && c.status === "needs_auth";
 
   const canRefreshBasiqAfterConsent = (c: Connection) =>
-    c.provider === "basiq" && c.status === "needs_auth" && c.can_refresh_after_consent === true;
+    access.canUseRealDataSources && c.provider === "basiq" && c.status === "needs_auth" && c.can_refresh_after_consent === true;
 
   const canRemoveSetupAttempt = (c: Connection) =>
     coerceStr(c.provider).toLowerCase() === "basiq" &&
@@ -1281,43 +1289,47 @@ function ConnectionsPageClient() {
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
-                <Button
-                  onClick={() => void createBasiqAndConnect()}
-                  disabled={creatingBasiq || creatingPlaid}
-                  className="rounded-2xl"
-                >
-                  {creatingBasiq ? "Starting..." : "Connect Australian bank"}
-                </Button>
-
-                <Button
-                  onClick={() => void createPlaidAndConnect()}
-                  disabled={creatingPlaid || creatingBasiq}
-                  variant="ghost"
-                  className="rounded-2xl"
-                >
-                  {creatingPlaid ? "Starting..." : "Connect US bank"}
-                </Button>
-
-                <Button
-                  onClick={() => router.push("/money/import")}
-                  variant="ghost"
-                  className="rounded-2xl"
-                >
-                  Upload bank file
-                </Button>
-
-                <Button
-                  onClick={() => router.push("/money/accounts/new")}
-                  variant="ghost"
-                  className="rounded-2xl"
-                >
-                  Add manual account
-                </Button>
+                {access.loading ? (
+                  <span className="text-xs text-zinc-500">Checking access...</span>
+                ) : access.canUseRealDataSources ? (
+                  <>
+                    <Button
+                      onClick={() => void createBasiqAndConnect()}
+                      disabled={creatingBasiq || creatingPlaid}
+                      className="rounded-2xl"
+                    >
+                      {creatingBasiq ? "Starting..." : "Connect Australian bank"}
+                    </Button>
+                    <Button
+                      onClick={() => void createPlaidAndConnect()}
+                      disabled={creatingPlaid || creatingBasiq}
+                      variant="ghost"
+                      className="rounded-2xl"
+                    >
+                      {creatingPlaid ? "Starting..." : "Connect US bank"}
+                    </Button>
+                    <Button onClick={() => router.push("/money/import")} variant="ghost" className="rounded-2xl">
+                      Upload bank file
+                    </Button>
+                    <Button onClick={() => router.push("/money/accounts/new")} variant="ghost" className="rounded-2xl">
+                      Add manual account
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    <Button disabled className="rounded-2xl">Connect Australian bank — Demo only</Button>
+                    <Button disabled variant="ghost" className="rounded-2xl">Connect US bank — Demo only</Button>
+                    <Button disabled variant="ghost" className="rounded-2xl">Upload bank file — Demo only</Button>
+                    <Button disabled variant="ghost" className="rounded-2xl">Add manual account — Demo only</Button>
+                  </>
+                )}
               </div>
             </div>
 
             <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs text-zinc-600">
-              Choose what works for you. Connect a bank, upload a file, or add an account yourself.
+              {access.canUseRealDataSources
+                ? "Choose what works for you. Connect a bank, upload a file, or add an account yourself."
+                : "This demo uses sample data, so real bank connections are turned off."}
             </div>
 
             <div className="mt-6 space-y-3">
@@ -1391,21 +1403,24 @@ function ConnectionsPageClient() {
                               <div className="flex items-center gap-2">
                                 {c.status === "active" ? (
                                   <>
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      onClick={() => syncConnection(c.id)}
-                                      disabled={syncingId === c.id}
-                                    >
-                                      {syncingId === c.id ? "Refreshing..." : "Refresh"}
-                                    </Button>
-
-                                    <ConnectionActionsMenu
-                                      connection={c}
-                                      syncing={syncingId === c.id}
-                                      onSync={() => void syncConnection(c.id)}
-                                      onComingSoon={handleComingSoon}
-                                    />
+                                    {access.canUseRealDataSources ? (
+                                      <>
+                                        <Button
+                                          variant="ghost"
+                                          size="sm"
+                                          onClick={() => syncConnection(c.id)}
+                                          disabled={syncingId === c.id}
+                                        >
+                                          {syncingId === c.id ? "Refreshing..." : "Refresh"}
+                                        </Button>
+                                        <ConnectionActionsMenu
+                                          connection={c}
+                                          syncing={syncingId === c.id}
+                                          onSync={() => void syncConnection(c.id)}
+                                          onComingSoon={handleComingSoon}
+                                        />
+                                      </>
+                                    ) : null}
                                     <Button
                                       variant="ghost"
                                       size="sm"
@@ -1510,7 +1525,7 @@ function ConnectionsPageClient() {
                                 </Button>
                               )}
 
-                              {canShowConnect(c) && c.provider === "basiq" && !canRefreshBasiqAfterConsent(c) && (
+                              {access.canUseRealDataSources && canShowConnect(c) && c.provider === "basiq" && !canRefreshBasiqAfterConsent(c) && (
                                 <Button
                                   variant="ghost"
                                   size="sm"
@@ -1521,7 +1536,7 @@ function ConnectionsPageClient() {
                                 </Button>
                               )}
 
-                              {canShowConnect(c) && c.provider === "plaid" && (
+                              {access.canUseRealDataSources && canShowConnect(c) && c.provider === "plaid" && (
                                 <Button
                                   variant="ghost"
                                   size="sm"
@@ -1619,7 +1634,7 @@ function ConnectionsPageClient() {
                                 </Button>
                               )}
 
-                              {canShowConnect(c) && c.provider === "basiq" && !canRefreshBasiqAfterConsent(c) && (
+                              {access.canUseRealDataSources && canShowConnect(c) && c.provider === "basiq" && !canRefreshBasiqAfterConsent(c) && (
                                 <Button
                                   variant="ghost"
                                   size="sm"
@@ -1630,7 +1645,7 @@ function ConnectionsPageClient() {
                                 </Button>
                               )}
 
-                              {canShowConnect(c) && c.provider === "plaid" && (
+                              {access.canUseRealDataSources && canShowConnect(c) && c.provider === "plaid" && (
                                 <Button
                                   variant="ghost"
                                   size="sm"

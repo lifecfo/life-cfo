@@ -1,8 +1,8 @@
 import { createHash } from "node:crypto";
 
 export const SCENARIO = "family-one-income";
-export const FIXTURE_VERSION = "family-one-income-v2";
-export const HOUSEHOLD_NAME = "[DEMO] Family of Four - One Income";
+export const FIXTURE_VERSION = "family-one-income-v3";
+export const HOUSEHOLD_NAME = "[DEMO] Family With One Main Income";
 
 function deterministicUuid(key) {
   const bytes = createHash("sha256").update(`life-cfo:${key}`).digest().subarray(0, 16);
@@ -148,8 +148,8 @@ export function buildFamilyOneIncomeFixture({ ownerUserId, anchorDate = new Date
     });
   };
   const jitter = (base, spread) => Math.round(base + (random() * 2 - 1) * spread);
-  const grocers = ["Woolworths", "Coles", "Aldi"];
-  const fuelMerchants = ["Ampol", "BP", "Shell Coles Express"];
+  const grocers = ["Northside Grocer", "Meadow Fresh Market", "Corner Pantry"];
+  const fuelMerchants = ["Greenway Fuel", "Harbour Fuel", "North Road Fuel"];
 
   for (let fortnight = 0; fortnight < 13; fortnight += 1) {
     addTransaction({ account: "everyday", daysAgo: 3 + fortnight * 14, amountCents: 452000, merchant: "Harbour Engineering Payroll", description: "Primary salary", category: "Income" });
@@ -157,6 +157,8 @@ export function buildFamilyOneIncomeFixture({ ownerUserId, anchorDate = new Date
   for (let payment = 0; payment < 3; payment += 1) {
     addTransaction({ account: "everyday", daysAgo: 24 + payment * 62, amountCents: jitter(62000, 12000), merchant: "Freelance Design", description: "Occasional project income", category: "Income" });
   }
+  addTransaction({ account: "everyday", daysAgo: 0, amountCents: 452000, merchant: "Harbour Engineering Payroll", description: "Primary salary", category: "Income" });
+  addTransaction({ account: "card", daysAgo: 0, amountCents: -14200, merchant: "Northside Grocer", description: "Family groceries", category: "Groceries" });
   for (let week = 0; week < 26; week += 1) {
     const base = week * 7;
     addTransaction({ account: "card", daysAgo: base + 1, amountCents: -jitter(14200, 2800), merchant: grocers[week % grocers.length], description: "Family groceries", category: "Groceries" });
@@ -166,62 +168,69 @@ export function buildFamilyOneIncomeFixture({ ownerUserId, anchorDate = new Date
     addTransaction({ account: "card", daysAgo: base + 5, amountCents: -3800, merchant: "Northside Junior Sport", description: "Kids sport and activities", category: "Kids" });
     addTransaction({ account: "card", daysAgo: base + 6, amountCents: -jitter(4200, 1700), merchant: week % 2 === 0 ? "Local Cafe" : "Family Takeaway", description: "Family spending", category: "Dining" });
     if (week % 3 === 0) {
-      addTransaction({ account: "card", daysAgo: base + 2, amountCents: -jitter(4600, 1800), merchant: "Priceline Pharmacy", description: "Pharmacy and medical", category: "Health" });
+      addTransaction({ account: "card", daysAgo: base + 2, amountCents: -jitter(4600, 1800), merchant: "Everyday Pharmacy", description: "Pharmacy and medical", category: "Health" });
     }
   }
   for (let month = 0; month < 6; month += 1) {
     const base = 5 + month * 30;
     addTransaction({ account: "bills", daysAgo: base, amountCents: -315000, merchant: "Harbour Home Loan", description: "Mortgage repayment", category: "Housing" });
-    addTransaction({ account: "bills", daysAgo: base + 2, amountCents: -jitter(16800, 2400), merchant: "Origin Energy", description: "Electricity", category: "Utilities" });
-    addTransaction({ account: "bills", daysAgo: base + 4, amountCents: -9500, merchant: "Aussie Broadband", description: "Home internet", category: "Utilities" });
-    addTransaction({ account: "bills", daysAgo: base + 6, amountCents: -7200, merchant: "Telstra", description: "Mobile phones", category: "Utilities" });
-    addTransaction({ account: "bills", daysAgo: base + 8, amountCents: -18500, merchant: "Allianz Insurance", description: "Home and car insurance", category: "Insurance" });
-    addTransaction({ account: "everyday", daysAgo: base + 10, amountCents: -24000, merchant: "Riverside Public School", description: "School costs", category: "Education" });
-    addTransaction({ account: "card", daysAgo: base + 12, amountCents: -2299, merchant: "Netflix", description: "Streaming subscription", category: "Subscriptions" });
-    addTransaction({ account: "everyday", daysAgo: base + 14, amountCents: -15000, merchant: "Community Church", description: "Regular giving", category: "Giving" });
+    addTransaction({ account: "bills", daysAgo: base + 2, amountCents: -jitter(16800, 2400), merchant: "Riverbend Energy", description: "Electricity", category: "Utilities" });
+    addTransaction({ account: "bills", daysAgo: base + 4, amountCents: -9500, merchant: "Clearline Internet", description: "Home internet", category: "Utilities" });
+    addTransaction({ account: "bills", daysAgo: base + 6, amountCents: -7200, merchant: "Bright Mobile", description: "Mobile phones", category: "Utilities" });
+    addTransaction({ account: "bills", daysAgo: base + 8, amountCents: -18500, merchant: "Greenline Insurance", description: "Home and car insurance", category: "Insurance" });
+    addTransaction({ account: "everyday", daysAgo: base + 10, amountCents: -24000, merchant: "Bright Start School", description: "School costs", category: "Education" });
+    addTransaction({ account: "card", daysAgo: base + 12, amountCents: -2299, merchant: "Streambox", description: "Streaming subscription", category: "Subscriptions" });
+    addTransaction({ account: "everyday", daysAgo: base + 14, amountCents: -15000, merchant: "Local Community Giving", description: "Regular giving", category: "Giving" });
     addTransaction({ account: "everyday", daysAgo: base + 16, amountCents: -30000, merchant: "Internal Transfer to Savings", description: "Family buffer transfer", category: "Transfer" });
     addTransaction({ account: "savings", daysAgo: base + 16, amountCents: 30000, merchant: "Internal Transfer from Everyday", description: "Family buffer transfer", category: "Transfer" });
   }
-  addTransaction({ account: "card", daysAgo: 42, amountCents: -138500, merchant: "Northside Auto Repairs", description: "Unexpected car repair", category: "Transport" });
-  addTransaction({ account: "everyday", daysAgo: 71, amountCents: -18500, merchant: "Riverside School Camp", description: "School camp", category: "Education" });
-  addTransaction({ account: "card", daysAgo: 116, amountCents: -22400, merchant: "Family Medical Centre", description: "Specialist appointment", category: "Health" });
+  addTransaction({ account: "card", daysAgo: 42, amountCents: -138500, merchant: "Northside Auto Care", description: "Unexpected car repair", category: "Transport" });
+  addTransaction({ account: "everyday", daysAgo: 71, amountCents: -18500, merchant: "Bright Start School Camp", description: "School camp", category: "Education" });
+  addTransaction({ account: "card", daysAgo: 116, amountCents: -22400, merchant: "Harbour Health Clinic", description: "Specialist appointment", category: "Health" });
 
   const salaryRange = observedRange(transactions, "Harbour Engineering Payroll");
   const mortgageRange = observedRange(transactions, "Harbour Home Loan");
+  const childcareRange = observedRange(transactions, "Little Oaks Childcare");
+  const insuranceRange = observedRange(transactions, "Greenline Insurance");
+  const energyRange = observedRange(transactions, "Riverbend Energy");
   const transferRange = observedRange(transactions, "Internal Transfer to Savings");
   const confirmations = [
     { id: fixtureUuid("confirmation:salary"), household_id: householdId, pattern_key: "income:AUD:HARBOUR ENGINEERING PAYROLL", kind: "income", label: "Main salary", amount_cents: 452000, currency: "AUD", cadence: "fortnightly", confidence: "confirmed", source_provider: "manual", first_seen_at: salaryRange.first, last_seen_at: salaryRange.last, created_by: ownerUserId, updated_at: anchor.toISOString() },
     { id: fixtureUuid("confirmation:mortgage"), household_id: householdId, pattern_key: "outflow:AUD:HARBOUR HOME LOAN", kind: "bill", label: "Home loan", amount_cents: 315000, currency: "AUD", cadence: "monthly", confidence: "confirmed", source_provider: "manual", first_seen_at: mortgageRange.first, last_seen_at: mortgageRange.last, created_by: ownerUserId, updated_at: anchor.toISOString() },
+    { id: fixtureUuid("confirmation:childcare"), household_id: householdId, pattern_key: "outflow:AUD:LITTLE OAKS CHILDCARE", kind: "bill", label: "Childcare", amount_cents: 18000, currency: "AUD", cadence: "weekly", confidence: "confirmed", source_provider: "manual", first_seen_at: childcareRange.first, last_seen_at: childcareRange.last, created_by: ownerUserId, updated_at: anchor.toISOString() },
+    { id: fixtureUuid("confirmation:insurance"), household_id: householdId, pattern_key: "outflow:AUD:GREENLINE INSURANCE", kind: "bill", label: "Home and car insurance", amount_cents: 18500, currency: "AUD", cadence: "monthly", confidence: "confirmed", source_provider: "manual", first_seen_at: insuranceRange.first, last_seen_at: insuranceRange.last, created_by: ownerUserId, updated_at: anchor.toISOString() },
+    { id: fixtureUuid("confirmation:energy"), household_id: householdId, pattern_key: "outflow:AUD:RIVERBEND ENERGY", kind: "bill", label: "Electricity", amount_cents: 16800, currency: "AUD", cadence: "monthly", confidence: "confirmed", source_provider: "manual", first_seen_at: energyRange.first, last_seen_at: energyRange.last, created_by: ownerUserId, updated_at: anchor.toISOString() },
     { id: fixtureUuid("confirmation:transfer"), household_id: householdId, pattern_key: "outflow:AUD:INTERNAL TRANSFER TO SAVINGS", kind: "ignore", label: "Move to family buffer", amount_cents: 30000, currency: "AUD", cadence: "monthly", confidence: "confirmed", source_provider: "manual", first_seen_at: transferRange.first, last_seen_at: transferRange.last, created_by: ownerUserId, updated_at: anchor.toISOString() },
   ];
-  const decision = {
-    id: fixtureUuid("decision:private-school"),
-    user_id: ownerUserId,
-    household_id: householdId,
-    title: "What would private school next year do to our breathing room?",
-    context: "The family wants to understand the monthly trade-offs before making a commitment.",
-    decision_context: { scenario: SCENARIO, demo: true },
-    status: "open",
-    origin: "decisions",
-    pinned: true,
-    framed_at: anchor.toISOString(),
-  };
-  const targetDate = dateDaysAgo(anchor, -180);
-  const goal = {
-    id: fixtureUuid("goal:emergency-buffer"),
-    user_id: ownerUserId,
-    household_id: householdId,
-    title: "Emergency buffer",
-    currency: "AUD",
-    target_cents: 2000000,
-    current_cents: 1485000,
-    target_date: targetDate,
-    deadline_at: `${targetDate}T09:00:00.000Z`,
-    notes: "A calm family buffer for repairs, health costs, or a change in income.",
-    status: "active",
-    is_primary: true,
-    updated_at: anchor.toISOString(),
-  };
+  const familyMembers = [
+    { id: fixtureUuid("family:adult-me"), user_id: ownerUserId, household_id: householdId, name: "Demo Adult", birth_year: 1987, relationship: "Me", about: "Main income earner in this sample household.", archived_at: null, updated_at: anchor.toISOString() },
+    { id: fixtureUuid("family:adult-partner"), user_id: ownerUserId, household_id: householdId, name: "Demo Partner", birth_year: 1988, relationship: "Partner", about: "Balances care, household work, and occasional project income.", archived_at: null, updated_at: anchor.toISOString() },
+    { id: fixtureUuid("family:child-older"), user_id: ownerUserId, household_id: householdId, name: "Older Child", birth_year: 2015, relationship: "Child", about: "School-aged child with sport and school costs.", archived_at: null, updated_at: anchor.toISOString() },
+    { id: fixtureUuid("family:child-younger"), user_id: ownerUserId, household_id: householdId, name: "Younger Child", birth_year: 2020, relationship: "Child", about: "Younger child with regular childcare costs.", archived_at: null, updated_at: anchor.toISOString() },
+  ];
+  const pets = [
+    { id: fixtureUuid("pet:dog"), user_id: ownerUserId, household_id: householdId, name: "Demo Dog", type: "Dog", notes: "A family pet with food and care costs.", archived_at: null, updated_at: anchor.toISOString() },
+    { id: fixtureUuid("pet:former-cat"), user_id: ownerUserId, household_id: householdId, name: "Former Family Cat", type: "Cat", notes: "Kept as an archived example.", archived_at: anchor.toISOString(), updated_at: anchor.toISOString() },
+  ];
+  const recurringIncome = [
+    { id: fixtureUuid("recurring-income:salary"), user_id: ownerUserId, household_id: householdId, name: "Main salary", amount_cents: 452000, currency: "AUD", cadence: "fortnightly", next_pay_at: `${dateDaysAgo(anchor, -11)}T09:00:00.000Z`, active: true, notes: "Demo timing for planning.", updated_at: anchor.toISOString() },
+  ];
+  const recurringBills = [
+    { id: fixtureUuid("recurring-bill:mortgage"), user_id: ownerUserId, household_id: householdId, name: "Home loan", amount_cents: 315000, currency: "AUD", cadence: "monthly", next_due_at: `${dateDaysAgo(anchor, -5)}T09:00:00.000Z`, autopay: true, active: true, notes: "Demo timing for planning.", updated_at: anchor.toISOString() },
+    { id: fixtureUuid("recurring-bill:childcare"), user_id: ownerUserId, household_id: householdId, name: "Childcare", amount_cents: 18000, currency: "AUD", cadence: "weekly", next_due_at: `${dateDaysAgo(anchor, -3)}T09:00:00.000Z`, autopay: true, active: true, notes: null, updated_at: anchor.toISOString() },
+    { id: fixtureUuid("recurring-bill:insurance"), user_id: ownerUserId, household_id: householdId, name: "Home and car insurance", amount_cents: 18500, currency: "AUD", cadence: "monthly", next_due_at: `${dateDaysAgo(anchor, -12)}T09:00:00.000Z`, autopay: true, active: true, notes: null, updated_at: anchor.toISOString() },
+    { id: fixtureUuid("recurring-bill:internet"), user_id: ownerUserId, household_id: householdId, name: "Home internet", amount_cents: 9500, currency: "AUD", cadence: "monthly", next_due_at: `${dateDaysAgo(anchor, -8)}T09:00:00.000Z`, autopay: true, active: true, notes: null, updated_at: anchor.toISOString() },
+  ];
+  const decisions = [
+    { id: fixtureUuid("decision:private-school"), user_id: ownerUserId, household_id: householdId, title: "What would private school next year do to our breathing room?", context: "The family wants to understand the monthly trade-offs before making a commitment.", decision_context: { scenario: SCENARIO, demo: true }, status: "open", origin: "decisions", pinned: true, framed_at: anchor.toISOString() },
+    { id: fixtureUuid("decision:car-replacement"), user_id: ownerUserId, household_id: householdId, title: "Should we replace the family car this year?", context: "Recent repair costs make the family want to compare waiting with replacing it.", decision_context: { scenario: SCENARIO, demo: true }, status: "open", origin: "decisions", pinned: false, framed_at: anchor.toISOString() },
+  ];
+  const emergencyTargetDate = dateDaysAgo(anchor, -180);
+  const schoolTargetDate = dateDaysAgo(anchor, -300);
+  const goals = [
+    { id: fixtureUuid("goal:emergency-buffer"), user_id: ownerUserId, household_id: householdId, title: "Emergency buffer", currency: "AUD", target_cents: 2000000, current_cents: 1485000, target_date: emergencyTargetDate, deadline_at: `${emergencyTargetDate}T09:00:00.000Z`, notes: "A calm family buffer for repairs, health costs, or a change in income.", status: "active", is_primary: true, updated_at: anchor.toISOString() },
+    { id: fixtureUuid("goal:school-costs"), user_id: ownerUserId, household_id: householdId, title: "Next year school costs", currency: "AUD", target_cents: 450000, current_cents: 120000, target_date: schoolTargetDate, deadline_at: `${schoolTargetDate}T09:00:00.000Z`, notes: "A sample goal for uniforms, activities, and school costs.", status: "active", is_primary: false, updated_at: anchor.toISOString() },
+  ];
 
   return {
     scenario: SCENARIO,
@@ -233,8 +242,12 @@ export function buildFamilyOneIncomeFixture({ ownerUserId, anchorDate = new Date
     externalAccounts,
     transactions,
     confirmations,
-    decision,
-    goal,
+    familyMembers,
+    pets,
+    recurringIncome,
+    recurringBills,
+    decisions,
+    goals,
   };
 }
 
@@ -252,8 +265,12 @@ export function assertFamilyOneIncomeFixtureIsolation(ownerUserIdA, ownerUserIdB
     account: [fixtureA.accounts[0].id, fixtureB.accounts[0].id],
     transaction: [fixtureA.transactions[0].id, fixtureB.transactions[0].id],
     confirmation: [fixtureA.confirmations[0].id, fixtureB.confirmations[0].id],
-    goal: [fixtureA.goal.id, fixtureB.goal.id],
-    decision: [fixtureA.decision.id, fixtureB.decision.id],
+    family_member: [fixtureA.familyMembers[0].id, fixtureB.familyMembers[0].id],
+    pet: [fixtureA.pets[0].id, fixtureB.pets[0].id],
+    recurring_income: [fixtureA.recurringIncome[0].id, fixtureB.recurringIncome[0].id],
+    recurring_bill: [fixtureA.recurringBills[0].id, fixtureB.recurringBills[0].id],
+    goal: [fixtureA.goals[0].id, fixtureB.goals[0].id],
+    decision: [fixtureA.decisions[0].id, fixtureB.decisions[0].id],
   };
   for (const [objectType, [idA, idB]] of Object.entries(comparedIds)) {
     if (idA === idB) throw new Error(`${objectType} fixture IDs are not isolated.`);

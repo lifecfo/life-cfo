@@ -5,10 +5,15 @@ import { createClient } from "@supabase/supabase-js";
 import {
   assertFamilyOneIncomeFixtureIsolation,
   buildFamilyOneIncomeFixture,
-  FIXTURE_VERSION,
-  HOUSEHOLD_NAME,
-  SCENARIO,
+  FIXTURE_VERSION as FAMILY_FIXTURE_VERSION,
+  SCENARIO as FAMILY_SCENARIO,
 } from "./demo/fixtures/family-one-income.mjs";
+import {
+  assertSingleParentTightFixtureIsolation,
+  buildSingleParentTightFixture,
+  FIXTURE_VERSION as SINGLE_PARENT_FIXTURE_VERSION,
+  SCENARIO as SINGLE_PARENT_SCENARIO,
+} from "./demo/fixtures/single-parent-tight.mjs";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const ACCOUNT_COLUMNS = new Set([
@@ -131,10 +136,17 @@ function requireOwner(ownerUserId) {
   }
 }
 
+const SCENARIOS = new Map([
+  [FAMILY_SCENARIO, { build: buildFamilyOneIncomeFixture, version: FAMILY_FIXTURE_VERSION }],
+  [SINGLE_PARENT_SCENARIO, { build: buildSingleParentTightFixture, version: SINGLE_PARENT_FIXTURE_VERSION }],
+]);
+
 function requireScenario(value) {
-  if (value !== SCENARIO) {
-    throw new Error(`Only --scenario ${SCENARIO} is supported in this fixture slice.`);
+  const fixtureConfig = SCENARIOS.get(value);
+  if (!fixtureConfig) {
+    throw new Error(`--scenario must be one of: ${[...SCENARIOS.keys()].join(", ")}.`);
   }
+  return fixtureConfig;
 }
 
 function serviceClient(supabaseUrl) {
@@ -182,10 +194,12 @@ function fixtureSummary(fixture, mode, projectRef) {
       external_accounts: fixture.externalAccounts.length,
       transactions: fixture.transactions.length,
       confirmations: fixture.confirmations.length,
-      decisions: 1,
-      money_goals: 1,
-      recurring_bills: 0,
-      recurring_income: 0,
+      family_members: fixture.familyMembers.length,
+      pets: fixture.pets.length,
+      decisions: fixture.decisions.length,
+      money_goals: fixture.goals.length,
+      recurring_bills: fixture.recurringBills.length,
+      recurring_income: fixture.recurringIncome.length,
     },
     transaction_window: { start: dates[0], end: dates[dates.length - 1] },
     current_month: { money_in_cents: moneyIn, money_out_cents: moneyOut },
@@ -250,7 +264,7 @@ async function readFixtureIdentity(client, householdId) {
 
 function assertFixtureIdentity(identity, fixture) {
   if (!identity.household) throw new Error("The deterministic demo household does not exist.");
-  if (identity.household.id !== fixture.household.id || identity.household.name !== HOUSEHOLD_NAME) {
+  if (identity.household.id !== fixture.household.id || identity.household.name !== fixture.household.name) {
     throw new Error("Household ID/name verification failed. Reset refused.");
   }
   if (identity.members.length !== 1) {
@@ -278,8 +292,8 @@ function assertFixtureIdentity(identity, fixture) {
     connection.provider !== "manual" ||
     connection.status !== "demo" ||
     metadata.demo !== true ||
-    metadata.scenario !== SCENARIO ||
-    metadata.version !== FIXTURE_VERSION
+    metadata.scenario !== fixture.scenario ||
+    metadata.version !== fixture.version
   ) {
     throw new Error("Demo source metadata verification failed. Reset refused.");
   }
@@ -291,14 +305,26 @@ async function assertSeeded(client, fixture) {
   const ownerUserId = assertFixtureIdentity(identity, fixture);
   if (ownerUserId !== fixture.membership.user_id) throw new Error("Seed owner assertion failed.");
 
-  const [accountCount, transactionCount, confirmationCount] = await Promise.all([
+  const [accountCount, transactionCount, confirmationCount, familyCount, petCount, billCount, incomeCount, goalCount, decisionCount] = await Promise.all([
     countRows(client, "accounts", fixture.household.id),
     countRows(client, "transactions", fixture.household.id),
     countRows(client, "transaction_pattern_confirmations", fixture.household.id),
+    countRows(client, "family_members", fixture.household.id),
+    countRows(client, "pets", fixture.household.id),
+    countRows(client, "recurring_bills", fixture.household.id),
+    countRows(client, "recurring_income", fixture.household.id),
+    countRows(client, "money_goals", fixture.household.id),
+    countRows(client, "decisions", fixture.household.id),
   ]);
   if (accountCount !== fixture.accounts.length) throw new Error("Seed account count assertion failed.");
   if (transactionCount !== fixture.transactions.length) throw new Error("Seed transaction count assertion failed.");
   if (confirmationCount !== fixture.confirmations.length) throw new Error("Seed confirmation count assertion failed.");
+  if (familyCount !== fixture.familyMembers.length) throw new Error("Seed family count assertion failed.");
+  if (petCount !== fixture.pets.length) throw new Error("Seed pet count assertion failed.");
+  if (billCount !== fixture.recurringBills.length) throw new Error("Seed recurring bill count assertion failed.");
+  if (incomeCount !== fixture.recurringIncome.length) throw new Error("Seed recurring income count assertion failed.");
+  if (goalCount !== fixture.goals.length) throw new Error("Seed goal count assertion failed.");
+  if (decisionCount !== fixture.decisions.length) throw new Error("Seed decision count assertion failed.");
 
   const { data: monthRows, error: monthError } = await client
     .from("transactions")
@@ -315,19 +341,21 @@ async function assertSeeded(client, fixture) {
   if (startAgeDays < 150 || startAgeDays > 200) {
     throw new Error("Transaction date-window assertion failed.");
   }
-  return { accountCount, transactionCount, confirmationCount };
+  return { accountCount, transactionCount, confirmationCount, familyCount, petCount, billCount, incomeCount, goalCount, decisionCount };
 }
 
 async function inspectFixture(client, fixture) {
   const identity = await readFixtureIdentity(client, fixture.household.id);
   if (!identity.household) {
-    return { exists: false, household_id: fixture.household.id, expected_name: HOUSEHOLD_NAME };
+    return { exists: false, household_id: fixture.household.id, expected_name: fixture.household.name };
   }
   const tables = [
     "accounts",
     "external_accounts",
     "transactions",
     "transaction_pattern_confirmations",
+    "family_members",
+    "pets",
     "decisions",
     "money_goals",
     "recurring_bills",
@@ -357,6 +385,10 @@ async function resetFixture(client, fixture) {
     "decisions",
     "transaction_pattern_confirmations",
     "money_goals",
+    "recurring_bills",
+    "recurring_income",
+    "pets",
+    "family_members",
     "transactions",
     "external_accounts",
     "accounts",
@@ -369,7 +401,7 @@ async function resetFixture(client, fixture) {
     .from("households")
     .delete()
     .eq("id", fixture.household.id)
-    .eq("name", HOUSEHOLD_NAME);
+    .eq("name", fixture.household.name);
   if (householdError) throw householdError;
 
   const inspection = await inspectFixture(client, fixture);
@@ -396,8 +428,12 @@ async function seedFixture(client, fixture) {
     await insertRows(client, "external_accounts", fixture.externalAccounts);
     await insertRows(client, "transactions", fixture.transactions);
     await insertRows(client, "transaction_pattern_confirmations", fixture.confirmations);
-    await insertRows(client, "decisions", [fixture.decision]);
-    await insertRows(client, "money_goals", [fixture.goal]);
+    await insertRows(client, "family_members", fixture.familyMembers);
+    await insertRows(client, "pets", fixture.pets);
+    await insertRows(client, "recurring_income", fixture.recurringIncome);
+    await insertRows(client, "recurring_bills", fixture.recurringBills);
+    await insertRows(client, "decisions", fixture.decisions);
+    await insertRows(client, "money_goals", fixture.goals);
     return await assertSeeded(client, fixture);
   } catch (error) {
     const cleanupErrors = [];
@@ -406,6 +442,10 @@ async function seedFixture(client, fixture) {
         "decisions",
         "transaction_pattern_confirmations",
         "money_goals",
+        "recurring_bills",
+        "recurring_income",
+        "pets",
+        "family_members",
         "transactions",
         "external_accounts",
         "accounts",
@@ -432,22 +472,56 @@ async function seedFixture(client, fixture) {
   }
 }
 
+function assertScenarioIsolation(ownerUserId) {
+  const anchorDate = new Date("2026-07-01T00:00:00.000Z");
+  const family = buildFamilyOneIncomeFixture({ ownerUserId, anchorDate });
+  const singleParent = buildSingleParentTightFixture({ ownerUserId, anchorDate });
+  const compared = {
+    household: [family.household.id, singleParent.household.id],
+    membership: [family.membership.id, singleParent.membership.id],
+    connection: [family.connection.id, singleParent.connection.id],
+    account: [family.accounts[0].id, singleParent.accounts[0].id],
+    transaction: [family.transactions[0].id, singleParent.transactions[0].id],
+    confirmation: [family.confirmations[0].id, singleParent.confirmations[0].id],
+    family_member: [family.familyMembers[0].id, singleParent.familyMembers[0].id],
+    pet: [family.pets[0].id, singleParent.pets[0].id],
+    recurring_income: [family.recurringIncome[0].id, singleParent.recurringIncome[0].id],
+    recurring_bill: [family.recurringBills[0].id, singleParent.recurringBills[0].id],
+    goal: [family.goals[0].id, singleParent.goals[0].id],
+    decision: [family.decisions[0].id, singleParent.decisions[0].id],
+  };
+  for (const [objectType, [familyId, singleParentId]] of Object.entries(compared)) {
+    if (familyId === singleParentId) throw new Error(`${objectType} IDs collide across scenarios.`);
+  }
+  return { passed: true, compared: Object.keys(compared) };
+}
+
 async function main() {
   const command = process.argv[2];
   const args = parseArgs(process.argv.slice(3));
   if (command === "assert-isolation") {
-    const assertion = assertFamilyOneIncomeFixtureIsolation(
+    const familyAssertion = assertFamilyOneIncomeFixtureIsolation(
       "11111111-1111-4111-8111-111111111111",
       "22222222-2222-4222-8222-222222222222"
     );
-    console.log(JSON.stringify({ fixture_version: FIXTURE_VERSION, ...assertion }, null, 2));
+    const singleParentAssertion = assertSingleParentTightFixtureIsolation(
+      "11111111-1111-4111-8111-111111111111",
+      "22222222-2222-4222-8222-222222222222"
+    );
+    const scenarioAssertion = assertScenarioIsolation("11111111-1111-4111-8111-111111111111");
+    console.log(JSON.stringify({
+      passed: true,
+      fixture_versions: [FAMILY_FIXTURE_VERSION, SINGLE_PARENT_FIXTURE_VERSION],
+      tester_isolation: { family: familyAssertion, single_parent: singleParentAssertion },
+      scenario_isolation: scenarioAssertion,
+    }, null, 2));
     return;
   }
-  requireScenario(args.scenario);
+  const fixtureConfig = requireScenario(args.scenario);
   const { supabaseUrl, projectRef } = requireBaseSafety();
   const ownerUserId = String(args["owner-user-id"] || "");
   requireOwner(ownerUserId);
-  const fixture = buildFamilyOneIncomeFixture({ ownerUserId });
+  const fixture = fixtureConfig.build({ ownerUserId });
   validateFixturePayload(fixture);
 
   if (command === "seed") {
@@ -462,7 +536,7 @@ async function main() {
     const client = serviceClient(supabaseUrl);
     const assertions = await seedFixture(client, fixture);
     console.log(JSON.stringify({ seeded: true, household: fixture.household, assertions }, null, 2));
-    console.log(`Reset with: npm run demo:reset -- --scenario ${SCENARIO} --owner-user-id ${ownerUserId} --confirm-household ${fixture.household.id}`);
+    console.log(`Reset with: npm run demo:reset -- --scenario ${fixture.scenario} --owner-user-id ${ownerUserId} --confirm-household ${fixture.household.id}`);
     return;
   }
 
