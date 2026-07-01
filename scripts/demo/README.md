@@ -70,3 +70,5 @@ Developer with real-data tools enabled:
 ```
 
 Apply this through the Supabase dashboard or a trusted offline admin process. Users with missing or unknown `lifecfo_access` values are kept demo-only by default.
+
+After accepting the important information and signing in, a `demo_beta` tester with missing demo households sees **Set up demo** on the Household page. The server prepares only that authenticated tester's two deterministic demo households. Refreshing or retrying skips existing rows and finishes any missing rows without resetting or overwriting demo data.

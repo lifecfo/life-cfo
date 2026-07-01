@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Page } from "@/components/Page";
 import { Card, CardContent, Chip, useToast } from "@/components/ui";
 import { notifyActiveHouseholdChanged } from "@/lib/households/resolveActiveHouseholdClient";
+import { useLifeCfoAccess } from "@/lib/access/useLifeCfoAccess";
 
 type HouseholdItem = { id: string; name: string; role: string };
 
@@ -77,6 +78,7 @@ function formatInviteAge(createdAt: string) {
 }
 
 export default function HouseholdClient() {
+  const access = useLifeCfoAccess();
   const { showToast } = useToast();
 
   const [loading, setLoading] = useState(true);
@@ -106,6 +108,10 @@ export default function HouseholdClient() {
 
   // Switch active household
   const [switching, setSwitching] = useState(false);
+  const [demoStatusLoading, setDemoStatusLoading] = useState(false);
+  const [demoReady, setDemoReady] = useState(false);
+  const [settingUpDemo, setSettingUpDemo] = useState(false);
+  const [demoSetupError, setDemoSetupError] = useState<string | null>(null);
 
   // Outgoing invites for active household
   const [invites, setInvites] = useState<InviteRow[]>([]);
@@ -276,6 +282,25 @@ export default function HouseholdClient() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const loadDemoStatus = async () => {
+    if (!access.isDemoBeta) return;
+    setDemoStatusLoading(true);
+    try {
+      const response = await fetch("/api/demo/status", { cache: "no-store" });
+      const json = await response.json().catch(() => ({}));
+      setDemoReady(response.ok && json.demo_ready === true);
+    } catch {
+      setDemoReady(false);
+    } finally {
+      setDemoStatusLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!access.loading && access.isDemoBeta) void loadDemoStatus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [access.loading, access.isDemoBeta]);
+
   useEffect(() => {
     if (!activeHouseholdId) return;
     void loadMembers(activeHouseholdId);
@@ -406,6 +431,27 @@ export default function HouseholdClient() {
       setStatusLine("Couldn’t save.");
       await loadMembers(activeHouseholdId);
       return false;
+    }
+  };
+
+  const setupDemo = async () => {
+    if (settingUpDemo) return;
+    setSettingUpDemo(true);
+    setDemoSetupError(null);
+    try {
+      const response = await fetch("/api/demo/setup", { method: "POST" });
+      const json = await response.json().catch(() => ({}));
+      if (!response.ok || json.household_count !== 2) {
+        throw new Error("demo_setup_incomplete");
+      }
+      setDemoReady(true);
+      showToast({ message: "Demo ready." }, 1500);
+      window.location.assign("/lifecfo-home");
+    } catch {
+      setDemoSetupError("We couldnâ€™t set up the demo yet. Please try again or contact support.");
+      await loadDemoStatus();
+    } finally {
+      setSettingUpDemo(false);
     }
   };
 
@@ -569,6 +615,41 @@ export default function HouseholdClient() {
 
   // ---------- NEW USER: needs household ----------
   if (!loading && (needsHousehold || households.length === 0)) {
+    if (access.loading || (access.isDemoBeta && demoStatusLoading)) {
+      return (
+        <Page title="Household" subtitle="Setting up your workspace...">
+          <div />
+        </Page>
+      );
+    }
+
+    if (access.isDemoBeta) {
+      return (
+        <Page title="Welcome to Life CFO beta">
+          <div className="mx-auto w-full max-w-[640px] space-y-4">
+            <Card className="border-zinc-200 bg-white">
+              <CardContent className="space-y-4">
+                <p className="text-sm leading-6 text-zinc-600">
+                  This demo uses sample household money data, so you can explore safely without connecting a real bank.
+                </p>
+                {demoSetupError ? <p className="text-sm text-zinc-600">{demoSetupError}</p> : null}
+                <div className="flex flex-wrap items-center gap-2">
+                  <Chip onClick={() => void setupDemo()} disabled={settingUpDemo || demoReady}>
+                    {settingUpDemo ? "Setting up your demoâ€¦" : demoReady ? "Demo ready." : "Set up demo"}
+                  </Chip>
+                  {demoSetupError ? (
+                    <a className="text-sm text-zinc-600 underline underline-offset-2" href="mailto:admin@life-cfo.com">
+                      Contact support
+                    </a>
+                  ) : null}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        </Page>
+      );
+    }
+
     return (
       <Page title="Household" subtitle="This is who shares your money picture.">
         <div className="mx-auto w-full max-w-[760px] space-y-6">
@@ -607,6 +688,20 @@ export default function HouseholdClient() {
   return (
     <Page title="Household" subtitle="Membership and permissions.">
       <div className="mx-auto w-full max-w-[760px] space-y-6">
+        {access.isDemoBeta && !demoReady && !demoStatusLoading ? (
+          <Card className="border-zinc-200 bg-white">
+            <CardContent className="space-y-3">
+              <div className="text-sm font-semibold text-zinc-900">Finish setting up your demo</div>
+              <div className="text-sm text-zinc-600">
+                Life CFO can safely add the remaining sample household.
+              </div>
+              {demoSetupError ? <div className="text-sm text-zinc-600">{demoSetupError}</div> : null}
+              <Chip onClick={() => void setupDemo()} disabled={settingUpDemo}>
+                {settingUpDemo ? "Setting up your demoâ€¦" : "Set up demo"}
+              </Chip>
+            </CardContent>
+          </Card>
+        ) : null}
         {visibleIncomingBannerInvites.length > 0 ? (
           <div className="sticky top-3 z-30">
             <div className="rounded-2xl border border-zinc-200 bg-white/95 shadow-sm backdrop-blur">
