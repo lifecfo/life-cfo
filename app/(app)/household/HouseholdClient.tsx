@@ -8,6 +8,7 @@ import { notifyActiveHouseholdChanged } from "@/lib/households/resolveActiveHous
 type HouseholdItem = { id: string; name: string; role: string };
 
 type MemberRow = {
+  membership_id: string;
   user_id: string;
   role: string;
   created_at: string;
@@ -43,6 +44,10 @@ const DISMISSED_INVITES_STORAGE_KEY = "lifecfo-dismissed-household-invites";
 
 function safeStr(v: unknown) {
   return typeof v === "string" ? v : "";
+}
+
+function errorMessage(error: unknown, fallback: string) {
+  return error instanceof Error ? error.message : fallback;
 }
 
 function canEditMembers(role: string | null) {
@@ -192,8 +197,8 @@ export default function HouseholdClient() {
       const activeName = activeId ? list.find((h) => h.id === activeId)?.name ?? "" : "";
       setNameDraft(activeName);
       setStatusLine("Updated.");
-    } catch (e: any) {
-      showToast({ message: e?.message ?? "Couldn’t load Household." }, 2500);
+    } catch (error: unknown) {
+      showToast({ message: errorMessage(error, "Couldn’t load Household.") }, 2500);
       setStatusLine("Couldn’t load right now.");
     } finally {
       setLoading(false);
@@ -291,8 +296,8 @@ export default function HouseholdClient() {
       setCreateName("");
       await load();
       await loadIncomingInvites();
-    } catch (e: any) {
-      showToast({ message: e?.message ?? "Couldn’t create household." }, 2500);
+    } catch (error: unknown) {
+      showToast({ message: errorMessage(error, "Couldn’t create household.") }, 2500);
     } finally {
       setCreating(false);
     }
@@ -320,8 +325,8 @@ export default function HouseholdClient() {
       notifyActiveHouseholdChanged(household_id);
 
       await Promise.all([loadMembers(household_id), loadInvites(household_id), loadIncomingInvites()]);
-    } catch (e: any) {
-      showToast({ message: e?.message ?? "Couldn’t switch household." }, 2500);
+    } catch (error: unknown) {
+      showToast({ message: errorMessage(error, "Couldn’t switch household.") }, 2500);
       setStatusLine("Couldn’t switch.");
       await load();
       await loadIncomingInvites();
@@ -363,28 +368,28 @@ export default function HouseholdClient() {
       setHouseholds((prev) => prev.map((h) => (h.id === activeHouseholdId ? { ...h, name: nextName } : h)));
       setEditingName(false);
       setStatusLine("Saved.");
-    } catch (e: any) {
-      showToast({ message: e?.message ?? "Couldn’t save." }, 2500);
+    } catch (error: unknown) {
+      showToast({ message: errorMessage(error, "Couldn’t save.") }, 2500);
       setStatusLine("Couldn’t save.");
     }
   };
 
-  const updateRole = async (user_id: string, role: string) => {
+  const updateRole = async (membership_id: string, role: string) => {
     if (!activeHouseholdId) return;
     try {
       const res = await fetch("/api/households/members", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ household_id: activeHouseholdId, user_id, role }),
+        body: JSON.stringify({ household_id: activeHouseholdId, membership_id, role }),
       });
 
       const json = await res.json();
       if (!json?.ok) throw new Error(json?.error ?? "Role update failed");
 
-      setMembers((prev) => prev.map((m) => (m.user_id === user_id ? { ...m, role } : m)));
+      setMembers((prev) => prev.map((m) => (m.membership_id === membership_id ? { ...m, role } : m)));
       setStatusLine("Saved.");
-    } catch (e: any) {
-      showToast({ message: e?.message ?? "Couldn’t update role." }, 2500);
+    } catch (error: unknown) {
+      showToast({ message: errorMessage(error, "Couldn’t update role.") }, 2500);
       setStatusLine("Couldn’t save.");
       await loadMembers(activeHouseholdId);
     }
@@ -413,8 +418,8 @@ export default function HouseholdClient() {
 
       setMembers((prev) => prev.filter((m) => m.user_id !== user_id));
       setStatusLine("Removed.");
-    } catch (e: any) {
-      showToast({ message: e?.message ?? "Couldn’t remove." }, 2500);
+    } catch (error: unknown) {
+      showToast({ message: errorMessage(error, "Couldn’t remove.") }, 2500);
       setStatusLine("Couldn’t remove.");
       await loadMembers(activeHouseholdId);
     }
@@ -444,8 +449,8 @@ export default function HouseholdClient() {
       setInviteRole("viewer");
       setStatusLine("Invite sent.");
       await loadInvites(activeHouseholdId);
-    } catch (e: any) {
-      showToast({ message: e?.message ?? "Couldn’t send invite." }, 2500);
+    } catch (error: unknown) {
+      showToast({ message: errorMessage(error, "Couldn’t send invite.") }, 2500);
       setStatusLine("Couldn’t send invite.");
     } finally {
       setInviteSending(false);
@@ -467,8 +472,8 @@ export default function HouseholdClient() {
       setStatusLine("Invite cancelled.");
       await loadInvites(activeHouseholdId);
       await loadIncomingInvites();
-    } catch (e: any) {
-      showToast({ message: e?.message ?? "Couldn’t cancel invite." }, 2500);
+    } catch (error: unknown) {
+      showToast({ message: errorMessage(error, "Couldn’t cancel invite.") }, 2500);
       setStatusLine("Couldn’t cancel invite.");
     }
   };
@@ -499,8 +504,8 @@ export default function HouseholdClient() {
       setStatusLine(action === "accept" ? "Accepted." : "Declined.");
       await load();
       await loadIncomingInvites();
-    } catch (e: any) {
-      showToast({ message: e?.message ?? "Couldn’t update invite." }, 2500);
+    } catch (error: unknown) {
+      showToast({ message: errorMessage(error, "Couldn’t update invite.") }, 2500);
     }
   };
 
@@ -744,7 +749,7 @@ export default function HouseholdClient() {
                             <select
                               className="rounded-xl border border-zinc-200 bg-white px-2 py-2 text-sm text-zinc-800"
                               value={m.role}
-                              onChange={(e) => void updateRole(m.user_id, e.target.value)}
+                              onChange={(e) => void updateRole(m.membership_id, e.target.value)}
                             >
                               <option value="owner">owner</option>
                               <option value="editor">editor</option>
