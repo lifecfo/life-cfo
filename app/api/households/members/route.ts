@@ -141,47 +141,39 @@ export async function DELETE(req: Request) {
 
     const body = await req.json().catch(() => ({}));
     const household_id = typeof body?.household_id === "string" ? body.household_id : null;
-    const target_user_id = typeof body?.user_id === "string" ? body.user_id : null;
+    const membership_id = typeof body?.membership_id === "string" ? body.membership_id : null;
 
     if (!household_id) return NextResponse.json({ ok: false, error: "Missing household_id." }, { status: 400 });
-    if (!target_user_id) return NextResponse.json({ ok: false, error: "Missing user_id." }, { status: 400 });
+    if (!membership_id) return NextResponse.json({ ok: false, error: "Missing membership_id." }, { status: 400 });
 
-    if (target_user_id === user.id) {
-      return NextResponse.json(
-        { ok: false, code: "use_leave_household", error: "Use Leave household to remove your own access." },
-        { status: 409 },
-      );
+    const { data, error } = await supabase.rpc("remove_household_member", {
+      p_household_id: household_id,
+      p_membership_id: membership_id,
+    });
+
+    if (error) {
+      if (error.message.includes("use_leave_household")) {
+        return NextResponse.json(
+          { ok: false, code: "use_leave_household", error: "Use Leave household to remove your own access." },
+          { status: 409 },
+        );
+      }
+      if (error.message.includes("cannot_remove_last_owner")) {
+        return NextResponse.json(
+          { ok: false, code: "cannot_remove_last_owner", error: "A household needs at least one owner." },
+          { status: 409 },
+        );
+      }
+      if (error.message.includes("membership_not_found") || error.message.includes("household_not_found")) {
+        return NextResponse.json({ ok: false, error: "Household member not found." }, { status: 404 });
+      }
+      if (error.code === "42501") {
+        return NextResponse.json({ ok: false, error: "Only a household owner can remove members." }, { status: 403 });
+      }
+      throw error;
     }
 
-    // Only owners can remove members
-    const myRole = await getMyRole(supabase, user.id, household_id);
-    if (myRole !== "owner") return NextResponse.json({ ok: false, error: "Not allowed." }, { status: 403 });
-
-    // Guard: do not remove the last owner
-    const { data: owners, error: ownersErr } = await supabase
-      .from("household_members")
-      .select("user_id")
-      .eq("household_id", household_id)
-      .eq("role", "owner");
-
-    if (ownersErr) throw ownersErr;
-
-    const ownerCount = owners?.length ?? 0;
-    const isTargetOwner = owners?.some((o) => o.user_id === target_user_id) ?? false;
-
-    if (isTargetOwner && ownerCount <= 1) {
-      return NextResponse.json({ ok: false, error: "cannot_remove_last_owner" }, { status: 400 });
-    }
-
-    const { error } = await supabase
-      .from("household_members")
-      .delete()
-      .eq("household_id", household_id)
-      .eq("user_id", target_user_id);
-
-    if (error) throw error;
-
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true, membership: data?.[0] ?? null });
   } catch (error: unknown) {
     return NextResponse.json({ ok: false, error: errorMessage(error, "Remove failed") }, { status: 500 });
   }

@@ -35,7 +35,7 @@ type IncomingInviteRow = {
 };
 
 type DeleteConfirm =
-  | { open: true; user_id: string; label: string }
+  | { open: true; membership_id: string; label: string }
   | { open: false };
 
 type LeaveConfirm = { open: boolean };
@@ -400,28 +400,28 @@ export default function HouseholdClient() {
     }
   };
 
-  const requestRemove = (user_id: string, label: string) => {
-    setDeleteConfirm({ open: true, user_id, label: `Remove ${label}?` });
+  const requestRemove = (membership_id: string, label: string) => {
+    setDeleteConfirm({ open: true, membership_id, label: `Remove ${label}?` });
   };
 
   const performRemove = async () => {
     if (!deleteConfirm.open) return;
     if (!activeHouseholdId) return;
 
-    const user_id = deleteConfirm.user_id;
+    const membership_id = deleteConfirm.membership_id;
     setDeleteConfirm({ open: false });
 
     try {
       const res = await fetch("/api/households/members", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ household_id: activeHouseholdId, user_id }),
+        body: JSON.stringify({ household_id: activeHouseholdId, membership_id }),
       });
 
       const json = await res.json();
       if (!json?.ok) throw new Error(json?.error ?? "Remove failed");
 
-      setMembers((prev) => prev.filter((m) => m.user_id !== user_id));
+      setMembers((prev) => prev.filter((m) => m.membership_id !== membership_id));
       setStatusLine("Removed.");
     } catch (error: unknown) {
       showToast({ message: errorMessage(error, "Couldn’t remove.") }, 2500);
@@ -787,7 +787,7 @@ export default function HouseholdClient() {
                             </select>
                           )}
 
-                          <Chip onClick={() => requestRemove(m.user_id, label)} disabled={isOnlyOwnerMe}>
+                          <Chip onClick={() => requestRemove(m.membership_id, label)} disabled={isOnlyOwnerMe}>
                             Remove
                           </Chip>
                         </div>
