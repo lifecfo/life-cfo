@@ -38,6 +38,8 @@ type DeleteConfirm =
   | { open: true; user_id: string; label: string }
   | { open: false };
 
+type LeaveConfirm = { open: boolean };
+
 export const dynamic = "force-dynamic";
 
 const DISMISSED_INVITES_STORAGE_KEY = "lifecfo-dismissed-household-invites";
@@ -94,6 +96,8 @@ export default function HouseholdClient() {
   const [nameDraft, setNameDraft] = useState("");
 
   const [deleteConfirm, setDeleteConfirm] = useState<DeleteConfirm>({ open: false });
+  const [leaveConfirm, setLeaveConfirm] = useState<LeaveConfirm>({ open: false });
+  const [leaving, setLeaving] = useState(false);
 
   const [showAdvanced, setShowAdvanced] = useState(false);
 
@@ -129,6 +133,7 @@ export default function HouseholdClient() {
   const allowRename = canRename(myRole);
   const allowMemberEdits = canEditMembers(myRole);
   const allowInvites = canInvite(myRole);
+  const isSoleOwner = (myRole ?? "").toLowerCase() === "owner" && ownersCount <= 1;
 
   const outgoingPendingInvites = useMemo(() => {
     return invites.filter((i) => (i.status ?? "").toLowerCase() === "pending");
@@ -422,6 +427,31 @@ export default function HouseholdClient() {
       showToast({ message: errorMessage(error, "Couldn’t remove.") }, 2500);
       setStatusLine("Couldn’t remove.");
       await loadMembers(activeHouseholdId);
+    }
+  };
+
+  const leaveHousehold = async () => {
+    if (!activeHouseholdId || leaving) return;
+
+    setLeaving(true);
+    try {
+      const res = await fetch(`/api/households/${encodeURIComponent(activeHouseholdId)}/leave`, {
+        method: "POST",
+      });
+      const json = await res.json();
+      if (!json?.ok) throw new Error(json?.error ?? "We couldn’t leave this household yet.");
+
+      setLeaveConfirm({ open: false });
+      setMembers([]);
+      setInvites([]);
+      notifyActiveHouseholdChanged(typeof json.active_household_id === "string" ? json.active_household_id : null);
+      await load();
+      await loadIncomingInvites();
+      setStatusLine("Household left.");
+    } catch (error: unknown) {
+      showToast({ message: errorMessage(error, "We couldn’t leave this household yet.") }, 2500);
+    } finally {
+      setLeaving(false);
     }
   };
 
@@ -891,6 +921,23 @@ export default function HouseholdClient() {
           </CardContent>
         </Card>
 
+        <Card className="border-zinc-200 bg-white">
+          <CardContent className="space-y-3">
+            <div>
+              <div className="text-sm font-semibold text-zinc-900">Your access</div>
+              <div className="text-xs text-zinc-500">Leaving removes your access, not the household or its shared information.</div>
+            </div>
+
+            {isSoleOwner ? (
+              <div className="text-sm text-zinc-600">You’re the only owner. Add another owner before leaving.</div>
+            ) : (
+              <div>
+                <Chip onClick={() => setLeaveConfirm({ open: true })}>Leave household</Chip>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
         {deleteConfirm.open ? (
           <div className="fixed inset-0 z-40 flex items-end justify-center bg-black/20 p-4 sm:items-center">
             <div className="w-full max-w-[520px] rounded-2xl border border-zinc-200 bg-white shadow-lg">
@@ -902,6 +949,30 @@ export default function HouseholdClient() {
                   <Chip onClick={() => setDeleteConfirm({ open: false })}>Cancel</Chip>
                   <Chip onClick={() => void performRemove()} className="border-zinc-900 bg-zinc-900 text-white hover:bg-zinc-800">
                     Remove
+                  </Chip>
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        {leaveConfirm.open ? (
+          <div className="fixed inset-0 z-40 flex items-end justify-center bg-black/20 p-4 sm:items-center">
+            <div className="w-full max-w-[520px] rounded-2xl border border-zinc-200 bg-white shadow-lg">
+              <div className="space-y-2 p-4 sm:p-5">
+                <div className="text-sm font-semibold text-zinc-900">Leave household?</div>
+                <div className="text-sm text-zinc-600">
+                  You will lose access to this household. Shared household information will stay for the other members.
+                </div>
+
+                <div className="mt-4 flex items-center justify-end gap-2">
+                  <Chip onClick={() => setLeaveConfirm({ open: false })} disabled={leaving}>Cancel</Chip>
+                  <Chip
+                    onClick={() => void leaveHousehold()}
+                    disabled={leaving}
+                    className="border-zinc-900 bg-zinc-900 text-white hover:bg-zinc-800"
+                  >
+                    {leaving ? "Leaving…" : "Leave household"}
                   </Chip>
                 </div>
               </div>
