@@ -151,38 +151,23 @@ function preflightDetails(sourceKind: SourceKind) {
 
   if (sourceKind === "basiq_active") {
     return {
-      message: "Self-service disconnection is not available yet.",
+      message: "Bank connection changes are handled with support during private beta.",
       supportRequired: true,
-      choices: [
-        {
-          key: "manage_connection",
-          label: "Manage connection",
-          detail: "Bank connection changes are handled with support during private beta.",
-          available: false,
-          reason: "Contact support during private beta.",
-        },
-      ],
+      choices: [],
     };
   }
 
   if (sourceKind === "uploaded_bank_files") {
     return {
-      message: "Your uploaded transactions will stay as they are.",
-      supportRequired: false,
+      message: "Uploaded files do not keep syncing.",
+      supportRequired: true,
       choices: [
-        {
-          key: "keep_transactions",
-          label: "Keep past transactions",
-          detail: "No action is needed. Your uploaded transactions stay available.",
-          available: true,
-          reason: null,
-        },
         {
           key: "delete_uploaded_transactions",
           label: "Delete uploaded transactions",
-          detail: "Remove transactions added from uploaded bank files.",
+          detail: "Deleting uploaded transactions is not available yet.",
           available: false,
-          reason: "This is not available yet.",
+          reason: null,
         },
       ],
     };
@@ -190,15 +175,23 @@ function preflightDetails(sourceKind: SourceKind) {
 
   if (sourceKind === "demo") {
     return {
-      message: "Demo data is managed through the demo tools.",
+      message: "Demo data is for testing Life CFO.",
+      supportRequired: false,
+      choices: [],
+    };
+  }
+
+  if (sourceKind === "manual_account_related") {
+    return {
+      message: "Manual account changes are handled separately.",
       supportRequired: false,
       choices: [
         {
-          key: "manage_demo_data",
-          label: "Manage demo data",
-          detail: "Use the demo tools to reset or remove this household data.",
-          available: false,
-          reason: "This is not available here.",
+          key: "open_accounts",
+          label: "Open Accounts",
+          detail: "Manage manual accounts from the Accounts page.",
+          available: true,
+          reason: null,
         },
       ],
     };
@@ -229,7 +222,7 @@ function preflightDetails(sourceKind: SourceKind) {
         label: "Contact support",
         detail: "We can help review this source during private beta.",
         available: false,
-        reason: "Contact support during private beta.",
+        reason: null,
       },
     ],
   };

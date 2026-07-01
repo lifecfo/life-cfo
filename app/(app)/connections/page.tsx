@@ -18,6 +18,7 @@ type Connection = {
   can_refresh_after_consent?: boolean;
   linked_account_count?: number | null;
   linked_transaction_count?: number | null;
+  source_kind?: string | null;
 };
 
 type DisconnectChoice = {
@@ -212,6 +213,10 @@ function syncLine(c: Connection) {
 }
 
 function connectionSubline(c: Connection) {
+  if (c.source_kind === "uploaded_bank_files") return "Uploaded bank file.";
+  if (c.source_kind === "demo") return "Demo data for testing Life CFO.";
+  if (c.source_kind === "manual_account_related") return "Manual account.";
+
   const parts = [syncLine(c)];
 
   if (c.status === "active" || c.status === "manual" || c.status === "demo") {
@@ -256,6 +261,38 @@ function isOlderThanHours(value: string | null | undefined, hours: number) {
   const ms = Date.parse(value);
   if (!Number.isFinite(ms)) return false;
   return Date.now() - ms > hours * 60 * 60 * 1000;
+}
+
+function sourceChipLabel(connection: Connection) {
+  if (connection.source_kind === "uploaded_bank_files") return "Uploaded file";
+  if (connection.source_kind === "demo") return "Demo data";
+  if (connection.source_kind === "manual_account_related") return "Manual account";
+  return providerLabel(connection.provider);
+}
+
+function sourceActionLabel(connection: Connection) {
+  if (connection.source_kind === "uploaded_bank_files") return "Uploaded file options";
+  if (connection.source_kind === "manual_account_related") return "Manual account options";
+  if (connection.source_kind === "demo") return "Demo options";
+  if (coerceStr(connection.provider).toLowerCase() === "basiq") return "Connection options";
+  if (
+    connection.status === "disconnecting" ||
+    connection.status === "disconnected" ||
+    connection.status === "support_required"
+  ) {
+    return "Connection options";
+  }
+  return "Disconnect options";
+}
+
+function preflightPanelTitle(sourceKind: string) {
+  if (sourceKind === "uploaded_bank_files") return "Uploaded file options";
+  if (sourceKind === "manual_account_related" || sourceKind === "manual_empty") {
+    return "Manual account options";
+  }
+  if (sourceKind === "demo") return "Demo options";
+  if (sourceKind === "basiq_active") return "Connection options";
+  return "Disconnect options";
 }
 
 const BASIQ_AUTOSYNC_MARKER_PREFIX = "lifecfo:basiq-autosync:";
@@ -325,13 +362,11 @@ function ConnectionActionsMenu({
   syncing,
   onSync,
   onComingSoon,
-  onDisconnectOptions,
 }: {
   connection: Connection;
   syncing: boolean;
   onSync: () => void;
   onComingSoon: (label: string) => void;
-  onDisconnectOptions: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement | null>(null);
@@ -412,16 +447,6 @@ function ConnectionActionsMenu({
             </span>
           </button>
 
-          <button
-            type="button"
-            onClick={() => {
-              setOpen(false);
-              onDisconnectOptions();
-            }}
-            className="flex w-full items-center justify-between px-4 py-3 text-left text-sm text-zinc-700 hover:bg-zinc-50"
-          >
-            <span>Disconnect options</span>
-          </button>
         </div>
       ) : null}
     </div>
@@ -764,8 +789,25 @@ function ConnectionsPageClient() {
     }
   }
 
-  function statusChip(status: string) {
+  function statusChip(connection: Connection) {
     const base = "text-xs rounded-full px-3 py-1 border";
+    const status = connection.status;
+
+    if (connection.source_kind === "demo" || status === "demo") {
+      return (
+        <span className={`${base} border-violet-200 bg-violet-50 text-violet-700`}>
+          Demo data
+        </span>
+      );
+    }
+
+    if (connection.source_kind === "uploaded_bank_files") {
+      return (
+        <span className={`${base} border-zinc-200 bg-zinc-50 text-zinc-700`}>
+          Uploaded file
+        </span>
+      );
+    }
 
     if (status === "manual") {
       return (
@@ -927,7 +969,9 @@ function ConnectionsPageClient() {
       <div className="mt-4 rounded-2xl border border-zinc-200 bg-white px-4 py-4">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <div className="text-sm font-semibold text-zinc-900">Disconnect options</div>
+            <div className="text-sm font-semibold text-zinc-900">
+              {preflightPanelTitle(disconnectPreflight.source_kind)}
+            </div>
             <div className="mt-1 text-sm text-zinc-600">{disconnectPreflight.label}</div>
           </div>
           <button
@@ -976,6 +1020,16 @@ function ConnectionsPageClient() {
                   Disconnect and keep history
                 </Button>
               ) : null}
+              {choice.key === "open_accounts" && choice.available ? (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="mt-2"
+                  onClick={() => router.push("/accounts")}
+                >
+                  Open Accounts
+                </Button>
+              ) : null}
             </div>
           ))}
         </div>
@@ -1008,12 +1062,18 @@ function ConnectionsPageClient() {
           </div>
         ) : null}
 
+        {disconnectPreflight.source_kind === "plaid_active" ? (
+          <div className="mt-3 text-xs text-zinc-500">
+            Nothing happens until you confirm.
+          </div>
+        ) : null}
+
         {disconnectPreflight.support_required ? (
           <a
             href="mailto:admin@life-cfo.com"
             className="mt-4 inline-flex text-sm font-medium text-zinc-800 underline underline-offset-4"
           >
-            Contact support during private beta
+            Contact support
           </a>
         ) : null}
         <div className="mt-3 text-xs text-zinc-500">Nothing has been changed.</div>
@@ -1269,7 +1329,7 @@ function ConnectionsPageClient() {
                     <div className="space-y-3">
                       <div className="flex items-center justify-between gap-3">
                         <div className="text-xs font-medium uppercase tracking-wide text-zinc-500">
-                          Connected
+                          Available sources
                         </div>
                         {olderPlaidSources.length > 0 ? (
                           <button
@@ -1312,7 +1372,7 @@ function ConnectionsPageClient() {
                                         c.provider
                                       )}`}
                                     >
-                                      {providerLabel(c.provider)}
+                                      {sourceChipLabel(c)}
                                     </span>
                                   </div>
 
@@ -1345,8 +1405,17 @@ function ConnectionsPageClient() {
                                       syncing={syncingId === c.id}
                                       onSync={() => void syncConnection(c.id)}
                                       onComingSoon={handleComingSoon}
-                                      onDisconnectOptions={() => void showDisconnectOptions(c.id)}
                                     />
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      onClick={() => void showDisconnectOptions(c.id)}
+                                      disabled={disconnectLoadingId === c.id}
+                                    >
+                                      {disconnectLoadingId === c.id
+                                        ? "Checking..."
+                                        : sourceActionLabel(c)}
+                                    </Button>
                                   </>
                                 ) : null}
 
@@ -1359,11 +1428,11 @@ function ConnectionsPageClient() {
                                   >
                                     {disconnectLoadingId === c.id
                                       ? "Checking..."
-                                      : "Disconnect options"}
+                                      : sourceActionLabel(c)}
                                   </Button>
                                 ) : null}
 
-                                {statusChip(c.status)}
+                                {statusChip(c)}
                               </div>
                             </div>
                             {disconnectOptionsPanel(c.id)}
@@ -1476,7 +1545,7 @@ function ConnectionsPageClient() {
                                 </Button>
                               )}
 
-                              {statusChip(c.status)}
+                              {statusChip(c)}
                             </div>
                           </div>
                         </div>
@@ -1585,7 +1654,7 @@ function ConnectionsPageClient() {
                                 </Button>
                               )}
 
-                              {statusChip(c.status)}
+                              {statusChip(c)}
                             </div>
                           </div>
                         </div>
@@ -1692,9 +1761,9 @@ function ConnectionsPageClient() {
                                 >
                                   {disconnectLoadingId === c.id
                                     ? "Checking..."
-                                    : "Disconnect options"}
+                                    : sourceActionLabel(c)}
                                 </Button>
-                                {statusChip(c.status)}
+                                {statusChip(c)}
                               </div>
                             </div>
                             {disconnectOptionsPanel(c.id)}

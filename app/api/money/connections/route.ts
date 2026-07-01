@@ -49,6 +49,38 @@ function hasBasiqConsentMetadata(itemId: unknown): boolean {
   }
 }
 
+function metadataRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function connectionSourceKind(input: {
+  provider: string;
+  status: string;
+  metadata: Record<string, unknown>;
+}) {
+  if (
+    input.provider === "manual" &&
+    input.status === "demo" &&
+    input.metadata.demo === true
+  ) {
+    return "demo";
+  }
+  if (
+    input.provider === "manual" &&
+    input.metadata.manual_csv === true &&
+    input.metadata.source_type === "csv_upload"
+  ) {
+    return "uploaded_bank_files";
+  }
+  if (input.provider === "manual") return "manual_account_related";
+  if (input.provider === "plaid" || input.provider === "basiq") {
+    return "connected_bank";
+  }
+  return "unknown";
+}
+
 export async function GET() {
   try {
     const supabase = await supabaseRoute();
@@ -73,7 +105,7 @@ export async function GET() {
     const { data, error } = await supabase
       .from("external_connections")
       .select(
-        "id,household_id,user_id,provider,status,provider_connection_id,display_name,last_sync_at,created_at,updated_at,provider_institution_name,institution_name,item_id"
+        "id,household_id,user_id,provider,status,display_name,last_sync_at,created_at,updated_at,provider_institution_name,institution_name,item_id,metadata"
       )
       .eq("household_id", householdId)
       .order("created_at", { ascending: false });
@@ -84,16 +116,23 @@ export async function GET() {
       (data ?? []).map(async (connection) => {
         const provider = normalizeProvider(connection.provider);
         const status = typeof connection.status === "string" ? connection.status.trim() : "";
+        const source_kind = connectionSourceKind({
+          provider,
+          status,
+          metadata: metadataRecord(connection.metadata),
+        });
         const can_refresh_after_consent =
           provider === "basiq" &&
           status === "needs_auth" &&
           hasBasiqConsentMetadata(connection.item_id);
-        const { item_id: _itemId, ...safeConnection } = connection;
+        const { item_id: _itemId, metadata: _metadata, ...safeConnection } = connection;
         void _itemId;
+        void _metadata;
 
         if (provider !== "manual") {
           return {
             ...safeConnection,
+            source_kind,
             can_refresh_after_consent,
             linked_account_count: null,
             linked_transaction_count: null,
@@ -120,6 +159,7 @@ export async function GET() {
 
         return {
           ...safeConnection,
+          source_kind,
           can_refresh_after_consent,
           linked_account_count: accountResult.count ?? 0,
           linked_transaction_count: transactionResult.count ?? 0,
