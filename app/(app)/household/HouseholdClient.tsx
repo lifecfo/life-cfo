@@ -40,6 +40,10 @@ type DeleteConfirm =
 
 type LeaveConfirm = { open: boolean };
 
+type OwnershipConfirm =
+  | { open: true; action: "make_owner" | "step_down"; membership_id: string }
+  | { open: false };
+
 export const dynamic = "force-dynamic";
 
 const DISMISSED_INVITES_STORAGE_KEY = "lifecfo-dismissed-household-invites";
@@ -98,6 +102,8 @@ export default function HouseholdClient() {
   const [deleteConfirm, setDeleteConfirm] = useState<DeleteConfirm>({ open: false });
   const [leaveConfirm, setLeaveConfirm] = useState<LeaveConfirm>({ open: false });
   const [leaving, setLeaving] = useState(false);
+  const [ownershipConfirm, setOwnershipConfirm] = useState<OwnershipConfirm>({ open: false });
+  const [changingOwnership, setChangingOwnership] = useState(false);
 
   const [showAdvanced, setShowAdvanced] = useState(false);
 
@@ -134,6 +140,8 @@ export default function HouseholdClient() {
   const allowMemberEdits = canEditMembers(myRole);
   const allowInvites = canInvite(myRole);
   const isSoleOwner = (myRole ?? "").toLowerCase() === "owner" && ownersCount <= 1;
+  const currentMembership = members.find((member) => member.is_me) ?? null;
+  const canStepDown = (myRole ?? "").toLowerCase() === "owner" && ownersCount > 1 && !!currentMembership;
 
   const outgoingPendingInvites = useMemo(() => {
     return invites.filter((i) => (i.status ?? "").toLowerCase() === "pending");
@@ -379,8 +387,8 @@ export default function HouseholdClient() {
     }
   };
 
-  const updateRole = async (membership_id: string, role: string) => {
-    if (!activeHouseholdId) return;
+  const updateRole = async (membership_id: string, role: string): Promise<boolean> => {
+    if (!activeHouseholdId) return false;
     try {
       const res = await fetch("/api/households/members", {
         method: "PATCH",
@@ -391,13 +399,31 @@ export default function HouseholdClient() {
       const json = await res.json();
       if (!json?.ok) throw new Error(json?.error ?? "Role update failed");
 
+      const updatedMember = members.find((member) => member.membership_id === membership_id);
       setMembers((prev) => prev.map((m) => (m.membership_id === membership_id ? { ...m, role } : m)));
+      if (updatedMember?.is_me) {
+        setHouseholds((prev) => prev.map((household) => (
+          household.id === activeHouseholdId ? { ...household, role } : household
+        )));
+      }
       setStatusLine("Saved.");
+      return true;
     } catch (error: unknown) {
       showToast({ message: errorMessage(error, "Couldn’t update role.") }, 2500);
       setStatusLine("Couldn’t save.");
       await loadMembers(activeHouseholdId);
+      return false;
     }
+  };
+
+  const confirmOwnershipChange = async () => {
+    if (!ownershipConfirm.open || changingOwnership) return;
+
+    setChangingOwnership(true);
+    const role = ownershipConfirm.action === "make_owner" ? "owner" : "editor";
+    const saved = await updateRole(ownershipConfirm.membership_id, role);
+    if (saved) setOwnershipConfirm({ open: false });
+    setChangingOwnership(false);
   };
 
   const requestRemove = (membership_id: string, label: string) => {
@@ -748,6 +774,7 @@ export default function HouseholdClient() {
               <div className="grid gap-2">
                 {members.map((m) => {
                   const label = m.label ?? `Member ${maskId(m.user_id)}`;
+                  const isOwner = (m.role ?? "").toLowerCase() === "owner";
                   const isOnlyOwnerMe = !!m.is_me && (m.role ?? "").toLowerCase() === "owner" && ownersCount <= 1;
 
                   return (
@@ -771,25 +798,31 @@ export default function HouseholdClient() {
 
                       {allowMemberEdits ? (
                         <div className="flex items-center gap-2">
-                          {isOnlyOwnerMe ? (
+                          {isOwner ? (
                             <span className="inline-flex items-center rounded-full border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800">
                               Owner
                             </span>
                           ) : (
-                            <select
-                              className="rounded-xl border border-zinc-200 bg-white px-2 py-2 text-sm text-zinc-800"
-                              value={m.role}
-                              onChange={(e) => void updateRole(m.membership_id, e.target.value)}
-                            >
-                              <option value="owner">owner</option>
-                              <option value="editor">editor</option>
-                              <option value="viewer">viewer</option>
-                            </select>
+                            <>
+                              <select
+                                className="rounded-xl border border-zinc-200 bg-white px-2 py-2 text-sm text-zinc-800"
+                                value={m.role}
+                                onChange={(e) => void updateRole(m.membership_id, e.target.value)}
+                              >
+                                <option value="editor">editor</option>
+                                <option value="viewer">viewer</option>
+                              </select>
+                              <Chip onClick={() => setOwnershipConfirm({ open: true, action: "make_owner", membership_id: m.membership_id })}>
+                                Make owner
+                              </Chip>
+                            </>
                           )}
 
-                          <Chip onClick={() => requestRemove(m.membership_id, label)} disabled={isOnlyOwnerMe}>
-                            Remove
-                          </Chip>
+                          {!m.is_me ? (
+                            <Chip onClick={() => requestRemove(m.membership_id, label)}>
+                              Remove member
+                            </Chip>
+                          ) : null}
                         </div>
                       ) : (
                         <div className="text-xs text-zinc-500">—</div>
@@ -931,7 +964,12 @@ export default function HouseholdClient() {
             {isSoleOwner ? (
               <div className="text-sm text-zinc-600">You’re the only owner. Add another owner before leaving.</div>
             ) : (
-              <div>
+              <div className="flex flex-wrap items-center gap-2">
+                {canStepDown && currentMembership ? (
+                  <Chip onClick={() => setOwnershipConfirm({ open: true, action: "step_down", membership_id: currentMembership.membership_id })}>
+                    Step down as owner
+                  </Chip>
+                ) : null}
                 <Chip onClick={() => setLeaveConfirm({ open: true })}>Leave household</Chip>
               </div>
             )}
@@ -948,7 +986,37 @@ export default function HouseholdClient() {
                 <div className="mt-4 flex items-center justify-end gap-2">
                   <Chip onClick={() => setDeleteConfirm({ open: false })}>Cancel</Chip>
                   <Chip onClick={() => void performRemove()} className="border-zinc-900 bg-zinc-900 text-white hover:bg-zinc-800">
-                    Remove
+                    Remove member
+                  </Chip>
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        {ownershipConfirm.open ? (
+          <div className="fixed inset-0 z-40 flex items-end justify-center bg-black/20 p-4 sm:items-center">
+            <div className="w-full max-w-[520px] rounded-2xl border border-zinc-200 bg-white shadow-lg">
+              <div className="space-y-2 p-4 sm:p-5">
+                <div className="text-sm font-semibold text-zinc-900">
+                  {ownershipConfirm.action === "make_owner" ? "Make owner?" : "Step down as owner?"}
+                </div>
+                <div className="text-sm text-zinc-600">
+                  {ownershipConfirm.action === "make_owner"
+                    ? "This person will be able to manage household members and important settings."
+                    : "You will no longer manage household members and important settings."}
+                </div>
+
+                <div className="mt-4 flex items-center justify-end gap-2">
+                  <Chip onClick={() => setOwnershipConfirm({ open: false })} disabled={changingOwnership}>Cancel</Chip>
+                  <Chip
+                    onClick={() => void confirmOwnershipChange()}
+                    disabled={changingOwnership}
+                    className="border-zinc-900 bg-zinc-900 text-white hover:bg-zinc-800"
+                  >
+                    {changingOwnership
+                      ? "Saving…"
+                      : ownershipConfirm.action === "make_owner" ? "Make owner" : "Step down"}
                   </Chip>
                 </div>
               </div>

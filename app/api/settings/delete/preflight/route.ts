@@ -180,8 +180,8 @@ export async function GET() {
           code: "sole_household_owner",
           household_id: membership.household_id,
           message:
-            "You’re the only owner of this household. Add another owner or delete the household first.",
-          action_label: "Open household",
+            "You’re the only owner of this household. Add another owner before deleting your account.",
+          action_label: "Manage owners",
           href: "/household",
         });
       }
