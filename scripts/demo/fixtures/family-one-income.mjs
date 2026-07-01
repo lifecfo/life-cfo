@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 
 export const SCENARIO = "family-one-income";
-export const FIXTURE_VERSION = "family-one-income-v1";
+export const FIXTURE_VERSION = "family-one-income-v2";
 export const HOUSEHOLD_NAME = "[DEMO] Family of Four - One Income";
 
 function deterministicUuid(key) {
@@ -46,14 +46,18 @@ function observedRange(transactions, merchant) {
 
 export function buildFamilyOneIncomeFixture({ ownerUserId, anchorDate = new Date() }) {
   const anchor = new Date(anchorDate);
-  const random = seededRandom(`${FIXTURE_VERSION}:${anchor.toISOString().slice(0, 10)}`);
-  const householdId = deterministicUuid(`${SCENARIO}:household`);
-  const connectionId = deterministicUuid(`${SCENARIO}:connection`);
+  const fixtureNamespace = `${SCENARIO}:${ownerUserId}:${FIXTURE_VERSION}`;
+  const fixtureUuid = (key) => deterministicUuid(`${fixtureNamespace}:${key}`);
+  const externalNamespace = `demo:${SCENARIO}:${FIXTURE_VERSION}:${ownerUserId}`;
+  const random = seededRandom(`${fixtureNamespace}:${anchor.toISOString().slice(0, 10)}`);
+  const householdId = fixtureUuid("household");
+  const membershipId = fixtureUuid("membership:owner");
+  const connectionId = fixtureUuid("connection");
   const accountIds = {
-    everyday: deterministicUuid(`${SCENARIO}:account:everyday`),
-    bills: deterministicUuid(`${SCENARIO}:account:bills`),
-    savings: deterministicUuid(`${SCENARIO}:account:savings`),
-    card: deterministicUuid(`${SCENARIO}:account:card`),
+    everyday: fixtureUuid("account:everyday"),
+    bills: fixtureUuid("account:bills"),
+    savings: fixtureUuid("account:savings"),
+    card: fixtureUuid("account:card"),
   };
   const accountDefinitions = [
     { key: "everyday", name: "Everyday account", type: "cash", subtype: "checking", balance: 235000, available: 235000, mask: "4101" },
@@ -73,7 +77,7 @@ export function buildFamilyOneIncomeFixture({ ownerUserId, anchorDate = new Date
     provider: "manual",
     status: "demo",
     display_name: "Manual demo data",
-    provider_connection_id: `demo:${SCENARIO}`,
+    provider_connection_id: `${externalNamespace}:connection`,
     encrypted_access_token: null,
     item_id: null,
     metadata: connectionMetadata,
@@ -86,8 +90,8 @@ export function buildFamilyOneIncomeFixture({ ownerUserId, anchorDate = new Date
     household_id: householdId,
     connection_id: connectionId,
     provider: "manual",
-    external_id: `demo:${SCENARIO}:account:${account.key}`,
-    provider_account_id: `demo-${SCENARIO}-${account.key}`,
+    external_id: `${externalNamespace}:account:${account.key}`,
+    provider_account_id: `${externalNamespace}:account:${account.key}`,
     name: account.name,
     official_name: account.name,
     type: account.type,
@@ -101,11 +105,11 @@ export function buildFamilyOneIncomeFixture({ ownerUserId, anchorDate = new Date
     updated_at: anchor.toISOString(),
   }));
   const externalAccounts = accountDefinitions.map((account) => ({
-    id: deterministicUuid(`${SCENARIO}:external-account:${account.key}`),
+    id: fixtureUuid(`external-account:${account.key}`),
     household_id: householdId,
     provider: "manual",
     connection_id: connectionId,
-    provider_account_id: `demo-${SCENARIO}-${account.key}`,
+    provider_account_id: `${externalNamespace}:account:${account.key}`,
     name: account.name,
     mask: account.mask,
     type: account.type,
@@ -121,9 +125,9 @@ export function buildFamilyOneIncomeFixture({ ownerUserId, anchorDate = new Date
   const addTransaction = ({ account, daysAgo, amountCents, merchant, description, category }) => {
     sequence += 1;
     const date = dateDaysAgo(anchor, Math.max(0, daysAgo));
-    const externalId = `demo:${SCENARIO}:${FIXTURE_VERSION}:${String(sequence).padStart(4, "0")}`;
+    const externalId = `${externalNamespace}:transaction:${String(sequence).padStart(4, "0")}`;
     transactions.push({
-      id: deterministicUuid(`${externalId}:${date}`),
+      id: fixtureUuid(`transaction:${sequence}:${date}`),
       user_id: ownerUserId,
       household_id: householdId,
       account_id: accountIds[account],
@@ -167,7 +171,7 @@ export function buildFamilyOneIncomeFixture({ ownerUserId, anchorDate = new Date
   }
   for (let month = 0; month < 6; month += 1) {
     const base = 5 + month * 30;
-    addTransaction({ account: "bills", daysAgo: base, amountCents: -315000, merchant: "Commonwealth Bank Home Loan", description: "Mortgage repayment", category: "Housing" });
+    addTransaction({ account: "bills", daysAgo: base, amountCents: -315000, merchant: "Harbour Home Loan", description: "Mortgage repayment", category: "Housing" });
     addTransaction({ account: "bills", daysAgo: base + 2, amountCents: -jitter(16800, 2400), merchant: "Origin Energy", description: "Electricity", category: "Utilities" });
     addTransaction({ account: "bills", daysAgo: base + 4, amountCents: -9500, merchant: "Aussie Broadband", description: "Home internet", category: "Utilities" });
     addTransaction({ account: "bills", daysAgo: base + 6, amountCents: -7200, merchant: "Telstra", description: "Mobile phones", category: "Utilities" });
@@ -183,15 +187,15 @@ export function buildFamilyOneIncomeFixture({ ownerUserId, anchorDate = new Date
   addTransaction({ account: "card", daysAgo: 116, amountCents: -22400, merchant: "Family Medical Centre", description: "Specialist appointment", category: "Health" });
 
   const salaryRange = observedRange(transactions, "Harbour Engineering Payroll");
-  const mortgageRange = observedRange(transactions, "Commonwealth Bank Home Loan");
+  const mortgageRange = observedRange(transactions, "Harbour Home Loan");
   const transferRange = observedRange(transactions, "Internal Transfer to Savings");
   const confirmations = [
-    { id: deterministicUuid(`${SCENARIO}:confirmation:salary`), household_id: householdId, pattern_key: "income:AUD:HARBOUR ENGINEERING PAYROLL", kind: "income", label: "Main salary", amount_cents: 452000, currency: "AUD", cadence: "fortnightly", confidence: "confirmed", source_provider: "manual", first_seen_at: salaryRange.first, last_seen_at: salaryRange.last, created_by: ownerUserId, updated_at: anchor.toISOString() },
-    { id: deterministicUuid(`${SCENARIO}:confirmation:mortgage`), household_id: householdId, pattern_key: "outflow:AUD:COMMONWEALTH BANK HOME LOAN", kind: "bill", label: "Home loan", amount_cents: 315000, currency: "AUD", cadence: "monthly", confidence: "confirmed", source_provider: "manual", first_seen_at: mortgageRange.first, last_seen_at: mortgageRange.last, created_by: ownerUserId, updated_at: anchor.toISOString() },
-    { id: deterministicUuid(`${SCENARIO}:confirmation:transfer`), household_id: householdId, pattern_key: "outflow:AUD:INTERNAL TRANSFER TO SAVINGS", kind: "ignore", label: "Move to family buffer", amount_cents: 30000, currency: "AUD", cadence: "monthly", confidence: "confirmed", source_provider: "manual", first_seen_at: transferRange.first, last_seen_at: transferRange.last, created_by: ownerUserId, updated_at: anchor.toISOString() },
+    { id: fixtureUuid("confirmation:salary"), household_id: householdId, pattern_key: "income:AUD:HARBOUR ENGINEERING PAYROLL", kind: "income", label: "Main salary", amount_cents: 452000, currency: "AUD", cadence: "fortnightly", confidence: "confirmed", source_provider: "manual", first_seen_at: salaryRange.first, last_seen_at: salaryRange.last, created_by: ownerUserId, updated_at: anchor.toISOString() },
+    { id: fixtureUuid("confirmation:mortgage"), household_id: householdId, pattern_key: "outflow:AUD:HARBOUR HOME LOAN", kind: "bill", label: "Home loan", amount_cents: 315000, currency: "AUD", cadence: "monthly", confidence: "confirmed", source_provider: "manual", first_seen_at: mortgageRange.first, last_seen_at: mortgageRange.last, created_by: ownerUserId, updated_at: anchor.toISOString() },
+    { id: fixtureUuid("confirmation:transfer"), household_id: householdId, pattern_key: "outflow:AUD:INTERNAL TRANSFER TO SAVINGS", kind: "ignore", label: "Move to family buffer", amount_cents: 30000, currency: "AUD", cadence: "monthly", confidence: "confirmed", source_provider: "manual", first_seen_at: transferRange.first, last_seen_at: transferRange.last, created_by: ownerUserId, updated_at: anchor.toISOString() },
   ];
   const decision = {
-    id: deterministicUuid(`${SCENARIO}:decision:private-school`),
+    id: fixtureUuid("decision:private-school"),
     user_id: ownerUserId,
     household_id: householdId,
     title: "What would private school next year do to our breathing room?",
@@ -204,7 +208,7 @@ export function buildFamilyOneIncomeFixture({ ownerUserId, anchorDate = new Date
   };
   const targetDate = dateDaysAgo(anchor, -180);
   const goal = {
-    id: deterministicUuid(`${SCENARIO}:goal:emergency-buffer`),
+    id: fixtureUuid("goal:emergency-buffer"),
     user_id: ownerUserId,
     household_id: householdId,
     title: "Emergency buffer",
@@ -223,7 +227,7 @@ export function buildFamilyOneIncomeFixture({ ownerUserId, anchorDate = new Date
     scenario: SCENARIO,
     version: FIXTURE_VERSION,
     household: { id: householdId, name: HOUSEHOLD_NAME },
-    membership: { household_id: householdId, user_id: ownerUserId, role: "owner" },
+    membership: { id: membershipId, household_id: householdId, user_id: ownerUserId, role: "owner" },
     connection,
     accounts,
     externalAccounts,
@@ -232,4 +236,27 @@ export function buildFamilyOneIncomeFixture({ ownerUserId, anchorDate = new Date
     decision,
     goal,
   };
+}
+
+export function assertFamilyOneIncomeFixtureIsolation(ownerUserIdA, ownerUserIdB) {
+  if (ownerUserIdA === ownerUserIdB) {
+    throw new Error("Fixture isolation requires two different owner user IDs.");
+  }
+  const anchorDate = new Date("2026-07-01T00:00:00.000Z");
+  const fixtureA = buildFamilyOneIncomeFixture({ ownerUserId: ownerUserIdA, anchorDate });
+  const fixtureB = buildFamilyOneIncomeFixture({ ownerUserId: ownerUserIdB, anchorDate });
+  const comparedIds = {
+    household: [fixtureA.household.id, fixtureB.household.id],
+    membership: [fixtureA.membership.id, fixtureB.membership.id],
+    connection: [fixtureA.connection.id, fixtureB.connection.id],
+    account: [fixtureA.accounts[0].id, fixtureB.accounts[0].id],
+    transaction: [fixtureA.transactions[0].id, fixtureB.transactions[0].id],
+    confirmation: [fixtureA.confirmations[0].id, fixtureB.confirmations[0].id],
+    goal: [fixtureA.goal.id, fixtureB.goal.id],
+    decision: [fixtureA.decision.id, fixtureB.decision.id],
+  };
+  for (const [objectType, [idA, idB]] of Object.entries(comparedIds)) {
+    if (idA === idB) throw new Error(`${objectType} fixture IDs are not isolated.`);
+  }
+  return { passed: true, compared: Object.keys(comparedIds) };
 }

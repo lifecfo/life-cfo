@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "demo:inspect": "node scripts/demo-household.mjs inspect",
+    "demo:assert-isolation": "node scripts/demo-household.mjs assert-isolation",
     "demo:seed": "node scripts/demo-household.mjs seed",
     "demo:reset": "node scripts/demo-household.mjs reset",
     "security:plaid-tokens:inspect": "node scripts/security/inspect-plaid-token-storage.mjs",

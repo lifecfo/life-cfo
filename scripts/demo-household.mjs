@@ -3,13 +3,13 @@ import path from "node:path";
 import process from "node:process";
 import { createClient } from "@supabase/supabase-js";
 import {
+  assertFamilyOneIncomeFixtureIsolation,
   buildFamilyOneIncomeFixture,
   FIXTURE_VERSION,
   HOUSEHOLD_NAME,
   SCENARIO,
 } from "./demo/fixtures/family-one-income.mjs";
 
-const ZERO_UUID = "00000000-0000-0000-0000-000000000000";
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const ACCOUNT_COLUMNS = new Set([
   "id",
@@ -239,7 +239,7 @@ async function countRows(client, table, householdId) {
 async function readFixtureIdentity(client, householdId) {
   const [{ data: household, error: householdError }, { data: members, error: memberError }, { data: connections, error: connectionError }] = await Promise.all([
     client.from("households").select("id,name").eq("id", householdId).maybeSingle(),
-    client.from("household_members").select("household_id,user_id,role").eq("household_id", householdId),
+    client.from("household_members").select("id,household_id,user_id,role").eq("household_id", householdId),
     client.from("external_connections").select("id,household_id,user_id,provider,status,metadata").eq("household_id", householdId),
   ]);
   if (householdError) throw householdError;
@@ -248,17 +248,22 @@ async function readFixtureIdentity(client, householdId) {
   return { household, members: members ?? [], connections: connections ?? [] };
 }
 
-function assertFixtureIdentity(identity, expectedHouseholdId) {
+function assertFixtureIdentity(identity, fixture) {
   if (!identity.household) throw new Error("The deterministic demo household does not exist.");
-  if (identity.household.id !== expectedHouseholdId || identity.household.name !== HOUSEHOLD_NAME) {
+  if (identity.household.id !== fixture.household.id || identity.household.name !== HOUSEHOLD_NAME) {
     throw new Error("Household ID/name verification failed. Reset refused.");
   }
   if (identity.members.length !== 1) {
     throw new Error("Demo household must have exactly one member. Reset refused.");
   }
   const member = identity.members[0];
-  if (member.role !== "owner" || !allowedOwnerIds().includes(member.user_id)) {
-    throw new Error("Demo household owner is not allowlisted. Reset refused.");
+  if (
+    member.id !== fixture.membership.id ||
+    member.user_id !== fixture.membership.user_id ||
+    member.role !== "owner" ||
+    !allowedOwnerIds().includes(member.user_id)
+  ) {
+    throw new Error("Demo household owner does not match this tester fixture. Reset refused.");
   }
   if (identity.connections.length !== 1) {
     throw new Error("Demo household must have exactly one source. Reset refused.");
@@ -268,6 +273,8 @@ function assertFixtureIdentity(identity, expectedHouseholdId) {
     ? connection.metadata
     : {};
   if (
+    connection.id !== fixture.connection.id ||
+    connection.user_id !== fixture.membership.user_id ||
     connection.provider !== "manual" ||
     connection.status !== "demo" ||
     metadata.demo !== true ||
@@ -281,7 +288,7 @@ function assertFixtureIdentity(identity, expectedHouseholdId) {
 
 async function assertSeeded(client, fixture) {
   const identity = await readFixtureIdentity(client, fixture.household.id);
-  const ownerUserId = assertFixtureIdentity(identity, fixture.household.id);
+  const ownerUserId = assertFixtureIdentity(identity, fixture);
   if (ownerUserId !== fixture.membership.user_id) throw new Error("Seed owner assertion failed.");
 
   const [accountCount, transactionCount, confirmationCount] = await Promise.all([
@@ -344,7 +351,7 @@ async function deleteByHousehold(client, table, householdId) {
 
 async function resetFixture(client, fixture) {
   const identity = await readFixtureIdentity(client, fixture.household.id);
-  assertFixtureIdentity(identity, fixture.household.id);
+  assertFixtureIdentity(identity, fixture);
 
   for (const table of [
     "decisions",
@@ -428,17 +435,25 @@ async function seedFixture(client, fixture) {
 async function main() {
   const command = process.argv[2];
   const args = parseArgs(process.argv.slice(3));
+  if (command === "assert-isolation") {
+    const assertion = assertFamilyOneIncomeFixtureIsolation(
+      "11111111-1111-4111-8111-111111111111",
+      "22222222-2222-4222-8222-222222222222"
+    );
+    console.log(JSON.stringify({ fixture_version: FIXTURE_VERSION, ...assertion }, null, 2));
+    return;
+  }
   requireScenario(args.scenario);
   const { supabaseUrl, projectRef } = requireBaseSafety();
+  const ownerUserId = String(args["owner-user-id"] || "");
+  requireOwner(ownerUserId);
+  const fixture = buildFamilyOneIncomeFixture({ ownerUserId });
+  validateFixturePayload(fixture);
 
   if (command === "seed") {
-    const ownerUserId = String(args["owner-user-id"] || "");
-    requireOwner(ownerUserId);
     if (args.apply && args["dry-run"]) {
       throw new Error("Choose either --apply or --dry-run, not both.");
     }
-    const fixture = buildFamilyOneIncomeFixture({ ownerUserId });
-    validateFixturePayload(fixture);
     if (!args.apply) {
       console.log(JSON.stringify(fixtureSummary(fixture, "dry-run", projectRef), null, 2));
       console.log("Dry-run only. Add --apply to write this dedicated demo household.");
@@ -447,11 +462,10 @@ async function main() {
     const client = serviceClient(supabaseUrl);
     const assertions = await seedFixture(client, fixture);
     console.log(JSON.stringify({ seeded: true, household: fixture.household, assertions }, null, 2));
-    console.log(`Reset with: npm run demo:reset -- --scenario ${SCENARIO} --confirm-household ${fixture.household.id}`);
+    console.log(`Reset with: npm run demo:reset -- --scenario ${SCENARIO} --owner-user-id ${ownerUserId} --confirm-household ${fixture.household.id}`);
     return;
   }
 
-  const fixture = buildFamilyOneIncomeFixture({ ownerUserId: ZERO_UUID });
   const client = serviceClient(supabaseUrl);
   if (command === "inspect") {
     console.log(JSON.stringify(await inspectFixture(client, fixture), null, 2));
@@ -466,7 +480,7 @@ async function main() {
     console.log(JSON.stringify({ reset: true, household_id: fixture.household.id }, null, 2));
     return;
   }
-  throw new Error("Use one of: inspect, seed, reset.");
+  throw new Error("Use one of: inspect, seed, reset, assert-isolation.");
 }
 
 main().catch((error) => {
