@@ -1,6 +1,7 @@
 // app/api/households/members/route.ts
 import { NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { supabaseAdmin } from "@/lib/supabase/admin";
 import { supabaseRoute } from "@/lib/supabaseRoute";
 
 export const runtime = "nodejs";
@@ -55,17 +56,31 @@ export async function GET(req: Request) {
 
     if (error) throw error;
 
-    const meEmail = user.email ?? null;
+    const labelsByUserId = new Map<string, string>();
+    if (myRole === "owner") {
+      try {
+        const admin = supabaseAdmin();
+        await Promise.all(
+          (members ?? [])
+            .filter((member) => member.user_id !== user.id)
+            .map(async (member) => {
+              const { data, error: lookupError } = await admin.auth.admin.getUserById(member.user_id);
+              const email = data.user?.email?.trim();
+              if (!lookupError && email) labelsByUserId.set(member.user_id, email);
+            }),
+        );
+      } catch {
+        // Keep the privacy-safe fallback label when owner-only lookup is unavailable.
+      }
+    }
 
     const enriched =
       (members ?? []).map((m) => {
         const isMe = m.user_id === user.id;
         return {
           membership_id: m.id,
-          user_id: m.user_id,
           role: m.role,
-          created_at: m.created_at,
-          label: isMe ? (meEmail ? `You (${meEmail})` : "You") : "Household member",
+          label: isMe ? "You" : labelsByUserId.get(m.user_id) ?? "Household member",
           is_me: isMe,
         };
       }) ?? [];

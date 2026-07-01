@@ -9,9 +9,7 @@ type HouseholdItem = { id: string; name: string; role: string };
 
 type MemberRow = {
   membership_id: string;
-  user_id: string;
   role: string;
-  created_at: string;
   label?: string;
   is_me?: boolean;
 };
@@ -41,7 +39,8 @@ type DeleteConfirm =
 type LeaveConfirm = { open: boolean };
 
 type OwnershipConfirm =
-  | { open: true; action: "make_owner" | "step_down"; membership_id: string }
+  | { open: true; action: "make_owner"; membership_id: string; label: string; generic_label: boolean }
+  | { open: true; action: "step_down"; membership_id: string }
   | { open: false };
 
 export const dynamic = "force-dynamic";
@@ -68,12 +67,6 @@ function canRename(role: string | null) {
 function canInvite(role: string | null) {
   const r = (role ?? "").toLowerCase();
   return r === "owner" || r === "editor";
-}
-
-function maskId(id: string) {
-  if (!id) return "";
-  if (id.length <= 12) return id;
-  return `${id.slice(0, 6)}…${id.slice(-4)}`;
 }
 
 function formatInviteAge(createdAt: string) {
@@ -773,13 +766,13 @@ export default function HouseholdClient() {
             ) : (
               <div className="grid gap-2">
                 {members.map((m) => {
-                  const label = m.label ?? `Member ${maskId(m.user_id)}`;
+                  const label = m.label ?? "Household member";
                   const isOwner = (m.role ?? "").toLowerCase() === "owner";
                   const isOnlyOwnerMe = !!m.is_me && (m.role ?? "").toLowerCase() === "owner" && ownersCount <= 1;
 
                   return (
                     <div
-                      key={m.user_id}
+                      key={m.membership_id}
                       className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-zinc-200 px-3 py-2"
                     >
                       <div className="min-w-0">
@@ -787,13 +780,6 @@ export default function HouseholdClient() {
                         <div className="text-xs text-zinc-500">{m.role}</div>
                         {isOnlyOwnerMe ? <div className="text-xs text-zinc-500">You’re the only owner.</div> : null}
 
-                        {showAdvanced ? (
-                          <div className="text-xs text-zinc-500">
-                            <button onClick={() => void copyText(m.user_id, "Member ID copied")} className="underline underline-offset-2">
-                              Copy member ID
-                            </button>
-                          </div>
-                        ) : null}
                       </div>
 
                       {allowMemberEdits ? (
@@ -812,7 +798,13 @@ export default function HouseholdClient() {
                                 <option value="editor">editor</option>
                                 <option value="viewer">viewer</option>
                               </select>
-                              <Chip onClick={() => setOwnershipConfirm({ open: true, action: "make_owner", membership_id: m.membership_id })}>
+                              <Chip onClick={() => setOwnershipConfirm({
+                                open: true,
+                                action: "make_owner",
+                                membership_id: m.membership_id,
+                                label,
+                                generic_label: label === "Household member",
+                              })}>
                                 Make owner
                               </Chip>
                             </>
@@ -999,13 +991,16 @@ export default function HouseholdClient() {
             <div className="w-full max-w-[520px] rounded-2xl border border-zinc-200 bg-white shadow-lg">
               <div className="space-y-2 p-4 sm:p-5">
                 <div className="text-sm font-semibold text-zinc-900">
-                  {ownershipConfirm.action === "make_owner" ? "Make owner?" : "Step down as owner?"}
+                  {ownershipConfirm.action === "make_owner" ? `Make ${ownershipConfirm.label} an owner?` : "Step down as owner?"}
                 </div>
                 <div className="text-sm text-zinc-600">
                   {ownershipConfirm.action === "make_owner"
                     ? "This person will be able to manage household members and important settings."
                     : "You will no longer manage household members and important settings."}
                 </div>
+                {ownershipConfirm.action === "make_owner" && ownershipConfirm.generic_label ? (
+                  <div className="text-sm text-zinc-600">Make sure this is the right person before continuing.</div>
+                ) : null}
 
                 <div className="mt-4 flex items-center justify-end gap-2">
                   <Chip onClick={() => setOwnershipConfirm({ open: false })} disabled={changingOwnership}>Cancel</Chip>
