@@ -287,3 +287,25 @@ export type MoneyPrimaryGoalSummary = {
   target_cents: number;
   progress_percent: number;
 };
+
+export type MoneyHomeUpcomingBill = {
+  name: string;
+  amount_cents: number;
+  currency: string;
+  next_due_at: string | null;
+  days_until_due: number | null;
+};
+
+export type MoneyHomeSummary = {
+  version: 1;
+  currency: string;
+  money_in_cents: number;
+  available_cash_cents: number;
+  planned_expenses_cents: number;
+  planned_expenses_is_estimate: boolean;
+  planned_expenses_basis: "scheduled_bills" | "confirmed_patterns" | "none";
+  upcoming_bills: MoneyHomeUpcomingBill[];
+  grocery_estimate_cents: number | null;
+  primary_goal: MoneyPrimaryGoalSummary | null;
+  likely_breathing_room_cents: number;
+};

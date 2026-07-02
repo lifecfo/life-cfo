@@ -8,6 +8,7 @@ import { deriveTransactionOutflowSummary } from "@/lib/money/reasoning/deriveTra
 import { deriveEffectiveMoneyTruth } from "@/lib/money/reasoning/effectiveMoneySources";
 import { deriveMoneySetupStatus } from "@/lib/money/reasoning/deriveMoneySetupStatus";
 import { deriveBreathingRoom } from "@/lib/money/reasoning/deriveBreathingRoom";
+import { deriveHomeMoneySummary } from "@/lib/money/reasoning/deriveHomeMoneySummary";
 import type {
   AccountsTruthRow,
   MoneyGoalsTruthRow,
@@ -100,6 +101,7 @@ export async function GET() {
       transactionOutflows,
     });
     const breathingRoom = deriveBreathingRoom({ truth, dataCoverage });
+    const homeSummary = deriveHomeMoneySummary({ truth, dataCoverage });
 
     return NextResponse.json({
       snapshot,
@@ -112,6 +114,7 @@ export async function GET() {
       breathing_room: breathingRoom,
       cash_by_currency: cashByCurrency(truth.accounts),
       primary_goal: primaryGoal(truth.goals),
+      home_summary: homeSummary,
     });
   } catch (e: unknown) {
     return NextResponse.json(

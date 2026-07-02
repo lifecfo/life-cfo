@@ -12,6 +12,7 @@ import { formatMoneyFromCents } from "@/lib/money/formatMoney";
 import type {
   MoneyByCurrencyRow,
   MoneyDataCoverage,
+  MoneyHomeSummary,
 } from "@/lib/money/reasoning/types";
 import { useLifeCfoAccess } from "@/lib/access/useLifeCfoAccess";
 
@@ -220,6 +221,7 @@ type HomeMoneyOverview = {
     commitments: { billCount: number };
   };
   data_coverage: MoneyDataCoverage;
+  home_summary: MoneyHomeSummary;
 };
 
 type HomeMoneyState =
@@ -357,7 +359,7 @@ export default function LifeCFOHomePage() {
       });
       const overview = (await response.json().catch(() => null)) as HomeMoneyOverview | null;
 
-      if (!response.ok || !overview?.snapshot || !overview.data_coverage) {
+      if (!response.ok || !overview?.snapshot || !overview.data_coverage || !overview.home_summary) {
         setHomeMoney({ status: "error", message: "I couldn’t load your household picture right now." });
         return;
       }
@@ -711,34 +713,67 @@ Follow-up question: ${fu}`
     return items.sort((a, b) => b.priority - a.priority).slice(0, 3);
   }, [authStatus, homeMoney, triage]);
 
-  const attentionItems = useMemo(() => {
-    const items = whatMattersNow.filter((item) =>
-      ["reviews_due", "reviews_soon", "open_decisions", "fresh_ask_promotion"].includes(item.key)
-    );
+  const comingUpItems = useMemo(() => {
+    if (homeMoney.status !== "ready") return [] as HomeNowItem[];
+    const summary = homeMoney.overview.home_summary;
+    const items: HomeNowItem[] = [];
+    const [firstBill, ...otherBills] = summary.upcoming_bills;
 
-    if (homeMoney.status === "ready") {
-      const coverage = homeMoney.overview.data_coverage;
-      if (coverage.confirmed_regular_payment_count > 0) {
-        items.push({
-          key: "regular_payments",
-          title: `${coverage.confirmed_regular_payment_count} regular payment${coverage.confirmed_regular_payment_count === 1 ? "" : "s"} found`,
-          detail: "Review the regular payments Life CFO can already use.",
-          href: "/money/out",
-          priority: 70,
-        });
-      }
-      if (coverage.confirmed_income_pattern_count > 0) {
-        items.push({
-          key: "income_patterns",
-          title: `${coverage.confirmed_income_pattern_count} income pattern${coverage.confirmed_income_pattern_count === 1 ? "" : "s"} found`,
-          detail: "Review the income Life CFO can already use.",
-          href: "/money/in",
-          priority: 65,
-        });
-      }
+    if (firstBill) {
+      const timing =
+        firstBill.days_until_due === 0
+          ? "today"
+          : firstBill.days_until_due === 1
+            ? "tomorrow"
+            : typeof firstBill.days_until_due === "number"
+              ? `in ${firstBill.days_until_due} days`
+              : "soon";
+      items.push({
+        key: "next_bill",
+        title: `${firstBill.name} expected ${timing}`,
+        detail: formatMoneyFromCents(firstBill.amount_cents, firstBill.currency),
+        href: "/money/planned",
+        priority: 100,
+      });
     }
 
-    return items.sort((a, b) => b.priority - a.priority).slice(0, 3);
+    if (otherBills.length > 0) {
+      const names = otherBills.slice(0, 3).map((bill) => bill.name).join(", ");
+      items.push({
+        key: "other_bills",
+        title: `${names} also coming up`,
+        detail: "Expected over the next 30 days.",
+        href: "/money/planned",
+        priority: 90,
+      });
+    }
+
+    if (summary.grocery_estimate_cents) {
+      items.push({
+        key: "groceries",
+        title: "Groceries estimate",
+        detail: `About ${formatMoneyFromCents(summary.grocery_estimate_cents, summary.currency)} over the next 30 days, based on recent spending.`,
+        href: "/money/out",
+        priority: 80,
+      });
+    }
+
+    if (summary.primary_goal) {
+      items.push({
+        key: "goal",
+        title: `${summary.primary_goal.title}: ${summary.primary_goal.progress_percent}%`,
+        detail: `${formatMoneyFromCents(summary.primary_goal.current_cents, summary.primary_goal.currency)} saved toward ${formatMoneyFromCents(summary.primary_goal.target_cents, summary.primary_goal.currency)}.`,
+        href: "/money/goals",
+        priority: 70,
+      });
+    }
+
+    const decisionItem = whatMattersNow.find((item) =>
+      ["reviews_due", "reviews_soon", "open_decisions", "fresh_ask_promotion"].includes(item.key)
+    );
+    if (decisionItem) items.push(decisionItem);
+
+    return items.sort((left, right) => right.priority - left.priority).slice(0, 4);
   }, [homeMoney, whatMattersNow]);
 
   const readyOverview = homeMoney.status === "ready" ? homeMoney.overview : null;
@@ -787,24 +822,66 @@ Follow-up question: ${fu}`
                   </Chip>
                 </div>
               ) : homeHasMoney ? (
-                <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                   <div className="rounded-2xl bg-zinc-50 px-4 py-3">
-                    <div className="text-xs text-zinc-500">Money in this month</div>
+                    <div className="text-xs text-zinc-500">Money In</div>
                     <div className="mt-1 text-base font-medium text-zinc-900">
-                      {formatMoneyRows(homeMoney.overview.data_coverage.current_month_money_in)}
+                      {formatMoneyFromCents(homeMoney.overview.home_summary.money_in_cents, homeMoney.overview.home_summary.currency)}
                     </div>
-                  </div>
-                  <div className="rounded-2xl bg-zinc-50 px-4 py-3">
-                    <div className="text-xs text-zinc-500">Money out this month</div>
-                    <div className="mt-1 text-base font-medium text-zinc-900">
-                      {formatMoneyRows(homeMoney.overview.data_coverage.current_month_money_out)}
-                    </div>
+                    <div className="mt-1 text-xs text-zinc-500">This month.</div>
                   </div>
                   <div className="rounded-2xl bg-zinc-50 px-4 py-3">
                     <div className="text-xs text-zinc-500">Available cash</div>
                     <div className="mt-1 text-base font-medium text-zinc-900">
-                      {formatMoneyFromCents(homeMoney.overview.snapshot.liquidity.availableCashCents, homeCurrency)}
+                      {formatMoneyFromCents(homeMoney.overview.home_summary.available_cash_cents, homeMoney.overview.home_summary.currency)}
                     </div>
+                    <div className="mt-1 text-xs text-zinc-500">Across visible cash accounts.</div>
+                  </div>
+                  <div className="rounded-2xl bg-zinc-50 px-4 py-3">
+                    <div className="text-xs text-zinc-500">Planned expenses</div>
+                    <div className="mt-1 text-base font-medium text-zinc-900">
+                      {homeMoney.overview.home_summary.planned_expenses_basis === "none"
+                        ? "Not set up yet"
+                        : formatMoneyFromCents(
+                            homeMoney.overview.home_summary.planned_expenses_cents,
+                            homeMoney.overview.home_summary.currency
+                          )}
+                    </div>
+                    <div className="mt-1 text-xs text-zinc-500">Expected over the next 30 days.</div>
+                  </div>
+                  <div className="rounded-2xl bg-zinc-50 px-4 py-3">
+                    <div className="text-xs text-zinc-500">Upcoming bills</div>
+                    <div className="mt-1 text-base font-medium text-zinc-900">
+                      {homeMoney.overview.home_summary.upcoming_bills.length}
+                    </div>
+                    <div className="mt-1 text-xs text-zinc-500">
+                      {homeMoney.overview.home_summary.upcoming_bills.length > 0
+                        ? `${homeMoney.overview.home_summary.upcoming_bills.slice(0, 3).map((bill) => bill.name).join(", ")} coming up.`
+                        : "No dated bills are visible."}
+                    </div>
+                  </div>
+                  <div className="rounded-2xl bg-zinc-50 px-4 py-3">
+                    <div className="text-xs text-zinc-500">Goal progress</div>
+                    <div className="mt-1 text-base font-medium text-zinc-900">
+                      {homeMoney.overview.home_summary.primary_goal
+                        ? `${homeMoney.overview.home_summary.primary_goal.progress_percent}%`
+                        : "Ready to set up"}
+                    </div>
+                    <div className="mt-1 text-xs text-zinc-500">
+                      {homeMoney.overview.home_summary.primary_goal
+                        ? `${formatMoneyFromCents(homeMoney.overview.home_summary.primary_goal.current_cents, homeMoney.overview.home_summary.primary_goal.currency)} saved toward ${homeMoney.overview.home_summary.primary_goal.title}.`
+                        : "Add a goal when it would help."}
+                    </div>
+                  </div>
+                  <div className="rounded-2xl bg-zinc-50 px-4 py-3">
+                    <div className="text-xs text-zinc-500">Likely breathing room</div>
+                    <div className="mt-1 text-base font-medium text-zinc-900">
+                      {formatMoneyFromCents(
+                        homeMoney.overview.home_summary.likely_breathing_room_cents,
+                        homeMoney.overview.home_summary.currency
+                      )}
+                    </div>
+                    <div className="mt-1 text-xs text-zinc-500">Estimate after expected planned expenses.</div>
                   </div>
                 </div>
               ) : (
@@ -836,14 +913,14 @@ Follow-up question: ${fu}`
 
         <Card className="border-zinc-200 bg-white shadow-none">
           <CardContent className="space-y-3">
-            <div className="text-base font-semibold text-zinc-900">What may need attention</div>
+            <div className="text-base font-semibold text-zinc-900">Coming up</div>
             {authStatus === "signed_out" ? (
-              <div className="text-sm text-zinc-600">Sign in to see a few useful next points.</div>
-            ) : attentionItems.length === 0 ? (
-              <div className="text-sm text-zinc-600">Nothing needs your attention right now.</div>
+              <div className="text-sm text-zinc-600">Sign in to see what is coming up.</div>
+            ) : comingUpItems.length === 0 ? (
+              <div className="text-sm text-zinc-600">Nothing specific is coming up yet.</div>
             ) : (
               <div className="space-y-2">
-                {attentionItems.map((item) => (
+                {comingUpItems.map((item) => (
                   <button
                     key={item.key}
                     type="button"

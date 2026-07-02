@@ -7,6 +7,10 @@ import {
   decryptPlaidToken,
   isEncryptedPlaidToken,
 } from "@/lib/server/security/plaidTokenCrypto";
+import {
+  getLifeCfoAccess,
+  REAL_DATA_DISABLED_MESSAGE,
+} from "@/lib/server/access/lifeCfoAccess";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { supabaseRoute } from "@/lib/supabaseRoute";
 
@@ -148,6 +152,12 @@ export async function POST(
       return NextResponse.json(
         { ok: false, code: "not_authenticated", error: "Please sign in again." },
         { status: 401 }
+      );
+    }
+    if (!getLifeCfoAccess(user).canUseRealDataSources) {
+      return NextResponse.json(
+        { ok: false, code: "real_data_disabled", error: REAL_DATA_DISABLED_MESSAGE },
+        { status: 403 }
       );
     }
 

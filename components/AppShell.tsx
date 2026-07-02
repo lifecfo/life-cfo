@@ -59,6 +59,17 @@ function isActivePath(pathname: string, href: string) {
   return pathname === href || pathname.startsWith(href + "/");
 }
 
+function displayHouseholdName(name: string): string {
+  const trimmed = name.trim();
+  if (trimmed === "[DEMO] Family With One Main Income") {
+    return "Demo · The Bennett Family";
+  }
+  if (trimmed === "[DEMO] Single Parent - Tight Budget") {
+    return "Demo · Mia & Noah";
+  }
+  return trimmed;
+}
+
 function navIcon(href: string) {
   const shared = "h-4 w-4 text-zinc-600";
 
@@ -256,7 +267,8 @@ export function AppShell({ children }: AppShellProps) {
 
   const activeHouseholdName = useMemo(() => {
     if (!activeHouseholdId) return null;
-    return households.find((h) => h.id === activeHouseholdId)?.name ?? null;
+    const name = households.find((h) => h.id === activeHouseholdId)?.name;
+    return name ? displayHouseholdName(name) : null;
   }, [households, activeHouseholdId]);
 
   const handleSignOut = async () => {
