@@ -783,6 +783,16 @@ Follow-up question: ${fu}`
     readyCoverage?.current_month_money_in[0]?.currency ||
     readyCoverage?.current_month_money_out[0]?.currency ||
     "AUD";
+  const homeSummary = readyOverview?.home_summary ?? null;
+  const allocationCash = Math.max(0, homeSummary?.available_cash_cents ?? 0);
+  const allocationPlanned = Math.min(
+    allocationCash,
+    Math.max(0, homeSummary?.planned_expenses_cents ?? 0)
+  );
+  const plannedPercent = allocationCash > 0
+    ? Math.round((allocationPlanned / allocationCash) * 100)
+    : 0;
+  const flexiblePercent = allocationCash > 0 ? 100 - plannedPercent : 0;
 
   const subtitle = preferredName ? `Good to see you, ${preferredName}.` : undefined;
   const canType = authStatus === "signed_in";
@@ -809,7 +819,7 @@ Follow-up question: ${fu}`
         <Card className="border-zinc-200 bg-white shadow-none">
           <CardContent className="space-y-5">
             <div>
-              <div className="text-base font-semibold text-zinc-900">Your household at a glance</div>
+              <div className="text-base font-semibold text-zinc-900">Your money picture</div>
               {authStatus === "signed_out" ? (
                 <div className="mt-2 text-sm text-zinc-600">Sign in to see your household picture.</div>
               ) : homeMoney.status === "idle" || homeMoney.status === "loading" ? (
@@ -821,67 +831,130 @@ Follow-up question: ${fu}`
                     Try again
                   </Chip>
                 </div>
-              ) : homeHasMoney ? (
-                <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                  <div className="rounded-2xl bg-zinc-50 px-4 py-3">
-                    <div className="text-xs text-zinc-500">Money In</div>
-                    <div className="mt-1 text-base font-medium text-zinc-900">
-                      {formatMoneyFromCents(homeMoney.overview.home_summary.money_in_cents, homeMoney.overview.home_summary.currency)}
-                    </div>
-                    <div className="mt-1 text-xs text-zinc-500">This month.</div>
-                  </div>
-                  <div className="rounded-2xl bg-zinc-50 px-4 py-3">
-                    <div className="text-xs text-zinc-500">Available cash</div>
-                    <div className="mt-1 text-base font-medium text-zinc-900">
-                      {formatMoneyFromCents(homeMoney.overview.home_summary.available_cash_cents, homeMoney.overview.home_summary.currency)}
-                    </div>
-                    <div className="mt-1 text-xs text-zinc-500">Across visible cash accounts.</div>
-                  </div>
-                  <div className="rounded-2xl bg-zinc-50 px-4 py-3">
-                    <div className="text-xs text-zinc-500">Planned expenses</div>
-                    <div className="mt-1 text-base font-medium text-zinc-900">
-                      {homeMoney.overview.home_summary.planned_expenses_basis === "none"
-                        ? "Not set up yet"
-                        : formatMoneyFromCents(
-                            homeMoney.overview.home_summary.planned_expenses_cents,
-                            homeMoney.overview.home_summary.currency
-                          )}
-                    </div>
-                    <div className="mt-1 text-xs text-zinc-500">Expected over the next 30 days.</div>
-                  </div>
-                  <div className="rounded-2xl bg-zinc-50 px-4 py-3">
-                    <div className="text-xs text-zinc-500">Upcoming bills</div>
-                    <div className="mt-1 text-base font-medium text-zinc-900">
-                      {homeMoney.overview.home_summary.upcoming_bills.length}
-                    </div>
-                    <div className="mt-1 text-xs text-zinc-500">
-                      {homeMoney.overview.home_summary.upcoming_bills.length > 0
-                        ? `${homeMoney.overview.home_summary.upcoming_bills.slice(0, 3).map((bill) => bill.name).join(", ")} coming up.`
-                        : "No dated bills are visible."}
-                    </div>
-                  </div>
-                  <div className="rounded-2xl bg-zinc-50 px-4 py-3">
-                    <div className="text-xs text-zinc-500">Goal progress</div>
-                    <div className="mt-1 text-base font-medium text-zinc-900">
-                      {homeMoney.overview.home_summary.primary_goal
-                        ? `${homeMoney.overview.home_summary.primary_goal.progress_percent}%`
-                        : "Ready to set up"}
-                    </div>
-                    <div className="mt-1 text-xs text-zinc-500">
-                      {homeMoney.overview.home_summary.primary_goal
-                        ? `${formatMoneyFromCents(homeMoney.overview.home_summary.primary_goal.current_cents, homeMoney.overview.home_summary.primary_goal.currency)} saved toward ${homeMoney.overview.home_summary.primary_goal.title}.`
-                        : "Add a goal when it would help."}
-                    </div>
-                  </div>
-                  <div className="rounded-2xl bg-zinc-50 px-4 py-3">
-                    <div className="text-xs text-zinc-500">Likely breathing room</div>
-                    <div className="mt-1 text-base font-medium text-zinc-900">
+              ) : homeHasMoney && homeSummary ? (
+                <div className="mt-4 space-y-5">
+                  <div className="rounded-3xl bg-zinc-50 px-5 py-5">
+                    <div className="text-sm text-zinc-600">Likely breathing room</div>
+                    <div className="mt-1 text-3xl font-semibold tracking-tight text-zinc-950">
                       {formatMoneyFromCents(
-                        homeMoney.overview.home_summary.likely_breathing_room_cents,
-                        homeMoney.overview.home_summary.currency
+                        homeSummary.likely_breathing_room_cents,
+                        homeSummary.currency
                       )}
                     </div>
-                    <div className="mt-1 text-xs text-zinc-500">Estimate after expected planned expenses.</div>
+                    <div className="mt-2 text-sm leading-6 text-zinc-600">
+                      Estimate after bills expected over the next 30 days.
+                    </div>
+                    {homeSummary.likely_breathing_room_cents < 0 ? (
+                      <div className="mt-2 text-sm text-zinc-700">
+                        Worth a closer look. Expected bills are higher than visible cash.
+                      </div>
+                    ) : null}
+                    <div className="mt-3 text-sm text-zinc-700">
+                      Visible cash: {formatMoneyFromCents(homeSummary.available_cash_cents, homeSummary.currency)}
+                    </div>
+                  </div>
+
+                  <div className="space-y-3">
+                    <div>
+                      <div className="text-sm font-medium text-zinc-900">How this cash appears allocated</div>
+                      <div className="mt-1 text-xs text-zinc-500">One way to look at the next 30 days.</div>
+                    </div>
+                    <div
+                      className="flex h-3 overflow-hidden rounded-full bg-zinc-100"
+                      role="img"
+                      aria-label={`${plannedPercent}% expected bills and ${flexiblePercent}% flexible after known bills`}
+                    >
+                      <div className="bg-zinc-400" style={{ width: `${plannedPercent}%` }} />
+                      <div className="bg-zinc-700" style={{ width: `${flexiblePercent}%` }} />
+                    </div>
+                    <div className="space-y-2 text-sm">
+                      <div className="flex items-start justify-between gap-4">
+                        <div>
+                          <div className="font-medium text-zinc-800">Expected planned expenses</div>
+                          <div className="text-xs text-zinc-500">
+                            {homeSummary.planned_expenses_basis === "confirmed_patterns"
+                              ? "Estimated from confirmed regular payments."
+                              : homeSummary.planned_expenses_basis === "scheduled_bills"
+                                ? "Based on bills and dates already in view."
+                                : "No planned expenses are clear enough to include yet."}
+                          </div>
+                        </div>
+                        <div className="shrink-0 font-medium text-zinc-900">
+                          {formatMoneyFromCents(homeSummary.planned_expenses_cents, homeSummary.currency)}
+                        </div>
+                      </div>
+                      <div className="flex items-start justify-between gap-4 border-t border-zinc-100 pt-2">
+                        <div>
+                          <div className="font-medium text-zinc-800">Likely breathing room</div>
+                          <div className="text-xs text-zinc-500">Flexible after known bills.</div>
+                        </div>
+                        <div className="shrink-0 font-medium text-zinc-900">
+                          {formatMoneyFromCents(homeSummary.likely_breathing_room_cents, homeSummary.currency)}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="rounded-2xl border border-zinc-200 px-4 py-3">
+                      <div className="text-sm font-medium text-zinc-900">Everyday estimate</div>
+                      <div className="mt-1 text-base font-medium text-zinc-900">
+                        {homeSummary.grocery_estimate_cents
+                          ? formatMoneyFromCents(homeSummary.grocery_estimate_cents, homeSummary.currency)
+                          : "Not clear yet"}
+                      </div>
+                      <div className="mt-1 text-xs leading-5 text-zinc-500">
+                        {homeSummary.grocery_estimate_cents
+                          ? "Based on recent grocery spending. Tracked separately from breathing room."
+                          : "Recent everyday spending is not clear enough to estimate."}
+                      </div>
+                    </div>
+
+                    <div className="rounded-2xl border border-zinc-200 px-4 py-3">
+                      <div className="text-sm font-medium text-zinc-900">Goals and savings</div>
+                      {homeSummary.primary_goal ? (
+                        <div className="mt-2 space-y-2">
+                          <div className="flex items-center justify-between gap-3 text-sm">
+                            <span className="text-zinc-800">{homeSummary.primary_goal.title}</span>
+                            <span className="font-medium text-zinc-900">{homeSummary.primary_goal.progress_percent}%</span>
+                          </div>
+                          <div className="h-2 overflow-hidden rounded-full bg-zinc-100">
+                            <div
+                              className="h-full rounded-full bg-zinc-600"
+                              style={{ width: `${homeSummary.primary_goal.progress_percent}%` }}
+                            />
+                          </div>
+                          <div className="text-xs leading-5 text-zinc-500">
+                            {formatMoneyFromCents(homeSummary.primary_goal.current_cents, homeSummary.primary_goal.currency)} of {formatMoneyFromCents(homeSummary.primary_goal.target_cents, homeSummary.primary_goal.currency)}. Tracked separately from visible cash.
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="mt-1 text-xs leading-5 text-zinc-500">
+                          Goal tracking is ready when it would help.
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="rounded-2xl bg-zinc-50 px-4 py-3">
+                      <div className="text-xs text-zinc-500">Money In</div>
+                      <div className="mt-1 text-base font-medium text-zinc-900">
+                        {formatMoneyFromCents(homeSummary.money_in_cents, homeSummary.currency)}
+                      </div>
+                      <div className="mt-1 text-xs text-zinc-500">This month.</div>
+                    </div>
+                    <div className="rounded-2xl bg-zinc-50 px-4 py-3">
+                      <div className="text-xs text-zinc-500">Upcoming bills</div>
+                      <div className="mt-1 text-base font-medium text-zinc-900">
+                        {homeSummary.upcoming_bills.length}
+                      </div>
+                      <div className="mt-1 text-xs text-zinc-500">
+                        {homeSummary.upcoming_bills.length > 0
+                          ? `${homeSummary.upcoming_bills.slice(0, 3).map((bill) => bill.name).join(", ")} coming up.`
+                          : "No dated bills are visible."}
+                      </div>
+                    </div>
                   </div>
                 </div>
               ) : (
