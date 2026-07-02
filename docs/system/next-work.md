@@ -28,5 +28,7 @@ Complete and verify before inviting people to use live financial data:
 - Do not invite ordinary beta users to connect real financial data yet.
 - Preserve household scoping and calm, non-advisory language.
 - Money Map v1 is read-only and does not move or allocate money.
-- Account-backed buckets and movement-to-review need a future explicit allocation model.
+- Cash Plan database tables now provide the read-only allocation foundation.
+- UI, server routes, demo seeding, account-backed display, and concurrency-safe allocation RPCs remain future work.
+- Account-backed buckets and movement-to-review still require those controlled write paths.
 - Known one-off costs remain future work.
