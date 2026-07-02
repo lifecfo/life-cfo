@@ -83,6 +83,7 @@ function navIcon(href: string) {
       );
     case "/money":
     case "/money/setup":
+    case "/money/map":
     case "/money/in":
     case "/money/out":
     case "/money/saved":
@@ -175,6 +176,7 @@ export function AppShell({ children }: AppShellProps) {
         label: "Money",
         items: [
           { href: "/money/setup", label: "Start here" },
+          { href: "/money/map", label: "Money Map" },
           { href: "/money", label: "Money" },
           { href: "/money/in", label: "In" },
           { href: "/money/out", label: "Out" },

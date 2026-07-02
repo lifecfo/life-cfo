@@ -390,3 +390,70 @@ export type MoneyYearSummary = {
   seasons: MoneyYearSeasonSummary[];
   months_worth_closer_look: number;
 };
+
+export type MoneyMapAccountItem = {
+  name: string;
+  balance_cents: number;
+  currency: string;
+  account_type: string;
+  source_label: "Demo data" | "Manual" | "Connected" | "Imported";
+};
+
+export type MoneyMapAccountGroup = {
+  key: "cash" | "credit_debt" | "other";
+  label: string;
+  accounts: MoneyMapAccountItem[];
+  totals_by_currency: MoneyByCurrencyRow[];
+};
+
+export type MoneyMapTrackedPurpose = MoneyBucketSummary & {
+  status_label: "Tracked separately";
+};
+
+export type MoneyMapPlannedItem = {
+  name: string;
+  amount_cents: number;
+  currency: string;
+  cadence: string;
+  next_at: string | null;
+  kind: "income" | "bill";
+  source: "schedule" | "confirmed_pattern";
+};
+
+export type MoneyMapUpcomingItem = {
+  name: string;
+  amount_cents: number | null;
+  currency: string | null;
+  expected_at: string | null;
+  kind: "bill" | "larger_payment" | "everyday_estimate";
+  detail: string;
+};
+
+export type MoneyMapReviewItem = {
+  key: string;
+  label: "Needs timing" | "Tracked separately" | "Not linked yet" | "Worth keeping visible" | "For review";
+  title: string;
+  detail: string;
+  href: string | null;
+};
+
+export type MoneyMapSummary = {
+  version: 1;
+  mixed_currencies: boolean;
+  where_money_is: {
+    groups: MoneyMapAccountGroup[];
+  };
+  tracked_purposes: {
+    items: MoneyMapTrackedPurpose[];
+  };
+  planned: {
+    scheduled: MoneyMapPlannedItem[];
+    confirmed_patterns: MoneyMapPlannedItem[];
+  };
+  coming_up: {
+    items: MoneyMapUpcomingItem[];
+  };
+  review: {
+    items: MoneyMapReviewItem[];
+  };
+};

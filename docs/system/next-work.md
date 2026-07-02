@@ -27,3 +27,6 @@ Complete and verify before inviting people to use live financial data:
 - Keep the current beta positioned as sample-data exploration.
 - Do not invite ordinary beta users to connect real financial data yet.
 - Preserve household scoping and calm, non-advisory language.
+- Money Map v1 is read-only and does not move or allocate money.
+- Account-backed buckets and movement-to-review need a future explicit allocation model.
+- Known one-off costs remain future work.
