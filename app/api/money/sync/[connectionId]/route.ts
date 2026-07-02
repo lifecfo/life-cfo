@@ -4,6 +4,10 @@ import { getProvider } from "@/lib/money/providers";
 import { connectionSyncGuard, normalizeSourceStatus } from "@/lib/money/sourceLifecycle";
 import { resolveHouseholdIdRoute } from "@/lib/households/resolveHouseholdIdRoute";
 import { assertFinePrintAccepted } from "@/lib/finePrint";
+import {
+  getLifeCfoAccess,
+  REAL_DATA_DISABLED_MESSAGE,
+} from "@/lib/server/access/lifeCfoAccess";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -15,6 +19,10 @@ type ConnectionStatusRow = {
   status: string | null;
   last_sync_at: string | null;
 };
+
+function isOwnerOrEditor(role: unknown): boolean {
+  return role === "owner" || role === "editor";
+}
 
 function syncErrorMessage(error: unknown): string {
   const message = error instanceof Error ? error.message : "";
@@ -41,6 +49,12 @@ export async function POST(
     if (authErr || !user?.id) {
       return NextResponse.json({ ok: false, error: "Not signed in." }, { status: 401 });
     }
+    if (!getLifeCfoAccess(user).canUseRealDataSources) {
+      return NextResponse.json(
+        { ok: false, error: REAL_DATA_DISABLED_MESSAGE },
+        { status: 403 }
+      );
+    }
 
     await assertFinePrintAccepted(supabase, user.id);
 
@@ -49,6 +63,28 @@ export async function POST(
       return NextResponse.json(
         { ok: false, error: "User not linked to a household." },
         { status: 400 }
+      );
+    }
+
+    const [{ data: membership, error: membershipError }, ownerCheckResult] =
+      await Promise.all([
+        supabase
+          .from("household_members")
+          .select("role")
+          .eq("household_id", householdId)
+          .eq("user_id", user.id)
+          .maybeSingle(),
+        supabase.rpc("is_household_owner_or_editor", {
+          p_household_id: householdId,
+        }),
+      ]);
+
+    if (membershipError) throw membershipError;
+    if (ownerCheckResult.error) throw ownerCheckResult.error;
+    if (!isOwnerOrEditor(membership?.role) || ownerCheckResult.data !== true) {
+      return NextResponse.json(
+        { ok: false, error: "You need owner or editor access to do that." },
+        { status: 403 }
       );
     }
 

@@ -6,6 +6,10 @@ import {
   getBasiqJobHistory,
   type BasiqJobProgress,
 } from "@/lib/money/providers/basiq";
+import {
+  getLifeCfoAccess,
+  REAL_DATA_DISABLED_MESSAGE,
+} from "@/lib/server/access/lifeCfoAccess";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -66,6 +70,9 @@ export async function GET(req: Request) {
     const target = new URL("/login", url.origin);
     target.searchParams.set("next", `${url.pathname}${url.search}`);
     return NextResponse.redirect(target);
+  }
+  if (!getLifeCfoAccess(user).canUseRealDataSources) {
+    return redirectToConnections(url, REAL_DATA_DISABLED_MESSAGE);
   }
 
   const householdId = await resolveHouseholdIdRoute(supabase, user.id);
