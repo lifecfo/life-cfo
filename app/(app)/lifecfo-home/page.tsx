@@ -13,8 +13,12 @@ import type {
   MoneyByCurrencyRow,
   MoneyDataCoverage,
 } from "@/lib/money/reasoning/types";
+import { useLifeCfoAccess } from "@/lib/access/useLifeCfoAccess";
 
 export const dynamic = "force-dynamic";
+
+const DEMO_FEEDBACK_URL =
+  "https://docs.google.com/forms/d/e/1FAIpQLSeyhcWu_hHEyLVL4akuTqwik57otFXOeCelXHU0_vC_oSbXDA/viewform?usp=sharing&ouid=116746233860594069772";
 
 /* ---------- helpers ---------- */
 
@@ -260,6 +264,7 @@ function actionToHref(action: ApiAction | undefined): string | null {
 /* ---------- page ---------- */
 
 export default function LifeCFOHomePage() {
+  const access = useLifeCfoAccess();
   const router = useRouter();
   const { toast } = useToast();
   const { openAsk: openGlobalAsk, setDraft: setAskDraft } = useAsk();
@@ -725,6 +730,35 @@ Follow-up question: ${fu}`
   return (
     <Page title="Home" subtitle={subtitle}>
       <div className="mx-auto max-w-[760px] space-y-6">
+        {!access.loading && access.isDemoMode && authStatus === "signed_in" ? (
+          <Card className="border-zinc-200 bg-zinc-50 shadow-none">
+            <CardContent className="space-y-3">
+              <div>
+                <div className="text-sm font-semibold text-zinc-900">Welcome to the Life CFO demo</div>
+                <div className="mt-1 text-sm leading-6 text-zinc-600">
+                  This uses sample household data. You do not need to connect a bank.
+                </div>
+                <div className="text-sm leading-6 text-zinc-600">
+                  Explore the money picture, ask questions, and try a decision.
+                </div>
+              </div>
+              <div className="flex flex-wrap items-center justify-between gap-3 border-t border-zinc-200 pt-3">
+                <div className="text-xs leading-5 text-zinc-500">
+                  Tell us what felt helpful, confusing, or missing. Please do not include private financial details.
+                </div>
+                <a
+                  href={DEMO_FEEDBACK_URL}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex rounded-full border border-zinc-300 bg-white px-3 py-2 text-sm font-medium text-zinc-800 hover:bg-zinc-100"
+                >
+                  Share feedback
+                </a>
+              </div>
+            </CardContent>
+          </Card>
+        ) : null}
+
         {/* TOP: Always-on CFO check-in memo */}
         <Card className={`border-zinc-200 bg-white shadow-none ${readyOverview && !homeHasMoney ? "border-l-4 border-l-zinc-200" : ""}`}>
           <CardContent className="p-0">

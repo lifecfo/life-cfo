@@ -1,26 +1,28 @@
 # Life CFO — Next Work
 
-Last updated: 2026-03-11
+Last updated: 2026-07-02
 
-## Current focus
-Standardise household-scoped data access across Money UI and APIs.
+## Current beta target
 
-## In progress
-- Review Money pages and routes for any remaining user-scoped or client-direct data access
-- Confirm intended scoping for money goals
-- Identify safe API-first replacements for inconsistent access paths
+Life CFO is preparing for a trusted **demo-data beta only**.
 
-## Next
-1. Lock household-scoping consistency across Money
-2. Define canonical provider connection state model
-3. Complete Basiq sync parity
-4. Refactor oversized Money and Connections files incrementally
+- Ordinary users receive isolated sample households automatically.
+- Demo users do not need to connect a bank or upload financial files.
+- Real-data tools remain available only to users marked as developers in server-trusted app metadata.
 
-## Blockers / checks
-- Confirm whether `money_goals` should be household-scoped or intentionally user-scoped
-- Confirm external connection metadata/schema expectations across Plaid and Basiq
-- Confirm token storage/encryption expectations
+## Before live bank-data beta
+
+Complete and verify:
+
+1. Provider write-permission hardening
+2. Basiq cleanup guard
+3. LocalStorage Ask cleanup
+4. Privacy Policy
+5. Terms
+6. Acceptance versioning and re-acceptance rules
 
 ## Notes
-- Do not start large refactors before core contracts are stable
-- Prefer architecture-correctness before cleanup work
+
+- Keep the current beta positioned as sample-data exploration.
+- Do not invite ordinary beta users to connect real financial data yet.
+- Preserve household scoping and calm, non-advisory language.
