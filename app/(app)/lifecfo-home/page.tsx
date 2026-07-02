@@ -17,9 +17,6 @@ import { useLifeCfoAccess } from "@/lib/access/useLifeCfoAccess";
 
 export const dynamic = "force-dynamic";
 
-const DEMO_FEEDBACK_URL =
-  "https://docs.google.com/forms/d/e/1FAIpQLSeyhcWu_hHEyLVL4akuTqwik57otFXOeCelXHU0_vC_oSbXDA/viewform?usp=sharing&ouid=116746233860594069772";
-
 /* ---------- helpers ---------- */
 
 function firstNameOf(full: string) {
@@ -170,6 +167,10 @@ function formatMoneyRows(rows: MoneyByCurrencyRow[]) {
     .join(" | ");
 }
 
+function hasVisibleMoney(coverage: MoneyDataCoverage) {
+  return coverage.account_count > 0 || coverage.transaction_count > 0;
+}
+
 function sourceNames(coverage: MoneyDataCoverage) {
   const names = coverage.included_sources.map(
     (source) => source.provider.charAt(0).toUpperCase() + source.provider.slice(1)
@@ -177,28 +178,23 @@ function sourceNames(coverage: MoneyDataCoverage) {
   return names.length ? names.join(" and ") : "No current source";
 }
 
-function hasVisibleMoney(coverage: MoneyDataCoverage) {
-  return coverage.account_count > 0 || coverage.transaction_count > 0;
-}
-
 function visibleMoneySummary(coverage: MoneyDataCoverage) {
   const hasAccounts = coverage.account_count > 0;
   const hasTransactions = coverage.transaction_count > 0;
-  const formalSetupNote = " Formal income and bill setup is still separate.";
 
   if (hasAccounts && hasTransactions) {
     return coverage.has_demo_sources
-      ? `Life CFO can see demo accounts and recent transactions for this household.${formalSetupNote}`
-      : `Life CFO can see account balances and recent transactions for this household.${formalSetupNote}`;
+      ? "Life CFO can see demo accounts and recent transactions for this household."
+      : "Life CFO can see account balances and recent transactions for this household.";
   }
   if (hasAccounts) {
     return coverage.has_demo_sources
-      ? `Life CFO can see demo account balances for this household.${formalSetupNote}`
-      : `Life CFO can see account balances for this household.${formalSetupNote}`;
+      ? "Life CFO can see demo account balances for this household."
+      : "Life CFO can see account balances for this household.";
   }
   return coverage.has_demo_sources
-    ? `Life CFO can see recent demo transactions for this household.${formalSetupNote}`
-    : `Life CFO can see recent transactions for this household.${formalSetupNote}`;
+    ? "Life CFO can see recent demo transactions for this household."
+    : "Life CFO can see recent transactions for this household.";
 }
 
 /* ---------- types ---------- */
@@ -268,7 +264,6 @@ export default function LifeCFOHomePage() {
   const router = useRouter();
   const { toast } = useToast();
   const { openAsk: openGlobalAsk, setDraft: setAskDraft } = useAsk();
-
   const buildStamp = process.env.NEXT_PUBLIC_BUILD_STAMP || "";
 
   const [userId, setUserId] = useState<string | null>(null);
@@ -716,6 +711,36 @@ Follow-up question: ${fu}`
     return items.sort((a, b) => b.priority - a.priority).slice(0, 3);
   }, [authStatus, homeMoney, triage]);
 
+  const attentionItems = useMemo(() => {
+    const items = whatMattersNow.filter((item) =>
+      ["reviews_due", "reviews_soon", "open_decisions", "fresh_ask_promotion"].includes(item.key)
+    );
+
+    if (homeMoney.status === "ready") {
+      const coverage = homeMoney.overview.data_coverage;
+      if (coverage.confirmed_regular_payment_count > 0) {
+        items.push({
+          key: "regular_payments",
+          title: `${coverage.confirmed_regular_payment_count} regular payment${coverage.confirmed_regular_payment_count === 1 ? "" : "s"} found`,
+          detail: "Review the regular payments Life CFO can already use.",
+          href: "/money/out",
+          priority: 70,
+        });
+      }
+      if (coverage.confirmed_income_pattern_count > 0) {
+        items.push({
+          key: "income_patterns",
+          title: `${coverage.confirmed_income_pattern_count} income pattern${coverage.confirmed_income_pattern_count === 1 ? "" : "s"} found`,
+          detail: "Review the income Life CFO can already use.",
+          href: "/money/in",
+          priority: 65,
+        });
+      }
+    }
+
+    return items.sort((a, b) => b.priority - a.priority).slice(0, 3);
+  }, [homeMoney, whatMattersNow]);
+
   const readyOverview = homeMoney.status === "ready" ? homeMoney.overview : null;
   const readyCoverage = readyOverview?.data_coverage ?? null;
   const homeHasMoney = readyCoverage ? hasVisibleMoney(readyCoverage) : false;
@@ -742,25 +767,100 @@ Follow-up question: ${fu}`
                   Explore the money picture, ask questions, and try a decision.
                 </div>
               </div>
-              <div className="flex flex-wrap items-center justify-between gap-3 border-t border-zinc-200 pt-3">
-                <div className="text-xs leading-5 text-zinc-500">
-                  Tell us what felt helpful, confusing, or missing. Please do not include private financial details.
-                </div>
-                <a
-                  href={DEMO_FEEDBACK_URL}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex rounded-full border border-zinc-300 bg-white px-3 py-2 text-sm font-medium text-zinc-800 hover:bg-zinc-100"
-                >
-                  Share feedback
-                </a>
-              </div>
             </CardContent>
           </Card>
         ) : null}
 
+        <Card className="border-zinc-200 bg-white shadow-none">
+          <CardContent className="space-y-5">
+            <div>
+              <div className="text-base font-semibold text-zinc-900">Your household at a glance</div>
+              {authStatus === "signed_out" ? (
+                <div className="mt-2 text-sm text-zinc-600">Sign in to see your household picture.</div>
+              ) : homeMoney.status === "idle" || homeMoney.status === "loading" ? (
+                <div className="mt-2 text-sm text-zinc-600">Loading your household picture...</div>
+              ) : homeMoney.status === "error" ? (
+                <div className="mt-2 space-y-2">
+                  <div className="text-sm text-zinc-600">{homeMoney.message}</div>
+                  <Chip title="Try again" onClick={() => void runStatusCheck()}>
+                    Try again
+                  </Chip>
+                </div>
+              ) : homeHasMoney ? (
+                <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                  <div className="rounded-2xl bg-zinc-50 px-4 py-3">
+                    <div className="text-xs text-zinc-500">Money in this month</div>
+                    <div className="mt-1 text-base font-medium text-zinc-900">
+                      {formatMoneyRows(homeMoney.overview.data_coverage.current_month_money_in)}
+                    </div>
+                  </div>
+                  <div className="rounded-2xl bg-zinc-50 px-4 py-3">
+                    <div className="text-xs text-zinc-500">Money out this month</div>
+                    <div className="mt-1 text-base font-medium text-zinc-900">
+                      {formatMoneyRows(homeMoney.overview.data_coverage.current_month_money_out)}
+                    </div>
+                  </div>
+                  <div className="rounded-2xl bg-zinc-50 px-4 py-3">
+                    <div className="text-xs text-zinc-500">Available cash</div>
+                    <div className="mt-1 text-base font-medium text-zinc-900">
+                      {formatMoneyFromCents(homeMoney.overview.snapshot.liquidity.availableCashCents, homeCurrency)}
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="mt-2 text-sm text-zinc-600">
+                  Your household money picture is not visible yet.
+                </div>
+              )}
+            </div>
+
+            {!access.loading && access.isDemoMode && authStatus === "signed_in" ? (
+              <div className="text-xs text-zinc-500">This is sample data for exploring the app.</div>
+            ) : null}
+
+            {authStatus === "signed_in" ? (
+              <div className="flex flex-wrap gap-2">
+                <Chip title="Open Money" onClick={() => router.push("/money")}>
+                  Open Money
+                </Chip>
+                <Chip title="Ask a question" onClick={() => continueInAsk()}>
+                  Ask a question
+                </Chip>
+                <Chip title="Review decisions" onClick={() => router.push("/decisions?tab=active")}>
+                  Review decisions
+                </Chip>
+              </div>
+            ) : null}
+          </CardContent>
+        </Card>
+
+        <Card className="border-zinc-200 bg-white shadow-none">
+          <CardContent className="space-y-3">
+            <div className="text-base font-semibold text-zinc-900">What may need attention</div>
+            {authStatus === "signed_out" ? (
+              <div className="text-sm text-zinc-600">Sign in to see a few useful next points.</div>
+            ) : attentionItems.length === 0 ? (
+              <div className="text-sm text-zinc-600">Nothing needs your attention right now.</div>
+            ) : (
+              <div className="space-y-2">
+                {attentionItems.map((item) => (
+                  <button
+                    key={item.key}
+                    type="button"
+                    onClick={() => router.push(item.href)}
+                    className="w-full rounded-2xl bg-zinc-50 px-4 py-3 text-left transition hover:bg-zinc-100"
+                  >
+                    <div className="text-sm font-medium text-zinc-900">{item.title}</div>
+                    <div className="mt-1 text-xs text-zinc-600">{item.detail}</div>
+                  </button>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
         {/* TOP: Always-on CFO check-in memo */}
-        <Card className={`border-zinc-200 bg-white shadow-none ${readyOverview && !homeHasMoney ? "border-l-4 border-l-zinc-200" : ""}`}>
+        <Card className={`hidden border-zinc-200 bg-white shadow-none ${readyOverview && !homeHasMoney ? "border-l-4 border-l-zinc-200" : ""}`}>
           <CardContent className="p-0">
             <div className="px-6 py-5">
               <div className="space-y-3">
@@ -858,7 +958,7 @@ Follow-up question: ${fu}`
         </Card>
 
         {/* What matters now */}
-        <Card className="border-zinc-200 bg-white shadow-none">
+        <Card className="hidden border-zinc-200 bg-white shadow-none">
           <CardContent className="p-0">
             <div className="px-6 py-5 space-y-4">
               <div className="flex items-center justify-between gap-3">

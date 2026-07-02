@@ -1,47 +1,118 @@
 // components/FeedbackPrompt.tsx
 "use client";
 
+import { useState } from "react";
 import { usePathname } from "next/navigation";
-import { useMemo } from "react";
 import { cn } from "@/lib/cn";
-import { Chip } from "@/components/ui";
+import { supabase } from "@/lib/supabaseClient";
+import { Button, Chip } from "@/components/ui";
 
 type Props = {
   className?: string;
   pageTitle?: string; // ✅ allow Page.tsx to pass this
 };
 
-const COPY_BY_PATH: Record<string, string> = {
-  "/lifecfo-home": "Did this feel clear and grounded?",
-  "/money": "Did this help you understand your household picture quickly?",
-  "/decisions": "Did this help you make progress without overwhelm?",
-  "/chapters": "Did this feel like a safe place to close things?",
-};
+type FeedbackState = "idle" | "detail" | "sending" | "sent" | "error";
 
 export default function FeedbackPrompt({ className, pageTitle }: Props) {
   const pathname = usePathname();
+  const [state, setState] = useState<FeedbackState>("idle");
+  const [detail, setDetail] = useState("");
 
-  const prompt = useMemo(() => {
-    // Prefer specific per-route copy
-    if (pathname && COPY_BY_PATH[pathname]) return COPY_BY_PATH[pathname];
+  async function saveFeedback(message: string) {
+    setState("sending");
 
-    // Fallback: if we have a page title, use it gently
-    if (pageTitle) return `Was this page helpful?`;
+    try {
+      const {
+        data: { user },
+        error: authError,
+      } = await supabase.auth.getUser();
 
-    // Default fallback
-    return "Was this helpful?";
-  }, [pathname, pageTitle]);
+      if (authError || !user?.id) {
+        setState("error");
+        return;
+      }
 
-  // If you have any feature-flag logic in your older file, keep it.
-  // This is intentionally minimal so it won't break builds.
+      const { error } = await supabase.from("feedback").insert({
+        user_id: user.id,
+        path: pathname || pageTitle || "unknown",
+        message,
+      });
+
+      if (error) {
+        setState("error");
+        return;
+      }
+
+      setDetail("");
+      setState("sent");
+    } catch {
+      setState("error");
+    }
+  }
+
+  if (state === "sent") {
+    return (
+      <div className={cn("text-sm text-zinc-600", className)} role="status">
+        Thanks. That helps us improve Life CFO.
+      </div>
+    );
+  }
 
   return (
-    <div className={cn("flex items-center justify-between gap-3", className)}>
-      <div className="text-sm text-zinc-700">{prompt}</div>
-      <div className="flex items-center gap-2">
-        <Chip title="Send quick feedback">Yes</Chip>
-        <Chip title="Send quick feedback">Not quite</Chip>
+    <div className={cn("space-y-3", className)}>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="text-sm text-zinc-700">Did this page feel clear and grounded?</div>
+        <div className="flex items-center gap-2">
+          <Chip title="Yes" disabled={state === "sending"} onClick={() => void saveFeedback("Yes")}>
+            Yes
+          </Chip>
+          <Chip title="Not quite" disabled={state === "sending"} onClick={() => setState("detail")}>
+            Not quite
+          </Chip>
+        </div>
       </div>
+
+      {state === "detail" || state === "sending" || state === "error" ? (
+        <div className="max-w-xl space-y-2">
+          <label htmlFor="page-feedback-detail" className="text-sm text-zinc-700">
+            What could be clearer? (optional)
+          </label>
+          <textarea
+            id="page-feedback-detail"
+            value={detail}
+            maxLength={500}
+            onChange={(event) => setDetail(event.target.value)}
+            placeholder="Please do not include private financial details."
+            className="min-h-24 w-full resize-y rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-900 outline-none focus:ring-2 focus:ring-zinc-200"
+            disabled={state === "sending"}
+          />
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              className="rounded-2xl"
+              disabled={state === "sending"}
+              onClick={() => void saveFeedback(detail.trim() ? `Not quite: ${detail.trim()}` : "Not quite")}
+            >
+              {state === "sending" ? "Sending..." : "Send feedback"}
+            </Button>
+            <Chip
+              title="Cancel"
+              disabled={state === "sending"}
+              onClick={() => {
+                setDetail("");
+                setState("idle");
+              }}
+            >
+              Cancel
+            </Chip>
+            {state === "error" ? (
+              <span className="text-sm text-zinc-600" role="alert">
+                We couldn&apos;t save that yet. Please try again.
+              </span>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
