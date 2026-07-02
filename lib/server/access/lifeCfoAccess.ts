@@ -3,7 +3,7 @@ type AuthenticatedUserMetadata = {
 };
 
 export type LifeCfoAccess = {
-  isDemoBeta: boolean;
+  isDemoMode: boolean;
   isDeveloper: boolean;
   canUseRealDataSources: boolean;
 };
@@ -14,11 +14,11 @@ export function getLifeCfoAccess(user: AuthenticatedUserMetadata): LifeCfoAccess
       ? (user.app_metadata as Record<string, unknown>)
       : {};
   const access = metadata.lifecfo_access;
-  const isDemoBeta = access === "demo_beta";
   const isDeveloper = access === "developer";
+  const isDemoMode = !isDeveloper;
 
   return {
-    isDemoBeta,
+    isDemoMode,
     isDeveloper,
     canUseRealDataSources: isDeveloper,
   };

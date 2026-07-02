@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Page } from "@/components/Page";
 import { Card, CardContent, Chip, useToast } from "@/components/ui";
 import { notifyActiveHouseholdChanged } from "@/lib/households/resolveActiveHouseholdClient";
@@ -109,9 +109,11 @@ export default function HouseholdClient() {
   // Switch active household
   const [switching, setSwitching] = useState(false);
   const [demoStatusLoading, setDemoStatusLoading] = useState(false);
+  const [demoStatusChecked, setDemoStatusChecked] = useState(false);
   const [demoReady, setDemoReady] = useState(false);
   const [settingUpDemo, setSettingUpDemo] = useState(false);
   const [demoSetupError, setDemoSetupError] = useState<string | null>(null);
+  const autoDemoSetupAttempted = useRef(false);
 
   // Outgoing invites for active household
   const [invites, setInvites] = useState<InviteRow[]>([]);
@@ -283,7 +285,7 @@ export default function HouseholdClient() {
   }, []);
 
   const loadDemoStatus = async () => {
-    if (!access.isDemoBeta) return;
+    if (!access.isDemoMode) return;
     setDemoStatusLoading(true);
     try {
       const response = await fetch("/api/demo/status", { cache: "no-store" });
@@ -293,13 +295,14 @@ export default function HouseholdClient() {
       setDemoReady(false);
     } finally {
       setDemoStatusLoading(false);
+      setDemoStatusChecked(true);
     }
   };
 
   useEffect(() => {
-    if (!access.loading && access.isDemoBeta) void loadDemoStatus();
+    if (!access.loading && access.isDemoMode) void loadDemoStatus();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [access.loading, access.isDemoBeta]);
+  }, [access.loading, access.isDemoMode]);
 
   useEffect(() => {
     if (!activeHouseholdId) return;
@@ -448,12 +451,26 @@ export default function HouseholdClient() {
       showToast({ message: "Demo ready." }, 1500);
       window.location.assign("/lifecfo-home");
     } catch {
-      setDemoSetupError("We couldnâ€™t set up the demo yet. Please try again or contact support.");
       await loadDemoStatus();
+      setDemoSetupError("We couldn't set up the demo yet. Please try again or contact support.");
     } finally {
       setSettingUpDemo(false);
     }
   };
+
+  useEffect(() => {
+    if (
+      access.loading ||
+      !access.isDemoMode ||
+      !demoStatusChecked ||
+      demoReady ||
+      autoDemoSetupAttempted.current
+    ) return;
+
+    autoDemoSetupAttempted.current = true;
+    void setupDemo();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [access.loading, access.isDemoMode, demoStatusChecked, demoReady]);
 
   const confirmOwnershipChange = async () => {
     if (!ownershipConfirm.open || changingOwnership) return;
@@ -615,15 +632,15 @@ export default function HouseholdClient() {
 
   // ---------- NEW USER: needs household ----------
   if (!loading && (needsHousehold || households.length === 0)) {
-    if (access.loading || (access.isDemoBeta && demoStatusLoading)) {
+    if (access.loading || (access.isDemoMode && (demoStatusLoading || !demoStatusChecked))) {
       return (
-        <Page title="Household" subtitle="Setting up your workspace...">
+        <Page title="Welcome to Life CFO beta" subtitle="Setting up your demo...">
           <div />
         </Page>
       );
     }
 
-    if (access.isDemoBeta) {
+    if (access.isDemoMode) {
       return (
         <Page title="Welcome to Life CFO beta">
           <div className="mx-auto w-full max-w-[640px] space-y-4">
@@ -634,9 +651,15 @@ export default function HouseholdClient() {
                 </p>
                 {demoSetupError ? <p className="text-sm text-zinc-600">{demoSetupError}</p> : null}
                 <div className="flex flex-wrap items-center gap-2">
-                  <Chip onClick={() => void setupDemo()} disabled={settingUpDemo || demoReady}>
-                    {settingUpDemo ? "Setting up your demoâ€¦" : demoReady ? "Demo ready." : "Set up demo"}
-                  </Chip>
+                  {demoSetupError ? (
+                    <Chip onClick={() => void setupDemo()} disabled={settingUpDemo}>
+                      {settingUpDemo ? "Setting up your demo..." : "Retry setup"}
+                    </Chip>
+                  ) : (
+                    <span className="text-sm font-medium text-zinc-800">
+                      {demoReady ? "Demo ready." : "Setting up your demo..."}
+                    </span>
+                  )}
                   {demoSetupError ? (
                     <a className="text-sm text-zinc-600 underline underline-offset-2" href="mailto:admin@life-cfo.com">
                       Contact support
@@ -688,7 +711,7 @@ export default function HouseholdClient() {
   return (
     <Page title="Household" subtitle="Membership and permissions.">
       <div className="mx-auto w-full max-w-[760px] space-y-6">
-        {access.isDemoBeta && !demoReady && !demoStatusLoading ? (
+        {access.isDemoMode && !demoReady && !demoStatusLoading ? (
           <Card className="border-zinc-200 bg-white">
             <CardContent className="space-y-3">
               <div className="text-sm font-semibold text-zinc-900">Finish setting up your demo</div>
@@ -697,7 +720,7 @@ export default function HouseholdClient() {
               </div>
               {demoSetupError ? <div className="text-sm text-zinc-600">{demoSetupError}</div> : null}
               <Chip onClick={() => void setupDemo()} disabled={settingUpDemo}>
-                {settingUpDemo ? "Setting up your demoâ€¦" : "Set up demo"}
+                {settingUpDemo ? "Setting up your demo..." : "Retry setup"}
               </Chip>
             </CardContent>
           </Card>

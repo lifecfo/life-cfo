@@ -55,20 +55,18 @@ This checks both scenarios across two tester IDs and checks both scenarios for o
 
 Trusted demo-beta testers should use these prepared households only. They should not connect real bank accounts, upload real bank files, or enter real personal financial information during the demo beta.
 
-Set access with server-trusted Supabase Auth **app metadata** for the test user. Do not use editable user metadata.
-
-Demo-only tester:
+Ordinary beta users run in demo mode by default, including users with missing or unknown `lifecfo_access` metadata. The explicit demo value remains supported:
 
 ```json
 { "lifecfo_access": "demo_beta" }
 ```
 
-Developer with real-data tools enabled:
+Developers who need real-data tools must use server-trusted Supabase Auth **app metadata**. Do not use editable user metadata:
 
 ```json
 { "lifecfo_access": "developer" }
 ```
 
-Apply this through the Supabase dashboard or a trusted offline admin process. Users with missing or unknown `lifecfo_access` values are kept demo-only by default.
+Apply developer access through the Supabase dashboard or a trusted offline admin process.
 
-After accepting the important information and signing in, a `demo_beta` tester with missing demo households sees **Set up demo** on the Household page. The server prepares only that authenticated tester's two deterministic demo households. Refreshing or retrying skips existing rows and finishes any missing rows without resetting or overwriting demo data.
+After accepting the important information and signing in, a demo-mode user with missing demo households is sent to Household and setup starts automatically. The server prepares only that authenticated user's two deterministic demo households. Refreshing or retrying skips existing rows and finishes missing rows without resetting or overwriting demo data. The manual `demo:seed`, `demo:inspect`, and `demo:reset` commands remain available for trusted support and developer use.

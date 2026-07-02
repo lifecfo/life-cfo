@@ -18,7 +18,7 @@ export async function POST() {
     if (error || !user) {
       return NextResponse.json({ ok: false, error: "Please sign in again." }, { status: 401 });
     }
-    if (!getLifeCfoAccess(user).isDemoBeta) {
+    if (!getLifeCfoAccess(user).isDemoMode) {
       return NextResponse.json({ ok: false, error: "Not available." }, { status: 403 });
     }
 

@@ -4,14 +4,14 @@ import { useEffect, useState } from "react";
 
 type AccessState = {
   loading: boolean;
-  isDemoBeta: boolean;
+  isDemoMode: boolean;
   isDeveloper: boolean;
   canUseRealDataSources: boolean;
 };
 
 const LOCKED_ACCESS: AccessState = {
   loading: true,
-  isDemoBeta: false,
+  isDemoMode: true,
   isDeveloper: false,
   canUseRealDataSources: false,
 };
@@ -27,7 +27,7 @@ export function useLifeCfoAccess(): AccessState {
         if (cancelled) return;
         setAccess({
           loading: false,
-          isDemoBeta: data.isDemoBeta === true,
+          isDemoMode: data.isDemoMode !== false,
           isDeveloper: data.isDeveloper === true,
           canUseRealDataSources:
             response.ok && data.canUseRealDataSources === true,
