@@ -5,7 +5,10 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Page } from "@/components/Page";
 import { Card, CardContent, Chip, useToast } from "@/components/ui";
-import type { MoneyDataCoverage } from "@/lib/money/reasoning/types";
+import type {
+  MoneyBucketsSummary,
+  MoneyDataCoverage,
+} from "@/lib/money/reasoning/types";
 
 type FinancialSnapshot = {
   asOf: string;
@@ -19,6 +22,7 @@ type FinancialSnapshot = {
 type OverviewResponse = {
   snapshot: FinancialSnapshot;
   data_coverage?: MoneyDataCoverage;
+  money_buckets?: MoneyBucketsSummary;
 };
 
 function sourceNames(sources: MoneyDataCoverage["included_sources"]) {
@@ -49,6 +53,16 @@ function softDate(isoOrDate: string | null | undefined) {
   return new Date(ms).toLocaleDateString();
 }
 
+function monthName(monthKey: string): string {
+  const parsed = Date.parse(`${monthKey}-01T00:00:00.000Z`);
+  if (!Number.isFinite(parsed)) return monthKey;
+  return new Intl.DateTimeFormat("en-AU", {
+    month: "long",
+    year: "numeric",
+    timeZone: "UTC",
+  }).format(new Date(parsed));
+}
+
 async function fetchJson<T>(url: string): Promise<T> {
   const res = await fetch(url, { cache: "no-store" });
   const json = await res.json().catch(() => ({}));
@@ -75,6 +89,7 @@ export default function SavedClient() {
 
   const snapshot = data?.snapshot;
   const coverage = data?.data_coverage;
+  const buckets = data?.money_buckets?.buckets ?? [];
 
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
@@ -134,6 +149,39 @@ export default function SavedClient() {
                 : coverage?.has_demo_sources
                   ? "These balances use manual demo data."
                   : "These balances use the current connected sources in this view."}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="border-zinc-200 bg-white">
+          <CardContent className="space-y-3">
+            <div>
+              <div className="text-sm font-semibold text-zinc-900">What your savings is for</div>
+              <div className="mt-1 text-xs text-zinc-500">Goals are tracked separately from account balances.</div>
+            </div>
+            {loading ? <div className="text-sm text-zinc-600">Loading goals...</div> : null}
+            {!loading && buckets.length === 0 ? (
+              <div className="text-sm text-zinc-600">Add goals later to show what your savings is for.</div>
+            ) : null}
+            <div className="grid gap-3 sm:grid-cols-2">
+              {buckets.map((bucket) => (
+                <div key={`${bucket.currency}:${bucket.title}`} className="rounded-2xl bg-zinc-50 p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="text-sm font-medium text-zinc-900">{bucket.title}</div>
+                    <div className="shrink-0 text-xs font-medium text-zinc-700">{bucket.progress_percent}%</div>
+                  </div>
+                  <div className="mt-2 h-2 overflow-hidden rounded-full bg-zinc-200">
+                    <div className="h-full rounded-full bg-zinc-600" style={{ width: `${bucket.progress_percent}%` }} />
+                  </div>
+                  <div className="mt-2 text-xs text-zinc-600">
+                    Saved so far: {formatMoney(bucket.current_cents, bucket.currency)} of {formatMoney(bucket.target_cents, bucket.currency)}
+                  </div>
+                  <div className="mt-1 text-xs text-zinc-500">
+                    Still needed: {formatMoney(bucket.still_needed_cents, bucket.currency)}
+                    {bucket.target_month ? ` · Target ${monthName(bucket.target_month)}` : ""}
+                  </div>
+                </div>
+              ))}
             </div>
           </CardContent>
         </Card>

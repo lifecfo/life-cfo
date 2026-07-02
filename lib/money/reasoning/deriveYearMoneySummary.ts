@@ -1,8 +1,7 @@
+import { deriveMoneyBuckets } from "./deriveMoneyBuckets";
 import type {
   HouseholdMoneyTruth,
-  MoneyGoalsTruthRow,
   MoneyYearAmount,
-  MoneyYearGoalSummary,
   MoneyYearLargerPayment,
   MoneyYearMonthSummary,
   MoneyYearScheduledOccurrence,
@@ -265,34 +264,6 @@ function seasons(
   });
 }
 
-function goalSummaries(goals: MoneyGoalsTruthRow[]): MoneyYearGoalSummary[] {
-  return goals
-    .filter((goal) => {
-      const status = String(goal.status || "active").trim().toLowerCase();
-      return status !== "archived" && status !== "completed" && status !== "done";
-    })
-    .filter((goal) => typeof goal.target_cents === "number" && goal.target_cents > 0)
-    .sort((left, right) => Number(right.is_primary === true) - Number(left.is_primary === true))
-    .slice(0, 3)
-    .map((goal) => {
-      const currentCents = Math.max(0, goal.current_cents ?? 0);
-      const targetCents = goal.target_cents as number;
-      const targetMs = Date.parse(goal.deadline_at || goal.target_date || "");
-      return {
-        title: String(goal.title || "Goal").trim() || "Goal",
-        currency: normalizeCurrency(goal.currency),
-        current_cents: currentCents,
-        target_cents: targetCents,
-        progress_percent: Math.max(
-          0,
-          Math.min(100, Math.round((currentCents / targetCents) * 100))
-        ),
-        target_month: Number.isFinite(targetMs) ? monthKey(new Date(targetMs)) : null,
-        is_primary: goal.is_primary === true,
-      };
-    });
-}
-
 export function deriveYearMoneySummary(
   truth: HouseholdMoneyTruth,
   nowIso = truth.windows.now_iso || truth.as_of_iso
@@ -348,7 +319,7 @@ export function deriveYearMoneySummary(
     expected_bills_total: totalsFor(occurrences, "bill"),
     months,
     larger_scheduled_payments: largerPayments(billOccurrences),
-    goals: goalSummaries(truth.goals),
+    goals: deriveMoneyBuckets(truth.goals).buckets.slice(0, 3),
     timing_needed: timingNeeded.sort((left, right) => left.name.localeCompare(right.name)),
     seasons: seasonRows,
     months_worth_closer_look: new Set(

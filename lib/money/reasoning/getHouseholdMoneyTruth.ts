@@ -137,7 +137,7 @@ export async function getHouseholdMoneyTruth(
     supabase
       .from("money_goals")
       .select(
-        "id,title,currency,target_cents,current_cents,status,target_date,deadline_at,is_primary,updated_at"
+        "id,title,currency,target_cents,current_cents,status,target_date,deadline_at,notes,is_primary,updated_at"
       )
       .eq("household_id", householdId)
       .order("is_primary", { ascending: false })

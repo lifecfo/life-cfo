@@ -101,7 +101,7 @@ export default function MoneyYearPage() {
               <Card><CardContent><div className="text-xs text-zinc-500">Expected regular money in</div><div className="mt-1 text-base font-medium text-zinc-900">{moneyRows(year.expected_income_total)}</div></CardContent></Card>
               <Card><CardContent><div className="text-xs text-zinc-500">Expected planned bills</div><div className="mt-1 text-base font-medium text-zinc-900">{moneyRows(year.expected_bills_total)}</div></CardContent></Card>
               <Card><CardContent><div className="text-xs text-zinc-500">Larger scheduled payments</div><div className="mt-1 text-base font-medium text-zinc-900">{year.larger_scheduled_payments.length}</div></CardContent></Card>
-              <Card><CardContent><div className="text-xs text-zinc-500">Goals in progress</div><div className="mt-1 text-base font-medium text-zinc-900">{year.goals.length}</div></CardContent></Card>
+              <Card><CardContent><div className="text-xs text-zinc-500">Savings goals</div><div className="mt-1 text-base font-medium text-zinc-900">{year.goals.length}</div></CardContent></Card>
               <Card><CardContent><div className="text-xs text-zinc-500">Months worth a closer look</div><div className="mt-1 text-base font-medium text-zinc-900">{year.months_worth_closer_look}</div></CardContent></Card>
             </div>
 
@@ -172,14 +172,18 @@ export default function MoneyYearPage() {
 
               <Card>
                 <CardContent className="space-y-3">
-                  <div className="text-sm font-semibold text-zinc-900">This year’s goals</div>
+                  <div>
+                    <div className="text-sm font-semibold text-zinc-900">Savings goals</div>
+                    <div className="mt-1 text-xs text-zinc-500">These are tracked goals, not projected future savings.</div>
+                  </div>
                   {year.goals.length ? year.goals.map((goal) => (
                     <div key={`${goal.currency}:${goal.title}`} className="rounded-2xl bg-zinc-50 px-4 py-3">
                       <div className="flex items-center justify-between gap-3"><div className="text-sm font-medium text-zinc-900">{goal.title}</div><div className="text-sm font-medium text-zinc-900">{goal.progress_percent}%</div></div>
                       <div className="mt-2 h-2 overflow-hidden rounded-full bg-zinc-200"><div className="h-full rounded-full bg-zinc-600" style={{ width: `${goal.progress_percent}%` }} /></div>
-                      <div className="mt-2 text-xs text-zinc-500">{formatMoneyFromCents(goal.current_cents, goal.currency)} of {formatMoneyFromCents(goal.target_cents, goal.currency)}{goal.target_month ? ` · Target ${monthName(goal.target_month)}` : ""}</div>
+                      <div className="mt-2 text-xs text-zinc-500">Saved so far: {formatMoneyFromCents(goal.current_cents, goal.currency)} of {formatMoneyFromCents(goal.target_cents, goal.currency)}{goal.target_month ? ` · Target ${monthName(goal.target_month)}` : ""}</div>
+                      <div className="mt-1 text-xs text-zinc-500">Still needed: {formatMoneyFromCents(goal.still_needed_cents, goal.currency)}</div>
                     </div>
-                  )) : <div className="text-sm text-zinc-600">No active goals are in view.</div>}
+                  )) : <div className="text-sm text-zinc-600">No active savings goals are in view.</div>}
                 </CardContent>
               </Card>
             </div>

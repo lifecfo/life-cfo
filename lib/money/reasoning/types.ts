@@ -124,8 +124,26 @@ export type MoneyGoalsTruthRow = {
   status: string | null;
   target_date: string | null;
   deadline_at: string | null;
+  notes: string | null;
   is_primary: boolean | null;
   updated_at: string | null;
+};
+
+export type MoneyBucketSummary = {
+  title: string;
+  currency: string;
+  current_cents: number;
+  target_cents: number;
+  still_needed_cents: number;
+  progress_percent: number;
+  target_month: string | null;
+  is_primary: boolean;
+  notes: string | null;
+};
+
+export type MoneyBucketsSummary = {
+  version: 1;
+  buckets: MoneyBucketSummary[];
 };
 
 export type LiabilitiesTruthRow = {
@@ -338,15 +356,7 @@ export type MoneyYearLargerPayment = MoneyYearScheduledOccurrence & {
   occurrence_count: number;
 };
 
-export type MoneyYearGoalSummary = {
-  title: string;
-  currency: string;
-  current_cents: number;
-  target_cents: number;
-  progress_percent: number;
-  target_month: string | null;
-  is_primary: boolean;
-};
+export type MoneyYearGoalSummary = MoneyBucketSummary;
 
 export type MoneyYearTimingNeededItem = {
   name: string;
