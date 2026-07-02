@@ -87,6 +87,7 @@ function navIcon(href: string) {
     case "/money/out":
     case "/money/saved":
     case "/money/planned":
+    case "/money/year":
     case "/money/goals":
       return (
         <svg viewBox="0 0 24 24" fill="none" className={shared} aria-hidden="true">
@@ -179,6 +180,7 @@ export function AppShell({ children }: AppShellProps) {
           { href: "/money/out", label: "Out" },
           { href: "/money/saved", label: "Saved" },
           { href: "/money/planned", label: "Planned" },
+          { href: "/money/year", label: "Year at a glance" },
           { href: "/accounts", label: "Accounts" },
           { href: "/transactions", label: "Transactions" },
           { href: "/connections", label: "Connections" },

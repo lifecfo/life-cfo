@@ -309,3 +309,74 @@ export type MoneyHomeSummary = {
   primary_goal: MoneyPrimaryGoalSummary | null;
   likely_breathing_room_cents: number;
 };
+
+export type MoneyYearAmount = {
+  currency: string;
+  cents: number;
+};
+
+export type MoneyYearScheduledOccurrence = {
+  name: string;
+  kind: "income" | "bill";
+  currency: string;
+  amount_cents: number;
+  expected_at: string;
+  month_key: string;
+  cadence: string;
+};
+
+export type MoneyYearMonthSummary = {
+  month_key: string;
+  label: string;
+  expected_income: MoneyYearAmount[];
+  expected_bills: MoneyYearAmount[];
+  difference: MoneyYearAmount[];
+  larger_scheduled_payments: MoneyYearScheduledOccurrence[];
+};
+
+export type MoneyYearLargerPayment = MoneyYearScheduledOccurrence & {
+  occurrence_count: number;
+};
+
+export type MoneyYearGoalSummary = {
+  title: string;
+  currency: string;
+  current_cents: number;
+  target_cents: number;
+  progress_percent: number;
+  target_month: string | null;
+  is_primary: boolean;
+};
+
+export type MoneyYearTimingNeededItem = {
+  name: string;
+  kind: "income" | "bill";
+  currency: string;
+  amount_cents: number;
+  cadence: string;
+  reason: "missing_date" | "unsupported_cadence";
+};
+
+export type MoneyYearSeasonSummary = {
+  currency: string;
+  status: "fairly_even" | "varied";
+  median_planned_bills_cents: number;
+  heavier_months: string[];
+  quieter_months: string[];
+};
+
+export type MoneyYearSummary = {
+  version: 1;
+  window_start: string;
+  window_end: string;
+  currencies: string[];
+  mixed_currencies: boolean;
+  expected_income_total: MoneyYearAmount[];
+  expected_bills_total: MoneyYearAmount[];
+  months: MoneyYearMonthSummary[];
+  larger_scheduled_payments: MoneyYearLargerPayment[];
+  goals: MoneyYearGoalSummary[];
+  timing_needed: MoneyYearTimingNeededItem[];
+  seasons: MoneyYearSeasonSummary[];
+  months_worth_closer_look: number;
+};
