@@ -221,6 +221,15 @@ export function buildFamilyOneIncomeFixture({ ownerUserId, anchorDate = new Date
     { id: fixtureUuid("recurring-bill:insurance"), user_id: ownerUserId, household_id: householdId, name: "Home and car insurance", amount_cents: 18500, currency: "AUD", cadence: "monthly", next_due_at: `${dateDaysAgo(anchor, -12)}T09:00:00.000Z`, autopay: true, active: true, notes: null, updated_at: anchor.toISOString() },
     { id: fixtureUuid("recurring-bill:internet"), user_id: ownerUserId, household_id: householdId, name: "Home internet", amount_cents: 9500, currency: "AUD", cadence: "monthly", next_due_at: `${dateDaysAgo(anchor, -8)}T09:00:00.000Z`, autopay: true, active: true, notes: null, updated_at: anchor.toISOString() },
   ];
+  const moneyBuckets = [
+    { id: fixtureUuid("money-bucket:monthly-bills"), household_id: householdId, name: "Monthly bills", purpose_type: "bills", currency: "AUD", target_amount_cents: null, target_date: null, priority: 10, status: "active", notes: "Backed by the demo bills account.", created_by: ownerUserId, created_at: anchor.toISOString(), updated_at: anchor.toISOString() },
+    { id: fixtureUuid("money-bucket:family-buffer"), household_id: householdId, name: "Family buffer", purpose_type: "safety", currency: "AUD", target_amount_cents: 2000000, target_date: dateDaysAgo(anchor, -180), priority: 20, status: "active", notes: "Part of the demo savings account is set aside for this purpose.", created_by: ownerUserId, created_at: anchor.toISOString(), updated_at: anchor.toISOString() },
+    { id: fixtureUuid("money-bucket:school-costs-plan"), household_id: householdId, name: "School costs to plan", purpose_type: "true_expense", currency: "AUD", target_amount_cents: 450000, target_date: dateDaysAgo(anchor, -300), priority: 30, status: "active", notes: "Tracked for planning without account backing.", created_by: ownerUserId, created_at: anchor.toISOString(), updated_at: anchor.toISOString() },
+  ];
+  const bucketAllocations = [
+    { id: fixtureUuid("money-bucket-allocation:monthly-bills"), household_id: householdId, bucket_id: moneyBuckets[0].id, account_id: accountIds.bills, allocation_type: "whole_account", amount_cents: null, created_by: ownerUserId, created_at: anchor.toISOString(), updated_at: anchor.toISOString() },
+    { id: fixtureUuid("money-bucket-allocation:family-buffer"), household_id: householdId, bucket_id: moneyBuckets[1].id, account_id: accountIds.savings, allocation_type: "partial_account", amount_cents: 1200000, created_by: ownerUserId, created_at: anchor.toISOString(), updated_at: anchor.toISOString() },
+  ];
   const decisions = [
     { id: fixtureUuid("decision:private-school"), user_id: ownerUserId, household_id: householdId, title: "What would private school next year do to our breathing room?", context: "The family wants to understand the monthly trade-offs before making a commitment.", decision_context: { scenario: SCENARIO, demo: true }, status: "open", origin: "decisions", pinned: true, framed_at: anchor.toISOString() },
     { id: fixtureUuid("decision:car-replacement"), user_id: ownerUserId, household_id: householdId, title: "Should we replace the family car this year?", context: "Recent repair costs make the family want to compare waiting with replacing it.", decision_context: { scenario: SCENARIO, demo: true }, status: "open", origin: "decisions", pinned: false, framed_at: anchor.toISOString() },
@@ -246,6 +255,8 @@ export function buildFamilyOneIncomeFixture({ ownerUserId, anchorDate = new Date
     pets,
     recurringIncome,
     recurringBills,
+    moneyBuckets,
+    bucketAllocations,
     decisions,
     goals,
   };
@@ -269,6 +280,8 @@ export function assertFamilyOneIncomeFixtureIsolation(ownerUserIdA, ownerUserIdB
     pet: [fixtureA.pets[0].id, fixtureB.pets[0].id],
     recurring_income: [fixtureA.recurringIncome[0].id, fixtureB.recurringIncome[0].id],
     recurring_bill: [fixtureA.recurringBills[0].id, fixtureB.recurringBills[0].id],
+    money_bucket: [fixtureA.moneyBuckets[0].id, fixtureB.moneyBuckets[0].id],
+    money_bucket_allocation: [fixtureA.bucketAllocations[0].id, fixtureB.bucketAllocations[0].id],
     goal: [fixtureA.goals[0].id, fixtureB.goals[0].id],
     decision: [fixtureA.decisions[0].id, fixtureB.decisions[0].id],
   };

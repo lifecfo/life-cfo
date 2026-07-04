@@ -170,6 +170,15 @@ export function buildSingleParentTightFixture({ ownerUserId, anchorDate = new Da
     { id: fixtureUuid("recurring-bill:childcare"), user_id: ownerUserId, household_id: householdId, name: "Childcare", amount_cents: 24000, currency: "AUD", cadence: "weekly", next_due_at: `${dateDaysAgo(anchor, -2)}T09:00:00.000Z`, autopay: true, active: true, notes: null, updated_at: anchor.toISOString() },
     { id: fixtureUuid("recurring-bill:insurance"), user_id: ownerUserId, household_id: householdId, name: "Car insurance", amount_cents: 11800, currency: "AUD", cadence: "monthly", next_due_at: `${dateDaysAgo(anchor, -11)}T09:00:00.000Z`, autopay: true, active: true, notes: null, updated_at: anchor.toISOString() },
   ];
+  const moneyBuckets = [
+    { id: fixtureUuid("money-bucket:monthly-bills"), household_id: householdId, name: "Monthly bills", purpose_type: "bills", currency: "AUD", target_amount_cents: null, target_date: null, priority: 10, status: "active", notes: "Backed by the demo bills account.", created_by: ownerUserId, created_at: anchor.toISOString(), updated_at: anchor.toISOString() },
+    { id: fixtureUuid("money-bucket:emergency-reserve"), household_id: householdId, name: "Emergency reserve", purpose_type: "safety", currency: "AUD", target_amount_cents: 600000, target_date: dateDaysAgo(anchor, -300), priority: 20, status: "active", notes: "Part of the demo savings account is set aside for this purpose.", created_by: ownerUserId, created_at: anchor.toISOString(), updated_at: anchor.toISOString() },
+    { id: fixtureUuid("money-bucket:car-costs-plan"), household_id: householdId, name: "Car costs to plan", purpose_type: "true_expense", currency: "AUD", target_amount_cents: 300000, target_date: dateDaysAgo(anchor, -150), priority: 30, status: "active", notes: "Tracked for planning without account backing.", created_by: ownerUserId, created_at: anchor.toISOString(), updated_at: anchor.toISOString() },
+  ];
+  const bucketAllocations = [
+    { id: fixtureUuid("money-bucket-allocation:monthly-bills"), household_id: householdId, bucket_id: moneyBuckets[0].id, account_id: accountIds.bills, allocation_type: "whole_account", amount_cents: null, created_by: ownerUserId, created_at: anchor.toISOString(), updated_at: anchor.toISOString() },
+    { id: fixtureUuid("money-bucket-allocation:emergency-reserve"), household_id: householdId, bucket_id: moneyBuckets[1].id, account_id: accountIds.savings, allocation_type: "partial_account", amount_cents: 150000, created_by: ownerUserId, created_at: anchor.toISOString(), updated_at: anchor.toISOString() },
+  ];
   const goals = [
     { id: fixtureUuid("goal:car-repair"), user_id: ownerUserId, household_id: householdId, title: "Car repair buffer", currency: "AUD", target_cents: 300000, current_cents: 95000, target_date: dateDaysAgo(anchor, -150), deadline_at: `${dateDaysAgo(anchor, -150)}T09:00:00.000Z`, notes: "A small buffer for transport surprises.", status: "active", is_primary: true, updated_at: anchor.toISOString() },
     { id: fixtureUuid("goal:emergency"), user_id: ownerUserId, household_id: householdId, title: "Emergency buffer", currency: "AUD", target_cents: 600000, current_cents: 215000, target_date: dateDaysAgo(anchor, -300), deadline_at: `${dateDaysAgo(anchor, -300)}T09:00:00.000Z`, notes: "A longer-term sample buffer goal.", status: "active", is_primary: false, updated_at: anchor.toISOString() },
@@ -184,7 +193,7 @@ export function buildSingleParentTightFixture({ ownerUserId, anchorDate = new Da
     household: { id: householdId, name: HOUSEHOLD_NAME },
     membership: { id: fixtureUuid("membership:owner"), household_id: householdId, user_id: ownerUserId, role: "owner" },
     connection, accounts, externalAccounts, transactions, confirmations,
-    familyMembers, pets, recurringIncome, recurringBills, goals, decisions,
+    familyMembers, pets, recurringIncome, recurringBills, moneyBuckets, bucketAllocations, goals, decisions,
   };
 }
 
@@ -199,6 +208,7 @@ export function assertSingleParentTightFixtureIsolation(ownerUserIdA, ownerUserI
     [fixtureA.transactions[0].id, fixtureB.transactions[0].id], [fixtureA.confirmations[0].id, fixtureB.confirmations[0].id],
     [fixtureA.familyMembers[0].id, fixtureB.familyMembers[0].id], [fixtureA.pets[0].id, fixtureB.pets[0].id],
     [fixtureA.recurringIncome[0].id, fixtureB.recurringIncome[0].id], [fixtureA.recurringBills[0].id, fixtureB.recurringBills[0].id],
+    [fixtureA.moneyBuckets[0].id, fixtureB.moneyBuckets[0].id], [fixtureA.bucketAllocations[0].id, fixtureB.bucketAllocations[0].id],
     [fixtureA.goals[0].id, fixtureB.goals[0].id], [fixtureA.decisions[0].id, fixtureB.decisions[0].id],
   ];
   if (pairs.some(([idA, idB]) => idA === idB)) throw new Error("Single-parent fixture IDs are not isolated.");

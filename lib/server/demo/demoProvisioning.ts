@@ -24,6 +24,8 @@ type DemoFixture = {
   pets: DemoRow[];
   recurringIncome: DemoRow[];
   recurringBills: DemoRow[];
+  moneyBuckets: DemoRow[];
+  bucketAllocations: DemoRow[];
   decisions: DemoRow[];
   goals: DemoRow[];
 };
@@ -40,6 +42,8 @@ function buildFixtures(ownerUserId: string): DemoFixture[] {
 function fixtureCollections(fixture: DemoFixture) {
   return [
     ["accounts", fixture.accounts],
+    ["money_buckets", fixture.moneyBuckets],
+    ["money_bucket_allocations", fixture.bucketAllocations],
     ["external_accounts", fixture.externalAccounts],
     ["transactions", fixture.transactions],
     ["transaction_pattern_confirmations", fixture.confirmations],

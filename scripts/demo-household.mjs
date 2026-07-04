@@ -200,6 +200,8 @@ function fixtureSummary(fixture, mode, projectRef) {
       money_goals: fixture.goals.length,
       recurring_bills: fixture.recurringBills.length,
       recurring_income: fixture.recurringIncome.length,
+      money_buckets: fixture.moneyBuckets.length,
+      money_bucket_allocations: fixture.bucketAllocations.length,
     },
     transaction_window: { start: dates[0], end: dates[dates.length - 1] },
     current_month: { money_in_cents: moneyIn, money_out_cents: moneyOut },
@@ -224,6 +226,23 @@ function validateFixturePayload(fixture) {
   }
   if (fixture.connection.metadata?.demo !== true) {
     throw new Error("external_connections demo metadata is missing.");
+  }
+  for (const bucket of fixture.moneyBuckets) {
+    if (bucket.household_id !== fixture.household.id || bucket.created_by !== fixture.membership.user_id) {
+      throw new Error("money_buckets payload is not scoped to the demo household owner.");
+    }
+  }
+  const bucketIds = new Set(fixture.moneyBuckets.map((bucket) => bucket.id));
+  const accountIds = new Set(fixture.accounts.map((account) => account.id));
+  for (const allocation of fixture.bucketAllocations) {
+    if (
+      allocation.household_id !== fixture.household.id ||
+      allocation.created_by !== fixture.membership.user_id ||
+      !bucketIds.has(allocation.bucket_id) ||
+      !accountIds.has(allocation.account_id)
+    ) {
+      throw new Error("money_bucket_allocations payload failed household or fixture linkage checks.");
+    }
   }
 }
 
@@ -305,7 +324,7 @@ async function assertSeeded(client, fixture) {
   const ownerUserId = assertFixtureIdentity(identity, fixture);
   if (ownerUserId !== fixture.membership.user_id) throw new Error("Seed owner assertion failed.");
 
-  const [accountCount, transactionCount, confirmationCount, familyCount, petCount, billCount, incomeCount, goalCount, decisionCount] = await Promise.all([
+  const [accountCount, transactionCount, confirmationCount, familyCount, petCount, billCount, incomeCount, goalCount, decisionCount, bucketCount, allocationCount] = await Promise.all([
     countRows(client, "accounts", fixture.household.id),
     countRows(client, "transactions", fixture.household.id),
     countRows(client, "transaction_pattern_confirmations", fixture.household.id),
@@ -315,6 +334,8 @@ async function assertSeeded(client, fixture) {
     countRows(client, "recurring_income", fixture.household.id),
     countRows(client, "money_goals", fixture.household.id),
     countRows(client, "decisions", fixture.household.id),
+    countRows(client, "money_buckets", fixture.household.id),
+    countRows(client, "money_bucket_allocations", fixture.household.id),
   ]);
   if (accountCount !== fixture.accounts.length) throw new Error("Seed account count assertion failed.");
   if (transactionCount !== fixture.transactions.length) throw new Error("Seed transaction count assertion failed.");
@@ -325,6 +346,8 @@ async function assertSeeded(client, fixture) {
   if (incomeCount !== fixture.recurringIncome.length) throw new Error("Seed recurring income count assertion failed.");
   if (goalCount !== fixture.goals.length) throw new Error("Seed goal count assertion failed.");
   if (decisionCount !== fixture.decisions.length) throw new Error("Seed decision count assertion failed.");
+  if (bucketCount !== fixture.moneyBuckets.length) throw new Error("Seed money bucket count assertion failed.");
+  if (allocationCount !== fixture.bucketAllocations.length) throw new Error("Seed bucket allocation count assertion failed.");
 
   const { data: monthRows, error: monthError } = await client
     .from("transactions")
@@ -341,7 +364,7 @@ async function assertSeeded(client, fixture) {
   if (startAgeDays < 150 || startAgeDays > 200) {
     throw new Error("Transaction date-window assertion failed.");
   }
-  return { accountCount, transactionCount, confirmationCount, familyCount, petCount, billCount, incomeCount, goalCount, decisionCount };
+  return { accountCount, transactionCount, confirmationCount, familyCount, petCount, billCount, incomeCount, goalCount, decisionCount, bucketCount, allocationCount };
 }
 
 async function inspectFixture(client, fixture) {
@@ -360,6 +383,8 @@ async function inspectFixture(client, fixture) {
     "money_goals",
     "recurring_bills",
     "recurring_income",
+    "money_buckets",
+    "money_bucket_allocations",
   ];
   const counts = {};
   for (const table of tables) counts[table] = await countRows(client, table, fixture.household.id);
@@ -382,6 +407,8 @@ async function resetFixture(client, fixture) {
   assertFixtureIdentity(identity, fixture);
 
   for (const table of [
+    "money_bucket_allocations",
+    "money_buckets",
     "decisions",
     "transaction_pattern_confirmations",
     "money_goals",
@@ -425,6 +452,8 @@ async function seedFixture(client, fixture) {
     await insertRows(client, "household_members", [fixture.membership]);
     await insertRows(client, "external_connections", [fixture.connection]);
     await insertRows(client, "accounts", fixture.accounts);
+    await insertRows(client, "money_buckets", fixture.moneyBuckets);
+    await insertRows(client, "money_bucket_allocations", fixture.bucketAllocations);
     await insertRows(client, "external_accounts", fixture.externalAccounts);
     await insertRows(client, "transactions", fixture.transactions);
     await insertRows(client, "transaction_pattern_confirmations", fixture.confirmations);
@@ -439,6 +468,8 @@ async function seedFixture(client, fixture) {
     const cleanupErrors = [];
     if (householdCreated) {
       for (const table of [
+        "money_bucket_allocations",
+        "money_buckets",
         "decisions",
         "transaction_pattern_confirmations",
         "money_goals",
@@ -487,6 +518,8 @@ function assertScenarioIsolation(ownerUserId) {
     pet: [family.pets[0].id, singleParent.pets[0].id],
     recurring_income: [family.recurringIncome[0].id, singleParent.recurringIncome[0].id],
     recurring_bill: [family.recurringBills[0].id, singleParent.recurringBills[0].id],
+    money_bucket: [family.moneyBuckets[0].id, singleParent.moneyBuckets[0].id],
+    money_bucket_allocation: [family.bucketAllocations[0].id, singleParent.bucketAllocations[0].id],
     goal: [family.goals[0].id, singleParent.goals[0].id],
     decision: [family.decisions[0].id, singleParent.decisions[0].id],
   };
