@@ -6,6 +6,8 @@ import { Page } from "@/components/Page";
 import { Card, CardContent, Chip } from "@/components/ui";
 import { formatMoneyFromCents } from "@/lib/money/formatMoney";
 import type {
+  CashPlanBucket,
+  CashPlanSummary,
   MoneyMapPlannedItem,
   MoneyMapSummary,
 } from "@/lib/money/reasoning/types";
@@ -15,6 +17,25 @@ type MoneyMapResponse = {
   money_map?: MoneyMapSummary;
   error?: string;
 };
+
+type CashPlanResponse = {
+  ok?: boolean;
+  cash_plan?: CashPlanSummary;
+  error?: string;
+};
+
+function cashPlanStatusLabel(status: CashPlanBucket["backing_status"]): string {
+  switch (status) {
+    case "account_backed":
+      return "Account-backed";
+    case "part_account":
+      return "Part of account";
+    case "tracked_only":
+      return "Tracked separately";
+    case "needs_review":
+      return "Needs review";
+  }
+}
 
 function displayDate(value: string | null): string | null {
   const parsed = Date.parse(value || "");
@@ -66,6 +87,9 @@ export default function MoneyMapPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [moneyMap, setMoneyMap] = useState<MoneyMapSummary | null>(null);
+  const [cashPlanLoading, setCashPlanLoading] = useState(true);
+  const [cashPlanError, setCashPlanError] = useState(false);
+  const [cashPlan, setCashPlan] = useState<CashPlanSummary | null>(null);
 
   const loadMoneyMap = useCallback(async () => {
     setLoading(true);
@@ -89,9 +113,38 @@ export default function MoneyMapPage() {
     }
   }, []);
 
+  const loadCashPlan = useCallback(async () => {
+    setCashPlanLoading(true);
+    setCashPlanError(false);
+    try {
+      const response = await fetch("/api/money/cash-plan", { cache: "no-store" });
+      const body = (await response.json().catch(() => ({}))) as CashPlanResponse;
+      if (!response.ok || !body.cash_plan) {
+        throw new Error(body.error || "Cash Plan unavailable");
+      }
+      setCashPlan(body.cash_plan);
+    } catch {
+      setCashPlanError(true);
+      setCashPlan(null);
+    } finally {
+      setCashPlanLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     void loadMoneyMap();
-  }, [loadMoneyMap]);
+    void loadCashPlan();
+  }, [loadCashPlan, loadMoneyMap]);
+
+  const cashPlanBuckets = cashPlan
+    ? [
+        ...cashPlan.account_backed_buckets,
+        ...cashPlan.part_account_buckets,
+        ...cashPlan.tracked_only_buckets,
+      ]
+    : [];
+  const visibleCashPlanBuckets = cashPlanBuckets.slice(0, 6);
+  const hiddenCashPlanBucketCount = Math.max(0, cashPlanBuckets.length - 6);
 
   return (
     <Page
@@ -99,7 +152,15 @@ export default function MoneyMapPage() {
       subtitle="See where money is, what it is being tracked for, and what may need review."
       right={
         <div className="flex flex-wrap gap-2">
-          <Chip onClick={() => void loadMoneyMap()} disabled={loading}>Refresh</Chip>
+          <Chip
+            onClick={() => {
+              void loadMoneyMap();
+              void loadCashPlan();
+            }}
+            disabled={loading || cashPlanLoading}
+          >
+            Refresh
+          </Chip>
           <Link href="/money"><Chip>Back to Money</Chip></Link>
         </div>
       }
@@ -164,7 +225,84 @@ export default function MoneyMapPage() {
             <Card>
               <CardContent className="space-y-4">
                 <div>
-                  <div className="text-sm font-semibold text-zinc-900">What it is being tracked for</div>
+                  <div className="text-sm font-semibold text-zinc-900">Cash Plan</div>
+                  <div className="mt-1 text-xs text-zinc-500">
+                    A review of what some visible cash is being tracked for.
+                  </div>
+                  <div className="mt-1 text-xs text-zinc-500">
+                    For review only. Nothing has moved.
+                  </div>
+                </div>
+
+                {cashPlanLoading ? (
+                  <div className="text-sm text-zinc-600">Loading Cash Plan...</div>
+                ) : null}
+
+                {!cashPlanLoading && cashPlanError ? (
+                  <div className="text-sm text-zinc-600">
+                    Cash Plan isn&apos;t available right now.
+                  </div>
+                ) : null}
+
+                {!cashPlanLoading && !cashPlanError && cashPlan ? (
+                  <>
+                    {cashPlan.review_items.length ? (
+                      <div className="rounded-2xl bg-zinc-50 px-4 py-3 text-xs text-zinc-600">
+                        {cashPlan.review_items.length} Cash Plan item
+                        {cashPlan.review_items.length === 1 ? "" : "s"} needs review.
+                      </div>
+                    ) : null}
+
+                    {visibleCashPlanBuckets.length ? (
+                      <div className="space-y-2">
+                        {visibleCashPlanBuckets.map((bucket, index) => (
+                          <div
+                            key={`${bucket.currency}:${bucket.name}:${index}`}
+                            className="flex flex-wrap items-start justify-between gap-3 rounded-2xl bg-zinc-50 px-4 py-3"
+                          >
+                            <div className="min-w-0">
+                              <div className="text-sm font-medium text-zinc-900">
+                                {bucket.name}
+                              </div>
+                              <div className="mt-1 text-xs text-zinc-500">
+                                {cashPlanStatusLabel(bucket.backing_status)}
+                                {bucket.account_label
+                                  ? ` · Shown from ${bucket.account_label}`
+                                  : ""}
+                              </div>
+                            </div>
+                            {bucket.backed_amount_cents > 0 ? (
+                              <div className="shrink-0 text-sm font-medium text-zinc-900">
+                                {formatMoneyFromCents(
+                                  bucket.backed_amount_cents,
+                                  bucket.currency
+                                )}
+                              </div>
+                            ) : null}
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="text-sm text-zinc-600">
+                        No Cash Plan buckets are being tracked yet.
+                      </div>
+                    )}
+
+                    {hiddenCashPlanBucketCount > 0 ? (
+                      <div className="text-xs text-zinc-500">
+                        {hiddenCashPlanBucketCount} more
+                        {hiddenCashPlanBucketCount === 1 ? " is" : " are"} tracked.
+                      </div>
+                    ) : null}
+                  </>
+                ) : null}
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardContent className="space-y-4">
+                <div>
+                  <div className="text-sm font-semibold text-zinc-900">Savings goals</div>
                   <div className="mt-1 text-xs text-zinc-500">These goals are tracked separately from account balances.</div>
                 </div>
                 <div className="grid gap-3 sm:grid-cols-2">
