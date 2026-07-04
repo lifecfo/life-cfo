@@ -65,6 +65,7 @@ export type AccountsTruthRow = {
   name: string | null;
   provider: string | null;
   type: string | null;
+  subtype: string | null;
   status: string | null;
   archived: boolean | null;
   current_balance_cents: number | null;
@@ -456,4 +457,84 @@ export type MoneyMapSummary = {
   review: {
     items: MoneyMapReviewItem[];
   };
+};
+
+export type MoneyBucketTruthRow = {
+  id: string;
+  household_id: string;
+  name: string;
+  purpose_type: string;
+  currency: string;
+  target_amount_cents: number | null;
+  target_date: string | null;
+  priority: number;
+  status: string;
+};
+
+export type MoneyBucketAllocationTruthRow = {
+  id: string;
+  household_id: string;
+  bucket_id: string;
+  account_id: string;
+  allocation_type: string;
+  amount_cents: number | null;
+};
+
+export type CashPlanBackingStatus =
+  | "account_backed"
+  | "part_account"
+  | "tracked_only"
+  | "needs_review";
+
+export type CashPlanBucket = {
+  name: string;
+  purpose_type: string;
+  currency: string;
+  allocation_type: "whole_account" | "partial_account" | null;
+  backed_amount_cents: number;
+  target_amount_cents: number | null;
+  target_date: string | null;
+  status: string;
+  account_label: string | null;
+  backing_status: CashPlanBackingStatus;
+};
+
+export type CashPlanAccount = {
+  name: string;
+  currency: string;
+  visible_balance_cents: number;
+  account_type: string;
+};
+
+export type CashPlanReviewItem = {
+  code:
+    | "missing_bucket"
+    | "missing_account"
+    | "household_mismatch"
+    | "currency_mismatch"
+    | "archived_account"
+    | "unavailable_account"
+    | "archived_bucket"
+    | "non_cash_account"
+    | "multiple_whole_allocations"
+    | "whole_partial_conflict"
+    | "partial_over_allocation"
+    | "invalid_allocation";
+  label: "Needs review";
+  title: string;
+  detail: string;
+};
+
+export type CashPlanSummary = {
+  version: 1;
+  review_message: "For review only. Nothing has moved.";
+  currencies: string[];
+  mixed_currencies: boolean;
+  eligible_cash_by_currency: MoneyByCurrencyRow[];
+  account_backed_buckets: CashPlanBucket[];
+  part_account_buckets: CashPlanBucket[];
+  tracked_only_buckets: CashPlanBucket[];
+  accounts_without_allocations: CashPlanAccount[];
+  review_items: CashPlanReviewItem[];
+  flexible_cash_calculated: false;
 };

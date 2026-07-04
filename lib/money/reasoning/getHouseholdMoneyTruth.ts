@@ -78,7 +78,7 @@ export async function getHouseholdMoneyTruth(
     supabase
       .from("accounts")
       .select(
-        "id,household_id,connection_id,name,provider,type,status,archived,current_balance_cents,available_balance_cents,currency,updated_at,created_at"
+        "id,household_id,connection_id,name,provider,type,subtype,status,archived,current_balance_cents,available_balance_cents,currency,updated_at,created_at"
       )
       .eq("household_id", householdId)
       .eq("archived", false)
