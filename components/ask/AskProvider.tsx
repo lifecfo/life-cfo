@@ -4,6 +4,7 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useRef,
   useState,
@@ -81,23 +82,6 @@ type AskContextValue = AskState & {
 const AskContext = createContext<AskContextValue | null>(null);
 const RECENT_MONEY_ASKS_KEY = "lifecfo:money-recent-asks";
 const RECENT_MONEY_ASKS_MAX = 3;
-
-function readRecentMoneyAsksFromStorage() {
-  if (typeof window === "undefined") return [] as string[];
-  try {
-    const raw = window.localStorage.getItem(RECENT_MONEY_ASKS_KEY);
-    if (!raw) return [] as string[];
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [] as string[];
-    return parsed
-      .filter((v) => typeof v === "string")
-      .map((v) => v.trim())
-      .filter(Boolean)
-      .slice(0, RECENT_MONEY_ASKS_MAX);
-  } catch {
-    return [] as string[];
-  }
-}
 
 function makeId() {
   try {
@@ -293,11 +277,17 @@ export function AskProvider({ children }: { children: ReactNode }) {
   const [messages, setMessages] = useState<AskMessage[]>([]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [shellSplitHostActive, setShellSplitHostActive] = useState(false);
-  const [recentMoneyAsks, setRecentMoneyAsks] = useState<string[]>(() =>
-    readRecentMoneyAsksFromStorage()
-  );
+  const [recentMoneyAsks, setRecentMoneyAsks] = useState<string[]>([]);
 
   const lastQuestionRef = useRef<string>("");
+
+  useEffect(() => {
+    try {
+      window.localStorage.removeItem(RECENT_MONEY_ASKS_KEY);
+    } catch {
+      // Best-effort cleanup for browsers where storage is unavailable.
+    }
+  }, []);
 
   const currentPath = pathname || "";
   const currentScope = scopeFromPath(currentPath);
@@ -311,6 +301,7 @@ export function AskProvider({ children }: { children: ReactNode }) {
     setStatus("idle");
     setMessages([]);
     setErrorMessage(null);
+    setRecentMoneyAsks([]);
     lastQuestionRef.current = "";
   }, []);
 
@@ -319,16 +310,10 @@ export function AskProvider({ children }: { children: ReactNode }) {
     if (!q) return;
 
     setRecentMoneyAsks((prev) => {
-      const deduped = [q, ...prev.filter((item) => item.toLowerCase() !== q.toLowerCase())].slice(
+      return [q, ...prev.filter((item) => item.toLowerCase() !== q.toLowerCase())].slice(
         0,
         RECENT_MONEY_ASKS_MAX
       );
-      try {
-        window.localStorage.setItem(RECENT_MONEY_ASKS_KEY, JSON.stringify(deduped));
-      } catch {
-        // ignore
-      }
-      return deduped;
     });
   }, []);
 
