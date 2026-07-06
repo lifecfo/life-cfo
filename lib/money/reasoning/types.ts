@@ -392,6 +392,37 @@ export type MoneyYearSummary = {
   months_worth_closer_look: number;
 };
 
+export type MoneyTimelineMonth = {
+  month_key: string;
+  label: string;
+  known_money_in_cents: number;
+  known_money_out_cents: number;
+  difference_cents: number;
+  needs_closer_look: boolean;
+  closer_look_reasons: Array<"bills_above_income" | "heavier_scheduled_month">;
+  largest_payment: {
+    name: string;
+    amount_cents: number;
+  } | null;
+};
+
+export type MoneyTimelineCurrency = {
+  currency: string;
+  scale_min_cents: number;
+  scale_max_cents: number;
+  months: MoneyTimelineMonth[];
+};
+
+export type MoneyTimelineSummary = {
+  version: 1;
+  basis: "current_schedules";
+  window_start: string;
+  window_end: string;
+  currencies: MoneyTimelineCurrency[];
+  timing_needed_count: number;
+  commentary: string[];
+};
+
 export type MoneyMapAccountItem = {
   name: string;
   balance_cents: number;

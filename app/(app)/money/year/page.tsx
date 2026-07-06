@@ -6,6 +6,9 @@ import { Page } from "@/components/Page";
 import { Card, CardContent, Chip } from "@/components/ui";
 import { formatMoneyFromCents } from "@/lib/money/formatMoney";
 import type {
+  MoneyTimelineCurrency,
+  MoneyTimelineMonth,
+  MoneyTimelineSummary,
   MoneyYearAmount,
   MoneyYearSummary,
 } from "@/lib/money/reasoning/types";
@@ -13,6 +16,7 @@ import type {
 type YearResponse = {
   ok?: boolean;
   year?: MoneyYearSummary;
+  timeline?: MoneyTimelineSummary;
   error?: string;
 };
 
@@ -33,10 +37,126 @@ function monthName(monthKey: string): string {
   }).format(new Date(parsed));
 }
 
+const CHART_WIDTH = 960;
+const CHART_HEIGHT = 300;
+const CHART_LEFT = 64;
+const CHART_RIGHT = 20;
+const CHART_TOP = 20;
+const CHART_BOTTOM = 54;
+
+function chartX(index: number, monthCount: number): number {
+  if (monthCount <= 1) return CHART_LEFT;
+  return CHART_LEFT + ((CHART_WIDTH - CHART_LEFT - CHART_RIGHT) * index) / (monthCount - 1);
+}
+
+function chartY(value: number, timeline: MoneyTimelineCurrency): number {
+  const range = timeline.scale_max_cents - timeline.scale_min_cents;
+  if (range <= 0) return (CHART_TOP + CHART_HEIGHT - CHART_BOTTOM) / 2;
+  return CHART_TOP +
+    ((timeline.scale_max_cents - value) / range) *
+      (CHART_HEIGHT - CHART_TOP - CHART_BOTTOM);
+}
+
+function points(
+  timeline: MoneyTimelineCurrency,
+  key: "known_money_in_cents" | "known_money_out_cents" | "difference_cents"
+): string {
+  return timeline.months
+    .map((month, index) => `${chartX(index, timeline.months.length)},${chartY(month[key], timeline)}`)
+    .join(" ");
+}
+
+function closerLookText(month: MoneyTimelineMonth): string {
+  const reasons = month.closer_look_reasons.map((reason) =>
+    reason === "bills_above_income"
+      ? "Bills are higher than known income this month."
+      : "This is a heavier scheduled month."
+  );
+  return reasons.join(" ");
+}
+
+function YearTimelineChart({ timeline }: { timeline: MoneyTimelineCurrency }) {
+  const zeroY = chartY(0, timeline);
+
+  return (
+    <div className="space-y-3 rounded-2xl border border-zinc-200 p-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="text-sm font-medium text-zinc-900">{timeline.currency}</div>
+        <div className="flex flex-wrap gap-3 text-xs text-zinc-600" aria-hidden="true">
+          <span><span className="mr-1 inline-block h-2 w-2 rounded-full bg-emerald-600" />Money in</span>
+          <span><span className="mr-1 inline-block h-2 w-2 rounded-full bg-zinc-700" />Money out</span>
+          <span><span className="mr-1 inline-block h-2 w-2 rounded-full bg-sky-600" />Difference</span>
+        </div>
+      </div>
+      <div className="overflow-x-auto">
+        <svg viewBox={`0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`} className="min-w-[720px]" role="img" aria-label={`Twelve month timeline for ${timeline.currency}`}>
+          <line x1={CHART_LEFT} x2={CHART_WIDTH - CHART_RIGHT} y1={zeroY} y2={zeroY} stroke="#d4d4d8" strokeDasharray="4 4" />
+          <polyline points={points(timeline, "known_money_in_cents")} fill="none" stroke="#059669" strokeWidth="4" strokeLinejoin="round" strokeLinecap="round" />
+          <polyline points={points(timeline, "known_money_out_cents")} fill="none" stroke="#3f3f46" strokeWidth="4" strokeLinejoin="round" strokeLinecap="round" />
+          <polyline points={points(timeline, "difference_cents")} fill="none" stroke="#0284c7" strokeWidth="4" strokeLinejoin="round" strokeLinecap="round" />
+          {timeline.months.map((month, index) => {
+            const x = chartX(index, timeline.months.length);
+            return (
+              <g key={month.month_key}>
+                <title>{`${month.label}: money in ${formatMoneyFromCents(month.known_money_in_cents, timeline.currency)}, money out ${formatMoneyFromCents(month.known_money_out_cents, timeline.currency)}, difference ${formatMoneyFromCents(month.difference_cents, timeline.currency)}`}</title>
+                <circle cx={x} cy={chartY(month.known_money_in_cents, timeline)} r="5" fill="#059669" />
+                <circle cx={x} cy={chartY(month.known_money_out_cents, timeline)} r="5" fill="#3f3f46" />
+                <circle cx={x} cy={chartY(month.difference_cents, timeline)} r="5" fill="#0284c7" />
+                {month.needs_closer_look ? <circle cx={x} cy={CHART_TOP + 4} r="5" fill="#a16207" /> : null}
+                <text x={x} y={CHART_HEIGHT - 20} textAnchor="middle" className="fill-zinc-500 text-[11px]">{month.label.replace(/ \d{4}$/, "")}</text>
+              </g>
+            );
+          })}
+          <text x={CHART_LEFT - 8} y={CHART_TOP + 4} textAnchor="end" className="fill-zinc-500 text-[11px]">{formatMoneyFromCents(timeline.scale_max_cents, timeline.currency)}</text>
+          <text x={CHART_LEFT - 8} y={zeroY + 4} textAnchor="end" className="fill-zinc-500 text-[11px]">{formatMoneyFromCents(0, timeline.currency)}</text>
+          {timeline.scale_min_cents < 0 ? <text x={CHART_LEFT - 8} y={CHART_HEIGHT - CHART_BOTTOM + 4} textAnchor="end" className="fill-zinc-500 text-[11px]">{formatMoneyFromCents(timeline.scale_min_cents, timeline.currency)}</text> : null}
+        </svg>
+      </div>
+      <details className="rounded-2xl bg-zinc-50 px-4 py-3">
+        <summary className="cursor-pointer text-sm font-medium text-zinc-800">Monthly details</summary>
+        <div className="mt-3 overflow-x-auto">
+          <table className="w-full min-w-[680px] text-left text-xs">
+            <thead className="text-zinc-500">
+              <tr>
+                <th className="pb-2 pr-4 font-medium">Month</th>
+                <th className="pb-2 pr-4 font-medium">Money in</th>
+                <th className="pb-2 pr-4 font-medium">Money out</th>
+                <th className="pb-2 pr-4 font-medium">Difference</th>
+                <th className="pb-2 pr-4 font-medium">Largest payment</th>
+                <th className="pb-2 font-medium">Worth noting</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-zinc-200 text-zinc-700">
+              {timeline.months.map((month) => (
+                <tr key={month.month_key}>
+                  <td className="py-2 pr-4 font-medium text-zinc-900">{month.label}</td>
+                  <td className="py-2 pr-4">{formatMoneyFromCents(month.known_money_in_cents, timeline.currency)}</td>
+                  <td className="py-2 pr-4">{formatMoneyFromCents(month.known_money_out_cents, timeline.currency)}</td>
+                  <td className="py-2 pr-4">{formatMoneyFromCents(month.difference_cents, timeline.currency)}</td>
+                  <td className="py-2 pr-4">
+                    {month.largest_payment
+                      ? `${month.largest_payment.name}: ${formatMoneyFromCents(month.largest_payment.amount_cents, timeline.currency)}`
+                      : "None scheduled"}
+                  </td>
+                  <td className="py-2">{closerLookText(month) || "Nothing specific."}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </details>
+      {timeline.months.some((month) => month.needs_closer_look) ? (
+        <div className="text-xs text-zinc-500"><span className="mr-1 inline-block h-2 w-2 rounded-full bg-amber-700" />Amber markers show a month with a shortfall or a heavier schedule.</div>
+      ) : null}
+    </div>
+  );
+}
+
 export default function MoneyYearPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [year, setYear] = useState<MoneyYearSummary | null>(null);
+  const [timeline, setTimeline] = useState<MoneyTimelineSummary | null>(null);
 
   async function loadYear() {
     setLoading(true);
@@ -44,17 +164,19 @@ export default function MoneyYearPage() {
     try {
       const response = await fetch("/api/money/year", { cache: "no-store" });
       const body = (await response.json().catch(() => ({}))) as YearResponse;
-      if (!response.ok || !body.year) {
-        throw new Error(body.error || "Life CFO couldn’t load the year view yet.");
+      if (!response.ok || !body.year || !body.timeline) {
+        throw new Error(body.error || "Life CFO couldn't load the year view yet.");
       }
       setYear(body.year);
+      setTimeline(body.timeline);
     } catch (loadError: unknown) {
       setError(
         loadError instanceof Error
           ? loadError.message
-          : "Life CFO couldn’t load the year view yet."
+          : "Life CFO couldn't load the year view yet."
       );
       setYear(null);
+      setTimeline(null);
     } finally {
       setLoading(false);
     }
@@ -89,7 +211,7 @@ export default function MoneyYearPage() {
           </Card>
         ) : null}
 
-        {year ? (
+        {year && timeline ? (
           <>
             {year.mixed_currencies ? (
               <div className="rounded-2xl bg-zinc-50 px-4 py-3 text-sm text-zinc-600">
@@ -108,25 +230,19 @@ export default function MoneyYearPage() {
             <Card>
               <CardContent className="space-y-4">
                 <div>
-                  <div className="text-sm font-semibold text-zinc-900">The next 12 months</div>
-                  <div className="mt-1 text-xs text-zinc-500">Expected from current schedules.</div>
+                  <div className="text-sm font-semibold text-zinc-900">Year timeline</div>
+                  <div className="mt-1 text-sm text-zinc-600">Based on the schedules currently added, this shows what is expected to come in, what is expected to go out, and which months may need a closer look.</div>
+                  <div className="mt-1 text-xs text-zinc-500">This is not a full forecast. It only uses the income and bills Life CFO can currently see. This view is read-only and does not change balances.</div>
                 </div>
-                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-                  {year.months.map((month) => (
-                    <div key={month.month_key} className="rounded-2xl border border-zinc-200 p-4">
-                      <div className="text-sm font-medium text-zinc-900">{month.label}</div>
-                      <div className="mt-3 space-y-2 text-xs">
-                        <div><span className="text-zinc-500">Money in:</span> <span className="text-zinc-800">{moneyRows(month.expected_income)}</span></div>
-                        <div><span className="text-zinc-500">Planned bills:</span> <span className="text-zinc-800">{moneyRows(month.expected_bills)}</span></div>
-                        <div><span className="text-zinc-500">Difference:</span> <span className="text-zinc-800">{moneyRows(month.difference)}</span></div>
-                      </div>
-                      {month.larger_scheduled_payments[0] ? (
-                        <div className="mt-3 border-t border-zinc-100 pt-3 text-xs text-zinc-600">
-                          {month.larger_scheduled_payments[0].name}: {formatMoneyFromCents(month.larger_scheduled_payments[0].amount_cents, month.larger_scheduled_payments[0].currency)}
-                        </div>
-                      ) : null}
-                    </div>
-                  ))}
+                <div className="space-y-4">
+                  {timeline.currencies.map((currencyTimeline) => <YearTimelineChart key={currencyTimeline.currency} timeline={currencyTimeline} />)}
+                  {!timeline.currencies.length ? <div className="text-sm text-zinc-600">Add dates to regular income or bills to build the timeline.</div> : null}
+                </div>
+                <div className="rounded-2xl bg-zinc-50 p-4">
+                  <div className="text-sm font-medium text-zinc-900">What this shows</div>
+                  <ul className="mt-2 space-y-1 text-sm text-zinc-600">
+                    {timeline.commentary.map((item) => <li key={item}>{item}</li>)}
+                  </ul>
                 </div>
               </CardContent>
             </Card>

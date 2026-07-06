@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { resolveHouseholdIdRoute } from "@/lib/households/resolveHouseholdIdRoute";
 import { deriveEffectiveMoneyTruth } from "@/lib/money/reasoning/effectiveMoneySources";
+import { deriveMoneyTimeline } from "@/lib/money/reasoning/deriveMoneyTimeline";
 import { deriveYearMoneySummary } from "@/lib/money/reasoning/deriveYearMoneySummary";
 import { getHouseholdMoneyTruth } from "@/lib/money/reasoning/getHouseholdMoneyTruth";
 import { supabaseRoute } from "@/lib/supabaseRoute";
@@ -34,11 +35,12 @@ export async function GET() {
     const rawTruth = await getHouseholdMoneyTruth(supabase, { householdId });
     const { truth } = deriveEffectiveMoneyTruth(rawTruth);
     const year = deriveYearMoneySummary(truth);
+    const timeline = deriveMoneyTimeline(year);
 
-    return NextResponse.json({ ok: true, year });
+    return NextResponse.json({ ok: true, year, timeline });
   } catch {
     return NextResponse.json(
-      { ok: false, error: "Life CFO couldn’t load the year view yet." },
+      { ok: false, error: "Life CFO couldn't load the year view yet." },
       { status: 500 }
     );
   }
