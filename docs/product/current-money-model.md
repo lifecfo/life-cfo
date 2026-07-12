@@ -93,11 +93,13 @@ Both ways in should use the same household money picture underneath. Ask should 
 
 **Status:** settled for now.
 
-### Monthly Plan
+### Budget
 
-**What it currently means:** The likely future role for Budget. It should show expected money in, expected money out, and what may be left.
+**What it currently means:** Budget stays Budget, because it is common language people understand. It should show expected money in, expected money out, what may be left, and the shape of the month.
 
-**What it should not accidentally become:** A rulebook, a judgement system, or advice about what a household should spend.
+**What it should not accidentally become:** The whole identity of Life CFO, a rigid spreadsheet, a rulebook, a mandatory setup task, or advice about what a household should spend.
+
+**Language note:** The page can still use helper copy such as "monthly view" or "shape of the month," but the main product label should remain Budget.
 
 **Status:** likely direction.
 
@@ -187,7 +189,7 @@ This table reflects the current direction. It can change as the product model ev
 
 | Current route | Current concept | Current likely future | Status | Navigation status for now | Notes |
 | --- | --- | --- | --- | --- | --- |
-| `/budget` | Budget | Monthly Plan | likely direction | hidden | Budgeting should exist, but should not define the product. |
+| `/budget` | Budget | Budget framed as a flexible monthly planning view | likely direction | hidden | Budgeting should exist, but should not define the product. It helps show expected money in, expected money out, and what may be left. |
 | `/net-worth` | Net worth | Merge into Money Map / Assets & debts | needs product decision | hidden | Net worth is not the main user-facing model. |
 | `/buffer` | Buffer | Safety buffer goal | likely direction | hidden | Better as a goal type than a standalone area. |
 | `/liabilities` | Liabilities | Debts inside Assets & debts | likely direction | hidden | User-facing language should be "Debts". |
@@ -249,7 +251,7 @@ Prefer wording like:
 These product decisions are intentionally not locked yet:
 
 - exact label: Assets & debts vs Where you stand
-- whether Monthly Plan is visible in beta
+- whether Budget is visible in beta
 - how investments appear in private beta
 - whether Saved and Planned stay as pages
 - how Goals and Cash Plan should connect
