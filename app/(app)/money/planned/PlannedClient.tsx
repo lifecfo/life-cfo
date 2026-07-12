@@ -237,19 +237,19 @@ export default function PlannedClient() {
   );
 
   return (
-    <Page title="Planned" subtitle="Upcoming bills, goals, and what is already in view." right={right}>
+    <Page title="Planned" subtitle="Upcoming timing, dates, and things already in view." right={right}>
       <div className="mx-auto w-full max-w-[860px] space-y-4 px-4 sm:px-6">
         {error ? <div className="text-sm text-red-600">{error}</div> : null}
 
         <Card className="border-zinc-200 bg-white">
           <CardContent className="space-y-2">
-            <div className="text-sm font-semibold text-zinc-900">Planned money at a glance</div>
+            <div className="text-sm font-semibold text-zinc-900">Coming up at a glance</div>
             <ul className="space-y-1 text-xs text-zinc-700">
               <li>Money out this month: {loading ? "Loading..." : formatMoneyRows(coverage?.current_month_money_out ?? [])}</li>
               <li>Confirmed regular payments: {loading ? "Loading..." : coverage?.confirmed_regular_payment_count ?? 0}</li>
-              <li>Bills formally set up: {snapshot ? snapshot.commitments.billCount : loading ? "Loading..." : "-"}</li>
+              <li>Bill dates you’ve added: {snapshot ? snapshot.commitments.billCount : loading ? "Loading..." : "-"}</li>
             </ul>
-            <div className="text-xs text-zinc-500">Formal bill total: {snapshot ? formatMoney(snapshot.commitments.recurringMonthlyCents) : loading ? "Loading..." : "-"}</div>
+            <div className="text-xs text-zinc-500">Known upcoming dates: {snapshot ? formatMoney(snapshot.commitments.recurringMonthlyCents) : loading ? "Loading..." : "-"}</div>
           </CardContent>
         </Card>
 
@@ -259,10 +259,10 @@ export default function PlannedClient() {
             <ul className="space-y-1 text-xs text-zinc-700">
               <li>{coverage?.transaction_count ?? 0} recent transaction(s) are included.</li>
               <li>{coverage?.label_quality_note || (loading ? "Checking transaction names..." : "Transaction name quality will appear here.")}</li>
-              <li>Confirmed patterns and formally set up bills stay separate.</li>
+              <li>Confirmed patterns and dates you’ve added are shown separately.</li>
             </ul>
             <div className="text-xs text-zinc-500">
-              Snapshot date: {snapshot?.asOf ? softDate(snapshot.asOf) : loading ? "Loading..." : "No date"}
+              This helps you see what is coming up, without pretending to be a full forecast.
             </div>
           </CardContent>
         </Card>
@@ -291,7 +291,7 @@ export default function PlannedClient() {
               <li>
                 Commitments in view: {snapshot ? `${snapshot.commitments.billCount} bill(s)` : loading ? "Loading..." : "-"}
               </li>
-              <li>Use confirmed patterns as context while formal bill timing remains separate.</li>
+              <li>Use confirmed patterns as context while dates you’ve added help with timing.</li>
             </ul>
             <div className="flex flex-wrap gap-2">
               <Link href="/money/goals">
@@ -305,7 +305,7 @@ export default function PlannedClient() {
               </Link>
             </div>
             <div className="text-xs text-zinc-500">
-              Keep goals and upcoming due dates in view together.
+              Keep household goals and upcoming dates in view together.
             </div>
           </CardContent>
         </Card>
@@ -331,7 +331,7 @@ export default function PlannedClient() {
               </Link>
             </div>
             <div className="text-xs text-zinc-500">
-              Go deeper into bills, goals, and recent transaction evidence.
+              Go deeper into upcoming dates, goals, and recent transaction evidence.
             </div>
           </CardContent>
         </Card>

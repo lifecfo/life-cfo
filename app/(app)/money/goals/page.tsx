@@ -596,7 +596,7 @@ export default function GoalsPage() {
     } catch {
       notify({
         title: "Primary goal not available",
-        description: "If you want this feature, run the optional migration that adds is_primary.",
+        description: "This feature is not available for this workspace yet.",
       });
     }
   }
@@ -672,7 +672,7 @@ export default function GoalsPage() {
     await applyDeltaCents(selectedGoal, -Math.round(amountDollars * 100), null);
   }
 
-  const subtitle = "Goals and Planned work together for future money decisions.";
+  const subtitle = "Goals are things your household wants to keep in view.";
 
   if (authStatus === "loading") {
     return (
@@ -882,7 +882,7 @@ export default function GoalsPage() {
                   <div className="rounded-2xl border border-zinc-200 bg-white p-4">
                     <div className="text-[15px] leading-relaxed text-zinc-800">This is a calm anchor — not a dashboard.</div>
                     <div className="mt-2 text-xs text-zinc-600">
-                      You can run multiple goals at once. If you enable “Primary”, Keystone can keep one goal in focus.
+                      You can run multiple goals at once. Primary means the one you want Life CFO to keep most visible.
                     </div>
 
                     <div className="mt-3 flex items-center gap-2 flex-wrap">
@@ -890,9 +890,9 @@ export default function GoalsPage() {
                       {!goalsSupportPrimary ? (
                         <Chip
                           className="text-xs border-zinc-200 bg-white text-zinc-700"
-                          title="Run the optional migration to add is_primary"
+                          title="Primary goal focus is not available for this workspace yet."
                         >
-                          Primary not enabled
+                          Primary not available
                         </Chip>
                       ) : null}
                     </div>
@@ -906,13 +906,16 @@ export default function GoalsPage() {
         <Card className="border-zinc-200 bg-white shadow-none">
           <CardContent className="p-0">
             <div className="px-6 py-5">
-              <SectionHeader title="Planned and goals" right={<Chip className="text-xs">Keep it short</Chip>} />
+              <SectionHeader title="Goals, Planned, and Cash Plan" right={<Chip className="text-xs">Keep it short</Chip>} />
               <div className="mt-3 space-y-2 text-xs text-zinc-700">
                 <div>
-                  Goals work best when they sit beside upcoming commitments and due dates.
+                  A goal is something your household wants to work toward.
                 </div>
                 <div>
-                  Use Planned to check timing pressure, then use Goals to track what you want to set aside.
+                  Planned shows upcoming dates. Cash Plan shows what current visible cash is being tracked for.
+                </div>
+                <div>
+                  Goal amounts are tracked separately from account balances unless they are clearly linked. Nothing is moved automatically.
                 </div>
               </div>
               <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -1043,7 +1046,9 @@ export default function GoalsPage() {
                     {sortedGoals.length === 0 ? (
                       <div className="rounded-2xl border border-zinc-200 bg-white p-4">
                         <div className="text-[15px] leading-relaxed text-zinc-800">No goals yet.</div>
-                        <div className="mt-2 text-xs text-zinc-600">A goal is just a promise you can keep seeing.</div>
+                        <div className="mt-2 text-xs text-zinc-600">
+                          Life CFO does not choose goals for you. Add one only when there is something you want to keep in view.
+                        </div>
                         <div className="mt-3">
                           <Button onClick={beginCreate} className="rounded-2xl">
                             Create your first goal
