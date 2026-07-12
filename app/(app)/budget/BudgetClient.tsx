@@ -277,7 +277,7 @@ export default function BudgetClient() {
       if (planRes.error) {
         setItems([]);
         setError(planRes.error.message);
-        setStatusLine("Budget needs setup (budget_items).");
+        setStatusLine("Budget is not available right now.");
         return;
       }
 
@@ -607,10 +607,10 @@ export default function BudgetClient() {
       : "border border-zinc-200 bg-zinc-50 text-zinc-700";
 
   const pictureHint = useMemo(() => {
-    if (risk === "no_income") return "Add income sources to get a monthly picture.";
-    if (risk === "negative") return "Plan is over budget. Reduce plan or bills, or raise income.";
-    if (risk === "tight") return "Tight month. Keep plan lean or add buffer.";
-    return "Looks balanced.";
+    if (risk === "no_income") return "Add income timing when you want a fuller monthly picture.";
+    if (risk === "negative") return "This month may need review. Expected outgoings are higher than expected income based on what Life CFO can currently see.";
+    if (risk === "tight") return "This month may be worth reviewing. The amount left is small based on these inputs.";
+    return "Nothing stands out from these numbers.";
   }, [risk]);
 
   const pictureHintClass =
@@ -819,7 +819,7 @@ export default function BudgetClient() {
   );
 
   return (
-    <Page title="Budget" subtitle="A monthly view from your inputs. Adjust the plan to match reality." right={right}>
+    <Page title="Budget" subtitle="A simple monthly view of expected money in, expected money out, and what may be left." right={right}>
       <div className="mx-auto w-full max-w-[760px] space-y-4">
         <div className="text-xs text-zinc-500">{statusLine}</div>
 
@@ -844,14 +844,14 @@ export default function BudgetClient() {
                     <div className="font-medium text-zinc-900">− {formatMoneyFromCents(billsMonthlyCents)}</div>
                   </div>
                   <div className="flex items-center justify-between gap-6">
-                    <div>Planned (budget items)</div>
+                    <div>Expected budget items</div>
                     <div className="font-medium text-zinc-900">− {formatMoneyFromCents(planMonthlyCents)}</div>
                   </div>
 
                   <div className="mt-1 h-px bg-zinc-100" />
 
                   <div className="flex items-center justify-between gap-6">
-                    <div className="font-semibold text-zinc-900">Left after bills + plan</div>
+                    <div className="font-semibold text-zinc-900">May be left after bills + budget</div>
                     <div className="font-semibold text-zinc-900">
                       {leftoverCents >= 0 ? formatMoneyFromCents(leftoverCents) : `− ${formatMoneyFromCents(Math.abs(leftoverCents))}`}
                     </div>
@@ -915,7 +915,7 @@ export default function BudgetClient() {
           <CardContent>
             <div className="flex items-center justify-between gap-3 flex-wrap">
               <div className="text-sm font-semibold text-zinc-900">Add budget item</div>
-              <div className="text-xs text-zinc-500">Everything converts to a monthly estimate so you can compare apples to apples.</div>
+              <div className="text-xs text-zinc-500">Amounts are converted to a monthly estimate for comparison.</div>
             </div>
 
             <div className="mt-3 grid gap-3 md:grid-cols-6">
@@ -985,7 +985,7 @@ export default function BudgetClient() {
         <Card className="border-zinc-200 bg-white">
           <CardContent>
             <div className="flex items-center justify-between gap-3 flex-wrap">
-              <div className="text-sm font-semibold text-zinc-900">Plan</div>
+              <div className="text-sm font-semibold text-zinc-900">Budget items</div>
               <div className="text-xs text-zinc-500">
                 {items.filter((x) => x.active).length} active • {items.length} total
               </div>
@@ -1018,8 +1018,8 @@ export default function BudgetClient() {
         <Card className="border-zinc-200 bg-white">
           <CardContent>
             <div className="text-xs text-zinc-500 space-y-1">
-              <div>Income + Bills use your inputs. Budget items are your plan. Everything is converted to a monthly estimate for comparison.</div>
-              <div>Nothing here is a forecast. It’s a picture of what you told Life CFO is true.</div>
+              <div>Budget helps you see the shape of the month using the inputs Life CFO can currently see.</div>
+              <div>This is a planning view, not advice. Nothing moves automatically.</div>
             </div>
           </CardContent>
         </Card>
