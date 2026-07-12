@@ -108,7 +108,7 @@ export default function InClient() {
   );
 
   return (
-    <Page title="In" subtitle="Money coming into the household." right={right}>
+    <Page title="Money in" subtitle="Money coming into the household." right={right}>
       <div className="mx-auto w-full max-w-[860px] space-y-4 px-4 sm:px-6">
         {error ? <div className="text-sm text-red-600">{error}</div> : null}
 
@@ -118,7 +118,7 @@ export default function InClient() {
             <ul className="space-y-1 text-xs text-zinc-700">
               <li>Money in this month: {loading ? "Loading..." : formatMoneyRows(coverage?.current_month_money_in ?? [])}</li>
               <li>Confirmed income patterns: {loading ? "Loading..." : coverage?.confirmed_income_pattern_count ?? 0}</li>
-              <li>Income formally set up: {snapshot ? `${snapshot.income.sourceCount} source(s), ${formatMoney(snapshot.income.recurringMonthlyCents)}` : loading ? "Loading..." : "-"}</li>
+              <li>Income timing you’ve added: {snapshot ? `${snapshot.income.sourceCount} source(s), ${formatMoney(snapshot.income.recurringMonthlyCents)}` : loading ? "Loading..." : "-"}</li>
             </ul>
             <div className="text-xs text-zinc-500">
               Snapshot date: {snapshot?.asOf ? softDate(snapshot.asOf) : loading ? "Loading..." : "No date"}
@@ -135,7 +135,7 @@ export default function InClient() {
               {loading ? <li>Loading highlights...</li> : null}
             </ul>
             <div className="text-xs text-zinc-500">
-              {coverage?.has_demo_sources ? "Demo money in" : "Connected money in"} is shown separately from income you have formally set up.
+              {coverage?.has_demo_sources ? "Demo money in" : "Connected money in"} is shown separately from income timing you’ve added.
             </div>
           </CardContent>
         </Card>

@@ -146,7 +146,7 @@ export default function OutClient() {
   );
 
   return (
-    <Page title="Out" subtitle="Bills, spending, and money leaving the household." right={right}>
+    <Page title="Money out" subtitle="Bills, spending, and money leaving the household." right={right}>
       <div className="mx-auto w-full max-w-[860px] space-y-4 px-4 sm:px-6">
         {error ? <div className="text-sm text-red-600">{error}</div> : null}
 
@@ -156,7 +156,7 @@ export default function OutClient() {
             <ul className="space-y-1 text-xs text-zinc-700">
               <li>Money out this month: {loading ? "Loading..." : renderMoneyRows(out?.month_total_by_currency ?? [])}</li>
               <li>Confirmed regular payments: {loading ? "Loading..." : data?.data_coverage?.confirmed_regular_payment_count ?? 0}</li>
-              <li>Bills formally set up: {loading ? "Loading..." : out?.recurring_bills_count ?? 0}</li>
+              <li>Bill dates you’ve added: {loading ? "Loading..." : out?.recurring_bills_count ?? 0}</li>
               <li>Upcoming bills (30 days): {loading ? "Loading..." : out?.upcoming_bills_count_next_30_days ?? 0}</li>
             </ul>
             <div className="text-xs text-zinc-500">

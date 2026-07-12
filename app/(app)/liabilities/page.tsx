@@ -94,7 +94,7 @@ export default function LiabilitiesPage() {
       setItems((data as Liability[]) ?? []);
     } catch (e: any) {
       toast({
-        title: "Couldn’t load liabilities",
+        title: "Couldn’t load debts",
         description: e?.message ?? "Please try again.",
       });
     } finally {
@@ -248,7 +248,7 @@ export default function LiabilitiesPage() {
 
   async function remove(id: string) {
     if (saving) return;
-    const ok = window.confirm("Permanently delete this liability?");
+    const ok = window.confirm("Permanently delete this debt?");
     if (!ok) return;
 
     setSaving(true);
@@ -269,7 +269,7 @@ export default function LiabilitiesPage() {
   }
 
   return (
-    <Page title="Liabilities" subtitle="What you owe — captured calmly, without judgement.">
+    <Page title="Debts" subtitle="What the household owes — captured calmly, without judgement.">
       <div className="space-y-4">
         {/* Add */}
         <Card>
@@ -319,10 +319,10 @@ export default function LiabilitiesPage() {
 
             <div className="flex items-center justify-between gap-2">
               <div className="text-xs text-zinc-500">
-                Tip: keep this simple — just the main debts you want Keystone to hold.
+                Tip: keep this simple — just the main debts you want Life CFO to keep in mind.
               </div>
               <Button onClick={add} disabled={saving}>
-                Add liability
+                Add debt
               </Button>
             </div>
           </CardContent>
@@ -360,7 +360,7 @@ export default function LiabilitiesPage() {
         ) : visibleItems.length === 0 ? (
           <Card>
             <CardContent>
-              <div className="text-sm text-zinc-600">No liabilities yet.</div>
+              <div className="text-sm text-zinc-600">No debts added yet.</div>
             </CardContent>
           </Card>
         ) : (

@@ -176,7 +176,7 @@ function labelForBillsFilter(f: BillsFilter) {
   if (!f) return null;
   if (f === "due14") return "Due in 14 days";
   if (f === "due7") return "Due in 7 days";
-  if (f === "autopay_risk") return "Autopay risk";
+  if (f === "autopay_risk") return "Worth checking";
   return null;
 }
 
@@ -896,7 +896,7 @@ export default function BillsPage() {
   );
 
   return (
-    <Page title="Bills" subtitle="Inputs only. Keystone doesn’t guess — it only reminds." right={right}>
+    <Page title="Bills" subtitle="Known bill dates you want Life CFO to keep in mind." right={right}>
       <div className="grid gap-4">
         {/* Search bills (escape hatch) */}
         <Card>
@@ -913,7 +913,7 @@ export default function BillsPage() {
                 <Badge>Active: {activeBills.length}</Badge>
                 <Badge>Due 7d: {due7.length}</Badge>
                 <Badge>Due 14d: {due14.length}</Badge>
-                <Badge>Autopay risk: {autopayRiskCount}</Badge>
+                <Badge>Worth checking: {autopayRiskCount}</Badge>
               </div>
 
               <div className="flex items-center gap-2 flex-wrap">
@@ -936,7 +936,7 @@ export default function BillsPage() {
                 Due 14d
               </Chip>
               <Chip active={filter === "autopay_risk"} onClick={() => applyFilter("autopay_risk")} title="Due soon and not autopay">
-                Autopay risk
+                Worth checking
               </Chip>
 
               {filterLabel ? (
@@ -1049,8 +1049,8 @@ export default function BillsPage() {
         <Card>
           <CardContent>
             <div className="flex items-center justify-between gap-3 flex-wrap mb-2">
-              <div className="font-semibold">Your bills</div>
-              <div className="text-sm opacity-70">Mark paid writes a receipt and bumps the due date.</div>
+              <div className="font-semibold">Bill dates you’ve added</div>
+              <div className="text-sm opacity-70">These help Life CFO look ahead. You do not need to add everything now.</div>
             </div>
 
             <div className="grid gap-2">
@@ -1075,7 +1075,7 @@ export default function BillsPage() {
                                 {b.active ? <Badge>Active</Badge> : <Badge>Paused</Badge>}
                                 {b.autopay ? <Chip>Autopay</Chip> : null}
                                 <Chip>{b.cadence}</Chip>
-                                {risk ? <Chip title="Due soon and not autopay">Risk</Chip> : null}
+                                {risk ? <Chip title="Due soon and not autopay">Worth checking</Chip> : null}
                               </div>
 
                               <div className="text-sm opacity-75 mt-1">
@@ -1175,7 +1175,7 @@ export default function BillsPage() {
                               <Chip
                                 onClick={() => markPaidWithReceipt(b)}
                                 disabled={saving || !userId || !householdId || busyPaid || !canWrite}
-                                title="Writes a receipt + bumps next due date"
+                                title="Records this bill as paid and moves the next due date"
                               >
                                 {busyPaid ? "Marking…" : "Mark paid"}
                               </Chip>
