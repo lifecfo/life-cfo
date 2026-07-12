@@ -175,25 +175,18 @@ export function AppShell({ children }: AppShellProps) {
       {
         label: "Money",
         items: [
-          { href: "/money/setup", label: "Start here" },
+          { href: "/money", label: "Overview" },
           { href: "/money/map", label: "Money Map" },
-          { href: "/money", label: "Money" },
-          { href: "/money/in", label: "In" },
-          { href: "/money/out", label: "Out" },
-          { href: "/money/saved", label: "Saved" },
-          { href: "/money/planned", label: "Planned" },
           { href: "/money/year", label: "Year at a glance" },
           { href: "/accounts", label: "Accounts" },
           { href: "/transactions", label: "Transactions" },
-          { href: "/connections", label: "Connections" },
-          { href: "/money/goals", label: "Goals" },
         ],
       },
       {
         label: "Life",
         items: [
           { href: "/decisions", label: "Decisions" },
-          { href: "/family", label: "Family" },
+          { href: "/family", label: "Family & pets" },
           { href: "/household", label: "Household" },
         ],
       },
