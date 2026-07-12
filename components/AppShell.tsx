@@ -14,14 +14,20 @@ type AppShellProps = {
   children: ReactNode;
 };
 
-type NavItem = {
+type NavLinkItem = {
   href: string;
   label: string;
+  kind?: "link";
+};
+
+type NavSectionItem = {
+  label: string;
+  kind: "section";
 };
 
 type NavGroup = {
   label: string;
-  items: NavItem[];
+  items: Array<NavLinkItem | NavSectionItem>;
 };
 
 type HouseholdItem = {
@@ -57,6 +63,11 @@ function isActivePath(pathname: string, href: string) {
   if (href === "/") return pathname === "/";
   if (href === "/home") return pathname === "/home" || pathname === "/lifecfo-home";
   return pathname === href || pathname.startsWith(href + "/");
+}
+
+function isSidebarActivePath(pathname: string, href: string) {
+  if (href === "/money") return pathname === "/money";
+  return isActivePath(pathname, href);
 }
 
 function displayHouseholdName(name: string): string {
@@ -157,7 +168,7 @@ export function AppShell({ children }: AppShellProps) {
     return () => setShellSplitHostActive(false);
   }, [setShellSplitHostActive]);
 
-  const topNav: NavItem[] = useMemo(
+  const topNav: NavLinkItem[] = useMemo(
     () => [
       { href: "/lifecfo-home", label: "Home" },
       { href: "/money", label: "Money" },
@@ -175,19 +186,36 @@ export function AppShell({ children }: AppShellProps) {
       {
         label: "Money",
         items: [
+          { href: "/money/setup", label: "Start here" },
           { href: "/money", label: "Overview" },
           { href: "/money/map", label: "Money Map" },
           { href: "/money/year", label: "Year at a glance" },
           { href: "/accounts", label: "Accounts" },
           { href: "/transactions", label: "Transactions" },
+          { label: "Data sources", kind: "section" },
+          { href: "/connections", label: "Connections" },
+          { href: "/money/import", label: "Upload bank file" },
+          { href: "/money/accounts/new", label: "Add manual account" },
         ],
       },
       {
-        label: "Life",
+        label: "Decisions",
+        items: [{ href: "/decisions", label: "Decisions" }],
+      },
+      {
+        label: "Household",
         items: [
-          { href: "/decisions", label: "Decisions" },
           { href: "/family", label: "Family & pets" },
           { href: "/household", label: "Household" },
+        ],
+      },
+      {
+        label: "Settings / Info",
+        items: [
+          { href: "/settings", label: "Settings" },
+          { href: "/how-life-cfo-works", label: "How Life CFO works" },
+          { href: "/fine-print", label: "Important information" },
+          { href: "/privacy", label: "Privacy" },
         ],
       },
     ],
@@ -487,7 +515,20 @@ export function AppShell({ children }: AppShellProps) {
                   ) : null}
                   <div className="space-y-1">
                     {group.items.map((it) => {
-                      const active = isActivePath(pathname || "", it.href);
+                      if (it.kind === "section") {
+                        return sidebarCollapsed ? (
+                          <div key={`${group.label}:${it.label}`} className="my-2 border-t border-zinc-100" />
+                        ) : (
+                          <div
+                            key={`${group.label}:${it.label}`}
+                            className="px-2 pt-3 text-[11px] font-medium uppercase tracking-wide text-zinc-400"
+                          >
+                            {it.label}
+                          </div>
+                        );
+                      }
+
+                      const active = isSidebarActivePath(pathname || "", it.href);
                       return (
                         <Link
                           key={it.href}
