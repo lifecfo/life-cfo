@@ -1,7 +1,7 @@
 // app/api/home/status/run/route.ts
 import { NextResponse } from "next/server";
-import OpenAI from "openai";
 import { createClient } from "@supabase/supabase-js";
+import { generateAiText } from "@/lib/ai/provider";
 import {
   readLimitedJson,
   requireAuthenticatedAiUser,
@@ -10,7 +10,6 @@ import {
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
 const MAX_REQUEST_BYTES = 4 * 1024;
 
 type Status = "all_clear" | "tight" | "attention" | "unknown";
@@ -154,16 +153,12 @@ Rules:
 
   const USER = JSON.stringify({ status, reasons, factsSnapshot }, null, 2);
 
-  const resp = await openai.responses.create({
-    model: "gpt-4o-mini",
-    input: [
-      { role: "system", content: SYSTEM },
-      { role: "user", content: USER },
-    ],
-    text: { format: { type: "text" } },
+  const txt = await generateAiText({
+    purpose: "home_status",
+    system: SYSTEM,
+    prompt: USER,
+    maxOutputTokens: 400,
   });
-
-  const txt = (resp.output_text || "").trim();
   return txt ? txt.slice(0, 1200) : null;
 }
 

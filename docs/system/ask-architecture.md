@@ -28,6 +28,18 @@ Ask has two active API paths selected by UI scope:
 
 Scope selection happens in `components/ask/AskProvider.tsx`.
 
+Model-backed routes call the server-only provider boundary in
+`lib/ai/provider.ts`. The configured provider is selected with
+`LIFE_CFO_AI_PROVIDER=openai` or `LIFE_CFO_AI_PROVIDER=anthropic` (`claude`
+is also accepted as an alias for Anthropic).
+
+- OpenAI requires `OPENAI_API_KEY` and supports `OPENAI_MODEL` plus optional
+  purpose-specific `OPENAI_MODEL_*` values.
+- Anthropic requires `ANTHROPIC_API_KEY` and `ANTHROPIC_MODEL`, with optional
+  purpose-specific `ANTHROPIC_MODEL_*` values.
+- Missing or unknown configuration fails closed. Requests are never
+  automatically sent to a second provider.
+
 ---
 
 # Ask Pipeline (Current)

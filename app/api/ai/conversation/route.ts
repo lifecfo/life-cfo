@@ -1,6 +1,6 @@
 ﻿// app/api/ai/conversation/route.ts
 import { NextResponse } from "next/server";
-import OpenAI from "openai";
+import { generateAiText } from "@/lib/ai/provider";
 import { maybeCrisisIntercept } from "@/lib/safety/guard";
 import type {
   DecisionConversationRequest,
@@ -20,10 +20,6 @@ const MAX_STATEMENT_LENGTH = 4_000;
 const MAX_MESSAGE_LENGTH = 4_000;
 const MAX_MESSAGES = 50;
 const MAX_CONVERSATION_LENGTH = 30_000;
-
-const client = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
 
 type InMsg = { role: "user" | "assistant"; content: string };
 type Mode = "chat" | "summarise";
@@ -357,22 +353,13 @@ export async function POST(req: Request) {
             transcript,
           ].join("\n");
 
-    const model = process.env.OPENAI_MODEL || "gpt-4.1";
-
-    const resp = await client.responses.create({
-      model,
-      input: [
-        { role: "system", content: system },
-        { role: "user", content: userContent },
-      ],
+    const rawText = await generateAiText({
+      purpose: "conversation",
+      system,
+      prompt: userContent,
       temperature: mode === "summarise" ? 0.2 : 0.5,
-      max_output_tokens: mode === "summarise" ? 520 : 900,
+      maxOutputTokens: mode === "summarise" ? 520 : 900,
     });
-
-    const rawText = String(resp.output_text ?? "").trim();
-    if (!rawText) {
-      return NextResponse.json({ error: "Empty AI response.", version: VERSION }, { status: 502 });
-    }
 
     const text = normalizeMarkdown(rawText);
 

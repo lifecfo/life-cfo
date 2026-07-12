@@ -1,6 +1,6 @@
 // app/api/ai/decision-frame/route.ts
 import { NextResponse } from "next/server";
-import OpenAI from "openai";
+import { generateAiText } from "@/lib/ai/provider";
 import { maybeCrisisIntercept } from "@/lib/safety/guard";
 import {
   readLimitedJson,
@@ -12,10 +12,6 @@ export const dynamic = "force-dynamic";
 const VERSION = "decision-frame-route:v2026-02-18-001";
 const MAX_REQUEST_BYTES = 16 * 1024;
 const MAX_TEXT_LENGTH = 8_000;
-
-const client = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
 
 type FrameResult = {
   title: string;
@@ -125,22 +121,13 @@ export async function POST(req: Request) {
       "Return ONLY the JSON.",
     ].join("\n");
 
-    const model = process.env.OPENAI_MODEL_FRAME || process.env.OPENAI_MODEL || "gpt-4.1";
-
-    const resp = await client.responses.create({
-      model,
-      input: [
-        { role: "system", content: system },
-        { role: "user", content: userContent },
-      ],
+    const rawText = stripCodeFences(await generateAiText({
+      purpose: "decision_frame",
+      system,
+      prompt: userContent,
       temperature: 0.2,
-      max_output_tokens: 480,
-    });
-
-    const rawText = stripCodeFences(String(resp.output_text ?? "").trim());
-    if (!rawText) {
-      return NextResponse.json({ error: "Empty AI response.", version: VERSION }, { status: 502 });
-    }
+      maxOutputTokens: 480,
+    }));
 
     let parsed: Record<string, unknown> | null = null;
     try {

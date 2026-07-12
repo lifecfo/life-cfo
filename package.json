@@ -16,6 +16,7 @@
     "security:plaid-tokens:smoke": "node scripts/security/smoke-plaid-token-crypto.mjs"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.111.0",
     "@supabase/ssr": "^0.8.0",
     "@supabase/supabase-js": "^2.90.1",
     "csv-parse": "^6.1.0",

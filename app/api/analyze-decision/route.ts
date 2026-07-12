@@ -1,7 +1,6 @@
-import OpenAI from "openai";
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { zodTextFormat } from "openai/helpers/zod";
+import { generateAiStructured } from "@/lib/ai/provider";
 import {
   readLimitedJson,
   requireAuthenticatedAiUser,
@@ -11,10 +10,6 @@ const MAX_REQUEST_BYTES = 24 * 1024;
 const MAX_TITLE_LENGTH = 500;
 const MAX_BODY_LENGTH = 12_000;
 const MAX_TYPE_LENGTH = 100;
-
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY!,
-});
 
 // ✅ Strict schema the model must follow
 const DecisionAnalysisSchema = z.object({
@@ -32,6 +27,31 @@ const DecisionAnalysisSchema = z.object({
 });
 
 export type DecisionAnalysis = z.infer<typeof DecisionAnalysisSchema>;
+
+const DecisionAnalysisJsonSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    decision_type: { type: "string", enum: ["spending", "time", "relationship", "health", "other"] },
+    stakes: { type: "string", enum: ["low", "medium", "high"] },
+    reversible: { type: "boolean" },
+    time_horizon: { type: "string", enum: ["today", "this_week", "ongoing"] },
+    suggested_default: { type: "string", enum: ["decide_now", "delay", "gather_info"] },
+    reasoning: { type: "string" },
+    key_questions: { type: "array", items: { type: "string" } },
+    suggested_default_review_days: { type: "integer" },
+  },
+  required: [
+    "decision_type",
+    "stakes",
+    "reversible",
+    "time_horizon",
+    "suggested_default",
+    "reasoning",
+    "key_questions",
+    "suggested_default_review_days",
+  ],
+};
 
 function clampDays(n: number) {
   return Math.max(3, Math.min(365, Math.round(n)));
@@ -64,13 +84,6 @@ export async function POST(req: Request) {
     const auth = await requireAuthenticatedAiUser();
     if (!auth.ok) return auth.response;
 
-    if (!process.env.OPENAI_API_KEY) {
-      return NextResponse.json(
-        { error: "OPENAI_API_KEY missing in .env.local" },
-        { status: 500 }
-      );
-    }
-
     const parsedBody = await readLimitedJson(req, MAX_REQUEST_BYTES);
     if (!parsedBody.ok) return parsedBody.response;
     const body = parsedBody.value;
@@ -97,8 +110,6 @@ export async function POST(req: Request) {
     }
 
     // Structured Outputs via json_schema requires supported snapshots
-    const model = process.env.OPENAI_MODEL || "gpt-4o-mini-2024-07-18";
-
     const system = `
 You are a helpful decision analyst for a personal finance/life app.
 Return a structured analysis that matches the provided schema.
@@ -116,28 +127,16 @@ Inbox type: ${type || "(unknown)"}
 Priority(severity): ${severity ?? "(null)"}
 `.trim();
 
-    // ✅ responses.parse enforces the schema and gives you output_parsed
-    const response = await openai.responses.parse({
-      model,
-      input: [
-        { role: "system", content: system },
-        { role: "user", content: user },
-      ],
-      text: {
-        format: zodTextFormat(DecisionAnalysisSchema, "analysis"),
-      },
+    const modelOutput = await generateAiStructured({
+      purpose: "decision_analysis",
+      system,
+      prompt: user,
+      schemaName: "decision_analysis",
+      schema: DecisionAnalysisJsonSchema,
       temperature: 0.2,
-      max_output_tokens: 400,
+      maxOutputTokens: 400,
     });
-
-    const analysis = response.output_parsed;
-
-    if (!analysis) {
-      return NextResponse.json(
-        { error: "No structured output returned" },
-        { status: 500 }
-      );
-    }
+    const analysis = DecisionAnalysisSchema.parse(modelOutput);
 
     // ✅ Safety: ensure suggested_default_review_days is stable + deterministic
     // (even if the model returns something weird, we override with our rules)

@@ -52,9 +52,9 @@ export default function PrivacyPage() {
       <h2>Ask and AI processing</h2>
       <p>
         When you use Ask, we may send the question you ask and selected household
-        financial facts needed to answer it to OpenAI. Ask provides analysis and
-        explanations only; it does not provide financial advice or take action on
-        your behalf.
+        financial facts needed to answer it to our configured AI service provider,
+        currently OpenAI or Anthropic. Ask provides analysis and explanations only;
+        it does not provide financial advice or take action on your behalf.
       </p>
 
       <h2>How we use information</h2>
@@ -73,7 +73,10 @@ export default function PrivacyPage() {
         <li>
           <strong>Basiq</strong> (Australian account connection and data retrieval).
         </li>
-        <li><strong>OpenAI</strong> (Ask responses when you choose to use Ask).</li>
+        <li>
+          <strong>OpenAI or Anthropic</strong> (Ask and decision-support responses
+          when you choose to use those features).
+        </li>
         <li>
           <strong>Infrastructure providers</strong> used to host and operate the
           service (for example, database and application hosting).

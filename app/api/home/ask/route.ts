@@ -1,6 +1,6 @@
 // app/api/home/ask/route.ts
 import { NextResponse } from "next/server";
-import OpenAI from "openai";
+import { generateAiStructured } from "@/lib/ai/provider";
 import { createClient } from "@supabase/supabase-js";
 import { maybeCrisisIntercept } from "@/lib/safety/guard";
 import { decideHomeTone, type HomeTone } from "@/lib/lifecfo/homeTone";
@@ -24,7 +24,6 @@ import {
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
 const MAX_REQUEST_BYTES = 16 * 1024;
 const MAX_QUESTION_LENGTH = 4_000;
 
@@ -1302,42 +1301,31 @@ export async function POST(req: Request) {
     }
 
     // ---- AI path (FIELDS ONLY; server builds memo + verdict) ----
-    const resp = await openai.responses.create({
-      model: "gpt-4o-mini",
-      input: [
-        { role: "system", content: SYSTEM },
-        { role: "user", content: `QUESTION:\n${question}\n\nFACTS PACK:\n${JSON.stringify(aiFacts, null, 2)}` },
-      ],
-      text: {
-        format: {
-          type: "json_schema",
-          name: "life_cfo_home_ask_fields",
-          strict: true,
-          schema: {
-            type: "object",
-            additionalProperties: false,
-            properties: {
-              headline: { type: "string" },
-              key_points: { type: "array", items: { type: "string" } },
-              details: { type: "string" },
-              what_changes_this: { type: "array", items: { type: "string" } },
-              assumptions: { type: "array", items: { type: "string" } },
-
-              action: { type: "string", enum: ["open_money", "open_decisions", "open_chapters", "none"] },
-              suggested_next: { type: "string", enum: ["none"] },
-              capture_seed: { type: "null" },
-            },
-            required: ["headline", "key_points", "details", "what_changes_this", "assumptions", "action", "suggested_next", "capture_seed"],
-          },
-        },
-      },
-    });
-
-    const raw = resp.output_text?.trim() || "";
     let parsed: unknown;
 
     try {
-      parsed = JSON.parse(raw);
+      parsed = await generateAiStructured({
+        purpose: "home_ask",
+        system: SYSTEM,
+        prompt: `QUESTION:\n${question}\n\nFACTS PACK:\n${JSON.stringify(aiFacts, null, 2)}`,
+        schemaName: "life_cfo_home_ask_fields",
+        schema: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            headline: { type: "string" },
+            key_points: { type: "array", items: { type: "string" } },
+            details: { type: "string" },
+            what_changes_this: { type: "array", items: { type: "string" } },
+            assumptions: { type: "array", items: { type: "string" } },
+            action: { type: "string", enum: ["open_money", "open_decisions", "open_chapters", "none"] },
+            suggested_next: { type: "string", enum: ["none"] },
+            capture_seed: { type: "null" },
+          },
+          required: ["headline", "key_points", "details", "what_changes_this", "assumptions", "action", "suggested_next", "capture_seed"],
+        },
+        maxOutputTokens: 800,
+      });
     } catch {
       const headline = "I couldn’t format that safely.";
       const answer = buildMemoAnswer({ headline, key_points: [], details: "", what_changes_this: [], assumptions: [] });
