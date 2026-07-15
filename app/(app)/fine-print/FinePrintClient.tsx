@@ -5,9 +5,15 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { Card, CardContent, Chip, Button, useToast } from "@/components/ui";
+import type { MoneyDataCoverage, MoneySetupStatus } from "@/lib/money/reasoning/types";
 import ImportantInformationContent from "./ImportantInformationContent";
 
 export const dynamic = "force-dynamic";
+
+type OverviewResponse = {
+  setup_status?: MoneySetupStatus;
+  data_coverage?: MoneyDataCoverage;
+};
 
 type FinePrintClientProps = {
   nextPath: string;
@@ -84,7 +90,30 @@ export default function FinePrintClient({ nextPath }: FinePrintClientProps) {
       toast("Saved.");
 
       // ✅ Hard navigate so it always moves on the first click (no router edge cases)
-      const dest = safeNext(nextPath || "/home");
+      let dest = safeNext(nextPath || "/home");
+
+      // If no specific page was requested, send brand-new users to Start here
+      // instead of Home — but fail open to /home if the check itself fails.
+      if (dest === "/home") {
+        try {
+          const overviewRes = await fetch("/api/money/overview", { cache: "no-store" });
+          const overview = (await overviewRes.json().catch(() => null)) as OverviewResponse | null;
+
+          if (overviewRes.ok && overview) {
+            const usableNow =
+              overview.setup_status?.usable_now ??
+              ((overview.data_coverage?.account_count ?? 0) > 0 ||
+                (overview.data_coverage?.transaction_count ?? 0) > 0);
+
+            if (!usableNow) {
+              dest = "/money/setup";
+            }
+          }
+        } catch {
+          // Fail open: keep dest as "/home".
+        }
+      }
+
       window.location.assign(dest);
       return;
     } catch (error: unknown) {
