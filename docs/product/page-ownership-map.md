@@ -312,20 +312,41 @@ though the underlying data changes every time.
 **Does NOT own:** the expected current path itself (→ Year at a glance);
 Decisions may pull from Year's data but doesn't replace it.
 
-## Set up — kept as-is for now (v2 restructuring proposal explicitly parked)
+## Data sources — corrected to match what's actually built (previously described as a unified "Set up" concept that was never implemented)
 
-**Parked, not adopted:** a review pass proposed dissolving Set up into
-"Your information" (folding in Accounts, Transactions, Bills, Income,
-Goals, Rules, Connections, Imports) plus a firmer Household/Settings
-split. That's a real navigation-architecture question, but navigation was
-already explicitly decided in the original project brief, and a
-page-ownership pass isn't the right place to silently rewrite it. Worth
-raising as its own deliberate decision later — not adopted here.
+**Corrected, not a design change:** there is no unified "Set up" page
+anywhere in the app. What actually exists is a "Data sources" nav
+subsection under Money, containing three independent routes:
 
-**One job (unchanged):** connect accounts, import data, manage rules and
-categories. Mostly one-time configuration.
+- **Connections** (`/connections`) — connect a bank (Basiq/Plaid), list
+  existing connections, refresh/sync, disconnect.
+- **Upload bank file** (`/money/import`) — CSV upload → preview → commit.
+- **Add manual account** (`/money/accounts/new`) — manual account form.
 
-**Visuals:** none — forms and lists only.
+These are tied together only by Connections having link-out buttons to
+the other two — never by any shared parent page. "Set up" as a single
+concept with one job doesn't correspond to anything built; whatever was
+originally planned for it was never implemented as a distinct page.
+
+**Discoverability bug, not a design decision:** `/money/rules` (add a
+merchant/description pattern → category + priority, list rules, "apply
+to uncategorised transactions" action) and `/money/categories` (category
+groups + spending totals, read-only) are fully functional, real pages —
+but neither has any nav presence anywhere in the app. They're reachable
+only by direct URL, not from any sidebar link. Recommended fix: add both
+to the Data sources nav group alongside the other three, since that's
+their natural home and the fix is navigational, not a new design.
+
+**Parked, not adopted:** a review pass separately proposed dissolving
+this whole area into "Your information" (folding in Accounts,
+Transactions, Bills, Income, Goals, Rules, Connections, Imports) plus a
+firmer Household/Settings split. That's a real navigation-architecture
+question, but navigation was already explicitly decided in the original
+project brief, and a page-ownership pass isn't the right place to
+silently rewrite it. Worth raising as its own deliberate decision later —
+not adopted here.
+
+**Visuals:** none — forms and lists only, matching what's actually built.
 
 ## Household + Settings — split adopted in v2
 
@@ -345,6 +366,47 @@ data model shouldn't have to be reworked later to support it.
 export/deletion, subscription, legal.
 
 **Visuals:** none — standard settings UI for both.
+
+## Family & pets — added post-v2 (page existed and was built, but was missing from this map entirely)
+
+**One job:** descriptive context about people and pets relevant to the
+household's financial reasoning — not an access or membership concept. A
+child, a pet, or an ageing parent can all be genuinely relevant context
+(school fees ahead, ongoing vet costs, a parent who may need support)
+without ever being an app user.
+
+**Boundary with Household (this distinction wasn't previously documented
+anywhere):**
+- **Household** owns who has login access and what role they hold —
+  membership/access/roles/invitations.
+- **Family & pets** owns descriptive context about people and pets
+  relevant to financial reasoning, independent of app access.
+
+The same person can appear in both (a partner who's a Household member
+*and* has a Family entry with their own notes) — this is not duplication,
+it's two different concerns about the same person. A dependant child or a
+pet will typically only ever appear in Family & pets, never in Household.
+
+**Nav placement:** alongside Household, under a shared "Household" nav
+grouping (as currently built) — with the boundary above stated explicitly
+so it doesn't get merged into Household by a future cleanup pass that
+doesn't know why they're separate.
+
+**Non-goals:** no "complete your profile" nagging, no completion
+percentage, no progress indicator implying an unfinished state — the
+same non-engagement-is-success principle governing every other page
+applies here too. No required fields beyond a name. No visible use of
+this data to construct financial verdicts ("you have 3 dependants,
+therefore...") — this page stores context; how it's used in reasoning
+elsewhere (Ask, Decisions) is a separate concern, not displayed as
+judgment here.
+
+**Visuals:** none — standard forms and lists, same register as
+Bills/Income.
+
+See docs/product/family-pets-spec.md for the full page spec, including
+confirmation that Pets already has its own properly-tailored form
+(verified against the built `FamilyClient.tsx`, not just asserted).
 
 ---
 

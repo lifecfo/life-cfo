@@ -151,6 +151,170 @@ library only if genuinely orchestrated sequences are needed later.
 
 ---
 
+## 5. Chart grammar
+
+Any page with a data-bearing line chart (Year at a glance, Money Map's
+"In" sparkline, Assets & debts' net worth trend) should reference this
+section rather than each re-deciding chart styling independently.
+
+### Why this exists
+
+An earlier pass at these charts used bare, unlabeled lines with no scale,
+no data points, and neutral gray throughout — technically calm, but
+genuinely under-informative ("shows almost nothing"). This section
+defines a richer standard: real scale, real data points, real brand
+color — while keeping the judgment-free discipline that governs
+everything else in the app.
+
+### The pattern
+
+- **Gridlines for scale.** Evenly spaced horizontal reference lines with
+  small value labels (e.g. $0/$2k/$4k/$6k). These are scale markers, not
+  thresholds — evenly spaced and neutrally styled specifically so they
+  can't be mistaken for a "danger line" at a particular value. If a
+  gridline ever needs to sit at a specific meaningful value rather than
+  an even interval, stop — that's a threshold in disguise and violates
+  the no-floor-line rule.
+- **Every data point gets a visible mark**, not just an abstract
+  connecting line — small dots at each plotted point.
+- **Area fill beneath the line**, low-opacity brand teal (`#1F5E5C`),
+  purely for visual weight — not color-coded to value, applies
+  identically whether the line is high or low.
+- **Teal (`#1F5E5C`) carries the primary line and fill.** This is brand
+  identity, not category or status color — using the house color for the
+  primary chart line is normal design practice and doesn't carry the same
+  collision risk as category colors, since it's not pretending to
+  represent a specific category or a status state.
+- **Projected/estimated segments render as teal at reduced opacity
+  (~55%) with a dashed stroke** — NOT `cfo.light` or `brand.aqua`, which
+  are both exact hex matches for `semantic.info` in the existing token
+  file. Achieve the lighter look via opacity on the core teal value
+  directly, never by reaching for the "light" brand token.
+- **Hibiscus (`#9B3C6E`) marks a genuinely neutral point-in-time
+  reference** — e.g. "now" on a forecast line. This is informational
+  (today's position), not a judgment, and hibiscus doesn't collide with
+  any semantic/status token.
+- **Notable/flagged points stay uncolored — plain neutral marker
+  (outlined circle, secondary text color), never brand or accent
+  colored.** This is the one marker whose entire job is resisting a
+  "this is good/bad" reading. Color anywhere else on the chart is fine;
+  this specific mark stays deliberately neutral, on purpose, every time.
+- **Yellow (`#F2C94C`) is not used on any chart for now.** It's an exact
+  hex match for `semantic.warning` in the existing token file — using it
+  anywhere data-bearing risks accidentally applying the literal warning
+  color to something that isn't a warning. See "Open item" below for the
+  actual fix.
+
+### Open item: freeing up yellow
+
+The real fix isn't "never use yellow" — it's that `semantic.warning`
+shouldn't share an exact hex value with a brand color in the first place.
+Changing `semantic.warning` to a distinct value (still visually
+warning-appropriate, just not identical to brand yellow) would free
+yellow for legitimate use anywhere, including charts. This is a small,
+contained design-system change — worth doing deliberately rather than
+leaving yellow permanently off-limits by default.
+
+### Known overlap: teal / status.active — assessed as acceptable
+
+Teal (`#1F5E5C`, used as the primary chart color) is an exact hex match
+for `status.active`, caught during review. Unlike the aqua/info and
+yellow/warning collisions, this one is treated as acceptable rather than
+something to fix, for two reasons:
+
+1. "Active" isn't an alarm-type semantic the way "warning" or "info"
+   are — it's closer to "the normal, expected state," which doesn't
+   meaningfully conflict with teal's role as the primary brand color.
+2. Category colors are assigned algorithmically to arbitrary categories
+   and can collide unpredictably, while teal-as-chart-color is a single
+   deliberate choice, not a deterministic mapping — much lower practical
+   collision risk.
+
+Confirmed by search: `status.active` and the whole `status.*` family are
+currently defined in the token file but consumed nowhere in the
+codebase — zero references. So this overlap is presently theoretical,
+not live. If `status.active` ever does get consumed by a real UI element
+(e.g. a membership status badge on Household, a decision-state
+indicator), this assessment should be revisited then — the "acceptable"
+call above was made partly on low practical risk, and that risk profile
+changes once the token is actually rendered somewhere.
+
+---
+
+## 6. Contextual tips
+
+This is a cross-cutting UI pattern used across many pages, same
+treatment as chart grammar (§5) — one definition, referenced everywhere
+it's used, rather than each page re-deciding the interaction
+independently.
+
+### Why this exists
+
+The app's core discipline is plain language over dumbed-down language —
+"a dumbed-down interface is right, dumbed-down language insults the
+doctor and the single parent alike." That means genuinely technical or
+product-specific terms (safe to spend, typical month, purpose types)
+stay in the interface as-is rather than being watered down — but they
+need a lightweight, optional way to be explained for anyone who wants
+it, without cluttering the page for anyone who doesn't.
+
+### The pattern
+
+- **A small, muted info icon** (`ti-info-circle` or equivalent, ~14-16px,
+  `text-muted` color) placed immediately after the term it explains —
+  inline, not a separate element pulling focus.
+- **Tap to reveal, inline — not a tooltip, not a modal.** Tapping
+  expands a short explanation directly beneath or beside the term,
+  using the same expand/collapse motion timing already defined
+  (~200-250ms ease, §4). Tap again (or tap elsewhere) to collapse.
+  Modals interrupt; hover-only tooltips don't work on touch devices,
+  which this app needs to support — inline expand is the only pattern
+  that works consistently across both.
+- **Content: 1-2 sentences maximum, plain language, no jargon explaining
+  jargon.** Same voice as every other sentence in the app — direct,
+  warm, not condescending. A tiny concrete example is fine where it
+  genuinely clarifies; padding for length is not.
+- **Restraint is the actual discipline here, not the icon itself.** Not
+  every technical-sounding word needs a tip — only genuine product-
+  specific jargon a first-time user couldn't reasonably infer from
+  context. Over-tagging common words with info icons creates visual
+  clutter and trains people to ignore the icon entirely.
+
+### Initial terms worth covering (starting list, not exhaustive)
+
+- **Safe to spend** (Money Map) — what's netted out and why.
+- **Typical month** (Budget, Money Map) — observed pattern vs. chosen
+  plan, the distinction this session spent real effort establishing.
+- **Projected available cash** (Year at a glance) — what feeds the
+  dashed line, briefly; full detail stays in the page's own scope
+  sentence, this tip is the one-line version.
+- **Purpose types — build toward / maintain / pay by date** (Goals) —
+  why a reserve doesn't get a ring but a savings goal does.
+- **Allocation / earmarked** (Goals, Accounts) — why some account
+  balance isn't counted as flexible.
+- **Planned cost vs. Bill** (Bills, Goals) — the distinction resolved
+  this session: paid from cash flow when due, vs. actively saved toward
+  in advance.
+- **Confidence tags — Confirmed / Expected recurring / Variable
+  estimate** (Income) — why these aren't a quality grade, just a
+  certainty distinction.
+- **Included/excluded** (Accounts) — what this toggle actually controls
+  downstream (cash today, safe-to-spend).
+
+### Non-goals
+
+- Not a replacement for plain-language writing elsewhere — this is a
+  supplement for genuinely technical terms, not a crutch that lets
+  copy get lazier because "there's a tip icon for that."
+- No forced tour or sequenced walkthrough of tips — every tip is
+  independently discoverable, none are pushed or required reading.
+- No modal takeover, no page navigation away from where the term
+  appears.
+- Not applied to common words — restraint is part of the pattern, not
+  an afterthought.
+
+---
+
 ## Summary — what this doc resolves vs. leaves open
 
 **Resolved / ready to implement:**
