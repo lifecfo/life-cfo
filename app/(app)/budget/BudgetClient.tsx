@@ -613,12 +613,10 @@ export default function BudgetClient() {
     return "Nothing stands out from these numbers.";
   }, [risk]);
 
-  const pictureHintClass =
-    risk === "negative"
-      ? "border-rose-200 bg-rose-50 text-rose-700"
-      : risk === "tight"
-      ? "border-amber-200 bg-amber-50 text-amber-800"
-      : "border-zinc-200 bg-white text-zinc-700";
+  // Deliberately the same neutral treatment for every risk state -- the
+  // hint sentence itself carries the meaning, color must not. See
+  // docs/product/budget-spec.md's "no red bars" founding principle.
+  const pictureHintClass = "border-zinc-200 bg-white text-zinc-700";
 
   const Section = ({ k }: { k: BudgetKind }) => {
     const list = grouped.byKind[k];
