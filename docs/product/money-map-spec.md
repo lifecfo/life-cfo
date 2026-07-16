@@ -1,218 +1,189 @@
-# Money Map — page spec (handoff, v2)
+# Money Map — page spec (handoff, v4 — full reconciliation)
 
-Design-stage output. Supersedes the earlier saved version of this spec —
-this reflects the fuller design pass done after the visual design-system
-addendum was written, and should replace docs/product/money-map-spec.md
-in place, not sit alongside it as a second file.
+Design-stage output. Supersedes v3 entirely. This version is the product
+of a full reconciliation against the live page's actual six sections
+(Where the money is, Cash Plan, Savings goals, What is already planned,
+What is coming up, What needs review) per
+docs/product/regression-risk-audit.md — not a redesign from a blank page.
+Most resolutions here apply decisions already made elsewhere this
+session rather than inventing new ones; where that's true, it's cited
+explicitly below.
 
-Build to this, not to what may currently exist in the repo.
+Build to this. If this conflicts with docs/product/money-map-spec.md
+(v2/v3), this file wins.
 
-## Its one job
+## Its one job — unchanged
 
 Money Map is the canonical visual representation of the household's
 current financial position. Every other page either contributes data to
-it, explains part of it, or explores changes to it — this is the center
-the rest of the app orients around, not just one page among twelve.
+it, explains part of it, or explores changes to it. The complete,
+honest, present-tense picture — for anyone who wants to look rather than
+ask.
 
-Money Map is the complete, honest, present-tense picture of where things
-stand — for anyone who wants to look rather than ask. It is a parallel
-path to conversation, not a fallback for when conversation fails, and not
-the page most people will use most often. It is also infrastructure: when
-a conversation answer needs to hand off to "look at the detail," it hands
-off here, scrolled to the relevant section.
-
-Explicitly NOT this page's job:
-- Trend over multiple months (→ Year at a glance)
-- Full transaction search/filter (→ Transactions)
-- Bill/income creation or management (→ Bills / Income)
-- Any verdict on whether the person is "doing well"
-
-## Core rule
-
-**Every derived or interpreted number ships with a plain-English sentence,
-and that sentence only appears when genuinely notable against the item's
-own typical pattern.** (Tightened wording — a previous version of this
-rule technically contradicted itself by saying "every number" and then
-immediately qualifying it. Raw facts — cash today, a goal's target amount
-— don't need a sentence; derived/interpreted figures — safe-to-spend, an
-"off pattern" category, a goal's pace — do, and only when notable.)
-Numbers always show; sentences are earned, not default.
-
-## Visual system (new in v2 — references docs/product/visual-design-system.md)
-
-This page is the primary showcase for the design-system addendum. Use it
-directly rather than inventing per-page styling:
-
-- **Type roles:** Hero number for safe-to-spend (~34px, medium weight).
-  Stat number for cash-today and in/out totals (~20-22px). Body for
-  explanatory sentences (~15px). Caption for "seen so far"-style
-  secondary context and the net-worth one-liner. All monetary figures use
-  tabular numerals via the shared `<Money>` component — never
-  ad hoc-styled per instance.
-- **Category color palette:** the dedicated 8-slot palette (Juniper,
-  Ochre, Terracotta, Plum, Slate, Sage, Dusty rose, Sand) — never the
-  semantic/status tokens. Category color must be assigned via the
-  deterministic mapping function (see design-system doc), not picked
-  per-instance — a given category renders the same color everywhere on
-  every page, not just consistently within this one.
-- **Motion:** the Out breakdown bar and the goals progress bar fill from
-  zero on load (~400-700ms ease-out). The safe-to-spend hero number counts
-  up rather than appearing instantly. All motion respects
-  `prefers-reduced-motion` — instant, non-animated fallback required, not
-  optional.
-
-## Section order (fixed — do not make user-configurable)
-
-Ordered by concreteness, least abstract first. The page must never get
-*less* abstract as you scroll.
+## Section order (fixed)
 
 ### 1. Safe to spend (hero) + Cash today (secondary)
-- Hero number + one-line sentence naming what was subtracted and why.
-  Smaller secondary number alongside for raw cash position, clearly
-  labeled as distinct from the hero.
-- **Label stays confident — no hedge language ("likely," "estimated") in
-  the headline itself.** The honesty lives in the sentence beneath it
-  ("based on the bills I can see, not everything yet"), not in softening
-  the number's own label. This was a deliberate call made after review —
-  don't let compliance-style hedging creep into the hero later.
-- **Small "ask why" affordance beneath the hero**, handing off to
-  conversation with the question pre-filled (e.g. "why do you think I
-  have $1,860 available?"). This is the trust/source-attribution
-  mechanism for this number — deliberately routed through conversation
-  rather than a separate drill-down UI tree, since Money Map and Ask are
-  designed as equals, not one subordinate to the other. Building a
-  parallel static explanation path would undercut that relationship.
-- No chart here. Typography carries the visual weight.
+Unchanged from v3: hero number, confident label, honesty in the caption
+beneath it, "ask why" affordance handing to conversation, trust footer
+(freshness + scope) near the bottom of the page. See
+forecast-balance-semantics.md for the calculation itself — not restated
+here.
 
-### 2. Money in / Money out (this period)
-- Two cards, not one combined card.
-- "In": stat number + small sparkline (income arriving is low-stakes to
-  visualize as a shape).
-- **"Out": stat number + a real category breakdown, not just a plain
-  sentence.** Segmented bar using the category palette, small color-keyed
-  legend beneath, and a sentence naming the biggest driver — shown only
-  when genuinely notable, same curation rule as everywhere else. (v2
-  change: earlier version of this spec kept "Out" sentence-only with no
-  chart, reasoning that a rising spend line reads as alarming regardless
-  of cause. The segmented category bar solves that differently — it shows
-  composition, not a trend line, so it doesn't carry the same "line going
-  up" alarm signal. Revisit only if user testing shows the bar itself
-  reads as judgmental, which it isn't expected to.)
-- Optional inline phrase comparing to the person's own typical month —
-  **always explain, never just compare.** "Higher than a typical month"
-  on its own is a comparison with no reason attached and reads as closer
-  to a verdict than intended; "higher than a typical month because of
-  the annual insurance bill" is the actual bar. If there's no clear
-  driver to name, don't show the comparison phrase at all — a bare
-  "higher than usual" is worse than nothing. Single phrase only when
-  used — this is NOT a trend chart; that's Year at a glance's job.
+### 2. Where the money is — already correct on the live page (confirmed
+against reality, not a promotion)
 
-### 3. Recent activity
-- Short list, 5–8 items, most recent first. Not the full ledger.
-- Each row: category icon, colored per the same palette and mapping used
-  in the Out breakdown directly above — this is deliberate visual
-  continuity, the two sections should read as one color system, not two
-  separate decisions.
-- Purpose: lets the person verify totals against memory, builds trust in
-  the numbers above.
-- **Optional small context chip per row** where genuinely useful — "Annual
-  payment," "Recurring bill," "Typical" — tiny, muted, not a category
-  label (that's the icon's job). Purpose is recognition ("oh right,
-  that's that payment"), not classification. Omit rather than force one
-  onto every row.
+**Correction:** earlier drafts of this section described this as being
+"promoted" from a secondary number to a real section. Checked directly
+against the live page during implementation: "Where the money is" was
+already a full section, already positioned directly after the hero and
+before Cash Plan. There was nothing to promote and no reorder was made.
+The "secondary number" framing described v3's *design-doc* proposal (a
+small "Cash today" figure that was never built), not anything the live
+code needed to change. Live's per-account breakdown (grouped by
+classification, each account showing name, type, source label —
+Manual/Plaid/Basiq/Connected — and balance) is genuinely better than
+that never-built v3 proposal, and it directly answers a gap flagged
+early this session: *"Money Map never explicitly answers where is my
+money."* No code change was needed to achieve this — it already does.
 
-### 4. Goals snapshot
-- One line per goal: name + plain-language status. Use observational
-  language only — "ahead of schedule," "on track," "contributing less
-  than planned," "progress has slowed." **"Behind" is banned, same as
-  "over budget" is banned on the Budget page** — this was an
-  inconsistency in the original version of this spec, not a different
-  standard for this page. Neutral single-tone progress bar, animated
-  fill on load per the motion rules above.
-- Status sentence only shown when a goal is notably ahead or behind — not
-  a status line for every goal by default.
-- Links out to the full Goals page. Do not duplicate Goals' management
-  functions here.
+**Real technical issue found during reconciliation, not resolved here:**
+this section currently uses `accountGroup()` (a regex on `account.type`)
+to classify accounts, while Cash Plan uses `classifyAccount()` (a proper
+type+subtype lookup). The same account could theoretically classify
+differently in the two places on one page. Recommend unifying on
+`classifyAccount()` as canonical — but that's a real behavior change
+(could reclassify edge-case accounts), needs its own reviewed diff, not
+bundled into this spec.
 
-### 5. Net worth
-- Collapsed by default, always. One line of context (Caption weight) +
-  the number, chevron to expand into the full breakdown.
-- This is the one number most likely to carry unexamined shame for
-  someone carrying debt. Deliberately quiet placement is a product
-  decision, not an oversight — do not "fix" this by promoting it later
-  without revisiting the reasoning here.
+**Visual treatment:** plain, factual — same register as the Accounts
+page. No category palette (accounts aren't categories, established
+earlier this session). Source labels shown plainly.
 
-### 6. Trust footer (new — small, near the bottom of the page)
+### 3. Money in / Money out — unchanged from v3
+Two cards. In: stat + sparkline. Out: stat + category-breakdown bar +
+driver sentence, shown only when notable. See v3 for full detail — not
+repeated here, nothing changed.
 
-One quiet line combining data freshness and data scope, addressing "is
-this current, and is this everything?" — both are trust questions,
-answered together rather than as two separate sections:
+### 4. Recent activity — unchanged from v3
+Short list, 5-8 items, category-colored icons matching Transactions'
+system.
 
-> Last updated today, from 5 connected accounts.
+### 5. Goals snapshot — RESOLVED, sourced from the same `money_goals`
+table Goals itself uses
 
-Small, low-visual-weight (Caption role), not a banner or an alert. If an
-account is out of sync or missing, this is where that gets surfaced
-factually ("1 account needs reconnecting") — plainly, not as a warning
-color or urgent styling.
+**Resolution:** live already reads the same table the Goals page
+manages — no new data source needed. Two fixes:
+- Replace the hardcoded "Tracked separately" status label with real
+  observational language per the curation rule already established
+  ("ahead of schedule," "contributing less than planned," "progress has
+  slowed" — never "behind," same fix already applied to this section
+  once before and apparently not yet built).
+- **Spotlight the primary goal** (`is_primary` already exists in the
+  data) — mirrors Goals page's own "Focus" card, so the same concept
+  reads consistently in both places rather than Money Map showing an
+  undifferentiated list while Goals highlights one goal specially.
 
-## Conversation
+Links out to Goals for full detail. Does not duplicate Goals' management
+UI.
 
-Ask input is anchored on this page too, same component as Home. Not
-Home-exclusive. Conversation-first applies across the app, not just the
-front door.
+### 6. Net worth — unchanged from v3
+Collapsed, quiet, one line + number. Deliberately unpromoted — see v3
+for the full reasoning, still holds.
 
-## Empty / new-user state
+### 7. Trust footer — unchanged from v3
+Freshness + scope, one line.
 
-No section renders zero-state charts or fabricated numbers. Replace with
-warm, honest copy explaining nothing's connected yet, the same ask input
-(usable before any account is linked), and a single clear CTA to connect
-an account. Mirror Home's empty-state pattern — these two empty states
-should feel like the same app, not two different products.
+## What's being cut, and where each piece actually goes
 
-## Explicit non-goals for this build (do not add without revisiting product
-discussion — these were deliberate exclusions, not gaps)
+### Cash Plan — cut as a visible card entirely
 
-- **No dashboard customization / widget rearranging.** Choosing a layout
-  is a decision burden the target user doesn't want. Revisit only as an
-  opt-in personalization feature, post-beta.
-- **No gamification** — no streaks, points, badges, completion counts, or
-  celebratory animations tied to repeated engagement. Real-milestone
-  celebration (see product principles: "journey as honest progress") is
-  fine and encouraged; manufactured reward loops are not.
-- **No red/green or any performance-coded color, anywhere on this page,
-  including the new Out breakdown chart.** Color encodes category only.
-  Category colors must come from the dedicated palette in
-  visual-design-system.md, structurally decoupled from semantic/status
-  tokens (see that doc for the exact token-collision finding that makes
-  this a hard requirement, not a style preference).
-- **No Money-Map-specific "attention" or "health indicator" feed —
-  e.g. a section separately surfacing things like "largest upcoming bill
-  in 5 days" or "cash spread across 4 accounts."** These belong to
-  existing owners (Year at a glance owns upcoming-bill timing; the new
-  account breakdown above already covers spread-across-accounts) or, if
-  something is genuinely Money-Map-specific and notable, it should
-  surface through the existing per-section curation rule already
-  governing this page — not become a fourth, separately-named mechanism
-  for "things worth noticing," alongside Home's dots and Year's flagged
-  months. Considered and rejected during review, noted here so it
-  doesn't get quietly re-proposed later.
-- **No gender-targeted visual theme.**
+**This is not a new decision — it's applying one already made.** Early
+this session, before Goals existed as a designed page: *"Cash Plan
+buckets can therefore become an internal allocation model rather than a
+visible standalone product section."* Live Money Map still shows Cash
+Plan as its own card with its own jargon ("Account-backed," "Needs
+review") — it just hasn't caught up to that decision yet.
 
-## Open dependencies (must resolve before build)
+**Resolution:** `money_buckets`/`money_bucket_allocations` become the
+real backing implementation of Goals' "Allocation" concept (per
+goals-spec.md's Goal/Planned-cost/Allocation model) and feed
+safe-to-spend's earmarked-cash deduction, per
+forecast-balance-semantics.md — invisibly, as plumbing, never as a
+user-facing card. The 12 validation reason codes remain real, valuable
+data-integrity logic; they stop being shown to users as raw category
+labels.
 
-1. The highlight/driver sentences (e.g. "mostly the insurance bill, not
-   everyday spending") must be generated by a real rule against the
-   underlying engine (largest driver of a delta, comparison to the
-   person's own historical typical) — not hand-authored per instance.
-   Same selection-rule problem as Home's dots; solving it once should
-   serve both pages.
-2. The category-to-color deterministic mapping function (hash or
-   assignment table) referenced throughout this spec does not exist yet —
-   needs to be built before the Out breakdown or recent-activity icons can
-   be implemented consistently.
-3. Precise safe-to-spend calculation semantics (which balances count, how
-   credit is treated, how far ahead bills are deducted, how earmarked/
-   allocated money is handled) are still undefined — flagged in the page
-   ownership map as the single most important calculation in the product.
-   Does not block building this page's UI, but must be resolved before
-   the real number can be trusted.
+**Real gap found, not resolved here:** the migration creating these
+tables explicitly states *"Authenticated writes stay closed until
+concurrency-safe RPCs are added"* — there is currently no way for a user
+to create a bucket/allocation at all. Goals' spec needs to inherit this
+as a real, load-bearing dependency, not something this reconciliation
+can solve on its own.
+
+### "What is already planned" — cut, split two ways
+
+- **Scheduled (income + bills)** — cut outright. Redundant with what
+  Bills and Income already show on their own pages; this was Money Map
+  quietly duplicating content it doesn't own.
+- **Confirmed patterns** (`transaction_pattern_confirmations`) —
+  relocates to wherever the confirmation needs acting on (Bills/Income).
+  **This surfaces a real correction needed elsewhere, not resolved
+  here:** both bills-spec.md and income-spec.md describe a "detected/
+  confirmed recurring payment lifecycle" as parked and unbuilt, deferred
+  to a real-bank-data phase. That's incorrect — the table exists, has
+  real RLS policies, and Money Map is actively reading pending
+  confirmations from it today. Those two specs' "parked, not built now"
+  sections need investigating and correcting as their own task.
+
+### "What is coming up" — cut entirely
+
+Year at a glance already does this job, and per the regression audit,
+does it with more sophistication (the curation rule protecting large
+infrequent bills from being crowded out by nominally-larger monthly
+ones, the "Timing needed" disclosure for un-projectable items). This
+card was Money Map duplicating a job Year already owns. Cut; the
+existing "View Year at a glance" link becomes the sole handoff for this
+kind of content.
+
+### "What needs review" — cut as a standalone card, five items
+redistributed to their real owners
+
+This card directly contradicted an existing non-goal (*"No Money-Map-
+specific attention feed... considered and rejected during review"*), but
+simply deleting it would lose five real, working checks per the
+regression audit. Fix: route each to whoever actually owns that concern.
+
+1. **Missing bill/income dates** → a genuine **Home dot** candidate,
+   under the existing "requires confirmation because it affects another
+   calculation" test (a dateless bill can't feed Year's forecast) — the
+   same completeness-gap pattern already designed into Home's v3 spec.
+2. **Unlinked goals** → dissolves once Cash Plan becomes Goals'
+   allocation layer (see above) — becomes a Goals-page concept.
+3. **Pending pattern confirmations** → Bills/Income (see above).
+4. **Stale/reference-only sources** → an Accounts-page concern.
+5. **Bills exceeding visible cash** → the most significant one. Routes
+   into safe-to-spend's own caption sentence when relevant, and/or as a
+   Home dot — this is close to a genuine squeeze signal on the hero
+   number itself, not a separate review item.
+
+Nothing here is lost. It stops being a fourth attention mechanism
+competing with Home's dots and Year's flagged months, and becomes five
+things correctly owned by the pages that were always supposed to own
+them.
+
+## Summary of new open items surfaced by this reconciliation
+
+1. **Account classification duplication** (`accountGroup()` vs.
+   `classifyAccount()`) — needs unifying, real behavior-change risk, own
+   reviewed diff.
+2. **Cash Plan has no write capability yet** (RPCs not built) — Goals'
+   spec needs to inherit this as a real dependency.
+3. **Bills-spec.md and income-spec.md incorrectly describe the detected-
+   payment-confirmation lifecycle as unbuilt/parked** — it exists and is
+   live via `transaction_pattern_confirmations`. Both specs need
+   correcting; this needs its own investigation before those specs can
+   be fully trusted.
+
+None of these block implementing this spec's page-level layout — they're
+dependencies for the pieces that reference them (Goals, Home, Bills,
+Income), not blockers for Money Map's own reconciliation.
