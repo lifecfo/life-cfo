@@ -161,6 +161,10 @@ export default function MoneyMapPage() {
           >
             Refresh
           </Chip>
+          {/* Relocated here from the removed "What is coming up" card -- no
+              Money in/out section exists on this page yet to anchor it near,
+              so the header toolbar is the most consistently visible spot. */}
+          <Link href="/money/year"><Chip>View Year at a glance</Chip></Link>
           <Link href="/money"><Chip>Back to Money</Chip></Link>
         </div>
       }
@@ -307,11 +311,33 @@ export default function MoneyMapPage() {
                 </div>
                 <div className="grid gap-3 sm:grid-cols-2">
                   {moneyMap.tracked_purposes.items.map((item) => (
-                    <div key={`${item.currency}:${item.title}`} className="rounded-2xl bg-zinc-50 p-4">
+                    <div
+                      key={`${item.currency}:${item.title}`}
+                      className={`rounded-2xl p-4 ${
+                        item.is_primary ? "border-2 border-zinc-400 bg-white" : "bg-zinc-50"
+                      }`}
+                    >
                       <div className="flex items-start justify-between gap-3">
                         <div>
-                          <div className="text-sm font-medium text-zinc-900">{item.title}</div>
-                          <div className="mt-1 text-xs text-zinc-500">{item.status_label}</div>
+                          <div className="flex items-center gap-2">
+                            <div className="text-sm font-medium text-zinc-900">{item.title}</div>
+                            {item.is_primary ? (
+                              <span className="rounded-full bg-zinc-200 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-zinc-600">
+                                Primary
+                              </span>
+                            ) : null}
+                          </div>
+                          {/* Real pace comparison (progress vs. time elapsed toward a
+                              deadline) is intentionally not implemented here: the API
+                              response for this item (MoneyBucketSummary) never exposes
+                              a deadline or a start date to the client -- only a coarse
+                              target_month string. Per the spec's own rule, "if a goal
+                              has no deadline, always stay quiet" -- since no goal's
+                              deadline is available at this layer, quiet is the correct,
+                              honest behavior right now, not a shortfall. Wiring this up
+                              for real needs deriveMoneyBuckets.ts and types.ts to start
+                              sending deadline_at (and a start reference) to the client --
+                              out of scope for this page-only change. */}
                         </div>
                         <div className="text-xs font-medium text-zinc-700">{item.progress_percent}%</div>
                       </div>
@@ -331,44 +357,20 @@ export default function MoneyMapPage() {
                   <div className="text-sm font-semibold text-zinc-900">What is already planned</div>
                   <div className="mt-1 text-xs text-zinc-500">Based on current schedules.</div>
                 </div>
-                <div className="grid gap-4 lg:grid-cols-2">
-                  <div className="space-y-2">
-                    <div className="text-xs font-medium uppercase tracking-wide text-zinc-500">Scheduled</div>
-                    {moneyMap.planned.scheduled.map((item, index) => <PlannedRow key={`scheduled:${item.kind}:${item.name}:${index}`} item={item} />)}
-                    {!moneyMap.planned.scheduled.length ? <div className="text-sm text-zinc-600">No regular schedules are in view.</div> : null}
-                  </div>
-                  <div className="space-y-2">
-                    <div className="text-xs font-medium uppercase tracking-wide text-zinc-500">Confirmed patterns</div>
-                    {moneyMap.planned.confirmed_patterns.map((item, index) => <PlannedRow key={`confirmed:${item.kind}:${item.name}:${index}`} item={item} />)}
-                    {!moneyMap.planned.confirmed_patterns.length ? <div className="text-sm text-zinc-600">No confirmed patterns are in view.</div> : null}
-                  </div>
+                {/* "Scheduled" (income + bills) column removed -- redundant with
+                    what Bills and Income already show on their own pages. */}
+                <div className="space-y-2">
+                  <div className="text-xs font-medium uppercase tracking-wide text-zinc-500">Confirmed patterns</div>
+                  {moneyMap.planned.confirmed_patterns.map((item, index) => <PlannedRow key={`confirmed:${item.kind}:${item.name}:${index}`} item={item} />)}
+                  {!moneyMap.planned.confirmed_patterns.length ? <div className="text-sm text-zinc-600">No confirmed patterns are in view.</div> : null}
                 </div>
               </CardContent>
             </Card>
 
-            <Card>
-              <CardContent className="space-y-4">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <div className="text-sm font-semibold text-zinc-900">What is coming up</div>
-                    <div className="mt-1 text-xs text-zinc-500">Expected from current schedules and recent spending.</div>
-                  </div>
-                  <Link href="/money/year" className="text-xs font-medium text-zinc-700 underline decoration-zinc-300 underline-offset-4">View Year at a glance</Link>
-                </div>
-                <div className="space-y-2">
-                  {moneyMap.coming_up.items.map((item, index) => (
-                    <div key={`${item.kind}:${item.name}:${index}`} className="flex items-start justify-between gap-4 rounded-2xl bg-zinc-50 px-4 py-3">
-                      <div>
-                        <div className="text-sm font-medium text-zinc-900">{item.name}</div>
-                        <div className="mt-1 text-xs text-zinc-500">{item.detail}{displayDate(item.expected_at) ? ` · ${displayDate(item.expected_at)}` : ""}</div>
-                      </div>
-                      {item.amount_cents !== null && item.currency ? <div className="shrink-0 text-sm font-medium text-zinc-900">{formatMoneyFromCents(item.amount_cents, item.currency)}</div> : null}
-                    </div>
-                  ))}
-                  {!moneyMap.coming_up.items.length ? <div className="text-sm text-zinc-600">Nothing dated is coming up yet.</div> : null}
-                </div>
-              </CardContent>
-            </Card>
+            {/* "What is coming up" card removed -- Year at a glance already owns
+                this job, with more sophistication (curation rules protecting
+                large infrequent bills, "Timing needed" disclosure). The link
+                out to it now lives in the page header toolbar above. */}
 
             <Card>
               <CardContent className="space-y-4">
