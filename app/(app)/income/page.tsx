@@ -215,6 +215,9 @@ export default function IncomePage() {
         active,
       };
 
+      // Confidence-tier field (Confirmed / Expected recurring / Variable
+      // estimate, per income-spec.md) would hook in here — needs an
+      // actual schema migration on recurring_income first. Not implemented.
       const { error } = await supabase.from("recurring_income").insert(payload);
       if (error) throw error;
 
@@ -282,7 +285,7 @@ export default function IncomePage() {
   return (
     <Page
       title="Income"
-      subtitle="Income you’ve told Keystone is true. No estimates, no assumptions."
+      subtitle="Income you’ve told Life CFO is true. No estimates, no assumptions."
       right={
         <div className="flex items-center gap-2">
           <Chip className={liveChipClass}>
@@ -320,7 +323,7 @@ export default function IncomePage() {
               <div className="space-y-1">
                 <div className="text-xs text-zinc-500">Amount</div>
                 <input
-                  className="rounded-md border px-3 py-2 bg-transparent w-full"
+                  className="rounded-md border px-3 py-2 bg-transparent w-full tabular-nums"
                   placeholder="Amount"
                   value={amount}
                   onChange={(e) => setAmount(e.target.value)}
@@ -330,7 +333,7 @@ export default function IncomePage() {
               </div>
 
               <div className="space-y-1">
-                <div className="text-xs text-zinc-500">Interval</div>
+                <div className="text-xs text-zinc-500">How often</div>
                 <select
                   className="rounded-md border px-3 py-2 bg-transparent w-full"
                   value={cadence}
@@ -383,7 +386,7 @@ export default function IncomePage() {
                       <Chip>{cadenceLabel(i.cadence)}</Chip>
                     </div>
                     <div className="text-sm opacity-75">
-                      {formatMoneyFromCents(i.amount_cents)} • Next {new Date(i.next_pay_at).toLocaleString()}
+                      <span className="tabular-nums">{formatMoneyFromCents(i.amount_cents)}</span> • Next {new Date(i.next_pay_at).toLocaleString()}
                     </div>
                   </div>
 
