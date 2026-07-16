@@ -123,6 +123,15 @@ function fmtDateTime(iso: string) {
   }
 }
 
+/**
+ * Plain-language label for a bill_payments.source value. Falls back to
+ * omitting the segment entirely rather than showing a raw internal string.
+ */
+function sourceLabel(source: string): string | null {
+  if (source === "bills_page") return "Added from Bills";
+  return null;
+}
+
 // -------------------- cadence bump helpers (MODULE SCOPE) --------------------
 function daysInMonth(year: number, month0: number) {
   return new Date(year, month0 + 1, 0).getDate();
@@ -599,6 +608,11 @@ export default function BillsPage() {
         active,
       };
 
+      // Bill-vs-Planned-cost duplicate check would hook in here (per
+      // bills-spec.md's "Resolved: Bill vs. Planned cost boundary") —
+      // prompting a migration to a Planned cost when this name/amount/
+      // cadence matches one closely. Depends on Goals' Planned-cost
+      // model, which doesn't exist live yet. Not implemented.
       const { error } = await supabase.from("recurring_bills").insert(payload);
       if (error) throw error;
 
@@ -935,7 +949,7 @@ export default function BillsPage() {
               <Chip active={filter === "due14"} onClick={() => applyFilter("due14")} title="Bills due in 14 days">
                 Due 14d
               </Chip>
-              <Chip active={filter === "autopay_risk"} onClick={() => applyFilter("autopay_risk")} title="Due soon and not autopay">
+              <Chip active={filter === "autopay_risk"} onClick={() => applyFilter("autopay_risk")} title="Due soon, not on autopay">
                 Worth checking
               </Chip>
 
@@ -989,7 +1003,7 @@ export default function BillsPage() {
               <div>
                 <div className="text-sm mb-1 opacity-70">Amount (AUD)</div>
                 <input
-                  className="w-full rounded-md border px-3 py-2 bg-transparent"
+                  className="w-full rounded-md border px-3 py-2 bg-transparent tabular-nums"
                   placeholder="e.g. $120.00"
                   value={amount}
                   onChange={(e) => setAmount(formatCurrencyInput(e.target.value))}
@@ -999,7 +1013,7 @@ export default function BillsPage() {
               </div>
 
               <div>
-                <div className="text-sm mb-1 opacity-70">Cadence</div>
+                <div className="text-sm mb-1 opacity-70">How often</div>
                 <select
                   className="w-full rounded-md border px-3 py-2 bg-transparent"
                   value={cadence}
@@ -1079,12 +1093,12 @@ export default function BillsPage() {
                               </div>
 
                               <div className="text-sm opacity-75 mt-1">
-                                {formatMoneyFromCents(b.amount_cents, b.currency)} • Next due {fmtDateTime(b.next_due_at)}
+                                <span className="tabular-nums">{formatMoneyFromCents(b.amount_cents, b.currency)}</span> • Next due {fmtDateTime(b.next_due_at)}
                               </div>
 
                               {lastPaid ? (
                                 <div className="text-xs text-zinc-600 mt-1">
-                                  Last paid {fmtDateTime(lastPaid.paid_at)} • {formatMoneyFromCents(lastPaid.amount_cents, lastPaid.currency)}
+                                  Last paid {fmtDateTime(lastPaid.paid_at)} • <span className="tabular-nums">{formatMoneyFromCents(lastPaid.amount_cents, lastPaid.currency)}</span>
                                 </div>
                               ) : (
                                 <div className="text-xs text-zinc-500 mt-1">No receipts yet.</div>
@@ -1105,7 +1119,7 @@ export default function BillsPage() {
                               <div>
                                 <div className="text-xs opacity-70 mb-1">Amount</div>
                                 <input
-                                  className="w-full rounded-md border px-3 py-2 bg-transparent"
+                                  className="w-full rounded-md border px-3 py-2 bg-transparent tabular-nums"
                                   value={String(d?.amount_input ?? "")}
                                   onChange={(e) =>
                                     setDrafts((prev) => ({
@@ -1119,7 +1133,7 @@ export default function BillsPage() {
                               </div>
 
                               <div>
-                                <div className="text-xs opacity-70 mb-1">Cadence</div>
+                                <div className="text-xs opacity-70 mb-1">How often</div>
                                 <select
                                   className="w-full rounded-md border px-3 py-2 bg-transparent"
                                   value={(d?.cadence as Cadence) ?? b.cadence}
@@ -1241,12 +1255,13 @@ export default function BillsPage() {
                   <div key={p.id} className="rounded-lg border p-3">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <div className="font-semibold">
-                        {billNameById[p.bill_id] ?? "Bill"} • {formatMoneyFromCents(p.amount_cents, p.currency)}
+                        {billNameById[p.bill_id] ?? "Bill"} • <span className="tabular-nums">{formatMoneyFromCents(p.amount_cents, p.currency)}</span>
                       </div>
                       <div className="text-xs text-zinc-500">{fmtDateTime(p.paid_at)}</div>
                     </div>
                     <div className="mt-1 text-xs text-zinc-600">
-                      {p.note ? p.note : "—"} • source: {p.source}
+                      {p.note ? p.note : "—"}
+                      {sourceLabel(p.source) ? ` • ${sourceLabel(p.source)}` : ""}
                     </div>
                   </div>
                 ))}
