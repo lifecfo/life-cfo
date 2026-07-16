@@ -364,7 +364,7 @@ export default function TransactionsClient() {
                     <option value="200">200</option>
                     <option value="250">250</option>
                   </select>
-                  <div className="text-[11px] text-zinc-500 mt-1">Filters are real (server-backed). Local search below is just for quick narrowing.</div>
+                  <div className="text-[11px] text-zinc-500 mt-1">These filters apply to all your data, not just what is currently loaded. The search box below only narrows what is already on screen.</div>
                 </div>
               </div>
             </CardContent>
@@ -377,13 +377,15 @@ export default function TransactionsClient() {
           <CardContent>
             <div className="text-sm font-semibold text-zinc-900">Source context</div>
             <div className="mt-1 text-xs text-zinc-600">
-              {items.length
-                ? `${importedCount} imported transaction(s), ${manualCount} manual transaction(s). ${
-                    latestImportedDate
-                      ? `Latest imported update ${softWhen(latestImportedDate)}.`
-                      : ""
-                  }`
-                : "Imported and manual activity will appear here once data is available."}
+              {items.length ? (
+                <>
+                  <span className="tabular-nums">{importedCount}</span> imported transaction(s),{" "}
+                  <span className="tabular-nums">{manualCount}</span> manual transaction(s).{" "}
+                  {latestImportedDate ? `Latest imported update ${softWhen(latestImportedDate)}.` : null}
+                </>
+              ) : (
+                "Imported and manual activity will appear here once data is available."
+              )}
             </div>
           </CardContent>
         </Card>
@@ -406,7 +408,7 @@ export default function TransactionsClient() {
                   <div className="text-sm font-semibold text-zinc-900">This month</div>
                   <div className="text-xs text-zinc-500">A quiet picture (no chart).</div>
                 </div>
-                <div className="text-sm font-semibold text-zinc-900">{formatMoneyFromCents(monthTotal, "AUD")}</div>
+                <div className="text-sm font-semibold text-zinc-900 tabular-nums">{formatMoneyFromCents(monthTotal, "AUD")}</div>
               </div>
             </CardContent>
           </Card>
@@ -482,12 +484,12 @@ export default function TransactionsClient() {
                             <div className="mt-2 flex flex-wrap gap-2">
                               <Badge>{signLabel(cents)}</Badge>
                               <Chip title="Source">{source}</Chip>
-                              <Chip title="Amount">{formatMoneyFromCents(abs, cur)}</Chip>
+                              <Chip title="Amount"><span className="tabular-nums">{formatMoneyFromCents(abs, cur)}</span></Chip>
                               {t.updated_at ? <Chip title="Updated">{softWhen(t.updated_at)}</Chip> : null}
                             </div>
                           </div>
 
-                          <div className="text-sm font-semibold text-zinc-900">
+                          <div className="text-sm font-semibold text-zinc-900 tabular-nums">
                             {cents < 0 ? "- " : cents > 0 ? "+ " : ""}
                             {formatMoneyFromCents(abs, cur)}
                           </div>
@@ -496,6 +498,14 @@ export default function TransactionsClient() {
 
                       {isOpen ? (
                         <div className="mt-3 space-y-2">
+                          {/* Recategorize/split/mark-transfer/mark-duplicate/exclude are
+                              intentionally not implemented here. They need the shared
+                              calculation-propagation layer (forecast-balance-semantics.md)
+                              so a correction actually invalidates downstream calculations
+                              (typical-month baseline, Budget's seen-so-far, etc.) instead of
+                              just changing this row's display. See transactions-spec.md
+                              ("Critical dependency — corrections must propagate, not just
+                              display"). */}
                           <div className="text-sm text-zinc-600">No notes.</div>
                           <div className="flex flex-wrap gap-2 pt-1">
                             <Chip onClick={() => setOpenId(null)}>Done</Chip>
