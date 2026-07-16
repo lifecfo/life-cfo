@@ -552,12 +552,33 @@ export default function MoneyClientNext() {
     setConfirmationError(null);
 
     try {
-      const response = await fetch("/api/money/pattern-confirmations", {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ pattern_key: confirmation.pattern_key }),
-      });
-      const json = (await response.json().catch(() => ({}))) as { error?: string };
+      const attempt = async (confirmDespiteActivity: boolean) => {
+        const response = await fetch("/api/money/pattern-confirmations", {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            pattern_key: confirmation.pattern_key,
+            confirm_despite_activity: confirmDespiteActivity,
+          }),
+        });
+        const json = (await response.json().catch(() => ({}))) as {
+          error?: string;
+          needs_confirmation?: boolean;
+          warning?: string;
+        };
+        return { response, json };
+      };
+
+      let { response, json } = await attempt(false);
+
+      if (!response.ok && json.needs_confirmation) {
+        const proceed = window.confirm(
+          json.warning || "This will also pause the bill or income it created. Continue?"
+        );
+        if (!proceed) return false;
+        ({ response, json } = await attempt(true));
+      }
+
       if (!response.ok) {
         throw new Error(json.error || "We could not put that back for review just now.");
       }
