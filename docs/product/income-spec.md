@@ -55,11 +55,42 @@ is common enough that retrofitting it later would be more costly than
 allowing for it now. Don't overbuild for beta, but don't design out the
 possibility either.
 
-## Parked, not built now
+## Correction: the detected-income lifecycle already exists — this is
+an open product decision, not unbuilt work
 
-Same as Bills — a detected-income lifecycle for transaction-inferred
-recurring income is real, correct design for the real-bank-data phase,
-not demo-beta scope.
+An earlier version of this spec described a detected-income lifecycle
+for transaction-inferred recurring income as unbuilt, deferred to a
+real-bank-data phase. That was wrong, confirmed by direct investigation
+of the live code:
+
+- **Detection is real and live.** `deriveTransactionOutflowSummary()`
+  groups transactions into candidate income patterns (≥2 occurrences,
+  cadence inferred from actual date gaps, confidence-scored, plus a
+  recency check requiring the pattern to still be showing up this
+  month), and runs on every relevant page load — not a future
+  capability.
+- **A full confirm/reject/rename UI exists and works** — Confirm as
+  income, Confirm as bill, Ignore, Rename, Put back for review — all
+  real, functional, writing to `transaction_pattern_confirmations`.
+- **None of it touches Income.** The entire lifecycle lives on Money
+  Overview (`/money`), not here. Income has no current relationship to
+  detected patterns at all — no read, no write, no link.
+- **Confirming a pattern doesn't create a real income source.** The
+  confirm action only labels the pattern (`kind: 'income'`) in
+  `transaction_pattern_confirmations` — there is no downstream step that
+  promotes a confirmed pattern into an actual `recurring_income` row.
+
+**This is a real open product decision, not a build task to un-park
+as-is:**
+1. Does Income eventually surface pending pattern confirmations itself —
+   duplicating or relocating Money Overview's review UI onto this page?
+2. Or does confirming a pattern need a new downstream step that actually
+   creates a `recurring_income` row — turning "confirm as income" into a
+   real promotion, not just a label?
+
+Either answer is a real feature to design and build, not something
+already designed that just needs building. Do not assume either
+resolution without deciding it deliberately.
 
 ## Non-goals
 

@@ -50,12 +50,41 @@ explaining elsewhere.
 
 Add, edit, delete a bill. Ask about a bill (hands off to conversation).
 
-## Parked, not built now
+## Correction: the detected-payment lifecycle already exists — this is
+an open product decision, not unbuilt work
 
-A prior review proposed a detected/confirmed/likely/ignored/duplicate
-lifecycle for transaction-detected recurring payments. Real, correct
-design — for the real-bank-data phase, not demo-data-only beta scope.
-Flagged so it isn't lost, not blocking this page's current build.
+An earlier version of this spec described a detected/confirmed/likely/
+ignored/duplicate lifecycle for transaction-detected recurring payments
+as unbuilt, deferred to a real-bank-data phase. That was wrong, confirmed
+by direct investigation of the live code:
+
+- **Detection is real and live.** `deriveTransactionOutflowSummary()`
+  groups transactions into candidate patterns (≥2 occurrences, cadence
+  inferred from actual date gaps, confidence-scored), and runs on every
+  relevant page load — not a future capability.
+- **A full confirm/reject/rename UI exists and works** — Confirm as
+  bill, Confirm as income, Ignore, Rename, Put back for review — all
+  real, functional, writing to `transaction_pattern_confirmations`.
+- **None of it touches Bills.** The entire lifecycle lives on Money
+  Overview (`/money`), not here. Bills has no current relationship to
+  detected patterns at all — no read, no write, no link.
+- **Confirming a pattern doesn't create a real bill.** The confirm
+  action only labels the pattern (`kind: 'bill'`) in
+  `transaction_pattern_confirmations` — there is no downstream step that
+  promotes a confirmed pattern into an actual `recurring_bills` row with
+  a due date.
+
+**This is a real open product decision, not a build task to un-park
+as-is:**
+1. Does Bills eventually surface pending pattern confirmations itself —
+   duplicating or relocating Money Overview's review UI onto this page?
+2. Or does confirming a pattern need a new downstream step that actually
+   creates a `recurring_bills` row — turning "confirm as bill" into a
+   real promotion, not just a label?
+
+Either answer is a real feature to design and build, not something
+already designed that just needs building. Do not assume either
+resolution without deciding it deliberately.
 
 ## Non-goals
 
