@@ -157,7 +157,7 @@ export default function AccountsPage() {
           <Card className={cardClass}>
             <CardContent className="space-y-2">
               <div className="text-sm font-semibold text-zinc-900">Find anything</div>
-              <div className="text-xs text-zinc-500">Search-first. No scrolling.</div>
+              <div className="text-xs text-zinc-500">Type to find an account — no need to scroll.</div>
               <AssistedSearch scope="accounts" placeholder="Search accounts..." />
             </CardContent>
           </Card>
@@ -222,7 +222,14 @@ export default function AccountsPage() {
                           </div>
                         </div>
 
-                        <div className="shrink-0 text-sm font-semibold text-zinc-900">{moneyFromCents(cents, cur)}</div>
+                        {/* Included/excluded toggle (accounts-spec.md) would render here, per
+                            row, once it exists — depends on a schema change (a new column)
+                            and on forecast-balance-semantics.md's safe-to-spend definition
+                            being implemented first, since that's what the toggle would feed.
+                            Not implemented. */}
+                        <div className="shrink-0 text-sm font-semibold text-zinc-900 tabular-nums">
+                          {moneyFromCents(cents, cur)}
+                        </div>
                       </div>
                     );
                   })}
