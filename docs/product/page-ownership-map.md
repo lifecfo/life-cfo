@@ -348,6 +348,35 @@ not adopted here.
 
 **Visuals:** none — forms and lists only, matching what's actually built.
 
+## Discoverability bug, confirmed larger than first found — seven more pages absent from the real sidebar
+
+Investigated directly against `components/AppShell.tsx`'s actual
+`sidebarGroups` structure, not assumed: **Budget** (`/budget`), **Goals**
+(`/money/goals`), **Bills** (`/bills`), **Income** (`/income`), **Net
+worth** (`/net-worth`), **Liabilities** (`/liabilities`), and
+**Investments** (`/investments`) are all confirmed absent — no label,
+under no group, anywhere in `sidebarGroups`. All seven route directories
+exist and are fully built, real pages (confirmed: each has its own
+`page.tsx`, several with substantial client components behind them —
+this isn't a stub or a placeholder set). They're reachable only by
+direct URL, exactly like `/money/rules` and `/money/categories` above.
+
+**This is not a new category of problem — it's a bigger instance of the
+same one.** The Rules/Categories finding above was two pages missing
+from one nav subsection (Data sources). This is seven pages missing
+across what would naturally be several different groupings, which
+changes the fix from "add two links to an existing group" to "decide
+where a meaningful fraction of the app's real pages actually belong in
+the sidebar." Same root cause, same category of fix (navigational, not
+a new design), just a larger version of it.
+
+**Not resolved here — a `sidebarGroups` diff is proposed separately for
+review before `AppShell.tsx` is touched**, consistent with this doc's
+existing pattern of flagging discoverability bugs without silently
+deciding navigation architecture as a side effect of a page-ownership
+pass (see the "Parked, not adopted" note above, which applies equally
+here).
+
 ## Household + Settings — split adopted in v2
 
 **Adopted:** treat Household and Settings as conceptually distinct, even
