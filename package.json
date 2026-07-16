@@ -13,7 +13,9 @@
     "demo:reset": "node scripts/demo-household.mjs reset",
     "security:plaid-tokens:inspect": "node scripts/security/inspect-plaid-token-storage.mjs",
     "security:plaid-tokens:migrate": "node scripts/security/migrate-plaid-tokens.mjs",
-    "security:plaid-tokens:smoke": "node scripts/security/smoke-plaid-token-crypto.mjs"
+    "security:plaid-tokens:smoke": "node scripts/security/smoke-plaid-token-crypto.mjs",
+    "db:migrations:status": "supabase migration list",
+    "db:migrations:push": "supabase db push"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.111.0",
@@ -38,6 +40,7 @@
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.1.1",
+    "supabase": "^2.109.1",
     "tailwindcss": "^4",
     "typescript": "^5"
   }
