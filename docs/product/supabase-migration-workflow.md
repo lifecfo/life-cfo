@@ -89,3 +89,24 @@ forward, not resolved here:
   be formally deprecated or removed rather than left as permanent
   friction that every future push has to route around with
   `--include-all`.
+
+## Credential hygiene
+
+Never `grep`, `cat`, print, or otherwise output the raw contents of any
+`.env*` file, or any command's output containing a live secret value —
+a connection string, an API key, a JWT, a password. Check key **names**
+and structure freely (existence, format, which files reference a name);
+never display **values**. This session hit exactly this mistake twice —
+once assuming a `KEY=VALUE` shape that a bare-URI file didn't actually
+have (`.env.claude-readonly`), once grepping across `.env*` files
+broadly enough to match a value instead of just a name
+(`SUPABASE_SERVICE_ROLE_KEY` in `.env.local`) — both entirely avoidable
+with a presence/name-only check instead of a raw content dump.
+
+If a secret is ever accidentally printed in any tool output or pasted
+into a chat conversation, **treat it as compromised immediately and
+rotate it** — regardless of whether the surrounding channel seems
+private, logged only locally, or already gitignored. Being gitignored
+or never committed reduces exposure but does not undo it; the value
+still left the file and entered a transcript. This applies to every
+future credential encountered, not just the two from this session.
