@@ -208,6 +208,14 @@ export function AppShell({ children }: AppShellProps) {
         ],
       },
       {
+        label: "What we own and owe",
+        items: [
+          { href: "/net-worth", label: "Net worth" },
+          { href: "/liabilities", label: "Liabilities" },
+          { href: "/investments", label: "Investments" },
+        ],
+      },
+      {
         label: "Decisions",
         items: [{ href: "/decisions", label: "Decisions" }],
       },
