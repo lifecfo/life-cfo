@@ -235,6 +235,7 @@ export function AppShell({ children }: AppShellProps) {
           { href: "/how-life-cfo-works", label: "How Life CFO works" },
           { href: "/fine-print", label: "Important information" },
           { href: "/privacy", label: "Privacy" },
+          { href: "/feedback", label: "Feedback" },
         ],
       },
     ],
