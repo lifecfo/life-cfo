@@ -317,6 +317,7 @@ type ConnectionRow = {
   provider: string;
   status: string;
   item_id: string | null;
+  user_id: string | null;
 };
 
 type BasiqItemIdPayload = {
@@ -327,6 +328,7 @@ type BasiqAccountUpsertRow = {
   household_id: string;
   connection_id: string;
   provider: "basiq";
+  user_id: string | null;
   external_id: string;
   provider_account_id: string;
   name: string;
@@ -477,7 +479,7 @@ async function getContext(connectionId: string) {
 
   const { data: connection, error: connErr } = await supabase
     .from("external_connections")
-    .select("id, household_id, provider, status, item_id")
+    .select("id, household_id, provider, status, item_id, user_id")
     .eq("id", connectionId)
     .eq("provider", "basiq")
     .maybeSingle();
@@ -493,8 +495,9 @@ async function upsertAccounts(params: {
   householdId: string;
   connectionId: string;
   accounts: Record<string, unknown>[];
+  userId: string | null;
 }) {
-  const { supabase, householdId, connectionId, accounts } = params;
+  const { supabase, householdId, connectionId, accounts, userId } = params;
 
   const rows = accounts
     .map((a) => {
@@ -518,6 +521,7 @@ async function upsertAccounts(params: {
         household_id: householdId,
         connection_id: connectionId,
         provider: "basiq",
+        user_id: userId,
         external_id: providerAccountId,
         provider_account_id: providerAccountId,
         name:
@@ -688,6 +692,7 @@ export const basiqProvider: MoneyProvider = {
       householdId,
       connectionId,
       accounts,
+      userId: connection.user_id,
     });
 
     const accountIdMap = await buildAccountMap({

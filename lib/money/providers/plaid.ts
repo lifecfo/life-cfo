@@ -15,6 +15,7 @@ type ConnectionRow = {
   item_id: string | null;
   provider_item_id: string | null;
   transactions_cursor: string | null;
+  user_id: string | null;
 };
 
 type RouteSupabase = Awaited<ReturnType<typeof supabaseRoute>>;
@@ -129,7 +130,7 @@ async function getContext(connectionId: string) {
   const { data: connection, error: connErr } = await supabase
     .from("external_connections")
     .select(
-      "id, household_id, provider, status, encrypted_access_token, item_id, provider_item_id, transactions_cursor"
+      "id, household_id, provider, status, encrypted_access_token, item_id, provider_item_id, transactions_cursor, user_id"
     )
     .eq("id", connectionId)
     .eq("provider", "plaid")
@@ -149,8 +150,9 @@ async function upsertAccounts(params: {
   householdId: string;
   connectionId: string;
   accounts: PlaidAccount[];
+  userId: string | null;
 }) {
-  const { supabase, householdId, connectionId, accounts } = params;
+  const { supabase, householdId, connectionId, accounts, userId } = params;
 
   if (!accounts.length) return { rows: [] as AccountUpsertRow[], count: 0 };
 
@@ -164,6 +166,7 @@ async function upsertAccounts(params: {
       household_id: householdId,
       connection_id: connectionId,
       provider: "plaid",
+      user_id: userId,
       external_id: safeStr(a.account_id) || null,
       provider_account_id: safeStr(a.account_id) || null,
       name: safeStr(a.name) || safeStr(a.official_name) || "Account",
@@ -389,6 +392,7 @@ export const plaidProvider: MoneyProvider = {
       householdId,
       connectionId,
       accounts: plaidAccounts,
+      userId: connection.user_id,
     });
 
     const accountIdMap = await buildAccountMap({
