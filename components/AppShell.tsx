@@ -205,6 +205,8 @@ export function AppShell({ children }: AppShellProps) {
           { href: "/connections", label: "Connections" },
           { href: "/money/import", label: "Upload bank file" },
           { href: "/money/accounts/new", label: "Add manual account" },
+          { href: "/money/rules", label: "Rules" },
+          { href: "/money/categories", label: "Categories" },
         ],
       },
       {
