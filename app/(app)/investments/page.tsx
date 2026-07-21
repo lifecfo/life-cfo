@@ -322,7 +322,7 @@ export default function InvestmentsPage() {
         kind: kind.trim() || null,
         institution: institution.trim() || null,
         approx_value: toNumberOrNull(approxValue),
-        currency: (currency || "AUD").trim() || "AUD",
+        currency: (currency || "AUD").trim().toUpperCase() || "AUD",
         notes: notes.trim() || null,
         updated_at: new Date().toISOString(),
       };
