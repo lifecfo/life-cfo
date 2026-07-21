@@ -133,8 +133,14 @@ export default function InvestmentsPage() {
   const queuedRefetchRef = useRef(false);
   const isMountedRef = useRef(true);
 
-  const approxTotal = useMemo(() => {
-    return items.reduce((sum, x) => sum + (typeof x.approx_value === "number" ? x.approx_value : 0), 0);
+  const approxTotalsByCurrency = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const x of items) {
+      if (typeof x.approx_value !== "number") continue;
+      const cur = (x.currency || "AUD").toUpperCase();
+      map.set(cur, (map.get(cur) ?? 0) + x.approx_value);
+    }
+    return Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0]));
   }, [items]);
 
   const resetComposer = () => {
@@ -426,7 +432,17 @@ export default function InvestmentsPage() {
           </Card>
         ) : null}
 
-        {items.length > 0 ? <div className="text-sm text-zinc-700">Approx total: {money(approxTotal, "AUD")}</div> : null}
+        {items.length > 0 && approxTotalsByCurrency.length > 0 ? (
+          <div className="text-sm text-zinc-700">
+            Approx total:{" "}
+            {approxTotalsByCurrency.map(([cur, val], idx) => (
+              <span key={cur}>
+                {idx ? " · " : ""}
+                {money(val, cur)}
+              </span>
+            ))}
+          </div>
+        ) : null}
 
         {composeOpen ? (
           <Card className="border-zinc-200 bg-white">

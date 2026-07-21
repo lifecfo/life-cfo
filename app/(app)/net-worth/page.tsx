@@ -15,6 +15,7 @@ type Account = {
   name: string;
   current_balance_cents: number;
   currency: string;
+  type?: string | null;
   archived?: boolean | null;
   created_at: string;
   updated_at: string;
@@ -30,6 +31,14 @@ type Liability = {
   archived: boolean;
   created_at: string;
   updated_at: string;
+};
+
+type InvestmentAccountRow = {
+  id: string;
+  user_id: string;
+  name: string;
+  approx_value: number | null; // stored in whole dollars, not cents
+  currency: string | null;
 };
 
 function fmtMoneyFromCents(cents: number, currency: string) {
@@ -53,6 +62,7 @@ type Bucket = {
   netCents: number;
   accounts: Account[];
   liabilities: Liability[];
+  investments: InvestmentAccountRow[];
 };
 
 export default function NetWorthPage() {
@@ -61,6 +71,7 @@ export default function NetWorthPage() {
   const [loading, setLoading] = useState(true);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [liabilities, setLiabilities] = useState<Liability[]>([]);
+  const [investments, setInvestments] = useState<InvestmentAccountRow[]>([]);
 
   async function load() {
     setLoading(true);
@@ -70,13 +81,14 @@ export default function NetWorthPage() {
       if (!user) {
         setAccounts([]);
         setLiabilities([]);
+        setInvestments([]);
         return;
       }
 
-      const [aRes, lRes] = await Promise.all([
+      const [aRes, lRes, iRes] = await Promise.all([
         supabase
           .from("accounts")
-          .select("id,user_id,name,current_balance_cents,currency,archived,created_at,updated_at")
+          .select("id,user_id,name,current_balance_cents,currency,type,archived,created_at,updated_at")
           .eq("user_id", user.id)
           .order("name", { ascending: true }),
         supabase
@@ -84,13 +96,20 @@ export default function NetWorthPage() {
           .select("id,user_id,name,current_balance_cents,currency,notes,archived,created_at,updated_at")
           .eq("user_id", user.id)
           .order("name", { ascending: true }),
+        supabase
+          .from("investment_accounts")
+          .select("id,user_id,name,approx_value,currency")
+          .eq("user_id", user.id)
+          .order("name", { ascending: true }),
       ]);
 
       if (aRes.error) throw aRes.error;
       if (lRes.error) throw lRes.error;
+      if (iRes.error) throw iRes.error;
 
       setAccounts((aRes.data as Account[]) ?? []);
       setLiabilities((lRes.data as Liability[]) ?? []);
+      setInvestments((iRes.data as InvestmentAccountRow[]) ?? []);
     } catch (e: any) {
       toast({
         title: "Couldn’t load Net Worth",
@@ -124,15 +143,37 @@ export default function NetWorthPage() {
         netCents: 0,
         accounts: [],
         liabilities: [],
+        investments: [],
       };
       map.set(cur, fresh);
       return fresh;
     };
 
     for (const a of activeAccounts) {
-      const b = ensure(a.currency || "AUD");
+      const cur = a.currency || "AUD";
       const bal = Number(a.current_balance_cents ?? 0);
-      b.assetsCents += bal;
+      const type = (a.type || "").trim().toLowerCase();
+
+      if (type === "other") {
+        // Genuinely ambiguous -- could be an asset or a debt, and
+        // nothing in the data says which. Excluded from both sides
+        // rather than guessed at.
+        continue;
+      }
+
+      const b = ensure(cur);
+      if (type === "credit" || type === "loan") {
+        // current_balance_cents' sign for these types isn't consistent
+        // across providers (confirmed against real account data -- some
+        // rows store it negative, some positive). abs() gives the
+        // correct owed amount either way.
+        b.liabilitiesCents += Math.abs(bal);
+      } else {
+        // cash, investment (account-level), or any unrecognized/legacy
+        // value (e.g. the raw "bank" type some demo-seeded rows carry)
+        // -- treated as an asset, matching this page's prior behaviour.
+        b.assetsCents += bal;
+      }
       b.accounts.push(a);
     }
 
@@ -143,12 +184,21 @@ export default function NetWorthPage() {
       b.liabilities.push(l);
     }
 
+    for (const inv of investments) {
+      if (typeof inv.approx_value !== "number") continue;
+      const b = ensure(inv.currency || "AUD");
+      // approx_value is whole dollars (numeric column); current_balance_cents
+      // is cents -- convert so both feed the same cents-based total.
+      b.assetsCents += Math.round(inv.approx_value * 100);
+      b.investments.push(inv);
+    }
+
     for (const b of map.values()) {
       b.netCents = b.assetsCents - b.liabilitiesCents;
     }
 
     return Array.from(map.values()).sort((x, y) => x.currency.localeCompare(y.currency));
-  }, [activeAccounts, activeLiabilities]);
+  }, [activeAccounts, activeLiabilities, investments]);
 
   return (
     <Page title="Net Worth" subtitle="A calm snapshot of where you stand, right now.">
@@ -200,7 +250,9 @@ export default function NetWorthPage() {
                   </div>
 
                   <div className="text-xs text-zinc-500">
-                    Assets are from Accounts. Liabilities are from your Liabilities list.
+                    Assets are cash and investment accounts, plus your Investments list.
+                    Liabilities are credit and loan accounts, plus your Liabilities list.
+                    Accounts marked "other" aren't included on either side.
                   </div>
                 </CardContent>
               </Card>
@@ -244,6 +296,28 @@ export default function NetWorthPage() {
                           </div>
                           <div className="shrink-0 text-sm text-zinc-800">
                             {fmtMoneyFromCents(l.current_balance_cents ?? 0, b.currency)}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardContent className="space-y-2">
+                  <div className="text-sm font-medium text-zinc-800">Investments</div>
+                  {b.investments.length === 0 ? (
+                    <div className="text-sm text-zinc-600">No investments in {b.currency}.</div>
+                  ) : (
+                    <div className="space-y-1">
+                      {b.investments.map((inv) => (
+                        <div key={inv.id} className="flex items-center justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="truncate text-sm text-zinc-800">{inv.name}</div>
+                          </div>
+                          <div className="shrink-0 text-sm text-zinc-800">
+                            {fmtMoneyFromCents(Math.round((inv.approx_value ?? 0) * 100), b.currency)}
                           </div>
                         </div>
                       ))}
