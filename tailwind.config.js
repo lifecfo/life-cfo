@@ -74,6 +74,16 @@ module.exports = {
           completed: "#4FAF91",
           pending: "#6FAFB2",
         },
+        category: {
+          1: "#3E7C74", // Juniper
+          2: "#C98A3E", // Ochre
+          3: "#C1614B", // Terracotta
+          4: "#7A4B73", // Plum
+          5: "#5C6F8A", // Slate
+          6: "#7C9070", // Sage
+          7: "#B4707E", // Dusty rose
+          8: "#B8A47C", // Sand
+        },
       },
     },
   },
