@@ -26,7 +26,11 @@ function currency(value: string | null | undefined): string {
   return String(value || "AUD").trim().toUpperCase() || "AUD";
 }
 
-function accountGroup(account: AccountsTruthRow): MoneyMapAccountGroup["key"] {
+// Exported: this is the single canonical account classifier. deriveCashPlan.ts
+// used to duplicate this logic in its own classifyAccount() (confirmed via
+// real account data that the two disagreed on ~10% of real rows); that
+// duplicate has been removed and its call sites now import this directly.
+export function accountGroup(account: AccountsTruthRow): MoneyMapAccountGroup["key"] {
   const type = String(account.type || "").trim().toLowerCase();
   if (/credit|loan|mortgage|liabilit/.test(type)) return "credit_debt";
   if (/cash|checking|cheque|savings|deposit|depository/.test(type)) return "cash";

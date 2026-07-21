@@ -1,3 +1,4 @@
+import { accountGroup } from "./deriveMoneyMap";
 import type {
   AccountsTruthRow,
   CashPlanAccount,
@@ -16,45 +17,12 @@ type DeriveCashPlanParams = {
   allocations: MoneyBucketAllocationTruthRow[];
 };
 
-type AccountClass = "cash" | "credit_debt" | "other";
-
 type AllocationState = {
   allocation: MoneyBucketAllocationTruthRow;
   bucket: MoneyBucketTruthRow | null;
   account: AccountsTruthRow | null;
   valid: boolean;
 };
-
-const CASH_TYPES = new Set([
-  "cash",
-  "depository",
-  "checking",
-  "cheque",
-  "savings",
-  "everyday",
-]);
-
-const CREDIT_DEBT_TYPES = new Set([
-  "credit",
-  "credit_card",
-  "loan",
-  "mortgage",
-  "liability",
-]);
-
-function normalizeType(value: string | null | undefined): string {
-  return String(value || "")
-    .trim()
-    .toLowerCase()
-    .replace(/[\s-]+/g, "_");
-}
-
-function classifyAccount(account: AccountsTruthRow): AccountClass {
-  const values = [normalizeType(account.type), normalizeType(account.subtype)].filter(Boolean);
-  if (values.some((value) => CREDIT_DEBT_TYPES.has(value))) return "credit_debt";
-  if (values.length > 0 && values.every((value) => CASH_TYPES.has(value))) return "cash";
-  return "other";
-}
 
 function currency(value: string | null | undefined): string {
   return String(value || "AUD").trim().toUpperCase() || "AUD";
@@ -201,7 +169,7 @@ export function deriveCashPlan(params: DeriveCashPlanParams): CashPlanSummary {
         detail: "The linked account is not included in the current money view.",
       });
     }
-    if (account && classifyAccount(account) !== "cash") {
+    if (account && accountGroup(account) !== "cash") {
       state.valid = false;
       review(reviewItems, seenReviews, `non-cash:${allocation.id}`, {
         code: "non_cash_account",
@@ -223,7 +191,7 @@ export function deriveCashPlan(params: DeriveCashPlanParams): CashPlanSummary {
   for (const accountStates of statesByAccount.values()) {
     const account = accountStates[0]?.account;
     if (!account || account.archived || !effectiveAccountIds.has(account.id)) continue;
-    if (classifyAccount(account) !== "cash") continue;
+    if (accountGroup(account) !== "cash") continue;
     const whole = accountStates.filter(
       (state) => state.allocation.allocation_type === "whole_account"
     );
@@ -298,7 +266,7 @@ export function deriveCashPlan(params: DeriveCashPlanParams): CashPlanSummary {
 
   const allocationAccountIds = new Set(params.allocations.map((row) => row.account_id));
   const eligibleAccounts = params.effectiveAccounts.filter(
-    (account) => !account.archived && classifyAccount(account) === "cash"
+    (account) => !account.archived && accountGroup(account) === "cash"
   );
   const accountsWithoutAllocations: CashPlanAccount[] = eligibleAccounts
     .filter((account) => !allocationAccountIds.has(account.id))
