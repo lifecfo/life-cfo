@@ -41,3 +41,23 @@ body {
     @apply bg-zinc-50 border border-zinc-200 rounded-xl p-3;
   }
 }
+
+/* Motion (visual-infrastructure-build-spec.md §3) */
+@keyframes fillBar {
+  from {
+    width: 0%;
+  }
+  to {
+    width: 100%;
+  }
+}
+
+.motion-fill {
+  animation: fillBar 400ms ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .motion-fill {
+    animation: none;
+  }
+}
