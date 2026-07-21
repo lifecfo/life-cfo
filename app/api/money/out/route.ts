@@ -3,6 +3,7 @@ import { supabaseRoute } from "@/lib/supabaseRoute";
 import { resolveHouseholdIdRoute } from "@/lib/households/resolveHouseholdIdRoute";
 import { getHouseholdMoneyTruth } from "@/lib/money/reasoning/getHouseholdMoneyTruth";
 import { deriveEffectiveMoneyTruth } from "@/lib/money/reasoning/effectiveMoneySources";
+import { excludedPatternKeys, isIncludedMovement } from "@/lib/money/reasoning/transactionInclusion";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -72,6 +73,7 @@ export async function GET() {
     const outMonthByCurrency: MoneyByCurrency = {};
     const categorySpend = new Map<string, number>();
     const merchantSpend = new Map<string, number>();
+    const ignoredPatternKeys = excludedPatternKeys(truth.transaction_pattern_confirmations);
 
     for (const t of monthTransactions) {
       const cents =
@@ -81,7 +83,7 @@ export async function GET() {
             ? Math.round(t.amount * 100)
             : 0;
 
-      if (cents < 0) {
+      if (cents < 0 && isIncludedMovement(t, ignoredPatternKeys)) {
         const abs = Math.abs(cents);
         addMoney(outMonthByCurrency, t.currency, abs);
 

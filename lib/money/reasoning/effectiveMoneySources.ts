@@ -6,6 +6,7 @@ import type {
   MoneySourceCoverage,
   TransactionsTruthRow,
 } from "./types";
+import { excludedPatternKeys, isIncludedMovement } from "./transactionInclusion";
 
 const FRESH_CONNECTION_DAYS = 7;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -85,9 +86,14 @@ function centsFor(transaction: TransactionsTruthRow): number {
   return 0;
 }
 
-function moneyRows(transactions: TransactionsTruthRow[], direction: "in" | "out") {
+function moneyRows(
+  transactions: TransactionsTruthRow[],
+  direction: "in" | "out",
+  ignoredPatternKeys: Set<string>
+) {
   const totals = new Map<string, number>();
   for (const transaction of transactions) {
+    if (!isIncludedMovement(transaction, ignoredPatternKeys)) continue;
     const cents = centsFor(transaction);
     if (direction === "in" ? cents <= 0 : cents >= 0) continue;
     const currency = String(transaction.currency || "AUD").trim().toUpperCase() || "AUD";
@@ -198,6 +204,7 @@ export function deriveEffectiveMoneyTruth(rawTruth: HouseholdMoneyTruth): {
   const dates = transactionDates(rollingTransactions);
   const unclearLabelCount = rollingTransactions.filter(labelIsUnclear).length;
   const confirmations = rawTruth.transaction_pattern_confirmations;
+  const ignoredPatternKeys = excludedPatternKeys(confirmations);
 
   const truth: HouseholdMoneyTruth = {
     ...rawTruth,
@@ -223,8 +230,8 @@ export function deriveEffectiveMoneyTruth(rawTruth: HouseholdMoneyTruth): {
         ? { start_date: dates[0], end_date: dates[dates.length - 1] }
         : null,
       latest_transaction_date: dates.length ? dates[dates.length - 1] : null,
-      current_month_money_in: moneyRows(monthTransactions, "in"),
-      current_month_money_out: moneyRows(monthTransactions, "out"),
+      current_month_money_in: moneyRows(monthTransactions, "in", ignoredPatternKeys),
+      current_month_money_out: moneyRows(monthTransactions, "out", ignoredPatternKeys),
       confirmed_regular_payment_count: confirmations.filter(
         (confirmation) => confirmation.kind === "bill"
       ).length,
