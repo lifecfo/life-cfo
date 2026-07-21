@@ -834,7 +834,7 @@ Follow-up question: ${fu}`
               ) : homeHasMoney && homeSummary ? (
                 <div className="mt-4 space-y-5">
                   <div className="rounded-3xl bg-zinc-50 px-5 py-5">
-                    <div className="text-sm text-zinc-600">Likely breathing room</div>
+                    <div className="text-sm text-zinc-600">Left after planned bills</div>
                     <div className="mt-1 text-3xl font-semibold tracking-tight text-zinc-950">
                       {formatMoneyFromCents(
                         homeSummary.likely_breathing_room_cents,
@@ -885,7 +885,7 @@ Follow-up question: ${fu}`
                       </div>
                       <div className="flex items-start justify-between gap-4 border-t border-zinc-100 pt-2">
                         <div>
-                          <div className="font-medium text-zinc-800">Likely breathing room</div>
+                          <div className="font-medium text-zinc-800">Left after planned bills</div>
                           <div className="text-xs text-zinc-500">Flexible after known bills.</div>
                         </div>
                         <div className="shrink-0 font-medium text-zinc-900">
@@ -905,7 +905,7 @@ Follow-up question: ${fu}`
                       </div>
                       <div className="mt-1 text-xs leading-5 text-zinc-500">
                         {homeSummary.grocery_estimate_cents
-                          ? "Based on recent grocery spending. Tracked separately from breathing room."
+                          ? "Based on recent grocery spending. Tracked separately from what's left after planned bills."
                           : "Recent everyday spending is not clear enough to estimate."}
                       </div>
                     </div>
