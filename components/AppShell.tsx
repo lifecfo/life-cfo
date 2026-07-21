@@ -187,7 +187,7 @@ export function AppShell({ children }: AppShellProps) {
         label: "Money",
         items: [
           { href: "/money/setup", label: "Start here" },
-          { href: "/money", label: "Overview" },
+          { href: "/money", label: "Review" },
           { href: "/money/map", label: "Money Map" },
           { href: "/money/year", label: "Year at a glance" },
           { href: "/accounts", label: "Accounts" },
