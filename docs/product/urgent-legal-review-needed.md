@@ -5,6 +5,13 @@ surfaces. Both need a real decision from whoever handles legal review —
 not a code fix applied unilaterally. Capturing them here so they aren't
 lost between conversations.
 
+**See also:** `docs/product/legal-boundary-checklist.html` — a working,
+interactive checklist for testing whether a *new feature* (not existing
+copy) stays inside AU/UK/US financial-advice and credit-licensing
+boundaries. Overlapping ground, different angle: this file is about two
+specific defects already in production; the checklist is a forward-looking
+gate to run future features through before they ship.
+
 ## 1. Plaid/Privacy disclosure mismatch — most urgent, live in production
 
 `/fine-print` (component `ImportantInformationContent.tsx`, "Your money

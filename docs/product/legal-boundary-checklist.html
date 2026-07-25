@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Life CFO — Legal Boundary Checklist</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --paper:#F1EFE9;
+    --paper-raised:#FAF9F5;
+    --ink:#1E2530;
+    --ink-soft:#5B6472;
+    --rule:#D8D4C8;
+    --au:#A65D2E;
+    --au-soft:#F3E3D6;
+    --uk:#2F5170;
+    --uk-soft:#DDE6EC;
+    --us:#4A6B4E;
+    --us-soft:#E2EAE2;
+    --clear:#3F7A55;
+    --clear-bg:#E4EFE6;
+    --care:#B0842E;
+    --care-bg:#F5EAD6;
+    --signoff:#A6432E;
+    --signoff-bg:#F5DFD9;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    background:var(--paper);
+    color:var(--ink);
+    font-family:'IBM Plex Sans', sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:1180px;margin:0 auto;padding:48px 28px 80px;}
+
+  header{margin-bottom:40px;}
+  .eyebrow{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:12px;
+    letter-spacing:.14em;
+    text-transform:uppercase;
+    color:var(--ink-soft);
+    margin-bottom:14px;
+  }
+  h1{
+    font-family:'Fraunces', serif;
+    font-weight:600;
+    font-size:clamp(30px, 4vw, 44px);
+    line-height:1.08;
+    margin:0 0 14px;
+    letter-spacing:-0.01em;
+  }
+  header p{
+    font-size:16px;
+    line-height:1.6;
+    color:var(--ink-soft);
+    max-width:640px;
+    margin:0;
+  }
+
+  .principles{
+    background:var(--paper-raised);
+    border:1px solid var(--rule);
+    border-radius:4px;
+    padding:22px 26px;
+    margin:32px 0 44px;
+  }
+  .principles h2{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:12px;
+    letter-spacing:.1em;
+    text-transform:uppercase;
+    margin:0 0 14px;
+    color:var(--ink-soft);
+  }
+  .principles ul{margin:0;padding:0;list-style:none;display:grid;gap:10px;}
+  .principles li{
+    font-size:14.5px;
+    line-height:1.55;
+    padding-left:20px;
+    position:relative;
+  }
+  .principles li::before{
+    content:"—";
+    position:absolute;
+    left:0;
+    color:var(--ink-soft);
+  }
+
+  .columns{
+    display:grid;
+    grid-template-columns:repeat(3, 1fr);
+    gap:22px;
+  }
+  @media (max-width:920px){
+    .columns{grid-template-columns:1fr;}
+  }
+
+  .col{
+    background:var(--paper-raised);
+    border:1px solid var(--rule);
+    border-radius:6px;
+    overflow:hidden;
+    display:flex;
+    flex-direction:column;
+  }
+  .col-head{
+    padding:22px 22px 18px;
+    border-bottom:1px solid var(--rule);
+  }
+  .col[data-j="au"] .col-head{border-top:4px solid var(--au);}
+  .col[data-j="uk"] .col-head{border-top:4px solid var(--uk);}
+  .col[data-j="us"] .col-head{border-top:4px solid var(--us);}
+
+  .jname{
+    font-family:'Fraunces', serif;
+    font-weight:600;
+    font-size:22px;
+    margin:0 0 12px;
+  }
+
+  .badge{
+    display:inline-flex;
+    align-items:center;
+    gap:7px;
+    font-family:'IBM Plex Mono', monospace;
+    font-size:12px;
+    font-weight:500;
+    letter-spacing:.03em;
+    padding:6px 12px;
+    border-radius:20px;
+    transition:background .2s ease, color .2s ease;
+  }
+  .badge::before{
+    content:"";
+    width:7px;height:7px;border-radius:50%;
+    background:currentColor;
+    flex:none;
+  }
+  .badge.clear{background:var(--clear-bg);color:var(--clear);}
+  .badge.care{background:var(--care-bg);color:var(--care);}
+  .badge.signoff{background:var(--signoff-bg);color:var(--signoff);}
+
+  .group{padding:20px 22px;border-bottom:1px solid var(--rule);}
+  .group:last-child{border-bottom:none;}
+  .group-label{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:11px;
+    letter-spacing:.1em;
+    text-transform:uppercase;
+    color:var(--ink-soft);
+    margin:0 0 4px;
+  }
+  .group-sub{
+    font-size:12.5px;
+    color:var(--ink-soft);
+    margin:0 0 14px;
+    line-height:1.5;
+  }
+
+  .item{margin-bottom:16px;}
+  .item:last-child{margin-bottom:0;}
+  .item label{
+    display:flex;
+    align-items:flex-start;
+    gap:10px;
+    cursor:pointer;
+    font-size:14.5px;
+    line-height:1.5;
+  }
+  .item input[type=checkbox]{
+    appearance:none;
+    -webkit-appearance:none;
+    width:17px;height:17px;
+    border:1.5px solid var(--ink-soft);
+    border-radius:3px;
+    margin-top:2px;
+    flex:none;
+    position:relative;
+    cursor:pointer;
+    background:var(--paper-raised);
+  }
+  .item input[type=checkbox]:checked{
+    background:var(--ink);
+    border-color:var(--ink);
+  }
+  .item input[type=checkbox]:checked::after{
+    content:"";
+    position:absolute;
+    left:5px; top:1px;
+    width:4px; height:9px;
+    border:solid var(--paper-raised);
+    border-width:0 2px 2px 0;
+    transform:rotate(40deg);
+  }
+  .item input[type=checkbox]:focus-visible{
+    outline:2px solid var(--ink);
+    outline-offset:2px;
+  }
+  .note{
+    font-size:13px;
+    color:var(--ink-soft);
+    margin:6px 0 0 27px;
+    line-height:1.5;
+    padding-left:11px;
+    border-left:2px solid var(--rule);
+  }
+  .col[data-j="au"] .note.trigger{border-left-color:var(--au);}
+  .col[data-j="uk"] .note.trigger{border-left-color:var(--uk);}
+  .col[data-j="us"] .note.trigger{border-left-color:var(--us);}
+
+  .open-item{
+    display:flex;
+    align-items:flex-start;
+    gap:10px;
+    font-size:13.5px;
+    line-height:1.5;
+    margin-bottom:10px;
+  }
+  .open-item:last-child{margin-bottom:0;}
+  .open-item input[type=checkbox]{
+    appearance:none;-webkit-appearance:none;
+    width:15px;height:15px;border-radius:50%;
+    border:1.5px solid var(--ink-soft);
+    margin-top:2px;flex:none;cursor:pointer;
+    background:var(--paper-raised);
+  }
+  .open-item input[type=checkbox]:checked{background:var(--clear);border-color:var(--clear);}
+  .open-item span{transition:color .15s ease, text-decoration .15s ease;}
+  .open-item input:checked ~ span{color:var(--ink-soft);text-decoration:line-through;}
+
+  .progress{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:11px;
+    color:var(--ink-soft);
+    margin-top:10px;
+  }
+
+  footer{
+    margin-top:40px;
+    padding-top:22px;
+    border-top:1px solid var(--rule);
+    font-size:12.5px;
+    color:var(--ink-soft);
+    line-height:1.6;
+  }
+  footer strong{color:var(--ink);}
+
+  .reset-btn{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:11px;
+    letter-spacing:.05em;
+    background:none;
+    border:1px solid var(--rule);
+    color:var(--ink-soft);
+    padding:7px 14px;
+    border-radius:4px;
+    cursor:pointer;
+    margin-top:28px;
+  }
+  .reset-btn:hover{border-color:var(--ink-soft);color:var(--ink);}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="eyebrow">Life CFO — internal reference</div>
+    <h1>Does this feature stay inside the line?</h1>
+    <p>Run every new feature through this before you build it. Check what's true for what you're designing — the status per market updates as you go. Full reasoning behind each item lives in the working conversation; this is the fast version for design and build calls.</p>
+  </header>
+
+  <div class="principles">
+    <h2>Whatever the market — hold these regardless</h2>
+    <ul>
+      <li>Describing beats recommending. State what's true about someone's own numbers rather than what they should do about them.</li>
+      <li>Never name or steer toward a specific product — this account, this fund, this policy, this lender.</li>
+      <li>The less a feature looks like it's building a full picture of someone before answering, the safer it is. Narrow questions stay safer than broad circumstance-gathering.</li>
+      <li>Discretionary spending ("can I afford this TV") is a different, safer mode than anything touching super, investments, insurance, credit, or debt. Treat the second group with more care by default.</li>
+    </ul>
+  </div>
+
+  <div class="columns">
+
+    <!-- AUSTRALIA -->
+    <div class="col" data-j="au">
+      <div class="col-head">
+        <div class="jname">Australia</div>
+        <div class="badge clear" id="badge-au">Clear to build</div>
+      </div>
+
+      <div class="group">
+        <p class="group-label">Gates — check what's true for this feature</p>
+        <div class="item">
+          <label><input type="checkbox" class="gate" data-j="au" id="au-g1"> Talks about super, insurance, investments, shares, or savings/term-deposit products</label>
+          <p class="note trigger">Triggers an AFSL (personal-advice) read — see Open Items.</p>
+        </div>
+        <div class="item">
+          <label><input type="checkbox" class="gate" data-j="au" id="au-g2"> Gives advice to this user about paying off, restructuring, or managing an existing debt (mortgage, credit card, loan, BNPL)</label>
+          <p class="note trigger">Separate gate — this is a credit licence question (NCCP/ACL), not AFSL.</p>
+        </div>
+        <div class="item">
+          <label><input type="checkbox" class="gate" data-j="au" id="au-g3"> Uses this user's real balances, transactions, or income to shape the <em>content</em> of the answer — not just to pick which generic answer they see</label>
+          <p class="note trigger">Checked together with either gate above: likely needs full personal-advice licensing coverage, or a redesign of this specific answer path.</p>
+        </div>
+      </div>
+
+      <div class="group">
+        <p class="group-label">Always true — verify on every shipped feature</p>
+        <div class="item">
+          <label><input type="checkbox" class="hygiene" data-j="au"> Output states facts only — nothing evaluative, no "you should"</label>
+        </div>
+        <div class="item">
+          <label><input type="checkbox" class="hygiene" data-j="au"> We only ask for the data this specific feature needs</label>
+        </div>
+        <div class="item">
+          <label><input type="checkbox" class="hygiene" data-j="au"> Every use of a user's data matches what we told them at collection</label>
+        </div>
+        <p class="progress" id="prog-au"></p>
+      </div>
+
+      <div class="group">
+        <p class="group-label">Open — needs a lawyer or a vendor, not a design call</p>
+        <div class="open-item"><input type="checkbox"><span>AFSL / personal-advice read for financial-product-adjacent affordability answers</span></div>
+        <div class="open-item"><input type="checkbox"><span>Credit licence (NCCP/ACL) read for debt-related affordability answers</span></div>
+        <div class="open-item"><input type="checkbox"><span>Basiq access model (OSP vs Representative) confirmed in writing</span></div>
+        <div class="open-item"><input type="checkbox"><span>Privacy policy rewritten to match actual data use (APP 6)</span></div>
+      </div>
+    </div>
+
+    <!-- UK -->
+    <div class="col" data-j="uk">
+      <div class="col-head">
+        <div class="jname">United Kingdom</div>
+        <div class="badge clear" id="badge-uk">Clear to build</div>
+      </div>
+
+      <div class="group">
+        <p class="group-label">Gates — check what's true for this feature</p>
+        <div class="item">
+          <label><input type="checkbox" class="gate" data-j="uk" id="uk-g1"> Recommends or evaluates a specific investment, pension move, or savings/investment product</label>
+          <p class="note trigger">Triggers an "advising on investments" (Article 53) read.</p>
+        </div>
+        <div class="item">
+          <label><input type="checkbox" class="gate" data-j="uk" id="uk-g2"> Gives advice to this user about paying off or restructuring an existing debt</label>
+          <p class="note trigger">Separate gate — FCA consumer-credit / debt-counselling permission (Article 39E), not investment advice.</p>
+        </div>
+        <div class="item">
+          <label><input type="checkbox" class="gate" data-j="uk" id="uk-g3"> Uses this user's real data to shape the content of the answer, not just to route them</label>
+          <p class="note trigger">Checked with either gate above: personal-recommendation risk, same shape as the AU pattern.</p>
+        </div>
+      </div>
+
+      <div class="group">
+        <p class="group-label">Always true — verify on every shipped feature</p>
+        <div class="item">
+          <label><input type="checkbox" class="hygiene" data-j="uk"> Output states facts only, no evaluation</label>
+        </div>
+        <div class="item">
+          <label><input type="checkbox" class="hygiene" data-j="uk"> Every meaningful outcome leaves a real decision with the user — nothing is a fully automated "here's what happens" with no human choice point</label>
+        </div>
+        <div class="item">
+          <label><input type="checkbox" class="hygiene" data-j="uk"> We only collect what this feature needs</label>
+        </div>
+        <p class="progress" id="prog-uk"></p>
+      </div>
+
+      <div class="group">
+        <p class="group-label">Open — needs a lawyer or a vendor, not a design call</p>
+        <div class="open-item"><input type="checkbox"><span>FCA "advising on investments" read</span></div>
+        <div class="open-item"><input type="checkbox"><span>FCA debt-counselling read</span></div>
+        <div class="open-item"><input type="checkbox"><span>Plaid UK access/agent model confirmed on the FCA register</span></div>
+      </div>
+    </div>
+
+    <!-- US -->
+    <div class="col" data-j="us">
+      <div class="col-head">
+        <div class="jname">United States</div>
+        <div class="badge clear" id="badge-us">Clear to build</div>
+      </div>
+
+      <div class="group">
+        <p class="group-label">Gates — check what's true for this feature</p>
+        <div class="item">
+          <label><input type="checkbox" class="gate" data-j="us" id="us-g1"> Recommends or evaluates specific securities, funds, or investment products</label>
+          <p class="note trigger">Triggers an SEC / state investment-adviser read. This is the one gate Life CFO is currently clear of, as built — flag it if a new feature changes that.</p>
+        </div>
+      </div>
+
+      <div class="group">
+        <p class="group-label">Always true — a standing duty, not a triggered gate. Applies to everything, always, regardless of licensing.</p>
+        <div class="item">
+          <label><input type="checkbox" class="hygiene" data-j="us"> Every factual claim and every piece of marketing copy is literally true, not just reassuring in tone</label>
+        </div>
+        <div class="item">
+          <label><input type="checkbox" class="hygiene" data-j="us"> Nothing about the design could reasonably mislead a user about what the app does, what it costs, or its limits</label>
+        </div>
+        <div class="item">
+          <label><input type="checkbox" class="hygiene" data-j="us"> Nothing exploits a user's confusion or limited understanding to get them to do something</label>
+        </div>
+        <p class="progress" id="prog-us"></p>
+      </div>
+
+      <div class="group">
+        <p class="group-label">Open — needs a lawyer or a decision, not a design call</p>
+        <div class="open-item"><input type="checkbox"><span>Which states beta users will actually be in</span></div>
+        <div class="open-item"><input type="checkbox"><span>State-specific financial-advice / budget-counselling law checked for those states</span></div>
+      </div>
+    </div>
+
+  </div>
+
+  <button class="reset-btn" id="reset">Reset all checks</button>
+
+  <footer>
+    <strong>How to read a "needs sign-off" result:</strong> it means this specific answer path needs a lawyer's read or a redesign before it ships — not that the whole feature or the whole app is blocked. Most of Life CFO's surface area (discretionary spending, Money Map, Budget) stays clear by design. This tool reflects the working analysis as of the current conversation; treat it as a fast filter for design decisions, not a legal opinion.
+  </footer>
+
+</div>
+
+<script>
+  function computeStatus(j){
+    const gates = Array.from(document.querySelectorAll('.gate[data-j="'+j+'"]'));
+    const g3 = document.getElementById(j+'-g3'); // "uses real data" gate, only exists for au/uk
+    const badge = document.getElementById('badge-'+j);
+
+    let anyGate = gates.some(g => g.checked && g.id.slice(-2) !== 'g3');
+    let combined = g3 ? (g3.checked && anyGate) : false;
+
+    // US has only one gate, no combined logic
+    if(j === 'us'){
+      const g1 = document.getElementById('us-g1');
+      if(g1.checked){
+        badge.className = 'badge care';
+        badge.textContent = 'Needs a licensing read';
+      } else {
+        badge.className = 'badge clear';
+        badge.textContent = 'Clear on securities';
+      }
+      return;
+    }
+
+    if(combined){
+      badge.className = 'badge signoff';
+      badge.textContent = 'Needs legal sign-off';
+    } else if(anyGate){
+      badge.className = 'badge care';
+      badge.textContent = 'Needs careful framing';
+    } else {
+      badge.className = 'badge clear';
+      badge.textContent = 'Clear to build';
+    }
+  }
+
+  function updateProgress(j){
+    const boxes = Array.from(document.querySelectorAll('.hygiene[data-j="'+j+'"]'));
+    const checked = boxes.filter(b => b.checked).length;
+    const el = document.getElementById('prog-'+j);
+    el.textContent = checked + ' / ' + boxes.length + ' confirmed';
+  }
+
+  document.querySelectorAll('.gate').forEach(el=>{
+    el.addEventListener('change', ()=> computeStatus(el.dataset.j));
+  });
+  document.querySelectorAll('.hygiene').forEach(el=>{
+    el.addEventListener('change', ()=> updateProgress(el.dataset.j));
+  });
+
+  document.getElementById('reset').addEventListener('click', ()=>{
+    document.querySelectorAll('input[type=checkbox]').forEach(el => el.checked = false);
+    ['au','uk','us'].forEach(j=>{ computeStatus(j); updateProgress(j); });
+  });
+
+  ['au','uk','us'].forEach(j=>{ updateProgress(j); });
+</script>
+
+</body>
+</html>
