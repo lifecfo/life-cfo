@@ -44,6 +44,10 @@ mixed-currencies banner note when more than one currency is present.
      type+subtype against defined `CASH_TYPES`/`CREDIT_DEBT_TYPES` sets,
      not a regex on type alone) — the same account could in principle
      classify differently between this card and Cash Plan eligibility.
+     **Update: resolved later this session — `deriveCashPlan.ts` now
+     imports and uses `deriveMoneyMap.ts`'s `accountGroup()` directly,
+     confirmed via direct code read. This note no longer reflects the
+     live code.**
 2. **"Cash Plan"** (loaded independently) — merged
    `account_backed_buckets` + `part_account_buckets` + `tracked_only_buckets`,
    capped at 6 visible with an "N more are tracked" note. Each bucket:
@@ -125,7 +129,10 @@ where the spec requires one.
 - The account-classification duplication noted above (`accountGroup()` vs.
   `classifyAccount()`) is a pre-existing internal inconsistency, not
   spec-caused — worth a rebuild noticing rather than silently picking one
-  and assuming it was always the only implementation.
+  and assuming it was always the only implementation. **Update: resolved
+  later this session — `deriveCashPlan.ts` now imports and uses
+  `deriveMoneyMap.ts`'s `accountGroup()` directly, confirmed via direct
+  code read. No longer at risk.**
 - No safe-to-spend or breathing-room calculation exists anywhere in
   `deriveMoneyMap.ts` today — the spec's hero section is entirely new
   work, not a restyle of an existing number.

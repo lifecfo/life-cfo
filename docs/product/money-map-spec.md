@@ -46,14 +46,14 @@ that never-built v3 proposal, and it directly answers a gap flagged
 early this session: *"Money Map never explicitly answers where is my
 money."* No code change was needed to achieve this — it already does.
 
-**Real technical issue found during reconciliation, not resolved here:**
-this section currently uses `accountGroup()` (a regex on `account.type`)
-to classify accounts, while Cash Plan uses `classifyAccount()` (a proper
-type+subtype lookup). The same account could theoretically classify
-differently in the two places on one page. Recommend unifying on
-`classifyAccount()` as canonical — but that's a real behavior change
-(could reclassify edge-case accounts), needs its own reviewed diff, not
-bundled into this spec.
+**Resolved earlier this session, confirmed via direct code read:** this
+section used to classify accounts via its own `accountGroup()` (a regex
+on `account.type`) while Cash Plan used a separate `classifyAccount()`
+(a type+subtype lookup) — risking the same account classifying
+differently in the two places. That duplication no longer exists:
+`deriveCashPlan.ts` no longer has its own `classifyAccount()` — it now
+imports and calls `deriveMoneyMap.ts`'s `accountGroup()` directly, which
+is the single classifier both sections share.
 
 **Visual treatment:** plain, factual — same register as the Accounts
 page. No category palette (accounts aren't categories, established
@@ -173,9 +173,11 @@ them.
 
 ## Summary of new open items surfaced by this reconciliation
 
-1. **Account classification duplication** (`accountGroup()` vs.
-   `classifyAccount()`) — needs unifying, real behavior-change risk, own
-   reviewed diff.
+1. ~~Account classification duplication~~ — **already resolved earlier
+   this session, before this spec was written.** `deriveCashPlan.ts` now
+   imports and uses `deriveMoneyMap.ts`'s `accountGroup()` directly,
+   confirmed via direct code read. No longer an open item; kept here
+   only so this list's history isn't silently rewritten.
 2. **Cash Plan has no write capability yet** (RPCs not built) — Goals'
    spec needs to inherit this as a real dependency.
 3. **Bills-spec.md and income-spec.md incorrectly describe the detected-
