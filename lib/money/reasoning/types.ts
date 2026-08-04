@@ -128,6 +128,7 @@ export type MoneyGoalsTruthRow = {
   notes: string | null;
   is_primary: boolean | null;
   updated_at: string | null;
+  purpose_type: "build_toward" | "maintain" | "pay_by_date";
 };
 
 export type MoneyBucketSummary = {
