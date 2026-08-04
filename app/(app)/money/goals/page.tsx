@@ -167,29 +167,62 @@ function relativeDayLabel(iso: string) {
 // accent across MeterBar, chart lines, and goals, not a new one.
 const GOAL_ACCENT = "#1F5E5C";
 const GOAL_RING_RADIUS = 16;
-const GOAL_RING_CIRCUMFERENCE = 2 * Math.PI * GOAL_RING_RADIUS;
 
-function GoalRing({ percent }: { percent: number }) {
+// Shared derivation for both GoalRow and the Focus spotlight card, so the
+// two render sites can't quietly drift apart on what counts as "not
+// started" or which purpose types get a ring vs. a bar.
+function goalProgressState(g: MoneyGoal) {
+  const cur = toInt(g.current_cents) ?? 0;
+  const tgt = toInt(g.target_cents) ?? 0;
+  const p = tgt > 0 ? percent(cur, tgt) : 0;
+  const purposeType = normalizePurposeType(g.purpose_type);
+  // "No progress-log activity" (goals-rebuild-spec.md §4) can't be checked
+  // here -- money_goal_updates is only fetched for the selected goal, not
+  // per goal in a list/spotlight. current_cents === 0 is the one signal
+  // available; flagged rather than silently assumed to be the full check.
+  const notStarted = cur === 0;
+  return {
+    cur,
+    tgt,
+    p,
+    notStarted,
+    showRing: !notStarted && tgt > 0 && purposeType !== "maintain",
+    showBar: !notStarted && tgt > 0 && purposeType === "maintain",
+  };
+}
+
+function GoalRing({
+  percent,
+  radius = GOAL_RING_RADIUS,
+  strokeWidth = 4,
+}: {
+  percent: number;
+  radius?: number;
+  strokeWidth?: number;
+}) {
   const clamped = clamp(percent, 0, 100);
-  const offset = GOAL_RING_CIRCUMFERENCE * (1 - clamped / 100);
+  const circumference = 2 * Math.PI * radius;
+  const offset = circumference * (1 - clamped / 100);
+  const size = radius * 2 + strokeWidth * 2;
+  const center = size / 2;
 
   return (
-    <svg width="40" height="40" viewBox="0 0 40 40" className="-rotate-90 shrink-0" aria-hidden="true">
-      <circle cx="20" cy="20" r={GOAL_RING_RADIUS} fill="none" stroke="#e4e4e7" strokeWidth="4" />
+    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="-rotate-90 shrink-0" aria-hidden="true">
+      <circle cx={center} cy={center} r={radius} fill="none" stroke="#e4e4e7" strokeWidth={strokeWidth} />
       <circle
-        cx="20"
-        cy="20"
-        r={GOAL_RING_RADIUS}
+        cx={center}
+        cy={center}
+        r={radius}
         fill="none"
         stroke={GOAL_ACCENT}
-        strokeWidth="4"
+        strokeWidth={strokeWidth}
         strokeLinecap="round"
-        strokeDasharray={GOAL_RING_CIRCUMFERENCE}
+        strokeDasharray={circumference}
         strokeDashoffset={offset}
         className="motion-fill-ring"
         style={
           {
-            "--ring-circumference": GOAL_RING_CIRCUMFERENCE,
+            "--ring-circumference": circumference,
             "--ring-offset": offset,
           } as CSSProperties
         }
@@ -207,18 +240,8 @@ function GoalRow({
   isSelected: boolean;
   onSelect: (id: string) => void;
 }) {
-  const cur = toInt(g.current_cents) ?? 0;
-  const tgt = toInt(g.target_cents) ?? 0;
-  const p = tgt > 0 ? percent(cur, tgt) : 0;
+  const { cur, tgt, p, notStarted, showRing, showBar } = goalProgressState(g);
   const status = normalizeStatus(g.status);
-  const purposeType = normalizePurposeType(g.purpose_type);
-  // "No progress-log activity" (goals-rebuild-spec.md §4) can't be checked
-  // here -- money_goal_updates is only fetched for the selected goal, not
-  // per list row. current_cents === 0 is the one signal this component
-  // actually has; flagged rather than silently assumed to be the full check.
-  const notStarted = cur === 0;
-  const showRing = !notStarted && tgt > 0 && purposeType !== "maintain";
-  const showBar = !notStarted && tgt > 0 && purposeType === "maintain";
   const animatedCur = useCountUp(cur);
 
   const pill =
@@ -292,6 +315,84 @@ function GoalRow({
         </div>
       ) : null}
     </button>
+  );
+}
+
+// The Focus/primary-goal spotlight card. Same purpose-aware ring/bar/
+// dashed logic as GoalRow (via goalProgressState), sized up since this
+// card is larger and more prominent than a list row.
+function PrimaryGoalCard({
+  goal,
+  onOpen,
+  onEdit,
+}: {
+  goal: MoneyGoal;
+  onOpen: () => void;
+  onEdit: () => void;
+}) {
+  const { tgt, p, notStarted, showRing, showBar } = goalProgressState(goal);
+  const cur = toInt(goal.current_cents) ?? 0;
+  const animatedCur = useCountUp(cur);
+
+  return (
+    <div className="rounded-2xl border border-zinc-200 bg-white p-4">
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0 flex-1">
+          <div className="text-[15px] font-semibold text-zinc-900 truncate">
+            {String(goal.title ?? "Goal").trim() || "Goal"}
+          </div>
+
+          <div className="mt-1 text-xs text-zinc-600">
+            {tgt > 0 ? (
+              <>
+                <Money cents={Math.round(animatedCur)} currency={goal.currency} /> /{" "}
+                <Money cents={tgt} currency={goal.currency} />
+              </>
+            ) : (
+              <>
+                <Money cents={Math.round(animatedCur)} currency={goal.currency} /> saved
+              </>
+            )}
+            {goal.deadline_at ? <span> • target by {fmtDateShort(goal.deadline_at)}</span> : null}
+          </div>
+
+          {notStarted ? (
+            <div className="mt-4 rounded-xl border border-dashed border-zinc-300 px-3 py-3 text-xs text-zinc-500">
+              Not started yet
+            </div>
+          ) : showBar ? (
+            <div className="mt-4 h-3 w-full rounded-full bg-zinc-100">
+              <div
+                className="motion-fill h-3 rounded-full bg-cfo"
+                style={
+                  {
+                    width: `${clamp(p, 0, 100)}%`,
+                    "--fill-target": `${clamp(p, 0, 100)}%`,
+                  } as CSSProperties
+                }
+              />
+            </div>
+          ) : null}
+        </div>
+
+        <div className="shrink-0 flex flex-col items-end gap-3">
+          {showRing ? (
+            <div className="flex flex-col items-center gap-1">
+              <GoalRing percent={p} radius={28} strokeWidth={6} />
+              <div className="text-xs font-medium text-zinc-700">{p}%</div>
+            </div>
+          ) : null}
+          <div className="flex items-center gap-2">
+            <Chip onClick={onOpen} className="text-xs" title="Open details">
+              Open
+            </Chip>
+            <Chip onClick={onEdit} className="text-xs" title="Edit">
+              Edit
+            </Chip>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -926,51 +1027,11 @@ export default function GoalsPage() {
 
               <div className="mt-3">
                 {primaryGoal && normalizeStatus(primaryGoal.status) === "active" ? (
-                  <div className="rounded-2xl border border-zinc-200 bg-white p-4">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <div className="text-[15px] font-semibold text-zinc-900 truncate">
-                          {String(primaryGoal.title ?? "Goal").trim() || "Goal"}
-                        </div>
-
-                        <div className="mt-1 text-xs text-zinc-600">
-                          {toInt(primaryGoal.target_cents) ? (
-                            <>
-                              {moneyFromCents(toInt(primaryGoal.current_cents) ?? 0, primaryGoal.currency)} /{" "}
-                              {moneyFromCents(toInt(primaryGoal.target_cents) ?? 0, primaryGoal.currency)}
-                            </>
-                          ) : (
-                            <>{moneyFromCents(toInt(primaryGoal.current_cents) ?? 0, primaryGoal.currency)} saved</>
-                          )}
-                          {primaryGoal.deadline_at ? <span> • target by {fmtDateShort(primaryGoal.deadline_at)}</span> : null}
-                        </div>
-
-                        {toInt(primaryGoal.target_cents) ? (
-                          <div className="mt-3 h-2 w-full rounded-full bg-zinc-100">
-                            <div
-                              className="h-2 rounded-full bg-zinc-300"
-                              style={{
-                                width: `${clamp(
-                                  percent(toInt(primaryGoal.current_cents) ?? 0, toInt(primaryGoal.target_cents) ?? 0),
-                                  0,
-                                  100
-                                )}%`,
-                              }}
-                            />
-                          </div>
-                        ) : null}
-                      </div>
-
-                      <div className="shrink-0 flex items-center gap-2">
-                        <Chip onClick={() => setSelectedGoalId(primaryGoal.id)} className="text-xs" title="Open details">
-                          Open
-                        </Chip>
-                        <Chip onClick={() => beginEdit(primaryGoal)} className="text-xs" title="Edit">
-                          Edit
-                        </Chip>
-                      </div>
-                    </div>
-                  </div>
+                  <PrimaryGoalCard
+                    goal={primaryGoal}
+                    onOpen={() => setSelectedGoalId(primaryGoal.id)}
+                    onEdit={() => beginEdit(primaryGoal)}
+                  />
                 ) : (
                   <div className="rounded-2xl border border-zinc-200 bg-white p-4">
                     <div className="text-[15px] leading-relaxed text-zinc-800">This is a calm anchor — not a dashboard.</div>
