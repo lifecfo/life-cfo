@@ -246,6 +246,8 @@ export function deriveMoneyMap(params: DeriveMoneyMapParams): MoneyMapSummary {
   return {
     version: 1,
     mixed_currencies: currencies.size > 1,
+    account_count: params.dataCoverage.account_count,
+    latest_transaction_date: params.dataCoverage.latest_transaction_date,
     where_money_is: { groups },
     tracked_purposes: {
       items: buckets.map((item) => ({ ...item, status_label: "Tracked separately" })),

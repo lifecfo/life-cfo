@@ -473,6 +473,8 @@ export type MoneyMapReviewItem = {
 export type MoneyMapSummary = {
   version: 1;
   mixed_currencies: boolean;
+  account_count: number;
+  latest_transaction_date: string | null;
   where_money_is: {
     groups: MoneyMapAccountGroup[];
   };

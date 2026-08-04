@@ -57,6 +57,28 @@ function monthName(monthKey: string): string {
   }).format(new Date(parsed));
 }
 
+// No existing relative-time helper fit: Goals' relativeDayLabel() only
+// covers Today/Yesterday/absolute-fallback, Connections' softDateTime()
+// is deliberately absolute ("Last updated 4 Aug 2026, 3:15 pm"), not
+// relative. This is the one new small formatter this footer needs.
+function relativeTimeFromNow(iso: string | null): string | null {
+  if (!iso) return null;
+  const parsed = Date.parse(iso);
+  if (!Number.isFinite(parsed)) return null;
+  const diffMs = Date.now() - parsed;
+  const minutes = Math.floor(diffMs / 60000);
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes} minute${minutes === 1 ? "" : "s"} ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} hour${hours === 1 ? "" : "s"} ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 30) return `${days} day${days === 1 ? "" : "s"} ago`;
+  const months = Math.floor(days / 30);
+  if (months < 12) return `${months} month${months === 1 ? "" : "s"} ago`;
+  const years = Math.floor(months / 12);
+  return `${years} year${years === 1 ? "" : "s"} ago`;
+}
+
 function cadenceLabel(value: string): string {
   const cadence = value.trim().toLowerCase();
   if (!cadence || cadence === "timing not set") return "Timing not set";
@@ -153,6 +175,14 @@ export default function MoneyMapPage() {
         ...cashPlan.tracked_only_buckets,
       ]
     : [];
+
+  // Only render the trust footer when both figures are genuinely usable --
+  // an empty/demo state (no accounts, no transaction history) stays quiet
+  // rather than showing a broken or nonsensical partial sentence.
+  const trustFooterRelative = moneyMap
+    ? relativeTimeFromNow(moneyMap.latest_transaction_date)
+    : null;
+  const showTrustFooter = !!moneyMap && moneyMap.account_count > 0 && !!trustFooterRelative;
   const visibleCashPlanBuckets = cashPlanBuckets.slice(0, 6);
   const hiddenCashPlanBucketCount = Math.max(0, cashPlanBuckets.length - 6);
 
@@ -423,6 +453,13 @@ export default function MoneyMapPage() {
                 </div>
               </CardContent>
             </Card>
+
+            {showTrustFooter ? (
+              <div className="px-1 pt-2 text-xs text-zinc-500">
+                Last updated {trustFooterRelative}, from {moneyMap.account_count} account
+                {moneyMap.account_count === 1 ? "" : "s"}.
+              </div>
+            ) : null}
           </>
         ) : null}
       </div>
