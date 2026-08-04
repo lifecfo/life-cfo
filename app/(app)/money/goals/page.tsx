@@ -15,6 +15,7 @@ import { Card, CardContent, Button, Chip, Badge, useToast } from "@/components/u
 export const dynamic = "force-dynamic";
 
 type GoalStatus = "active" | "paused" | "done" | "archived";
+type PurposeType = "build_toward" | "maintain" | "pay_by_date";
 
 type MoneyGoal = {
   id: string;
@@ -32,6 +33,7 @@ type MoneyGoal = {
   status?: GoalStatus | string | null;
   deadline_at?: string | null;
   notes?: string | null;
+  purpose_type?: PurposeType | string | null;
 
   // optional “V1+”
   is_primary?: boolean | null;
@@ -90,6 +92,12 @@ function normalizeStatus(s: unknown): GoalStatus {
   const t = String(s ?? "active").trim().toLowerCase();
   if (t === "paused" || t === "done" || t === "archived") return t;
   return "active";
+}
+
+function normalizePurposeType(p: unknown): PurposeType {
+  const t = String(p ?? "build_toward").trim().toLowerCase();
+  if (t === "maintain" || t === "pay_by_date") return t;
+  return "build_toward";
 }
 
 function percent(currentCents: number, targetCents: number) {
@@ -198,6 +206,7 @@ export default function GoalsPage() {
   const [current, setCurrent] = useState(""); // dollars input
   const [deadlineAt, setDeadlineAt] = useState(""); // yyyy-mm-dd
   const [notes, setNotes] = useState("");
+  const [purposeType, setPurposeType] = useState<PurposeType>("build_toward");
 
   // Update form (progress add/subtract)
   const [delta, setDelta] = useState("");
@@ -311,6 +320,7 @@ export default function GoalsPage() {
     setCurrent("");
     setDeadlineAt("");
     setNotes("");
+    setPurposeType("build_toward");
     setEditingId(null);
     setCreating(false);
   };
@@ -350,6 +360,7 @@ export default function GoalsPage() {
     }
 
     setNotes(String(g.notes ?? ""));
+    setPurposeType(normalizePurposeType(g.purpose_type));
   };
 
   async function loadGoals(hid: string) {
@@ -363,6 +374,7 @@ export default function GoalsPage() {
         ...r,
         status: normalizeStatus((r as any).status),
         currency: String(r.currency ?? "AUD").toUpperCase(),
+        purpose_type: normalizePurposeType((r as any).purpose_type),
       }));
 
       const ordered = sortGoals(cleaned);
@@ -507,6 +519,7 @@ export default function GoalsPage() {
       target_date: deadlineAt.trim() ? deadlineAt.trim() : null,
       deadline_at: deadlineIso,
       notes: notes.trim() ? notes.trim() : null,
+      purpose_type: purposeType,
       updated_at: new Date().toISOString(),
     };
 
@@ -991,6 +1004,19 @@ export default function GoalsPage() {
                       onChange={(e) => setCurrent(e.target.value)}
                       placeholder="0"
                     />
+                  </div>
+
+                  <div className="md:col-span-4">
+                    <div className="text-xs text-zinc-600 mb-1">Purpose type</div>
+                    <select
+                      className="w-full rounded-2xl border border-zinc-200 px-4 py-2 bg-white outline-none focus:ring-2 focus:ring-zinc-200"
+                      value={purposeType}
+                      onChange={(e) => setPurposeType(normalizePurposeType(e.target.value))}
+                    >
+                      <option value="build_toward">Build toward (a target amount to reach)</option>
+                      <option value="maintain">Maintain (a reserve to keep topped up, no finish line)</option>
+                      <option value="pay_by_date">Pay by date (timing matters more than the amount alone)</option>
+                    </select>
                   </div>
 
                   <div className="md:col-span-4">
