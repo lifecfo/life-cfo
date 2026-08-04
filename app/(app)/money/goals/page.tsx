@@ -396,6 +396,128 @@ function PrimaryGoalCard({
   );
 }
 
+// The Details/selected-goal card. Same purpose-aware ring/bar/dashed logic
+// as GoalRow and PrimaryGoalCard (via goalProgressState), sized larger
+// again -- this is a full detail view, the most prominent of the three
+// render sites, so it gets the biggest ring/bar of the three (28->36
+// radius, h-3->h-4 bar), not a repeat of the spotlight's sizing.
+function SelectedGoalSummaryCard({
+  goal,
+  canPin,
+  onSetPrimary,
+  onEdit,
+}: {
+  goal: MoneyGoal;
+  canPin: boolean;
+  onSetPrimary: () => void;
+  onEdit: () => void;
+}) {
+  const { tgt, p, notStarted, showRing, showBar } = goalProgressState(goal);
+  const cur = toInt(goal.current_cents) ?? 0;
+  const animatedCur = useCountUp(cur);
+  const roundedAnimatedCur = Math.round(animatedCur);
+  const status = normalizeStatus(goal.status);
+  const isPrimary = goal.is_primary === true;
+  // Derived from the animating current amount (not the static cur), so
+  // "Remaining" counts down in step with "Saved so far" instead of
+  // snapping to its final value while the amount above it is still moving.
+  const remaining = tgt > 0 ? Math.max(0, tgt - roundedAnimatedCur) : null;
+
+  return (
+    <div className="rounded-2xl border border-zinc-200 bg-white p-4">
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0 flex-1">
+          <div className="text-[16px] font-semibold text-zinc-900 truncate">
+            {String(goal.title ?? "Goal").trim() || "Goal"}
+          </div>
+
+          <div className="mt-1 text-xs text-zinc-600">
+            {status}
+            {goal.deadline_at ? <span> • target by {fmtDateShort(goal.deadline_at)}</span> : null}
+            {isPrimary ? <span> • primary</span> : null}
+          </div>
+
+          <div className="mt-3 grid gap-2">
+            <div className="flex items-center justify-between gap-2">
+              <div className="text-xs text-zinc-600">Saved so far</div>
+              <div className="text-xs font-semibold text-zinc-900">
+                <Money cents={roundedAnimatedCur} currency={goal.currency} />
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between gap-2">
+              <div className="text-xs text-zinc-600">Target</div>
+              <div className="text-xs font-semibold text-zinc-900">
+                {tgt > 0 ? <Money cents={tgt} currency={goal.currency} /> : "—"}
+              </div>
+            </div>
+
+            {remaining != null ? (
+              <div className="flex items-center justify-between gap-2">
+                <div className="text-xs text-zinc-600">Remaining</div>
+                <div className="text-xs font-semibold text-zinc-900">
+                  <Money cents={remaining} currency={goal.currency} />
+                </div>
+              </div>
+            ) : null}
+          </div>
+
+          {notStarted ? (
+            <div className="mt-4 rounded-xl border border-dashed border-zinc-300 px-3 py-3 text-xs text-zinc-500">
+              Not started yet
+            </div>
+          ) : showBar ? (
+            <div className="mt-4">
+              <div className="flex items-center justify-between text-xs text-zinc-600">
+                <span>{p}%</span>
+                <span>
+                  <Money cents={tgt} currency={goal.currency} />
+                </span>
+              </div>
+              <div className="mt-2 h-4 w-full rounded-full bg-zinc-100">
+                <div
+                  className="motion-fill h-4 rounded-full bg-cfo"
+                  style={
+                    {
+                      width: `${clamp(p, 0, 100)}%`,
+                      "--fill-target": `${clamp(p, 0, 100)}%`,
+                    } as CSSProperties
+                  }
+                />
+              </div>
+            </div>
+          ) : null}
+
+          {goal.notes ? (
+            <div className="mt-3 text-[13px] leading-relaxed text-zinc-700 whitespace-pre-wrap">
+              {String(goal.notes)}
+            </div>
+          ) : null}
+        </div>
+
+        <div className="shrink-0 flex flex-col items-end gap-3">
+          {showRing ? (
+            <div className="flex flex-col items-center gap-1">
+              <GoalRing percent={p} radius={36} strokeWidth={7} />
+              <div className="text-xs font-medium text-zinc-700">{p}%</div>
+            </div>
+          ) : null}
+          <div className="flex items-center gap-2">
+            {canPin ? (
+              <Chip onClick={onSetPrimary} className="text-xs" title={isPrimary ? "Primary already" : "Set as primary"}>
+                {isPrimary ? "Primary" : "Set primary"}
+              </Chip>
+            ) : null}
+            <Chip onClick={onEdit} className="text-xs" title="Edit">
+              Edit
+            </Chip>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function GoalsPage() {
   const router = useRouter();
 
@@ -676,25 +798,6 @@ export default function GoalsPage() {
   const pausedGoals = useMemo(() => sortedGoals.filter((g) => normalizeStatus(g.status) === "paused"), [sortedGoals]);
   const doneGoals = useMemo(() => sortedGoals.filter((g) => normalizeStatus(g.status) === "done"), [sortedGoals]);
   const archivedGoals = useMemo(() => sortedGoals.filter((g) => normalizeStatus(g.status) === "archived"), [sortedGoals]);
-
-  const selectedComputed = useMemo(() => {
-    if (!selectedGoal) return null;
-    const cur = toInt(selectedGoal.current_cents) ?? 0;
-    const tgt = toInt(selectedGoal.target_cents) ?? 0;
-    const curStr = moneyFromCents(cur, selectedGoal.currency);
-    const tgtStr = tgt > 0 ? moneyFromCents(tgt, selectedGoal.currency) : "—";
-    const p = tgt > 0 ? percent(cur, tgt) : 0;
-    const remaining = tgt > 0 ? Math.max(0, tgt - cur) : null;
-    return {
-      cur,
-      tgt,
-      curStr,
-      tgtStr,
-      p,
-      remaining,
-      remainingStr: remaining == null ? "—" : moneyFromCents(remaining, selectedGoal.currency),
-    };
-  }, [selectedGoal]);
 
   async function upsertGoal() {
     if (!userId || !householdId) return;
@@ -977,10 +1080,7 @@ export default function GoalsPage() {
   const selectedStatus = selectedGoal ? normalizeStatus(selectedGoal.status) : "active";
 
   const canShowDelta = !!selectedGoal && selectedStatus !== "archived";
-  const canEditSelected = !!selectedGoal;
   const canPinSelected = !!selectedGoal && goalsSupportPrimary;
-
-  const selectedIsPrimary = !!selectedGoal?.is_primary;
 
   return (
     <Page
@@ -1311,78 +1411,12 @@ export default function GoalsPage() {
                   ) : (
                     <div className="mt-3 space-y-4">
                       {/* Summary card */}
-                      <div className="rounded-2xl border border-zinc-200 bg-white p-4">
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="min-w-0">
-                            <div className="text-[16px] font-semibold text-zinc-900 truncate">
-                              {String(selectedGoal.title ?? "Goal").trim() || "Goal"}
-                            </div>
-
-                            <div className="mt-1 text-xs text-zinc-600">
-                              {selectedStatus}
-                              {selectedGoal.deadline_at ? <span> • target by {fmtDateShort(selectedGoal.deadline_at)}</span> : null}
-                              {selectedIsPrimary ? <span> • primary</span> : null}
-                            </div>
-
-                            <div className="mt-3 grid gap-2">
-                              <div className="flex items-center justify-between gap-2">
-                                <div className="text-xs text-zinc-600">Saved so far</div>
-                                <div className="text-xs font-semibold text-zinc-900">{selectedComputed?.curStr}</div>
-                              </div>
-
-                              <div className="flex items-center justify-between gap-2">
-                                <div className="text-xs text-zinc-600">Target</div>
-                                <div className="text-xs font-semibold text-zinc-900">{selectedComputed?.tgtStr}</div>
-                              </div>
-
-                              {selectedComputed?.remaining != null ? (
-                                <div className="flex items-center justify-between gap-2">
-                                  <div className="text-xs text-zinc-600">Remaining</div>
-                                  <div className="text-xs font-semibold text-zinc-900">{selectedComputed?.remainingStr}</div>
-                                </div>
-                              ) : null}
-                            </div>
-
-                            {/* Progress bar */}
-                            {selectedComputed && selectedComputed.tgt > 0 ? (
-                              <div className="mt-3">
-                                <div className="flex items-center justify-between text-xs text-zinc-600">
-                                  <span>{selectedComputed.p}%</span>
-                                  <span>{moneyFromCents(selectedComputed.tgt, selectedGoal.currency)}</span>
-                                </div>
-                                <div className="mt-2 h-2 w-full rounded-full bg-zinc-100">
-                                  <div className="h-2 rounded-full bg-zinc-300" style={{ width: `${clamp(selectedComputed.p, 0, 100)}%` }} />
-                                </div>
-                              </div>
-                            ) : null}
-
-                            {selectedGoal.notes ? (
-                              <div className="mt-3 text-[13px] leading-relaxed text-zinc-700 whitespace-pre-wrap">{String(selectedGoal.notes)}</div>
-                            ) : null}
-                          </div>
-
-                          {/* Top right actions */}
-                          <div className="shrink-0 flex flex-col items-end gap-2">
-                            <div className="flex items-center gap-2">
-                              {canPinSelected ? (
-                                <Chip
-                                  onClick={() => void markPrimary(selectedGoal)}
-                                  className="text-xs"
-                                  title={selectedIsPrimary ? "Primary already" : "Set as primary"}
-                                >
-                                  {selectedIsPrimary ? "Primary" : "Set primary"}
-                                </Chip>
-                              ) : null}
-
-                              {canEditSelected ? (
-                                <Chip onClick={() => beginEdit(selectedGoal)} className="text-xs" title="Edit">
-                                  Edit
-                                </Chip>
-                              ) : null}
-                            </div>
-                          </div>
-                        </div>
-                      </div>
+                      <SelectedGoalSummaryCard
+                        goal={selectedGoal}
+                        canPin={canPinSelected}
+                        onSetPrimary={() => void markPrimary(selectedGoal)}
+                        onEdit={() => beginEdit(selectedGoal)}
+                      />
 
                       {/* Progress update */}
                       <div className="rounded-2xl border border-zinc-200 bg-white p-4">
