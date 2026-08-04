@@ -48,7 +48,9 @@ body {
     width: 0%;
   }
   to {
-    width: 100%;
+    /* Defaults to 100% so any existing caller that doesn't set
+       --fill-target keeps its original behaviour unchanged. */
+    width: var(--fill-target, 100%);
   }
 }
 
@@ -56,8 +58,28 @@ body {
   animation: fillBar 400ms ease-out both;
 }
 
+/* Ring equivalent of .motion-fill, for circular (stroke-based) progress
+   indicators -- Goals rebuild (goals-rebuild-spec.md §4). Both
+   --ring-circumference and --ring-offset must be set by the caller. */
+@keyframes fillRing {
+  from {
+    stroke-dashoffset: var(--ring-circumference);
+  }
+  to {
+    stroke-dashoffset: var(--ring-offset);
+  }
+}
+
+.motion-fill-ring {
+  animation: fillRing 400ms ease-out both;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .motion-fill {
+    animation: none;
+  }
+
+  .motion-fill-ring {
     animation: none;
   }
 }

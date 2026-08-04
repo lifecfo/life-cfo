@@ -1,7 +1,7 @@
 // app/(app)/money/goals/page.tsx
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import {
@@ -10,7 +10,8 @@ import {
   resolveActiveHouseholdIdClient,
 } from "@/lib/households/resolveActiveHouseholdClient";
 import { Page } from "@/components/Page";
-import { Card, CardContent, Button, Chip, Badge, useToast } from "@/components/ui";
+import { Card, CardContent, Button, Chip, Badge, Money, useToast } from "@/components/ui";
+import { useCountUp } from "@/lib/ui/useCountUp";
 
 export const dynamic = "force-dynamic";
 
@@ -157,6 +158,141 @@ function relativeDayLabel(iso: string) {
   if (isSameDay(d.toISOString(), today.toISOString())) return "Today";
   if (isSameDay(d.toISOString(), yday.toISOString())) return "Yesterday";
   return fmtDateShort(iso);
+}
+
+// Goal accent: reuses the existing cfo/brand teal (#1F5E5C) rather than a
+// new goal-specific hue, matching the same "house color for progress, not
+// a category" reasoning visual-design-system.md already applies to chart
+// lines (its "known overlap: teal / status.active" note) -- one consistent
+// accent across MeterBar, chart lines, and goals, not a new one.
+const GOAL_ACCENT = "#1F5E5C";
+const GOAL_RING_RADIUS = 16;
+const GOAL_RING_CIRCUMFERENCE = 2 * Math.PI * GOAL_RING_RADIUS;
+
+function GoalRing({ percent }: { percent: number }) {
+  const clamped = clamp(percent, 0, 100);
+  const offset = GOAL_RING_CIRCUMFERENCE * (1 - clamped / 100);
+
+  return (
+    <svg width="40" height="40" viewBox="0 0 40 40" className="-rotate-90 shrink-0" aria-hidden="true">
+      <circle cx="20" cy="20" r={GOAL_RING_RADIUS} fill="none" stroke="#e4e4e7" strokeWidth="4" />
+      <circle
+        cx="20"
+        cy="20"
+        r={GOAL_RING_RADIUS}
+        fill="none"
+        stroke={GOAL_ACCENT}
+        strokeWidth="4"
+        strokeLinecap="round"
+        strokeDasharray={GOAL_RING_CIRCUMFERENCE}
+        strokeDashoffset={offset}
+        className="motion-fill-ring"
+        style={
+          {
+            "--ring-circumference": GOAL_RING_CIRCUMFERENCE,
+            "--ring-offset": offset,
+          } as CSSProperties
+        }
+      />
+    </svg>
+  );
+}
+
+function GoalRow({
+  g,
+  isSelected,
+  onSelect,
+}: {
+  g: MoneyGoal;
+  isSelected: boolean;
+  onSelect: (id: string) => void;
+}) {
+  const cur = toInt(g.current_cents) ?? 0;
+  const tgt = toInt(g.target_cents) ?? 0;
+  const p = tgt > 0 ? percent(cur, tgt) : 0;
+  const status = normalizeStatus(g.status);
+  const purposeType = normalizePurposeType(g.purpose_type);
+  // "No progress-log activity" (goals-rebuild-spec.md §4) can't be checked
+  // here -- money_goal_updates is only fetched for the selected goal, not
+  // per list row. current_cents === 0 is the one signal this component
+  // actually has; flagged rather than silently assumed to be the full check.
+  const notStarted = cur === 0;
+  const showRing = !notStarted && tgt > 0 && purposeType !== "maintain";
+  const showBar = !notStarted && tgt > 0 && purposeType === "maintain";
+  const animatedCur = useCountUp(cur);
+
+  const pill =
+    status === "active" ? (
+      <Badge>Active</Badge>
+    ) : status === "paused" ? (
+      <Badge>Paused</Badge>
+    ) : status === "done" ? (
+      <Badge>Done</Badge>
+    ) : (
+      <Badge>Archived</Badge>
+    );
+
+  return (
+    <button
+      type="button"
+      onClick={() => onSelect(g.id)}
+      className={[
+        "w-full rounded-2xl border px-4 py-3 text-left transition",
+        "shadow-none",
+        isSelected ? "border-zinc-300 bg-white" : "border-zinc-200 bg-white hover:border-zinc-300",
+      ].join(" ")}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <div className="truncate text-[15px] font-semibold text-zinc-900">
+              {String(g.title ?? "Goal").trim() || "Goal"}
+            </div>
+            {g.is_primary ? <Chip className="text-xs border-zinc-200 bg-white text-zinc-700">Primary</Chip> : null}
+            {pill}
+          </div>
+
+          <div className="mt-1 text-xs text-zinc-600">
+            {tgt > 0 ? (
+              <>
+                <Money cents={Math.round(animatedCur)} currency={g.currency} /> /{" "}
+                <Money cents={tgt} currency={g.currency} /> • {p}%
+              </>
+            ) : (
+              <>
+                <Money cents={Math.round(animatedCur)} currency={g.currency} /> saved
+              </>
+            )}
+            {g.deadline_at ? <span> • target by {fmtDateShort(g.deadline_at)}</span> : null}
+          </div>
+        </div>
+
+        <div className="shrink-0 text-xs text-zinc-500">{isSelected ? "Selected" : "Open"}</div>
+      </div>
+
+      {notStarted ? (
+        <div className="mt-3 rounded-xl border border-dashed border-zinc-300 px-3 py-2.5 text-xs text-zinc-500">
+          Not started yet
+        </div>
+      ) : showRing ? (
+        <div className="mt-3 flex items-center gap-3">
+          <GoalRing percent={p} />
+        </div>
+      ) : showBar ? (
+        <div className="mt-3 h-2 w-full rounded-full bg-zinc-100">
+          <div
+            className="motion-fill h-2 rounded-full bg-cfo"
+            style={
+              {
+                width: `${clamp(p, 0, 100)}%`,
+                "--fill-target": `${clamp(p, 0, 100)}%`,
+              } as CSSProperties
+            }
+          />
+        </div>
+      ) : null}
+    </button>
+  );
 }
 
 export default function GoalsPage() {
@@ -734,68 +870,6 @@ export default function GoalsPage() {
     </div>
   );
 
-  const GoalRow = ({ g }: { g: MoneyGoal }) => {
-    const cur = toInt(g.current_cents) ?? 0;
-    const tgt = toInt(g.target_cents) ?? 0;
-    const p = tgt > 0 ? percent(cur, tgt) : 0;
-    const status = normalizeStatus(g.status);
-    const isSelected = selectedGoalId === g.id;
-
-    const pill =
-      status === "active" ? (
-        <Badge>Active</Badge>
-      ) : status === "paused" ? (
-        <Badge>Paused</Badge>
-      ) : status === "done" ? (
-        <Badge>Done</Badge>
-      ) : (
-        <Badge>Archived</Badge>
-      );
-
-    return (
-      <button
-        type="button"
-        onClick={() => setSelectedGoalId(g.id)}
-        className={[
-          "w-full rounded-2xl border px-4 py-3 text-left transition",
-          "shadow-none",
-          isSelected ? "border-zinc-300 bg-white" : "border-zinc-200 bg-white hover:border-zinc-300",
-        ].join(" ")}
-      >
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2 flex-wrap">
-              <div className="truncate text-[15px] font-semibold text-zinc-900">
-                {String(g.title ?? "Goal").trim() || "Goal"}
-              </div>
-              {g.is_primary ? <Chip className="text-xs border-zinc-200 bg-white text-zinc-700">Primary</Chip> : null}
-              {pill}
-            </div>
-
-            <div className="mt-1 text-xs text-zinc-600">
-              {tgt > 0 ? (
-                <>
-                  {moneyFromCents(cur, g.currency)} / {moneyFromCents(tgt, g.currency)} • {p}%
-                </>
-              ) : (
-                <>{moneyFromCents(cur, g.currency)} saved</>
-              )}
-              {g.deadline_at ? <span> • target by {fmtDateShort(g.deadline_at)}</span> : null}
-            </div>
-          </div>
-
-          <div className="shrink-0 text-xs text-zinc-500">{isSelected ? "Selected" : "Open"}</div>
-        </div>
-
-        {tgt > 0 ? (
-          <div className="mt-3 h-2 w-full rounded-full bg-zinc-100">
-            <div className="h-2 rounded-full bg-zinc-300" style={{ width: `${clamp(p, 0, 100)}%` }} />
-          </div>
-        ) : null}
-      </button>
-    );
-  };
-
   const statusPill = (s: GoalStatus) =>
     s === "active" ? "Active" : s === "paused" ? "Paused" : s === "done" ? "Done" : "Archived";
 
@@ -1093,7 +1167,12 @@ export default function GoalsPage() {
                           <div className="space-y-2">
                             <div className="text-xs font-semibold text-zinc-900">Active</div>
                             {activeGoals.map((g) => (
-                              <GoalRow key={g.id} g={g} />
+                              <GoalRow
+                                key={g.id}
+                                g={g}
+                                isSelected={selectedGoalId === g.id}
+                                onSelect={setSelectedGoalId}
+                              />
                             ))}
                           </div>
                         ) : null}
@@ -1102,7 +1181,12 @@ export default function GoalsPage() {
                           <div className="space-y-2 pt-1">
                             <div className="text-xs font-semibold text-zinc-900">Paused</div>
                             {pausedGoals.map((g) => (
-                              <GoalRow key={g.id} g={g} />
+                              <GoalRow
+                                key={g.id}
+                                g={g}
+                                isSelected={selectedGoalId === g.id}
+                                onSelect={setSelectedGoalId}
+                              />
                             ))}
                           </div>
                         ) : null}
@@ -1111,7 +1195,12 @@ export default function GoalsPage() {
                           <div className="space-y-2 pt-1">
                             <div className="text-xs font-semibold text-zinc-900">Done</div>
                             {doneGoals.map((g) => (
-                              <GoalRow key={g.id} g={g} />
+                              <GoalRow
+                                key={g.id}
+                                g={g}
+                                isSelected={selectedGoalId === g.id}
+                                onSelect={setSelectedGoalId}
+                              />
                             ))}
                           </div>
                         ) : null}
@@ -1120,7 +1209,12 @@ export default function GoalsPage() {
                           <div className="space-y-2 pt-1">
                             <div className="text-xs font-semibold text-zinc-900">Archived</div>
                             {archivedGoals.map((g) => (
-                              <GoalRow key={g.id} g={g} />
+                              <GoalRow
+                                key={g.id}
+                                g={g}
+                                isSelected={selectedGoalId === g.id}
+                                onSelect={setSelectedGoalId}
+                              />
                             ))}
                           </div>
                         ) : null}
