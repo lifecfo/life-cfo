@@ -3,8 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { Page } from "@/components/Page";
-import { Card, CardContent, Chip } from "@/components/ui";
-import { formatMoneyFromCents } from "@/lib/money/formatMoney";
+import { Card, CardContent, Chip, Money } from "@/components/ui";
 import type {
   CashPlanBucket,
   CashPlanSummary,
@@ -77,7 +76,7 @@ function PlannedRow({ item }: { item: MoneyMapPlannedItem }) {
         </div>
       </div>
       <div className="shrink-0 text-sm font-medium text-zinc-900">
-        {formatMoneyFromCents(item.amount_cents, item.currency)}
+        <Money cents={item.amount_cents} currency={item.currency} />
       </div>
     </div>
   );
@@ -203,7 +202,12 @@ export default function MoneyMapPage() {
                       <div className="text-sm font-medium text-zinc-900">{group.label}</div>
                       {group.totals_by_currency.length ? (
                         <div className="mt-1 text-xs text-zinc-500">
-                          {group.totals_by_currency.map((row) => formatMoneyFromCents(row.cents, row.currency)).join(" · ")}
+                          {group.totals_by_currency.map((row, index) => (
+                            <span key={`${group.key}:${row.currency}`}>
+                              {index > 0 ? " · " : ""}
+                              <Money cents={row.cents} currency={row.currency} />
+                            </span>
+                          ))}
                         </div>
                       ) : null}
                       <div className="mt-3 space-y-3">
@@ -214,7 +218,7 @@ export default function MoneyMapPage() {
                                 <div className="truncate text-sm text-zinc-800">{account.name}</div>
                                 <div className="mt-1 text-xs text-zinc-500">{account.account_type} · {account.source_label}</div>
                               </div>
-                              <div className="shrink-0 text-sm font-medium text-zinc-900">{formatMoneyFromCents(account.balance_cents, account.currency)}</div>
+                              <div className="shrink-0 text-sm font-medium text-zinc-900"><Money cents={account.balance_cents} currency={account.currency} /></div>
                             </div>
                           </div>
                         ))}
@@ -277,10 +281,7 @@ export default function MoneyMapPage() {
                             </div>
                             {bucket.backed_amount_cents > 0 ? (
                               <div className="shrink-0 text-sm font-medium text-zinc-900">
-                                {formatMoneyFromCents(
-                                  bucket.backed_amount_cents,
-                                  bucket.currency
-                                )}
+                                <Money cents={bucket.backed_amount_cents} currency={bucket.currency} />
                               </div>
                             ) : null}
                           </div>
@@ -342,8 +343,14 @@ export default function MoneyMapPage() {
                         <div className="text-xs font-medium text-zinc-700">{item.progress_percent}%</div>
                       </div>
                       <div className="mt-3 h-2 overflow-hidden rounded-full bg-zinc-200"><div className="h-full rounded-full bg-zinc-600" style={{ width: `${item.progress_percent}%` }} /></div>
-                      <div className="mt-2 text-xs text-zinc-600">Saved so far: {formatMoneyFromCents(item.current_cents, item.currency)} of {formatMoneyFromCents(item.target_cents, item.currency)}</div>
-                      <div className="mt-1 text-xs text-zinc-500">Still needed: {formatMoneyFromCents(item.still_needed_cents, item.currency)}{item.target_month ? ` · Target ${monthName(item.target_month)}` : ""}</div>
+                      <div className="mt-2 text-xs text-zinc-600">
+                        Saved so far: <Money cents={item.current_cents} currency={item.currency} /> of{" "}
+                        <Money cents={item.target_cents} currency={item.currency} />
+                      </div>
+                      <div className="mt-1 text-xs text-zinc-500">
+                        Still needed: <Money cents={item.still_needed_cents} currency={item.currency} />
+                        {item.target_month ? ` · Target ${monthName(item.target_month)}` : ""}
+                      </div>
                     </div>
                   ))}
                   {!moneyMap.tracked_purposes.items.length ? <div className="text-sm text-zinc-600">No savings goals are being tracked yet.</div> : null}
