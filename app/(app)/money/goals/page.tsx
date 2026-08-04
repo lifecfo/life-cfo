@@ -507,11 +507,17 @@ export default function GoalsPage() {
       target_date: deadlineAt.trim() ? deadlineAt.trim() : null,
       deadline_at: deadlineIso,
       notes: notes.trim() ? notes.trim() : null,
-      status: "active",
       updated_at: new Date().toISOString(),
     };
 
-    if (editingId) payload.id = editingId;
+    // New goals start active. Editing an existing goal must not silently
+    // reset its status -- omit the field so the upsert leaves whatever
+    // status (paused/done/archived) the goal already has untouched.
+    if (editingId) {
+      payload.id = editingId;
+    } else {
+      payload.status = "active";
+    }
 
     try {
       const res = await supabase.from("money_goals").upsert([payload]).select("*").maybeSingle();
