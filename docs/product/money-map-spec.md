@@ -185,6 +185,16 @@ them.
    live via `transaction_pattern_confirmations`. Both specs need
    correcting; this needs its own investigation before those specs can
    be fully trusted.
+4. **"Ask why" affordance remains unbuilt — blocked on a real
+   prerequisite, not a placement decision.** Confirmed this session: it's
+   specifically scoped to the safe-to-spend hero number (Section 1
+   above), which doesn't exist anywhere on the live page yet. Building it
+   against a different anchor instead (e.g. the account-group subtotals
+   in "Where the money is") would contradict `page-ownership-map.md`'s
+   own rule on which numbers warrant this treatment — plain factual
+   balances are explicitly exempted there ("Doesn't: ... an account
+   balance in an account list"). This waits on the hero number itself
+   getting built; there is no alternative anchor to pick instead.
 
 None of these block implementing this spec's page-level layout — they're
 dependencies for the pieces that reference them (Goals, Home, Bills,
