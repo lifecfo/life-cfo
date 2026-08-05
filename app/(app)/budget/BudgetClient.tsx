@@ -5,7 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { Page } from "@/components/Page";
-import { Card, CardContent, Chip, Button, Badge, useToast } from "@/components/ui";
+import { Card, CardContent, Chip, Button, Badge, Money, useToast } from "@/components/ui";
 
 type Cadence = "weekly" | "fortnightly" | "monthly" | "quarterly" | "yearly";
 type BudgetKind = "expense" | "saving" | "sinking";
@@ -37,20 +37,6 @@ function safeNumber(v: unknown) {
 
 function cents(n: number) {
   return Math.round(n);
-}
-
-function formatMoneyFromCents(c: number, currency = "AUD") {
-  const value = (c || 0) / 100;
-  try {
-    return new Intl.NumberFormat("en-AU", {
-      style: "currency",
-      currency,
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    }).format(value);
-  } catch {
-    return `${currency} ${value.toFixed(2)}`;
-  }
 }
 
 function normalizeCadence(raw?: string | null): Cadence {
@@ -633,7 +619,7 @@ export default function BudgetClient() {
           <div className="flex items-end justify-between gap-3 flex-wrap">
             <div className="space-y-1">
               <div className="text-sm font-semibold text-zinc-900">{labelKind(k)}</div>
-              <div className="text-xs text-zinc-500">Monthly est: {formatMoneyFromCents(monthlyTotal)}</div>
+              <div className="text-xs text-zinc-500">Monthly est: <Money cents={monthlyTotal} /></div>
             </div>
 
             {list.length > LIMIT ? (
@@ -665,8 +651,8 @@ export default function BudgetClient() {
                             </div>
 
                             <div className="mt-1 text-sm text-zinc-700">
-                              {formatMoneyFromCents(it.amount_cents)} • <span className="text-xs text-zinc-500">Monthly est</span>{" "}
-                              <span className="font-semibold text-zinc-900">{formatMoneyFromCents(est)}</span>
+                              <Money cents={it.amount_cents} /> • <span className="text-xs text-zinc-500">Monthly est</span>{" "}
+                              <span className="font-semibold text-zinc-900"><Money cents={est} /></span>
                             </div>
                           </>
                         ) : (
@@ -755,7 +741,7 @@ export default function BudgetClient() {
                               <div className="text-xs text-zinc-500">
                                 Monthly est{" "}
                                 <span className="font-semibold text-zinc-900">
-                                  {formatMoneyFromCents(cents(centsFromInput(d?.amount_input ?? "") * monthlyFactor(d?.cadence ?? it.cadence)))}
+                                  <Money cents={cents(centsFromInput(d?.amount_input ?? "") * monthlyFactor(d?.cadence ?? it.cadence))} />
                                 </span>
                               </div>
                             </div>
@@ -835,15 +821,15 @@ export default function BudgetClient() {
                 <div className="grid gap-2 text-sm text-zinc-700">
                   <div className="flex items-center justify-between gap-6">
                     <div>Estimated income</div>
-                    <div className="font-medium text-zinc-900">{formatMoneyFromCents(incomeMonthlyCents)}</div>
+                    <div className="font-medium text-zinc-900"><Money cents={incomeMonthlyCents} /></div>
                   </div>
                   <div className="flex items-center justify-between gap-6">
                     <div>Estimated bills</div>
-                    <div className="font-medium text-zinc-900">− {formatMoneyFromCents(billsMonthlyCents)}</div>
+                    <div className="font-medium text-zinc-900">− <Money cents={billsMonthlyCents} /></div>
                   </div>
                   <div className="flex items-center justify-between gap-6">
                     <div>Expected budget items</div>
-                    <div className="font-medium text-zinc-900">− {formatMoneyFromCents(planMonthlyCents)}</div>
+                    <div className="font-medium text-zinc-900">− <Money cents={planMonthlyCents} /></div>
                   </div>
 
                   <div className="mt-1 h-px bg-zinc-100" />
@@ -851,7 +837,11 @@ export default function BudgetClient() {
                   <div className="flex items-center justify-between gap-6">
                     <div className="font-semibold text-zinc-900">May be left after bills + budget</div>
                     <div className="font-semibold text-zinc-900">
-                      {leftoverCents >= 0 ? formatMoneyFromCents(leftoverCents) : `− ${formatMoneyFromCents(Math.abs(leftoverCents))}`}
+                      {leftoverCents >= 0 ? (
+                        <Money cents={leftoverCents} />
+                      ) : (
+                        <>− <Money cents={Math.abs(leftoverCents)} /></>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -865,7 +855,7 @@ export default function BudgetClient() {
                 <div className="rounded-2xl border border-zinc-200 bg-white p-3">
                   <div className="flex items-center justify-between gap-4 text-sm text-zinc-700">
                     <div>Accounts total</div>
-                    <div className="font-medium text-zinc-900">{formatMoneyFromCents(accountsTotalCents)}</div>
+                    <div className="font-medium text-zinc-900"><Money cents={accountsTotalCents} /></div>
                   </div>
                   <div className="mt-1 text-xs text-zinc-500">Sum of non-archived accounts.</div>
                 </div>
@@ -968,7 +958,7 @@ export default function BudgetClient() {
               <div className="md:col-span-6 flex items-center justify-between gap-3 flex-wrap">
                 <div className="text-xs text-zinc-500">
                   Monthly est{" "}
-                  <span className="font-semibold text-zinc-900">{formatMoneyFromCents(cents(centsFromInput(amount) * monthlyFactor(cadence)))}</span>
+                  <span className="font-semibold text-zinc-900"><Money cents={cents(centsFromInput(amount) * monthlyFactor(cadence))} /></span>
                 </div>
 
                 <Button disabled={saving || !userId || !householdId} onClick={() => void addItem()}>
