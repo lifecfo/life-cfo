@@ -166,18 +166,31 @@ remains, particularly for the last tier.
 
 **Tier 3 — genuinely unbuilt features, comparable in size to building
 Goals' allocation UI, not a quick pass:**
-5. **Composition bar and per-item "seen-so-far" fill bars** — confirmed
-   directly, not assumed: no composition-bar or fill-bar code exists
-   anywhere in `BudgetClient.tsx` today. The composition bar was
-   already labeled "(new in v3)" in the prior version of this spec —
-   it was always a proposal, never built, and this reconciliation
-   doesn't change that fact, only its taxonomy keying. The fill bar is
-   the harder half of this tier: it depends on a "seen-so-far"
-   computation — actual spend aggregated per budget item — that doesn't
-   exist anywhere in the codebase. `BudgetClient.tsx` never queries
-   transactions at all today, so this isn't a rendering layer on top of
-   data that's already there; it's new aggregation logic (linking
-   transactions to budget items/categories) plus new UI on top of it.
+5. **Composition bar — built this session; per-item "seen-so-far" fill
+   bars — still unbuilt, reconfirmed this session.** The composition bar
+   (Bills / Budget items / Leftover, a teal-opacity segmented bar, hidden
+   on negative months) was added to `BudgetClient.tsx` during this
+   session's rebuild pass — the earlier claim that "no composition-bar...
+   code exists" no longer holds; that half of this item is resolved.
+
+   The per-item fill bar remains exactly as unbuilt as when this
+   reconciliation was first written, reconfirmed rather than assumed:
+   it still depends on a "seen-so-far" computation — actual spend
+   aggregated per budget item — that still doesn't exist anywhere in the
+   codebase. `BudgetClient.tsx` still never queries transactions at all;
+   neither this session's `<Money>` migration nor the new composition bar
+   touched data-fetching in any way, so this blocker is entirely
+   unaffected by either of those changes.
+
+   **Explicit caution:** when this does get built, it must not be
+   satisfied by rendering a bar with a faked, hardcoded, or permanently
+   empty/zero fill just to visually match this spec's layout
+   description — that would violate the same "no fabricated data"
+   standard already enforced everywhere else in this app. The real
+   aggregation logic (linking transactions to budget items/categories)
+   has to exist first; the visual is the easy, later half of this work,
+   not the part to build first.
+
    **This is a bigger lift than the risk-color fix above, not a
    smaller one alongside it.** Describing it in the Layout section in
    the same breath as CRUD and the Inputs snapshot (both of which
