@@ -37,6 +37,20 @@ function monthName(monthKey: string): string {
   }).format(new Date(parsed));
 }
 
+// Real, per-household scope sentence for the chart that actually exists
+// today (scheduled income/bills only) -- not the projected-available-cash
+// line's scope sentence, which stays out of scope per
+// year-at-a-glance-spec.md v3 (that one needs the Budget/typical-baseline
+// infrastructure this page doesn't have). timing_needed is already
+// computed and already flowing into this response; this just uses it.
+function yearScopeSentence(year: MoneyYearSummary): string {
+  const excluded = year.timing_needed.length;
+  const base = "This shows the income and bills currently scheduled.";
+  const readOnly = "This view is read-only and does not change balances.";
+  if (excluded === 0) return `${base} ${readOnly}`;
+  return `${base} ${excluded} item${excluded === 1 ? "" : "s"} couldn't be included because of a missing date or unsupported cadence — see Timing needed below. ${readOnly}`;
+}
+
 const CHART_WIDTH = 960;
 const CHART_HEIGHT = 300;
 const CHART_LEFT = 64;
@@ -241,7 +255,7 @@ export default function MoneyYearPage() {
                 <div>
                   <div className="text-sm font-semibold text-zinc-900">Year timeline</div>
                   <div className="mt-1 text-sm text-zinc-600">Based on the schedules currently added, this shows what is expected to come in, what is expected to go out, and which months may need a closer look.</div>
-                  <div className="mt-1 text-xs text-zinc-500">This is not a full forecast. It only uses the income and bills Life CFO can currently see. This view is read-only and does not change balances.</div>
+                  <div className="mt-1 text-xs text-zinc-500">{yearScopeSentence(year)}</div>
                 </div>
                 <div className="space-y-4">
                   {timeline.currencies.map((currencyTimeline) => <YearTimelineChart key={currencyTimeline.currency} timeline={currencyTimeline} />)}
