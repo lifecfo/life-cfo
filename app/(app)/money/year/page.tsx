@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Page } from "@/components/Page";
-import { Card, CardContent, Chip } from "@/components/ui";
+import { Card, CardContent, Chip, Money } from "@/components/ui";
 import { formatMoneyFromCents } from "@/lib/money/formatMoney";
 import type {
   MoneyTimelineCurrency,
@@ -20,11 +20,14 @@ type YearResponse = {
   error?: string;
 };
 
-function moneyRows(rows: MoneyYearAmount[]): string {
+function moneyRows(rows: MoneyYearAmount[]) {
   if (!rows.length) return "Not scheduled";
-  return rows
-    .map((row) => formatMoneyFromCents(row.cents, row.currency))
-    .join(" · ");
+  return rows.map((row, index) => (
+    <span key={`${row.currency}:${index}`}>
+      {index > 0 ? " · " : ""}
+      <Money cents={row.cents} currency={row.currency} />
+    </span>
+  ));
 }
 
 function monthName(monthKey: string): string {
@@ -153,13 +156,18 @@ function YearTimelineChart({ timeline }: { timeline: MoneyTimelineCurrency }) {
               {timeline.months.map((month) => (
                 <tr key={month.month_key}>
                   <td className="py-2 pr-4 font-medium text-zinc-900">{month.label}</td>
-                  <td className="py-2 pr-4">{formatMoneyFromCents(month.known_money_in_cents, timeline.currency)}</td>
-                  <td className="py-2 pr-4">{formatMoneyFromCents(month.known_money_out_cents, timeline.currency)}</td>
-                  <td className="py-2 pr-4">{formatMoneyFromCents(month.difference_cents, timeline.currency)}</td>
+                  <td className="py-2 pr-4"><Money cents={month.known_money_in_cents} currency={timeline.currency} /></td>
+                  <td className="py-2 pr-4"><Money cents={month.known_money_out_cents} currency={timeline.currency} /></td>
+                  <td className="py-2 pr-4"><Money cents={month.difference_cents} currency={timeline.currency} /></td>
                   <td className="py-2 pr-4">
-                    {month.largest_payment
-                      ? `${month.largest_payment.name}: ${formatMoneyFromCents(month.largest_payment.amount_cents, timeline.currency)}`
-                      : "None scheduled"}
+                    {month.largest_payment ? (
+                      <>
+                        {month.largest_payment.name}:{" "}
+                        <Money cents={month.largest_payment.amount_cents} currency={timeline.currency} />
+                      </>
+                    ) : (
+                      "None scheduled"
+                    )}
                   </td>
                   <td className="py-2">{closerLookText(month) || "Nothing specific."}</td>
                 </tr>
@@ -301,7 +309,7 @@ export default function MoneyYearPage() {
                       {year.larger_scheduled_payments.map((payment) => (
                         <div key={`${payment.currency}:${payment.name}`} className="flex items-start justify-between gap-4 rounded-2xl bg-zinc-50 px-4 py-3">
                           <div><div className="text-sm font-medium text-zinc-900">{payment.name}</div><div className="text-xs text-zinc-500">Expected {monthName(payment.month_key)}{payment.occurrence_count > 1 ? ` · ${payment.occurrence_count} times in view` : ""}</div></div>
-                          <div className="shrink-0 text-sm font-medium text-zinc-900">{formatMoneyFromCents(payment.amount_cents, payment.currency)}</div>
+                          <div className="shrink-0 text-sm font-medium text-zinc-900"><Money cents={payment.amount_cents} currency={payment.currency} /></div>
                         </div>
                       ))}
                     </div>
@@ -319,8 +327,14 @@ export default function MoneyYearPage() {
                     <div key={`${goal.currency}:${goal.title}`} className="rounded-2xl bg-zinc-50 px-4 py-3">
                       <div className="flex items-center justify-between gap-3"><div className="text-sm font-medium text-zinc-900">{goal.title}</div><div className="text-sm font-medium text-zinc-900">{goal.progress_percent}%</div></div>
                       <div className="mt-2 h-2 overflow-hidden rounded-full bg-zinc-200"><div className="h-full rounded-full bg-zinc-600" style={{ width: `${goal.progress_percent}%` }} /></div>
-                      <div className="mt-2 text-xs text-zinc-500">Saved so far: {formatMoneyFromCents(goal.current_cents, goal.currency)} of {formatMoneyFromCents(goal.target_cents, goal.currency)}{goal.target_month ? ` · Target ${monthName(goal.target_month)}` : ""}</div>
-                      <div className="mt-1 text-xs text-zinc-500">Still needed: {formatMoneyFromCents(goal.still_needed_cents, goal.currency)}</div>
+                      <div className="mt-2 text-xs text-zinc-500">
+                        Saved so far: <Money cents={goal.current_cents} currency={goal.currency} /> of{" "}
+                        <Money cents={goal.target_cents} currency={goal.currency} />
+                        {goal.target_month ? ` · Target ${monthName(goal.target_month)}` : ""}
+                      </div>
+                      <div className="mt-1 text-xs text-zinc-500">
+                        Still needed: <Money cents={goal.still_needed_cents} currency={goal.currency} />
+                      </div>
                     </div>
                   )) : <div className="text-sm text-zinc-600">No active savings goals are in view.</div>}
                 </CardContent>
