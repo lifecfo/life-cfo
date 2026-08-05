@@ -1,123 +1,132 @@
-# Year at a glance — page spec (handoff, v2)
+# Year at a glance — page spec (handoff, v3 — full reconciliation)
 
-Design-stage output. This is the first full version of this spec — the
-original design pass (job, strip, projected available cash, non-goals) is
-carried forward unchanged except where noted; what's new here is
-resolving the projection scope dependency and applying the visual design
-system.
+Design-stage output. Supersedes v2 entirely. v2 was explicitly framed as
+"build to this, not what currently exists in the repo" and never
+actually got reconciled against live code — this document is that
+reconciliation, done fresh this session via direct read of
+`app/(app)/money/year/page.tsx`, same discipline as Money Map's and
+Budget's own v4 passes.
 
-Build to this, not to what may currently exist in the repo.
-
-## Its one job
+## Its one job — unchanged
 
 What's already known to be coming, and whether any of it creates a
-squeeze. Read-only calendar view, not a modeling tool. Owns the expected
-current path; Decisions owns alternative paths built for a specific
-choice — both may share the same underlying forecast engine, and should.
+squeeze. Read-only.
 
-Explicitly NOT this page's job: daily granularity, bill/income editing
-(reads from Bills/Income, doesn't manage them), multi-year modeling,
-general historical/trend analysis (→ Ask or drill-down, not a reporting
-suite here).
+## Resolved: the live 3-line chart stays as the page's primary visual —
+the spec's tile-strip + single-balance-line design was never built and
+isn't being forced in now
 
-## Resolved: projection scope (previously an open dependency)
+The live page has a genuinely different, working visualization from
+what v2 described: a per-currency SVG chart plotting monthly money in /
+money out / difference, backed by an always-visible "Monthly details"
+table — not the spec's 12-month tile strip with a single projected-cash
+line.
 
-**Canonical source: the precedence hierarchy below is defined in
-forecast-balance-semantics.md §1; this section applies that hierarchy to
-projected available cash specifically, it doesn't re-derive it. If the
-hierarchy changes there, revisit this section.**
+**Resolution:** keep the live chart. It answers a real, useful, adjacent
+question — the shape of income and spending through the year — on its
+own terms, not as a placeholder standing in for something else.
+Rebuilding toward the spec's original vision right now would mean
+discarding real, working functionality to chase a feature that depends
+on infrastructure that doesn't exist anywhere in the app yet: a real
+running "projected available cash" balance requires the same shared
+safe-to-spend / forecast calculation Money Map's own hero number is also
+still waiting on (confirmed unbuilt, multiple times, this session).
 
-Projected available cash is built from:
-1. **Confirmed bills and expected income** — hard data, canonical source
-   is Bills/Income.
-2. **The household's own planned amounts from Budget**, for everyday
-   spending categories.
-3. **Fallback to the shared typical-month baseline** (same calculation
-   Budget and Money Map already use) for any category without a plan set.
+The single projected-cash line remains a real, legitimate goal — Tier 3,
+same size class as Money Map's hero number or Budget's per-item fill
+bar. Not attempted in isolation here. When the shared calculation
+infrastructure gets built, it likely belongs on both Money Map and Year
+at a glance at once — building it twice, independently, on two pages
+would just recreate the kind of duplication this session has spent real
+effort eliminating elsewhere (cash totals, year summaries, account
+classification).
 
-This gives Budget's chosen plan real downstream purpose — it's not just
-displayed on its own page, it feeds the forecast directly — and it means
-projected available cash is never shown without disclosing what feeds it.
+## Real fixes needed — Tier 1, actual code bugs, not documentation gaps
 
-**Scope disclosure is generated per household, not fixed.** Per
-forecast-balance-semantics.md §6, the caption near projected available
-cash must reflect the actual sources, fallbacks, and gaps used in that
-specific household's calculation — never a single sentence that
-overclaims completeness for everyone. Always visible, not optional, not
-collapsible; Small, Caption-weight, positioned near projected available
-cash itself. Example variants below illustrate the style only — none of
-them is the fixed text:
+- **The amber (`#a16207`) flagged-month marker is a live violation of
+  this page's own explicit non-goal** — "no color beyond a single
+  neutral flagged-month marker" — not a spec/reality gap, an active
+  contradiction. Confirmed via direct code read: `app/(app)/money/year/page.tsx`
+  lines 94-96 (`#059669`/`#3f3f46`/`#0284c7` for the three chart lines)
+  and line 105 (`#a16207` for the flagged marker). Needs to become the
+  same neutral treatment already correct everywhere else on this page.
+  Same category as Budget's risk-color bug found and fixed earlier this
+  session — should get the same treatment: its own small, isolated,
+  reviewed diff.
+- **The scope-disclosure sentence is a single hardcoded string,
+  identical for every household**, directly contradicting the spec's
+  explicit requirement that it reflect real sources/fallbacks/gaps
+  per-household. Before this can be fixed, needs its own investigation:
+  does the underlying data (which figures are confirmed vs. estimated
+  vs. missing) already exist anywhere in this page's data pipeline, or
+  does a real per-household sentence need new logic built first? Not
+  assumed either way — flagged as its own scoped question.
 
-- "This includes known income and bills, plus your planned amounts for
-  everyday spending."
-- "This includes confirmed bills, expected income and your monthly plan.
-  Three everyday categories use recent typical spending because no plan
-  has been set."
-- "This includes known bills and income. Everyday spending isn't
-  projected yet because there isn't enough recent history."
+## Real, working sections with no spec equivalent — kept, not rebuilt
 
-A dashed line looks authoritative regardless of what feeds it — this
-disclosure, generated per household, is what keeps that honest.
+Same treatment as Money Map's Cash Plan, "What needs review," etc. —
+real, valuable, staying exactly as they are, functionally:
 
-## Visual system (references docs/product/visual-design-system.md)
+- **Money seasons** (heavier/quieter month classification per currency)
+- **Larger scheduled payments**
+- **Savings goals** (a summary view; full management stays on Goals)
+- **Timing needed** (items missing valid recurrence timing — the page's
+  own honest "we can't project this yet" signal)
 
-- **Type:** month labels at Label weight. Any dollar figures shown on tap
-  use tabular numerals via the shared `<Money>` component.
-- **Color:** no category palette needed here — the strip and projected
-  available cash use neutral tones throughout. The one exception is the
-  small flagged-month marker, which should stay a plain neutral dot, not
-  a color, consistent with the "no color-as-verdict" rule even at its
-  most minimal.
-- **Motion:** projected available cash draws in on load (~600-900ms
-  ease-out) rather than appearing instantly — same discipline as Money
-  Map's bar fills and hero count-up. Respect `prefers-reduced-motion`:
-  instant, fully-drawn fallback required.
+None of these need redesigning. They need the same visual-polish pass
+(the `<Money>` migration, motion, chart-grammar colors) as everything
+else on this page, once that work happens.
 
-## Layout
+## Real gaps, sized honestly — Tier 2, moderate, not blocked on anything
 
-### 1. Flagged-month sentence(s)
-At most 1-2 plain sentences, shown only if a month is genuinely notable.
-A fully quiet year shows none — this is a valid, complete state, not a
-gap to fill.
-
-### 2. 12-month strip
-Plain tiles, current month anchored near the start, running forward.
-Flagged months get a small neutral marker only — no fill, no color scale.
-Tap a month to open a short, read-only list of what's scheduled, sourced
-directly from Bills/Income — never a separate copy of that data.
-
-### 3. Projected available cash
-Beneath the strip. Solid up to "now," dashed for projected available
-cash. A marker on projected available cash syncs to the same flagged
-month shown in the strip above — one signal, shown two ways, never two
-separate warnings. No shaded zones, no floor/threshold line, no color
-change regardless of how low projected available cash dips — the
-sentence above carries that meaning, projected available cash stays
-neutral throughout.
-
-### 4. Scope sentence
-See "Resolved" section above — always visible beneath projected
-available cash.
-
-### 5. Conversation
-Anchored ask input, same component as every other page. "What if"
-questions preview against this data without committing a real edit —
-actually changing anything hands off to Bills/Income, Budget, or
-Decisions depending on what's being changed.
-
-## Empty / no-data state
-
-If no bills/income are connected yet, no strip or projected available
-cash renders with fabricated data. Warm, honest copy inviting connection,
-same ask input usable before any data exists — mirrors Home and Money
-Map's empty-state pattern.
+- **No anchored Ask input exists** — the spec calls for one, it isn't
+  built. Straightforward addition, reusing the pattern already
+  established on other pages — not a design question, just unbuilt.
+- **Dollar-figure formatting is plain text via the shared
+  `formatMoneyFromCents`, not yet `<Money>`.** Real structural constraint
+  found this session, worth documenting precisely so a future migration
+  doesn't get this wrong: several call sites render inside raw SVG
+  `<text>`/`<title>` elements (confirmed at lines 101, 110, 111, 112).
+  `<Money>` renders a `<span>`, which cannot be used inside SVG text
+  nodes at all. A future migration here needs a genuinely mixed
+  approach — HTML-rendered call sites (summary cards via `moneyRows()`,
+  the details table, larger payments, goals — confirmed at lines 26,
+  133-135, 138, 281, 299-300) convert to `<Money>`; SVG-embedded call
+  sites stay on the plain string formatter permanently, not as a
+  temporary gap to later "finish." Unlike Money Map/Budget/Goals, this
+  page cannot have every call site converted uniformly.
+- **Chart colors (emerald/zinc/sky for the three lines) haven't adopted
+  the chart-grammar palette** (teal/hibiscus, per
+  `visual-design-system.md` §5) yet. Real drift from the established
+  system, not urgent on its own, worth fixing in the same visual pass as
+  the rest of this page's work.
+- **Zero motion anywhere on this page** — the one page among those
+  touched this session with no `.motion-fill`/`useCountUp` treatment at
+  all yet.
+- **Tap-to-expand vs. the live always-open details table** — a minor UX
+  difference from the original spec, not a functional gap. The live
+  table already serves the "see the detail" job; not mandating a change
+  here, just noting the difference exists.
 
 ## Non-goals, reconfirmed
 
-- No daily granularity (PocketSmith-style day-by-day forecasting adds a
-  steep learning curve this audience doesn't need — monthly is the right
-  resolution).
-- No multi-year modeling.
-- No editing on this page directly — preview only, real changes hand off
-  elsewhere.
-- No color beyond the single neutral flagged-month marker.
+Unchanged from v2: no daily granularity, no multi-year modeling, no
+editing on this page directly (previews/handoffs only), no color beyond
+the single neutral flagged-month marker — now something to actually
+enforce via the Tier 1 fix above, not just a stated rule with a live
+exception sitting right next to it.
+
+## Summary of what this reconciliation resolves
+
+1. **The chart-architecture question — settled.** Live chart stays; the
+   spec's single balance line becomes an explicitly deferred future
+   project, tied to the same infrastructure Money Map's hero number
+   needs.
+2. **Amber marker** — real bug, flagged for its own immediate fix.
+3. **Scope sentence** — real gap, flagged for its own investigation
+   before a fix gets written.
+4. **Four sections with no spec equivalent** — kept, documented as real
+   and staying, same treatment as Money Map's real sections.
+5. **Money/motion/color visual work** — sized, sequenced, and the one
+   real structural constraint (SVG text nodes) documented so it doesn't
+   get discovered the hard way mid-migration.
