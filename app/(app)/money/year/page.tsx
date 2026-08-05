@@ -102,7 +102,16 @@ function YearTimelineChart({ timeline }: { timeline: MoneyTimelineCurrency }) {
                 <circle cx={x} cy={chartY(month.known_money_in_cents, timeline)} r="5" fill="#059669" />
                 <circle cx={x} cy={chartY(month.known_money_out_cents, timeline)} r="5" fill="#3f3f46" />
                 <circle cx={x} cy={chartY(month.difference_cents, timeline)} r="5" fill="#0284c7" />
-                {month.needs_closer_look ? <circle cx={x} cy={CHART_TOP + 4} r="5" fill="#a16207" /> : null}
+                {month.needs_closer_look ? (
+                  <circle
+                    cx={x}
+                    cy={CHART_TOP + 4}
+                    r="5"
+                    fill="none"
+                    strokeWidth="2"
+                    className="stroke-zinc-500"
+                  />
+                ) : null}
                 <text x={x} y={CHART_HEIGHT - 20} textAnchor="middle" className="fill-zinc-500 text-[11px]">{month.label.replace(/ \d{4}$/, "")}</text>
               </g>
             );
@@ -146,7 +155,7 @@ function YearTimelineChart({ timeline }: { timeline: MoneyTimelineCurrency }) {
         </div>
       </details>
       {timeline.months.some((month) => month.needs_closer_look) ? (
-        <div className="text-xs text-zinc-500"><span className="mr-1 inline-block h-2 w-2 rounded-full bg-amber-700" />Amber markers show a month with a shortfall or a heavier schedule.</div>
+        <div className="text-xs text-zinc-500"><span className="mr-1 inline-block h-2 w-2 rounded-full border border-zinc-500" />A marker shows a month with a shortfall or a heavier schedule.</div>
       ) : null}
     </div>
   );
