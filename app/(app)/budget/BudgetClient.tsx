@@ -1,7 +1,7 @@
 // app/(app)/budget/BudgetClient.tsx
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { Page } from "@/components/Page";
@@ -380,6 +380,23 @@ export default function BudgetClient() {
     () => incomeMonthlyCents - billsMonthlyCents - planMonthlyCents,
     [incomeMonthlyCents, billsMonthlyCents, planMonthlyCents]
   );
+
+  // Composition bar: only meaningful when nothing is negative (bills +
+  // budget items + leftover sums to income exactly in that case) and
+  // when there's a real total to divide up. Null in either exceptional
+  // case means "don't render the bar" -- the hint sentence below already
+  // carries the negative-month case alone, per this page's own founding
+  // "no red bars" principle; a 0/0/0 composition has nothing to show.
+  const composition = useMemo(() => {
+    if (leftoverCents < 0) return null;
+    const total = billsMonthlyCents + planMonthlyCents + leftoverCents;
+    if (total <= 0) return null;
+    return {
+      billsPercent: (billsMonthlyCents / total) * 100,
+      planPercent: (planMonthlyCents / total) * 100,
+      leftoverPercent: (leftoverCents / total) * 100,
+    };
+  }, [billsMonthlyCents, planMonthlyCents, leftoverCents]);
 
   const risk = useMemo(() => {
     if (incomeMonthlyCents <= 0) return "no_income";
@@ -845,6 +862,54 @@ export default function BudgetClient() {
                     </div>
                   </div>
                 </div>
+
+                {composition ? (
+                  <div className="space-y-1.5">
+                    <div className="flex h-2 w-full overflow-hidden rounded-full bg-zinc-100">
+                      <div
+                        className="motion-fill h-full bg-cfo"
+                        style={
+                          {
+                            width: `${composition.billsPercent}%`,
+                            "--fill-target": `${composition.billsPercent}%`,
+                          } as CSSProperties
+                        }
+                      />
+                      <div
+                        className="motion-fill h-full bg-cfo/60"
+                        style={
+                          {
+                            width: `${composition.planPercent}%`,
+                            "--fill-target": `${composition.planPercent}%`,
+                          } as CSSProperties
+                        }
+                      />
+                      <div
+                        className="motion-fill h-full bg-cfo/25"
+                        style={
+                          {
+                            width: `${composition.leftoverPercent}%`,
+                            "--fill-target": `${composition.leftoverPercent}%`,
+                          } as CSSProperties
+                        }
+                      />
+                    </div>
+                    <div className="flex flex-wrap gap-3 text-xs text-zinc-500">
+                      <span className="inline-flex items-center gap-1.5">
+                        <span className="h-2 w-2 rounded-full bg-cfo" />
+                        Bills
+                      </span>
+                      <span className="inline-flex items-center gap-1.5">
+                        <span className="h-2 w-2 rounded-full bg-cfo/60" />
+                        Budget items
+                      </span>
+                      <span className="inline-flex items-center gap-1.5">
+                        <span className="h-2 w-2 rounded-full bg-cfo/25" />
+                        Leftover
+                      </span>
+                    </div>
+                  </div>
+                ) : null}
 
                 <div className={["mt-2 rounded-2xl border px-3 py-2 text-sm", pictureHintClass].join(" ")}>{pictureHint}</div>
               </div>
