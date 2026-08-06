@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 import Link from "next/link";
 import { Page } from "@/components/Page";
 import { Card, CardContent, Chip, Money } from "@/components/ui";
 import { formatMoneyFromCents } from "@/lib/money/formatMoney";
+import { useCountUp } from "@/lib/ui/useCountUp";
 import type {
   MoneyTimelineCurrency,
   MoneyTimelineMonth,
@@ -20,12 +21,22 @@ type YearResponse = {
   error?: string;
 };
 
+// useCountUp can't be called inside a .map() callback (hooks rule) --
+// this wraps it so each animated figure is its own component instance,
+// same reasoning as Money Map's AnimatedMoney. Scoped to exactly the two
+// spots asked for (summary-row amounts, goal saved-so-far) -- not applied
+// to the details-table cells or larger-payments amounts.
+function AnimatedMoney({ cents, currency }: { cents: number; currency: string }) {
+  const animated = useCountUp(cents);
+  return <Money cents={Math.round(animated)} currency={currency} />;
+}
+
 function moneyRows(rows: MoneyYearAmount[]) {
   if (!rows.length) return "Not scheduled";
   return rows.map((row, index) => (
     <span key={`${row.currency}:${index}`}>
       {index > 0 ? " · " : ""}
-      <Money cents={row.cents} currency={row.currency} />
+      <AnimatedMoney cents={row.cents} currency={row.currency} />
     </span>
   ));
 }
@@ -326,9 +337,19 @@ export default function MoneyYearPage() {
                   {year.goals.length ? year.goals.map((goal) => (
                     <div key={`${goal.currency}:${goal.title}`} className="rounded-2xl bg-zinc-50 px-4 py-3">
                       <div className="flex items-center justify-between gap-3"><div className="text-sm font-medium text-zinc-900">{goal.title}</div><div className="text-sm font-medium text-zinc-900">{goal.progress_percent}%</div></div>
-                      <div className="mt-2 h-2 overflow-hidden rounded-full bg-zinc-200"><div className="h-full rounded-full bg-zinc-600" style={{ width: `${goal.progress_percent}%` }} /></div>
+                      <div className="mt-2 h-2 overflow-hidden rounded-full bg-zinc-200">
+                        <div
+                          className="motion-fill h-full rounded-full bg-cfo"
+                          style={
+                            {
+                              width: `${goal.progress_percent}%`,
+                              "--fill-target": `${goal.progress_percent}%`,
+                            } as CSSProperties
+                          }
+                        />
+                      </div>
                       <div className="mt-2 text-xs text-zinc-500">
-                        Saved so far: <Money cents={goal.current_cents} currency={goal.currency} /> of{" "}
+                        Saved so far: <AnimatedMoney cents={goal.current_cents} currency={goal.currency} /> of{" "}
                         <Money cents={goal.target_cents} currency={goal.currency} />
                         {goal.target_month ? ` · Target ${monthName(goal.target_month)}` : ""}
                       </div>
