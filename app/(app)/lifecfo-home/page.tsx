@@ -54,18 +54,6 @@ function cleanAnswer(raw: string) {
   return t.trim();
 }
 
-function formatCheckedAt(iso: string) {
-  const ms = Date.parse(iso);
-  if (Number.isNaN(ms)) return iso;
-  return new Date(ms).toLocaleString(undefined, {
-    weekday: "short",
-    day: "numeric",
-    month: "short",
-    hour: "numeric",
-    minute: "2-digit",
-  });
-}
-
 /* ---------- CFO memo shaping (Q&A memo) ---------- */
 
 type MemoTone = "ok" | "tight" | "attention";
@@ -266,7 +254,6 @@ export default function LifeCFOHomePage() {
   const router = useRouter();
   const { toast } = useToast();
   const { openAsk: openGlobalAsk, setDraft: setAskDraft } = useAsk();
-  const buildStamp = process.env.NEXT_PUBLIC_BUILD_STAMP || "";
 
   const [userId, setUserId] = useState<string | null>(null);
   const [authStatus, setAuthStatus] = useState<"loading" | "signed_out" | "signed_in">("loading");
@@ -779,10 +766,6 @@ Follow-up question: ${fu}`
   const readyOverview = homeMoney.status === "ready" ? homeMoney.overview : null;
   const readyCoverage = readyOverview?.data_coverage ?? null;
   const homeHasMoney = readyCoverage ? hasVisibleMoney(readyCoverage) : false;
-  const homeCurrency =
-    readyCoverage?.current_month_money_in[0]?.currency ||
-    readyCoverage?.current_month_money_out[0]?.currency ||
-    "AUD";
   const homeSummary = readyOverview?.home_summary ?? null;
   const allocationCash = Math.max(0, homeSummary?.available_cash_cents ?? 0);
   const allocationPlanned = Math.min(
@@ -979,6 +962,22 @@ Follow-up question: ${fu}`
                 <Chip title="Review decisions" onClick={() => router.push("/decisions?tab=active")}>
                   Review decisions
                 </Chip>
+                <Chip title="How it works" onClick={() => router.push("/how-life-cfo-works")}>
+                  How it works
+                </Chip>
+              </div>
+            ) : null}
+
+            {homeHasMoney && readyCoverage ? (
+              <div className="text-xs text-zinc-500">
+                {visibleMoneySummary(readyCoverage)} Source: {sourceNames(readyCoverage)}.
+                {readyCoverage.confirmed_regular_payment_count > 0 || readyCoverage.confirmed_income_pattern_count > 0 ? (
+                  <>
+                    {" "}
+                    Confirmed patterns: {readyCoverage.confirmed_regular_payment_count} regular payment(s) and{" "}
+                    {readyCoverage.confirmed_income_pattern_count} income pattern(s).
+                  </>
+                ) : null}
               </div>
             ) : null}
           </CardContent>
@@ -1006,104 +1005,6 @@ Follow-up question: ${fu}`
                 ))}
               </div>
             )}
-          </CardContent>
-        </Card>
-
-        {/* TOP: Always-on CFO check-in memo */}
-        <Card className={`hidden border-zinc-200 bg-white shadow-none ${readyOverview && !homeHasMoney ? "border-l-4 border-l-zinc-200" : ""}`}>
-          <CardContent className="p-0">
-            <div className="px-6 py-5">
-              <div className="space-y-3">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="text-sm font-semibold text-zinc-900">Life CFO</div>
-                  <div className="flex items-center gap-2">
-                    <Chip className="text-xs" title="How it works" onClick={() => router.push("/how-life-cfo-works")}>
-                      How it works
-                    </Chip>
-                  </div>
-                </div>
-
-                {authStatus === "signed_out" ? (
-                  <div className="text-sm text-zinc-700">Sign in to get a household check-in and ask a question.</div>
-                ) : (
-                  <>
-                    {homeMoney.status === "idle" || homeMoney.status === "loading" ? (
-                      <div className="space-y-2">
-                        <div className="text-sm text-zinc-700">Checking in…</div>
-                        <div className="text-xs text-zinc-500">This is a calm status snapshot. Nothing saves unless you choose.</div>
-                      </div>
-                    ) : homeMoney.status === "error" ? (
-                      <div className="space-y-2">
-                        <div className="text-sm text-zinc-700">{homeMoney.message}</div>
-                        <div className="flex flex-wrap gap-2">
-                          <Chip className="text-xs" title="Run check now" onClick={() => void runStatusCheck()}>
-                            Run check now
-                          </Chip>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="space-y-3">
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="space-y-1">
-                            <div className="text-xs text-zinc-500">
-                              <span className="font-medium text-zinc-600">Check-in</span> <span className="text-zinc-400">•</span>{" "}
-                              <span>As of: {formatCheckedAt(homeMoney.overview.snapshot.asOf)}</span>
-                            </div>
-                          </div>
-                        </div>
-
-                        <div className="space-y-2">
-                          <div className="text-[15px] font-medium leading-relaxed text-zinc-900">
-                            {homeHasMoney ? "Your household picture is visible." : "Needs more visibility."}
-                          </div>
-                          <div className="text-[15px] leading-relaxed text-zinc-800">
-                            {homeHasMoney
-                              ? visibleMoneySummary(homeMoney.overview.data_coverage)
-                              : "Life CFO cannot yet see account balances or recent transactions for this household."}
-                          </div>
-                          {homeHasMoney ? (
-                            <ul className="list-disc space-y-1 pl-4 text-sm text-zinc-700">
-                              <li>Money in this month: {formatMoneyRows(homeMoney.overview.data_coverage.current_month_money_in)}.</li>
-                              <li>Money out this month: {formatMoneyRows(homeMoney.overview.data_coverage.current_month_money_out)}.</li>
-                              <li>Available cash: {formatMoneyFromCents(homeMoney.overview.snapshot.liquidity.availableCashCents, homeCurrency)}.</li>
-                              <li>Source: {sourceNames(homeMoney.overview.data_coverage)}.</li>
-                              {homeMoney.overview.data_coverage.confirmed_regular_payment_count > 0 ||
-                              homeMoney.overview.data_coverage.confirmed_income_pattern_count > 0 ? (
-                                <li>
-                                  Confirmed patterns: {homeMoney.overview.data_coverage.confirmed_regular_payment_count} regular payment(s) and{" "}
-                                  {homeMoney.overview.data_coverage.confirmed_income_pattern_count} income pattern(s).
-                                </li>
-                              ) : null}
-                            </ul>
-                          ) : null}
-                        </div>
-
-                        <div className="flex flex-wrap gap-2">
-                          <Chip className="text-xs" title="Check now" onClick={() => void runStatusCheck()}>
-                            Check now
-                          </Chip>
-
-                          <Chip className="text-xs" title="Open Money" onClick={() => router.push("/money")}>
-                            Open Money
-                          </Chip>
-                          <Chip className="text-xs" title="Open Decisions" onClick={() => router.push("/decisions?tab=active")}>
-                            Open Decisions
-                          </Chip>
-
-                          {buildStamp ? <span className="ml-auto text-[11px] text-zinc-400">Build {buildStamp}</span> : null}
-                        </div>
-
-                        <div className="text-xs text-zinc-500">
-                          One place. One question. One answer. <span className="text-zinc-400">Save only if you choose.</span>
-                        </div>
-                      </div>
-                    )}
-                  </>
-                )}
-
-                {authStatus !== "signed_out" && buildStamp && homeMoney.status !== "ready" ? <div className="text-[11px] text-zinc-400">Build {buildStamp}</div> : null}
-              </div>
-            </div>
           </CardContent>
         </Card>
 
