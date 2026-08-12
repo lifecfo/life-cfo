@@ -1107,66 +1107,6 @@ Follow-up question: ${fu}`
           </CardContent>
         </Card>
 
-        {/* What matters now */}
-        <Card className="hidden border-zinc-200 bg-white shadow-none">
-          <CardContent className="p-0">
-            <div className="px-6 py-5 space-y-4">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <div className="text-sm font-semibold text-zinc-900">What matters now</div>
-                  <div className="text-xs text-zinc-500">Top priorities only, so this stays calm.</div>
-                </div>
-                <Chip className="text-xs" title="Refresh check-in" onClick={() => void runStatusCheck()}>
-                  Refresh
-                </Chip>
-              </div>
-
-              {authStatus === "signed_out" ? (
-                <div className="text-sm text-zinc-700">Sign in to see your current priorities.</div>
-              ) : whatMattersNow.length === 0 ? (
-                <div className="text-sm text-zinc-700">Nothing urgent right now. You can check Money or continue a decision if you want.</div>
-              ) : (
-                <div className="space-y-2">
-                  {whatMattersNow.map((item) => (
-                    <button
-                      key={item.key}
-                      type="button"
-                      onClick={() => router.push(item.href)}
-                      className="w-full rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-left transition hover:bg-white"
-                      title={item.title}
-                    >
-                      <div className="text-sm font-medium text-zinc-900">{item.title}</div>
-                      <div className="mt-1 text-xs text-zinc-600">{item.detail}</div>
-                    </button>
-                  ))}
-                </div>
-              )}
-
-              <div className="flex flex-wrap gap-2">
-                <Chip className="text-xs" title="Open Money" onClick={() => router.push("/money")}>
-                  Money
-                </Chip>
-                <Chip className="text-xs" title="Open Decisions" onClick={() => router.push("/decisions?tab=active")}>
-                  Decisions
-                </Chip>
-                <Chip className="text-xs" title="Open Chapters" onClick={() => router.push("/chapters")}>
-                  Chapters
-                </Chip>
-                <Chip
-                  className="text-xs"
-                  title={showQuickAsk ? "Hide quick ask" : "Think it through"}
-                  onClick={() => {
-                    setShowQuickAsk((v) => !v);
-                    if (!showQuickAsk) focusInput();
-                  }}
-                >
-                  {showQuickAsk ? "Hide quick ask" : "Think it through"}
-                </Chip>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
         {/* Optional quick ask (secondary on Home) */}
         {showQuickAsk || ask.status !== "idle" ? (
           <Card className="border-zinc-200 bg-white shadow-none">
