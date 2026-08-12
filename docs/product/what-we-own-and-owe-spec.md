@@ -1,128 +1,142 @@
-# What we own and owe — page spec (handoff, v1)
+# What we own and owe — page spec (handoff, v2 — full reconciliation)
 
-Design-stage output, first full version. Build to this, not to what may
-currently exist in the repo.
+Design-stage output. Supersedes v1 entirely. v1 was never checked
+against live code — worse than stale, one of its central architectural
+claims was never true at any point. This document is that
+reconciliation, done fresh via direct read of `/net-worth`,
+`/liabilities`, and `/investments`, same discipline as Money Map's,
+Budget's, and Year's own reconciliations.
 
-**Naming decision (new — has a knock-on effect):** this page is named
-"What we own and owe," not "Net worth," "Wealth," or "Assets & debts."
-"Net worth" and "Wealth" name a score to be judged against; this names an
-activity (listing what's true), consistent with the plain-language
-principle governing every other page. **The original nav sketch used
-"Assets & debts" as the label — update that for consistency when this
-page is built**, this isn't just an internal doc title.
+## Resolved: three separate pages stay separate — the spec's single
+merged page was never built, and shouldn't be forced now
 
-## Its one job
+v1 describes one page — a hero net-worth number, a two-segment
+composition bar, a historical trend line, unified "Owned"/"Owed"
+groups, one Ask input. Live reality is three genuinely independent
+routes (`/net-worth`, `/liabilities`, `/investments`), each with its
+own data-loading, and two of the three (Liabilities, Investments) with
+real, substantial CRUD and functionality that grew independently of any
+merged design.
 
-The full, honest picture of what the household owns and owes — assets,
-debts, investments, and net worth — present-tense and detailed. Contrast
-with Money Map's deliberately quiet, collapsed net-worth teaser: that's
-the summary, this is the full page it links to.
+**Resolution: keep three pages.** Same reasoning as Money Map and
+Year — real, working functionality (Liabilities' full archive/restore/
+delete lifecycle; Investments' realtime sync, search, kind taxonomy,
+Valued/Unvalued badges) would be discarded to chase a design that was
+never built and was never checked against what these pages actually
+grew into. `/net-worth` remains the aggregate summary view; Liabilities
+and Investments remain their own real management pages — the same
+"summary links to real management page" relationship Bills already has
+with Money Map.
 
-## This is the most emotionally loaded page in the app — design
-accordingly, same care level as Home
+## Resolved: the "shared calculation" claim was never true — corrected,
+not just updated
 
-Someone arrives here by choosing to click in, unlike Home — so leading
-with a hero number is appropriate, not an ambush. What can't shift is the
-language discipline:
+v1's Cross-reference section states: *"Net worth is a shared calculation
+per page-ownership-map.md's canonical concepts table — this page
+presents it, doesn't independently recompute it."* Confirmed false, not
+merely outdated: `/net-worth` has always computed its own net-worth
+figure standalone, client-side, from three raw Supabase queries. No
+shared calculation is called from anywhere. This isn't drift from a
+past-accurate description — the claim never described reality.
 
-- **State debt plainly, no euphemism.** "The household currently owes
-  approximately $486,000 across two debts" — not "financial commitments,"
-  not softened. Plain and factual is more respectful than vague, even
-  when the fact is unwelcome. This was the care principle from the
-  original review and it's adopted exactly as written.
-- **No color-as-verdict, including on the net worth number itself.** If
-  net worth is negative, it displays plainly, no alarm color, no red. The
-  discipline that's governed every other page applies at full strength
-  here, precisely because this is the page most likely to tempt an
-  exception.
-- **A composition visual (owned vs. owed) is included, and debt does NOT
-  get a warning color.** Same neutral palette treatment as any category
-  elsewhere in the app. This was a real design risk worth naming
-  explicitly: a two-segment "owned/owed" bar could easily read as a shame
-  meter if debt were colored differently from assets. It isn't — see
-  Visual system below.
-- **No manufactured praise for debt reduction or asset growth,** even
-  where it's genuinely positive. Observational language only ("reducing
-  steadily over the last 6 months"), never cheerleading — same
-  "show, don't perform" discipline as everywhere else. A real milestone
-  (a debt paid off entirely) can get the same understated visual delight
-  treatment defined for Goals — this page doesn't invent its own
-  celebration mechanic.
+**The real, correct methodology, as it exists today** (following this
+session's earlier fix): Assets = `cash`/`investment`-type accounts, plus
+`investment_accounts`, summed per currency. Liabilities = `credit`/
+`loan`-type accounts (using `Math.abs()` on their already-negative
+balances), plus the `liabilities` table, summed per currency. Accounts
+with `type === "other"` are excluded from both sides entirely. This is
+now documented correctly in the live page's own explanatory sentence —
+worth reusing that exact wording here as the canonical description,
+since it's already accurate and already shipped:
 
-## Boundary with Accounts (new — same pattern as the Bills/Planned-cost
-boundary)
+> "Assets are cash and investment accounts, plus your Investments list.
+> Liabilities are credit and loan accounts, plus your Liabilities list.
+> Accounts marked 'other' aren't included on either side."
 
-**Accounts owns the factual list** — account name, balance, sync status.
-**This page owns interpretation and detail** — what's invested in,
-property/vehicle valuations, debt terms (interest rate, minimum
-payments), and the net worth calculation itself. They are not duplicating
-each other: an investment account might appear factually on Accounts and
-also have its holdings detail shown here; a property (not a bank account
-at all) only ever appears here.
+## Real bug found this session — not a style inconsistency, an accuracy
+defect
 
-## Fact / estimate / intention (applying the global rule from
-page-ownership-map.md)
+Three pages, three independently-written money formatters, none
+shared, none `<Money>`:
 
-This page has the widest spread of certainty tiers in the app — apply the
-distinction explicitly:
-- **Verified** — a linked account balance (e.g. investment/super account
-  synced directly).
-- **Estimated** — a manually entered or inferred valuation (property,
-  vehicle), shown with "last updated" so staleness is visible, not
-  assumed current.
+- `/net-worth`: local `fmtMoneyFromCents()`.
+- `/liabilities`: a separately-duplicated near-identical local
+  `fmtMoneyFromCents()` — not imported from `/net-worth`'s or anywhere
+  shared, despite the near-identical implementation.
+- `/investments`: local `money()`, with **two real bugs**, not one —
+  hardcoded `"en-AU"` locale (same category of issue Budget had before
+  this session's fix) **and `maximumFractionDigits: 0`, which silently
+  drops cents on every dollar figure on this page.** An investment
+  worth $45,678.90 displays as $45,679 — a real, live accuracy loss on
+  a page showing people's actual financial holdings, not a cosmetic gap.
 
-## Visual system (references docs/product/visual-design-system.md)
+**This is the fourth instance of the same duplication pattern found
+this session** (account classification, cash-total/year-summary,
+Budget's local formatter) — worth treating as a known, recurring habit
+in this codebase to check for on every future page audit, not a
+one-off surprise each time.
 
-This is an explore page, same register as Money Map/Budget/Goals — full
-visual richness is correct here, not restraint.
+## Real, working sections with no spec equivalent — kept, not rebuilt
 
-- **Hero number** for the headline figure, typography-led, same language
-  as Money Map's safe-to-spend.
-- **Composition bar**: two segments, Owned vs. Owed, using two ordinary
-  category-palette colors — never a warning/status color for the "owed"
-  segment. Same segmented-bar visual grammar as Money Map's Out
-  breakdown and Budget's composition bar, reused deliberately for
-  consistency across the app.
-- **Long-range net worth trend line**: historical only (no projected/
-  dashed portion needed — this is a different timescale and purpose from
-  Year at a glance's short-term cash projection, not a duplicate of it).
-  Solid throughout, neutral color, draws in on load per the established
-  motion discipline.
-- Category-appropriate icons per asset/debt type, real palette,
-  deterministic mapping.
-- Tabular numerals throughout.
+- **Liabilities' full lifecycle**: add, inline edit, archive/restore,
+  delete (with confirmation) — none of this described in v1 at all.
+- **Investments' realtime sync** (Live/Offline/Connecting), search,
+  kind taxonomy (brokerage/super/crypto/property/other),
+  Valued/Unvalued badges, top-5-then-show-all pagination — real,
+  substantial functionality with no spec equivalent whatsoever.
 
-## Layout
+Neither needs redesigning. Both need the same visual-polish pass
+(`<Money>`, motion) as everything else, once that work happens.
 
-1. Hero: total figure + one plain sentence stating both sides ("owes
-   approximately $486,000... against $700,300 owned").
-2. Composition bar + legend.
-3. Long-range trend line.
-4. **Owned** group: property, vehicles, investment holdings detail — each
-   row shows verified/estimated status and last-updated where relevant.
-5. **Owed** group: each debt with terms (rate, etc.) and an observational
-   sentence only where genuinely notable (a real trend, not "on track"
-   framing).
-6. Ask input, anchored.
+## Real gaps, sized honestly
 
-## What a person can do
+**Tier 1 — the formatter bug, real and urgent:** migrate all three
+pages to `<Money>`, which resolves the duplication *and* the
+dropped-cents defect on Investments in the same change. Drop the
+hardcoded locale on Investments' formatter the same way Budget's was
+dropped, matching runtime-default-locale behavior used everywhere else.
 
-Add/edit an asset or debt, manually update or re-estimate a valuation
-(flagged as estimated, with a timestamp), view full detail, ask about
-anything on the page.
+**Tier 2 — visual polish, straightforward, not blocked on anything:**
+motion (`useCountUp` on the summary figures, `.motion-fill` on any bar
+elements once they exist) — currently zero motion anywhere across all
+three pages.
 
-## Non-goals
+**Tier 3 — genuinely new features, real future work, not attempted
+now:**
+- Property/vehicle valuations and debt terms (interest rate, minimum
+  payments) — v1 calls for these on Liabilities; neither exists in the
+  live schema or UI today. Real scope, needs its own design pass.
+- Verified/Estimated certainty tiers with staleness disclosure — v1
+  calls for this; doesn't exist live. Same shape as Income's
+  `confidence_tier` work — a real schema-plus-UI feature, not a quick
+  addition.
+- The hero number / composition bar / trend line visual redesign of
+  `/net-worth` itself — v1's original vision for this page's *look*
+  remains a legitimate future direction, but shouldn't be attempted
+  until the underlying architecture question (three pages, not one) is
+  settled here, which this reconciliation now does. Worth its own pass,
+  same as Home's still-unbuilt design.
 
-- No performance framing of debt reduction or asset growth as a "score."
-- No color-as-verdict anywhere, including the headline number.
-- No duplication of Accounts' factual account list — this page shows
-  interpretation and non-account assets, not a second copy of Accounts.
+## Non-goals, reconfirmed
 
-## Cross-reference
+No merge of the three pages into one. No color-as-verdict on Liabilities
+or Investments (unaudited for this specifically — worth a quick check
+during the Tier 1/2 pass, same as every other page's risk-color
+scrutiny this session).
 
-Net worth is a shared calculation per page-ownership-map.md's canonical
-concepts table — this page presents it, doesn't independently recompute
-it. Debt principal payments also affect flexible cash per
-forecast-balance-semantics.md — that's Money Map/Year's concern, not
-recalculated separately here, but worth knowing the same underlying data
-feeds both.
+## Summary of what this reconciliation resolves
+
+1. Architecture — settled. Three pages stay three pages; the spec's
+   false "shared calculation" claim is corrected to describe what's
+   actually built.
+2. The real net-worth methodology — documented accurately for the first
+   time, reusing the live page's own already-correct explanatory
+   sentence as the canonical wording.
+3. A real, live accuracy bug (dropped cents on Investments) — flagged
+   as Tier 1, fixed as a natural consequence of the `<Money>` migration
+   already planned for every page.
+4. Two pages' real, substantial functionality — documented as real and
+   staying, same treatment as Money Map's and Year's own real sections.
+5. Two genuinely new features (valuations/debt terms, certainty tiers)
+   — sized honestly as Tier 3, not conflated with the visual-polish
+   work that can happen now.
