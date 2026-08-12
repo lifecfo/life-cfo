@@ -6,6 +6,7 @@ import Link from "next/link";
 import { supabase } from "@/lib/supabaseClient";
 import { Page } from "@/components/Page";
 import { Card, CardContent, Money, useToast } from "@/components/ui";
+import { useCountUp } from "@/lib/ui/useCountUp";
 
 export const dynamic = "force-dynamic";
 
@@ -50,6 +51,15 @@ type Bucket = {
   liabilities: Liability[];
   investments: InvestmentAccountRow[];
 };
+
+// useCountUp can't be called inside a .map() callback (hooks rule) --
+// this wraps it so each animated figure is its own component instance,
+// same pattern as Money Map/Year. Scoped to the three bucket summary
+// figures (Assets, Liabilities, Net) -- not the per-item list rows.
+function AnimatedMoney({ cents, currency }: { cents: number; currency: string }) {
+  const animated = useCountUp(cents);
+  return <Money cents={Math.round(animated)} currency={currency} />;
+}
 
 export default function NetWorthPage() {
   const { toast } = useToast();
@@ -216,21 +226,21 @@ export default function NetWorthPage() {
                     <div>
                       <div className="text-xs text-zinc-500">Assets</div>
                       <div className="text-base font-medium text-zinc-900">
-                        <Money cents={b.assetsCents} currency={b.currency} />
+                        <AnimatedMoney cents={b.assetsCents} currency={b.currency} />
                       </div>
                     </div>
 
                     <div>
                       <div className="text-xs text-zinc-500">Liabilities</div>
                       <div className="text-base font-medium text-zinc-900">
-                        <Money cents={b.liabilitiesCents} currency={b.currency} />
+                        <AnimatedMoney cents={b.liabilitiesCents} currency={b.currency} />
                       </div>
                     </div>
 
                     <div>
                       <div className="text-xs text-zinc-500">Net</div>
                       <div className="text-base font-medium text-zinc-900">
-                        <Money cents={b.netCents} currency={b.currency} />
+                        <AnimatedMoney cents={b.netCents} currency={b.currency} />
                       </div>
                     </div>
                   </div>

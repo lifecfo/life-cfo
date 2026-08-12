@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { Page } from "@/components/Page";
 import { Button, Card, CardContent, Chip, Money, useToast } from "@/components/ui";
+import { useCountUp } from "@/lib/ui/useCountUp";
 
 export const dynamic = "force-dynamic";
 
@@ -34,6 +35,15 @@ function normCurrency(input: string) {
   if (!v) return "AUD";
   // keep simple: 3-letter code expected
   return v.slice(0, 3);
+}
+
+// useCountUp can't be called inside a .map() callback (hooks rule) --
+// this wraps it so each animated figure is its own component instance,
+// same pattern as Money Map/Year. Scoped to the total-owed-by-currency
+// line -- not the per-debt list rows.
+function AnimatedMoney({ cents, currency }: { cents: number; currency: string }) {
+  const animated = useCountUp(cents);
+  return <Money cents={Math.round(animated)} currency={currency} />;
 }
 
 export default function LiabilitiesPage() {
@@ -333,7 +343,7 @@ export default function LiabilitiesPage() {
                 {totalsByCurrency.map(([cur, cents], idx) => (
                   <span key={cur}>
                     {idx ? " · " : ""}
-                    <Money cents={cents} currency={cur} />
+                    <AnimatedMoney cents={cents} currency={cur} />
                   </span>
                 ))}
               </span>

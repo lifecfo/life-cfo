@@ -6,6 +6,7 @@ import { supabase } from "@/lib/supabaseClient";
 import { Page } from "@/components/Page";
 import { Card, CardContent, Chip, Badge, Money, useToast } from "@/components/ui";
 import { AssistedSearch } from "@/components/AssistedSearch";
+import { useCountUp } from "@/lib/ui/useCountUp";
 
 export const dynamic = "force-dynamic";
 
@@ -43,6 +44,15 @@ function toNumberOrNull(v: string) {
   if (!t) return null;
   const n = Number(t.replace(/,/g, ""));
   return Number.isFinite(n) ? n : null;
+}
+
+// useCountUp can't be called inside a .map() callback (hooks rule) --
+// this wraps it so each animated figure is its own component instance,
+// same pattern as Money Map/Year. Scoped to the approx-total-by-currency
+// line -- not the per-item list rows.
+function AnimatedMoney({ cents, currency }: { cents: number; currency: string }) {
+  const animated = useCountUp(cents);
+  return <Money cents={Math.round(animated)} currency={currency} />;
 }
 
 const KIND_OPTIONS: { value: string; label: string }[] = [
@@ -425,7 +435,7 @@ export default function InvestmentsPage() {
             {approxTotalsByCurrency.map(([cur, val], idx) => (
               <span key={cur}>
                 {idx ? " · " : ""}
-                <Money cents={Math.round(val * 100)} currency={cur} />
+                <AnimatedMoney cents={Math.round(val * 100)} currency={cur} />
               </span>
             ))}
           </div>
