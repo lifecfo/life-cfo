@@ -4,8 +4,9 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Page } from "@/components/Page";
-import { Card, CardContent, Chip, useToast } from "@/components/ui";
+import { Card, CardContent, Chip, Money, useToast } from "@/components/ui";
 import { formatMoneyFromCents } from "@/lib/money/formatMoney";
+import { categoryColorSlot, categoryColorClasses } from "@/lib/ui/categoryColorSlot";
 import type { MoneyDataCoverage } from "@/lib/money/reasoning/types";
 
 type MoneyRow = {
@@ -112,6 +113,14 @@ export default function OutClient() {
 
   const out = data?.out_flow;
 
+  const categoryRows = out?.top_categories ?? [];
+  const categoryTotalCents = categoryRows.reduce((sum, row) => sum + (row.cents || 0), 0);
+  const categorySegments = categoryRows.map((row) => ({
+    ...row,
+    classes: categoryColorClasses(categoryColorSlot(row.category)),
+    percent: categoryTotalCents > 0 ? (row.cents / categoryTotalCents) * 100 : 0,
+  }));
+
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
     setError(null);
@@ -162,6 +171,33 @@ export default function OutClient() {
             <div className="text-xs text-zinc-500">
               Recurring total: {loading ? "Loading..." : renderMoneyRows(out?.recurring_bills_total_by_currency ?? [])}
             </div>
+          </CardContent>
+        </Card>
+
+        <Card className="border-zinc-200 bg-white">
+          <CardContent className="space-y-3">
+            <div className="text-sm font-semibold text-zinc-900">Where it went</div>
+            {loading ? (
+              <div className="text-xs text-zinc-500">Loading...</div>
+            ) : categorySegments.length === 0 ? (
+              <div className="text-xs text-zinc-500">No categorized spending yet.</div>
+            ) : (
+              <>
+                <div className="flex h-3 w-full overflow-hidden rounded-full bg-zinc-100">
+                  {categorySegments.map((seg) => (
+                    <div key={seg.category} className={seg.classes.bg} style={{ width: `${seg.percent}%` }} />
+                  ))}
+                </div>
+                <div className="flex flex-wrap gap-3 text-xs text-zinc-500">
+                  {categorySegments.map((seg) => (
+                    <span key={seg.category} className="inline-flex items-center gap-1.5">
+                      <span className={`h-2 w-2 rounded-full ${seg.classes.bg}`} />
+                      {seg.category}: <Money cents={seg.cents} currency="AUD" />
+                    </span>
+                  ))}
+                </div>
+              </>
+            )}
           </CardContent>
         </Card>
 
@@ -224,7 +260,6 @@ export default function OutClient() {
           <CardContent className="space-y-3">
             <div className="text-sm font-semibold text-zinc-900">Open related pages</div>
             <div className="space-y-1 text-xs text-zinc-500">
-              <div>Top category: {(out?.top_categories ?? [])[0]?.category || "No clear category yet."}</div>
               <div>Top merchant: {(out?.top_merchants ?? [])[0]?.merchant || "No clear merchant name yet."}</div>
               {data?.data_coverage?.has_reference_only_sources ? (
                 <div>Older linked sources are kept for reference and are not included here.</div>
