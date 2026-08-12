@@ -70,6 +70,21 @@ footer built earlier this session.
    deliberate design session, not folded into a mechanical migration
    pass.
 
+## Real follow-up, found while executing the Tier 3 migration: 5 call
+sites don't migrate mechanically
+
+`<Money>` migration and motion were applied to every directly-rendered
+dollar figure on this page. Five `formatMoneyFromCents()` call sites
+remain unmigrated, and it's not an oversight: they're baked into
+`HomeNowItem.title`/`.detail` string fields (feeding the
+`whatMattersNow`/`comingUpItems` computations), resolved to plain text
+before the value ever reaches JSX — a `<Money>` element can't be
+embedded inside an already-resolved string. Converting these requires
+changing those fields from `string` to `ReactNode`, a real structural
+change touching two `useMemo` computations and the "Coming up" card's
+render, not a mechanical formatter swap. Flagged as a real follow-up,
+not attempted in this pass.
+
 ## Non-goals for this pass
 
 - No revival of "What matters now" in any form.
