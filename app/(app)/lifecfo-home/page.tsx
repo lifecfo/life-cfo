@@ -1,14 +1,15 @@
 // app/(app)/lifecfo-home/page.tsx
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { Page } from "@/components/Page";
-import { Card, CardContent, Chip, Button, useToast } from "@/components/ui";
+import { Card, CardContent, Chip, Button, Money, useToast } from "@/components/ui";
 import { useAsk } from "@/components/ask/AskProvider";
 import { useRouter } from "next/navigation";
 import { maybeCrisisIntercept } from "@/lib/safety/guard";
 import { formatMoneyFromCents } from "@/lib/money/formatMoney";
+import { useCountUp } from "@/lib/ui/useCountUp";
 import type {
   MoneyByCurrencyRow,
   MoneyDataCoverage,
@@ -184,6 +185,16 @@ function visibleMoneySummary(coverage: MoneyDataCoverage) {
   return coverage.has_demo_sources
     ? "Life CFO can see recent demo transactions for this household."
     : "Life CFO can see recent transactions for this household.";
+}
+
+// useCountUp can't be called inside a .map() callback (hooks rule) --
+// this wraps it so each animated figure is its own component instance,
+// same pattern as every other page this session. Scoped to this page's
+// summary-level amounts (there are no per-item list rows here to
+// exclude -- every dollar figure on Home is already an aggregate).
+function AnimatedMoney({ cents, currency }: { cents: number; currency: string }) {
+  const animated = useCountUp(cents);
+  return <Money cents={Math.round(animated)} currency={currency} />;
 }
 
 /* ---------- types ---------- */
@@ -819,10 +830,10 @@ Follow-up question: ${fu}`
                   <div className="rounded-3xl bg-zinc-50 px-5 py-5">
                     <div className="text-sm text-zinc-600">Left after planned bills</div>
                     <div className="mt-1 text-3xl font-semibold tracking-tight text-zinc-950">
-                      {formatMoneyFromCents(
-                        homeSummary.likely_breathing_room_cents,
-                        homeSummary.currency
-                      )}
+                      <AnimatedMoney
+                        cents={homeSummary.likely_breathing_room_cents}
+                        currency={homeSummary.currency}
+                      />
                     </div>
                     <div className="mt-2 text-sm leading-6 text-zinc-600">
                       Estimate after bills expected over the next 30 days.
@@ -833,7 +844,7 @@ Follow-up question: ${fu}`
                       </div>
                     ) : null}
                     <div className="mt-3 text-sm text-zinc-700">
-                      Visible cash: {formatMoneyFromCents(homeSummary.available_cash_cents, homeSummary.currency)}
+                      Visible cash: <AnimatedMoney cents={homeSummary.available_cash_cents} currency={homeSummary.currency} />
                     </div>
                   </div>
 
@@ -847,8 +858,24 @@ Follow-up question: ${fu}`
                       role="img"
                       aria-label={`${plannedPercent}% expected bills and ${flexiblePercent}% flexible after known bills`}
                     >
-                      <div className="bg-zinc-400" style={{ width: `${plannedPercent}%` }} />
-                      <div className="bg-zinc-700" style={{ width: `${flexiblePercent}%` }} />
+                      <div
+                        className="motion-fill bg-cfo"
+                        style={
+                          {
+                            width: `${plannedPercent}%`,
+                            "--fill-target": `${plannedPercent}%`,
+                          } as CSSProperties
+                        }
+                      />
+                      <div
+                        className="motion-fill bg-cfo/25"
+                        style={
+                          {
+                            width: `${flexiblePercent}%`,
+                            "--fill-target": `${flexiblePercent}%`,
+                          } as CSSProperties
+                        }
+                      />
                     </div>
                     <div className="space-y-2 text-sm">
                       <div className="flex items-start justify-between gap-4">
@@ -863,7 +890,7 @@ Follow-up question: ${fu}`
                           </div>
                         </div>
                         <div className="shrink-0 font-medium text-zinc-900">
-                          {formatMoneyFromCents(homeSummary.planned_expenses_cents, homeSummary.currency)}
+                          <AnimatedMoney cents={homeSummary.planned_expenses_cents} currency={homeSummary.currency} />
                         </div>
                       </div>
                       <div className="flex items-start justify-between gap-4 border-t border-zinc-100 pt-2">
@@ -872,7 +899,7 @@ Follow-up question: ${fu}`
                           <div className="text-xs text-zinc-500">Flexible after known bills.</div>
                         </div>
                         <div className="shrink-0 font-medium text-zinc-900">
-                          {formatMoneyFromCents(homeSummary.likely_breathing_room_cents, homeSummary.currency)}
+                          <AnimatedMoney cents={homeSummary.likely_breathing_room_cents} currency={homeSummary.currency} />
                         </div>
                       </div>
                     </div>
@@ -882,9 +909,11 @@ Follow-up question: ${fu}`
                     <div className="rounded-2xl border border-zinc-200 px-4 py-3">
                       <div className="text-sm font-medium text-zinc-900">Everyday estimate</div>
                       <div className="mt-1 text-base font-medium text-zinc-900">
-                        {homeSummary.grocery_estimate_cents
-                          ? formatMoneyFromCents(homeSummary.grocery_estimate_cents, homeSummary.currency)
-                          : "Not clear yet"}
+                        {homeSummary.grocery_estimate_cents ? (
+                          <AnimatedMoney cents={homeSummary.grocery_estimate_cents} currency={homeSummary.currency} />
+                        ) : (
+                          "Not clear yet"
+                        )}
                       </div>
                       <div className="mt-1 text-xs leading-5 text-zinc-500">
                         {homeSummary.grocery_estimate_cents
@@ -903,12 +932,18 @@ Follow-up question: ${fu}`
                           </div>
                           <div className="h-2 overflow-hidden rounded-full bg-zinc-100">
                             <div
-                              className="h-full rounded-full bg-zinc-600"
-                              style={{ width: `${homeSummary.primary_goal.progress_percent}%` }}
+                              className="motion-fill h-full rounded-full bg-cfo"
+                              style={
+                                {
+                                  width: `${homeSummary.primary_goal.progress_percent}%`,
+                                  "--fill-target": `${homeSummary.primary_goal.progress_percent}%`,
+                                } as CSSProperties
+                              }
                             />
                           </div>
                           <div className="text-xs leading-5 text-zinc-500">
-                            {formatMoneyFromCents(homeSummary.primary_goal.current_cents, homeSummary.primary_goal.currency)} of {formatMoneyFromCents(homeSummary.primary_goal.target_cents, homeSummary.primary_goal.currency)}. Tracked separately from visible cash.
+                            <AnimatedMoney cents={homeSummary.primary_goal.current_cents} currency={homeSummary.primary_goal.currency} /> of{" "}
+                            <AnimatedMoney cents={homeSummary.primary_goal.target_cents} currency={homeSummary.primary_goal.currency} />. Tracked separately from visible cash.
                           </div>
                         </div>
                       ) : (
@@ -923,7 +958,7 @@ Follow-up question: ${fu}`
                     <div className="rounded-2xl bg-zinc-50 px-4 py-3">
                       <div className="text-xs text-zinc-500">Money In</div>
                       <div className="mt-1 text-base font-medium text-zinc-900">
-                        {formatMoneyFromCents(homeSummary.money_in_cents, homeSummary.currency)}
+                        <AnimatedMoney cents={homeSummary.money_in_cents} currency={homeSummary.currency} />
                       </div>
                       <div className="mt-1 text-xs text-zinc-500">This month.</div>
                     </div>
