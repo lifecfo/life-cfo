@@ -239,6 +239,38 @@ indicator), this assessment should be revisited then — the "acceptable"
 call above was made partly on low practical risk, and that risk profile
 changes once the token is actually rendered somewhere.
 
+### Multi-line charts — resolved (money in / money out / difference, Year at a glance)
+
+The pattern above was written for a single primary line and didn't
+address what a second or third simultaneous data series should look
+like — confirmed a real gap, not an oversight to infer around, when
+Year at a glance's actual chart (three concurrent lines: money in,
+money out, difference) needed an answer this section didn't provide.
+
+**Resolution: one accent, stepped by opacity, not three separate
+colors.** The primary line (money in) uses full-strength teal
+(`#1F5E5C`); the second line (money out) uses teal at ~60% opacity; the
+third (difference) uses teal at ~25% opacity — the same three-step scale
+already established on Budget's composition bar, reused here rather
+than inventing a second scheme. Achieve every step via opacity on the
+core teal value directly (e.g. Tailwind's `/60`, `/25` modifiers), same
+discipline as the projected/estimated-segment rule above — never by
+reaching for `cfo.light`/`brand.aqua` or any other separately named
+token. **A legend labeling each line by name is required whenever more
+than one line shares the same hue** — same-hue lines aren't reliably
+distinguishable by color alone without one.
+
+**Hibiscus stays reserved exclusively for point-in-time markers** (e.g.
+"now" on a forecast line) **and must never be used for a second or
+third trend line.** This was implicit in the original pattern's wording
+("a genuinely neutral point-in-time reference") but is now explicit,
+since the multi-line question could otherwise be misread as making
+hibiscus available as a default second-line color.
+
+This resolution is the one to inherit for Money Map's "In" sparkline and
+Assets & debts' net worth trend when either becomes a genuinely
+multi-line chart — settled here once, not re-decided per page.
+
 ---
 
 ## 6. Contextual tips

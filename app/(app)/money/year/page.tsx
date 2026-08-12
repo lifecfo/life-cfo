@@ -111,25 +111,25 @@ function YearTimelineChart({ timeline }: { timeline: MoneyTimelineCurrency }) {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="text-sm font-medium text-zinc-900">{timeline.currency}</div>
         <div className="flex flex-wrap gap-3 text-xs text-zinc-600" aria-hidden="true">
-          <span><span className="mr-1 inline-block h-2 w-2 rounded-full bg-emerald-600" />Money in</span>
-          <span><span className="mr-1 inline-block h-2 w-2 rounded-full bg-zinc-700" />Money out</span>
-          <span><span className="mr-1 inline-block h-2 w-2 rounded-full bg-sky-600" />Difference</span>
+          <span><span className="mr-1 inline-block h-2 w-2 rounded-full bg-cfo" />Money in</span>
+          <span><span className="mr-1 inline-block h-2 w-2 rounded-full bg-cfo/60" />Money out</span>
+          <span><span className="mr-1 inline-block h-2 w-2 rounded-full bg-cfo/25" />Difference</span>
         </div>
       </div>
       <div className="overflow-x-auto">
         <svg viewBox={`0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`} className="min-w-[720px]" role="img" aria-label={`Twelve month timeline for ${timeline.currency}`}>
           <line x1={CHART_LEFT} x2={CHART_WIDTH - CHART_RIGHT} y1={zeroY} y2={zeroY} stroke="#d4d4d8" strokeDasharray="4 4" />
-          <polyline points={points(timeline, "known_money_in_cents")} fill="none" stroke="#059669" strokeWidth="4" strokeLinejoin="round" strokeLinecap="round" />
-          <polyline points={points(timeline, "known_money_out_cents")} fill="none" stroke="#3f3f46" strokeWidth="4" strokeLinejoin="round" strokeLinecap="round" />
-          <polyline points={points(timeline, "difference_cents")} fill="none" stroke="#0284c7" strokeWidth="4" strokeLinejoin="round" strokeLinecap="round" />
+          <polyline points={points(timeline, "known_money_in_cents")} fill="none" strokeWidth="4" strokeLinejoin="round" strokeLinecap="round" className="stroke-cfo" />
+          <polyline points={points(timeline, "known_money_out_cents")} fill="none" strokeWidth="4" strokeLinejoin="round" strokeLinecap="round" className="stroke-cfo/60" />
+          <polyline points={points(timeline, "difference_cents")} fill="none" strokeWidth="4" strokeLinejoin="round" strokeLinecap="round" className="stroke-cfo/25" />
           {timeline.months.map((month, index) => {
             const x = chartX(index, timeline.months.length);
             return (
               <g key={month.month_key}>
                 <title>{`${month.label}: money in ${formatMoneyFromCents(month.known_money_in_cents, timeline.currency)}, money out ${formatMoneyFromCents(month.known_money_out_cents, timeline.currency)}, difference ${formatMoneyFromCents(month.difference_cents, timeline.currency)}`}</title>
-                <circle cx={x} cy={chartY(month.known_money_in_cents, timeline)} r="5" fill="#059669" />
-                <circle cx={x} cy={chartY(month.known_money_out_cents, timeline)} r="5" fill="#3f3f46" />
-                <circle cx={x} cy={chartY(month.difference_cents, timeline)} r="5" fill="#0284c7" />
+                <circle cx={x} cy={chartY(month.known_money_in_cents, timeline)} r="5" className="fill-cfo" />
+                <circle cx={x} cy={chartY(month.known_money_out_cents, timeline)} r="5" className="fill-cfo/60" />
+                <circle cx={x} cy={chartY(month.difference_cents, timeline)} r="5" className="fill-cfo/25" />
                 {month.needs_closer_look ? (
                   <circle
                     cx={x}
