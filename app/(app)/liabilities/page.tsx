@@ -4,7 +4,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { Page } from "@/components/Page";
-import { Button, Card, CardContent, Chip, useToast } from "@/components/ui";
+import { Button, Card, CardContent, Chip, Money, useToast } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
 
@@ -27,19 +27,6 @@ function toCents(input: string) {
   const n = Number(cleaned);
   if (!Number.isFinite(n)) return null;
   return Math.round(n * 100);
-}
-
-function fmtMoneyFromCents(cents: number, currency: string) {
-  const amount = cents / 100;
-  try {
-    return new Intl.NumberFormat(undefined, {
-      style: "currency",
-      currency,
-      maximumFractionDigits: 2,
-    }).format(amount);
-  } catch {
-    return `${currency} ${amount.toFixed(2)}`;
-  }
 }
 
 function normCurrency(input: string) {
@@ -346,7 +333,7 @@ export default function LiabilitiesPage() {
                 {totalsByCurrency.map(([cur, cents], idx) => (
                   <span key={cur}>
                     {idx ? " · " : ""}
-                    {fmtMoneyFromCents(cents, cur)}
+                    <Money cents={cents} currency={cur} />
                   </span>
                 ))}
               </span>
@@ -382,7 +369,7 @@ export default function LiabilitiesPage() {
                           </div>
 
                           <div className="shrink-0 text-sm font-medium text-zinc-900">
-                            {fmtMoneyFromCents(x.current_balance_cents ?? 0, x.currency || "AUD")}
+                            <Money cents={x.current_balance_cents ?? 0} currency={x.currency || "AUD"} />
                           </div>
                         </div>
 

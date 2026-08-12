@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabaseClient";
 import { Page } from "@/components/Page";
-import { Card, CardContent, useToast } from "@/components/ui";
+import { Card, CardContent, Money, useToast } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
 
@@ -40,20 +40,6 @@ type InvestmentAccountRow = {
   approx_value: number | null; // stored in whole dollars, not cents
   currency: string | null;
 };
-
-function fmtMoneyFromCents(cents: number, currency: string) {
-  const amount = cents / 100;
-  try {
-    return new Intl.NumberFormat(undefined, {
-      style: "currency",
-      currency,
-      maximumFractionDigits: 2,
-    }).format(amount);
-  } catch {
-    const sign = amount < 0 ? "-" : "";
-    return `${sign}${currency} ${Math.abs(amount).toFixed(2)}`;
-  }
-}
 
 type Bucket = {
   currency: string;
@@ -230,21 +216,21 @@ export default function NetWorthPage() {
                     <div>
                       <div className="text-xs text-zinc-500">Assets</div>
                       <div className="text-base font-medium text-zinc-900">
-                        {fmtMoneyFromCents(b.assetsCents, b.currency)}
+                        <Money cents={b.assetsCents} currency={b.currency} />
                       </div>
                     </div>
 
                     <div>
                       <div className="text-xs text-zinc-500">Liabilities</div>
                       <div className="text-base font-medium text-zinc-900">
-                        {fmtMoneyFromCents(b.liabilitiesCents, b.currency)}
+                        <Money cents={b.liabilitiesCents} currency={b.currency} />
                       </div>
                     </div>
 
                     <div>
                       <div className="text-xs text-zinc-500">Net</div>
                       <div className="text-base font-medium text-zinc-900">
-                        {fmtMoneyFromCents(b.netCents, b.currency)}
+                        <Money cents={b.netCents} currency={b.currency} />
                       </div>
                     </div>
                   </div>
@@ -270,7 +256,7 @@ export default function NetWorthPage() {
                             <div className="truncate text-sm text-zinc-800">{a.name}</div>
                           </div>
                           <div className="shrink-0 text-sm text-zinc-800">
-                            {fmtMoneyFromCents(a.current_balance_cents ?? 0, b.currency)}
+                            <Money cents={a.current_balance_cents ?? 0} currency={b.currency} />
                           </div>
                         </div>
                       ))}
@@ -295,7 +281,7 @@ export default function NetWorthPage() {
                             ) : null}
                           </div>
                           <div className="shrink-0 text-sm text-zinc-800">
-                            {fmtMoneyFromCents(l.current_balance_cents ?? 0, b.currency)}
+                            <Money cents={l.current_balance_cents ?? 0} currency={b.currency} />
                           </div>
                         </div>
                       ))}
@@ -317,7 +303,7 @@ export default function NetWorthPage() {
                             <div className="truncate text-sm text-zinc-800">{inv.name}</div>
                           </div>
                           <div className="shrink-0 text-sm text-zinc-800">
-                            {fmtMoneyFromCents(Math.round((inv.approx_value ?? 0) * 100), b.currency)}
+                            <Money cents={Math.round((inv.approx_value ?? 0) * 100)} currency={b.currency} />
                           </div>
                         </div>
                       ))}

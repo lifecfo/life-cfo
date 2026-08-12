@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { Page } from "@/components/Page";
-import { Card, CardContent, Chip, Badge, useToast } from "@/components/ui";
+import { Card, CardContent, Chip, Badge, Money, useToast } from "@/components/ui";
 import { AssistedSearch } from "@/components/AssistedSearch";
 
 export const dynamic = "force-dynamic";
@@ -43,19 +43,6 @@ function toNumberOrNull(v: string) {
   if (!t) return null;
   const n = Number(t.replace(/,/g, ""));
   return Number.isFinite(n) ? n : null;
-}
-
-function money(n: number | null | undefined, currency = "AUD") {
-  if (typeof n !== "number" || !Number.isFinite(n)) return "";
-  try {
-    return new Intl.NumberFormat("en-AU", {
-      style: "currency",
-      currency: currency || "AUD",
-      maximumFractionDigits: 0,
-    }).format(n);
-  } catch {
-    return `${currency || "AUD"} ${Math.round(n)}`;
-  }
 }
 
 const KIND_OPTIONS: { value: string; label: string }[] = [
@@ -438,7 +425,7 @@ export default function InvestmentsPage() {
             {approxTotalsByCurrency.map(([cur, val], idx) => (
               <span key={cur}>
                 {idx ? " · " : ""}
-                {money(val, cur)}
+                <Money cents={Math.round(val * 100)} currency={cur} />
               </span>
             ))}
           </div>
@@ -588,7 +575,12 @@ export default function InvestmentsPage() {
                             <div className="mt-1 text-xs text-zinc-500">
                               {it.kind ? `Type: ${it.kind}` : "Investment input"}
                               {it.institution ? ` • ${it.institution}` : ""}
-                              {typeof it.approx_value === "number" ? ` • ${money(it.approx_value, it.currency ?? "AUD")}` : ""}
+                              {typeof it.approx_value === "number" ? (
+                                <>
+                                  {" • "}
+                                  <Money cents={Math.round(it.approx_value * 100)} currency={it.currency ?? "AUD"} />
+                                </>
+                              ) : null}
                             </div>
                             <div className="mt-2 flex flex-wrap gap-2">
                               {it.kind ? <Chip title="Type">{it.kind}</Chip> : null}
