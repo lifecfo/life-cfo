@@ -76,7 +76,7 @@ rather than over-specifying here.
 Of everything discussed in the graphics review, this is the only
 target that's simultaneously (a) genuinely unblocked — real data,
 already computed, zero new fetches — and (b) a real first use of the
-category palette beyond Transactions' small icons, which is exactly
+category palette anywhere in the app, which is exactly
 the kind of "built once, barely used" infrastructure this session has
 been actively working to put to real use. Net worth's historical trend
 chart (flagged during the graphics review as arguably higher-value
