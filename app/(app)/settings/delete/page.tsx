@@ -18,7 +18,7 @@ type DeleteBlocker = {
 
 type DeletePreflight = {
   ok: true;
-  self_service_allowed: false;
+  self_service_allowed: boolean;
   blockers: DeleteBlocker[];
   message: string;
 };
@@ -37,6 +37,9 @@ export default function DeleteAccountPage() {
   const [preflight, setPreflight] = useState<DeletePreflight | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
+  const [confirmText, setConfirmText] = useState("");
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -72,7 +75,7 @@ export default function DeleteAccountPage() {
   return (
     <Page
       title="Delete account"
-      subtitle="Account deletion is handled with support during private beta."
+      subtitle="Download your data first if you want a copy. Deletion removes this account."
       right={
         <div className="flex items-center gap-2">
           <Chip onClick={() => router.push("/settings")}>Back to Settings</Chip>
@@ -83,11 +86,9 @@ export default function DeleteAccountPage() {
         <Card className="border-zinc-200 bg-white">
           <CardContent>
             <div className="space-y-3">
-              <div className="text-sm font-semibold text-zinc-900">
-                Account deletion is handled with support during private beta.
-              </div>
+              <div className="text-sm font-semibold text-zinc-900">Delete this account</div>
               <div className="text-sm text-zinc-700">
-                This helps us make sure shared household information and bank connections are handled safely.
+                If you share a household and you are not the only owner, the household can stay for the other people. If you are the only person in a household, that household is deleted with the account.
               </div>
               {loading ? (
                 <div className="text-sm text-zinc-500">Checking your households…</div>
@@ -110,17 +111,43 @@ export default function DeleteAccountPage() {
                   ))}
                 </div>
               ) : null}
-              {loadError ? (
-                <div className="text-sm text-zinc-600">
-                  We couldn’t check every detail yet. Support can still help.
+              {loadError ? <div className="text-sm text-zinc-600">{loadError}</div> : null}
+              {!loading && preflight?.self_service_allowed ? (
+                <div className="space-y-2">
+                  <div className="text-sm text-zinc-700">Type DELETE to confirm.</div>
+                  <input
+                    value={confirmText}
+                    onChange={(event) => setConfirmText(event.target.value)}
+                    className="w-full rounded-2xl border border-zinc-200 px-4 py-3 text-sm"
+                  />
+                  {deleteError ? <div className="text-sm text-zinc-600">{deleteError}</div> : null}
+                  <button
+                    type="button"
+                    className="rounded-xl border border-rose-200 bg-white px-3 py-2 text-sm font-medium text-rose-700 hover:bg-rose-50 disabled:opacity-50"
+                    disabled={deleting || confirmText !== "DELETE"}
+                    onClick={() => {
+                      setDeleting(true);
+                      setDeleteError("");
+                      void fetch("/api/delete-account", {
+                        method: "POST",
+                        headers: { "content-type": "application/json" },
+                        body: JSON.stringify({ confirm: "DELETE" }),
+                      })
+                        .then(async (response) => {
+                          const json = (await response.json().catch(() => ({}))) as { error?: string };
+                          if (!response.ok) throw new Error(json.error || "Couldn't delete the account.");
+                          window.location.assign("/login");
+                        })
+                        .catch((error: unknown) => {
+                          setDeleteError(error instanceof Error ? error.message : "Couldn't delete the account.");
+                          setDeleting(false);
+                        });
+                    }}
+                  >
+                    {deleting ? "Deleting…" : "Delete my account"}
+                  </button>
                 </div>
               ) : null}
-              <a
-                className="inline-flex rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-medium text-zinc-800 hover:bg-zinc-50"
-                href="mailto:admin@life-cfo.com?subject=Life%20CFO%20account%20deletion%20request"
-              >
-                Contact support
-              </a>
             </div>
           </CardContent>
         </Card>

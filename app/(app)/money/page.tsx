@@ -629,19 +629,15 @@ export default function MoneyClientNext() {
     (left, right) => right.activity - left.activity
   )[0];
   const monthHeadline = !primaryPosition
-    ? "This month is still taking shape."
-    : primaryPosition.cents > 0
-      ? "You’re ahead this month."
-      : primaryPosition.cents < 0
-        ? "More went out than came in this month."
-        : "This month is looking steady.";
+    ? "No money in or money out has been entered for this month."
+    : "Money in minus money out is shown below.";
   const plannedValue = primaryGoal
     ? `${primaryGoal.title}: ${primaryGoal.progress_percent}%.`
     : "Goals and plans live here.";
   const nextStep = nextStepCopy(setupStatus);
 
   const askAboutBreathingRoom = () => {
-    setDraft(breathingRoom?.ask_prompt || "Why does this month feel tighter?");
+    setDraft(breathingRoom?.ask_prompt || "Which bills and income amounts are entered?");
     openAsk();
   };
 
@@ -666,7 +662,9 @@ export default function MoneyClientNext() {
               <div>
                 <div className="text-lg font-semibold text-zinc-900">{monthHeadline}</div>
                 <div className="mt-1 text-xs text-zinc-500">
-                  {dataCoverage?.has_demo_sources ? "Based on demo data." : "Based on your current money data."}
+                  {dataCoverage?.has_demo_sources
+                    ? "Sample data. These figures are from a demo household."
+                    : "From what has been entered."}
                 </div>
               </div>
               <ul className="space-y-1 text-sm text-zinc-700">
@@ -674,7 +672,7 @@ export default function MoneyClientNext() {
                 <li>Money out: {loading ? "Loading..." : formatMoneyRows(monthOut)}</li>
                 {monthPositions.map((position) => (
                   <li key={position.currency}>
-                    {position.cents >= 0 ? "Ahead so far" : "Behind so far"}: {formatMoney(Math.abs(position.cents), position.currency)}
+                    In minus out: {formatMoney(position.cents, position.currency)}
                   </li>
                 ))}
                 <li>Cash: {loading ? "Loading..." : formatMoneyRows(cashByCurrency)}</li>

@@ -40,7 +40,7 @@ export default function PlannedUpgradesPage() {
         <Card>
           <CardContent className="space-y-2">
             <div className="text-sm text-zinc-700">
-              Keystone V1 is intentionally simple: hold decisions safely, reduce mental loops, and bring things back only when needed.
+              Life CFO V1 is intentionally simple: hold decisions safely, reduce mental loops, and bring things back only when needed.
             </div>
             <div className="text-sm text-zinc-600">
               The items below are included so testers don’t spend time requesting features that are already planned for later.
@@ -68,7 +68,7 @@ export default function PlannedUpgradesPage() {
         />
 
         <Section
-          title="Intentionally not Keystone"
+          title="Intentionally not Life CFO"
           subtitle="These are explicitly out of scope because they increase pressure or noise."
           items={[
             "Dashboards, counters, streaks, or productivity gamification.",
@@ -81,7 +81,7 @@ export default function PlannedUpgradesPage() {
           <CardContent className="space-y-2">
             <div className="text-sm font-semibold text-zinc-900">What feedback helps most</div>
             <div className="text-sm text-zinc-700">
-              Tell us what felt lighter, what felt heavy, what confused you, and what you wished Keystone held for you.
+              Tell us what felt lighter, what felt heavy, what confused you, and what you wished Life CFO held for you.
             </div>
             <div className="text-sm text-zinc-600">
               If your feedback is “I want X”, adding “so that I can feel Y” makes it actionable.

@@ -1,6 +1,7 @@
 // app/api/households/create/route.ts
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
+import { betaAccessForUser } from "@/lib/server/access/betaAccess";
 import { supabaseRoute } from "@/lib/supabaseRoute";
 
 export const runtime = "nodejs";
@@ -23,6 +24,15 @@ export async function POST(req: Request) {
 
     if (userErr || !user?.id) {
       return NextResponse.json({ ok: false, error: "Not signed in." }, { status: 401 });
+    }
+
+    const { data: accessRow } = await supabase
+      .from("beta_access")
+      .select("user_id")
+      .eq("user_id", user.id)
+      .maybeSingle();
+    if (!betaAccessForUser(user, { hasAccessRow: Boolean(accessRow?.user_id) }).isInvited) {
+      return NextResponse.json({ ok: false, error: "This beta is invite-only." }, { status: 403 });
     }
 
     const body = await req.json().catch(() => ({}));

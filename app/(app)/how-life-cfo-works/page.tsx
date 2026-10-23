@@ -26,7 +26,7 @@ function Diagram() {
         <div className="rounded-2xl border border-zinc-200 bg-white p-3">
           <div className="text-xs font-semibold text-zinc-700">Home</div>
           <div className="mt-1 text-sm text-zinc-700">
-            Arrive, unload, or ask. Keystone surfaces what matters right now and ignores the rest.
+            A list of the bills, income, and goals that were typed.
           </div>
         </div>
 
@@ -63,24 +63,24 @@ function Diagram() {
 
 const lifeCfoSections = [
   {
-    title: "Add your money",
-    body: "Connect your accounts or upload a bank file. Life CFO uses this to see money in, money out, saved, and planned.",
+    title: "Type what you want to keep",
+    body: "Enter bills, income, a budget, goals, and notes. This beta does not connect banks.",
   },
   {
-    title: "See the picture",
-    body: "Life CFO turns the details into a calmer view of what is happening.",
+    title: "See the figures",
+    body: "Life CFO shows the sums, dates, and lists you typed.",
   },
   {
-    title: "Ask questions",
-    body: "You can ask things like ‘How are we looking this month?’ or ‘Why does this feel tight?’",
+    title: "Ask about those figures",
+    body: "You can ask what was entered, such as which bills are listed and when they are due. Ask does not say what you should do.",
   },
   {
-    title: "Choose what gets saved",
-    body: "Life CFO does not save every thought automatically. You choose what to keep.",
+    title: "Who it is for",
+    body: "Adults who live in Australia. It is not for choosing a product, managing debt, or getting investment or super guidance.",
   },
   {
-    title: "Important note",
-    body: "Life CFO provides analysis and decision support, not financial advice.",
+    title: "If you need help",
+    body: "For free official money information, see moneysmart.gov.au. If you are worried about debt, call the National Debt Helpline on 1800 007 007. If you are in danger, call 000.",
   },
 ];
 
@@ -88,7 +88,7 @@ export default function HowLifeCfoWorksPage() {
   return (
     <Page
       title="How Life CFO works"
-      subtitle="Life CFO helps you understand your household money picture and think through decisions."
+      subtitle="Life CFO organises what a household types. It does not connect banks or tell you what to do."
     >
       <div className="mx-auto max-w-3xl space-y-4">
         <Card>

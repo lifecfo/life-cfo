@@ -423,7 +423,7 @@ export default function InvestmentsPage() {
           <Card className="border-zinc-200 bg-white">
             <CardContent>
               <div className="text-sm font-semibold text-zinc-900">Setup needed</div>
-              <div className="mt-1 text-sm text-zinc-600">Keystone can’t read investment inputs yet.</div>
+              <div className="mt-1 text-sm text-zinc-600">Life CFO can’t read those inputs yet.</div>
               <div className="mt-2 text-xs text-zinc-500">{error}</div>
             </CardContent>
           </Card>
@@ -466,7 +466,7 @@ export default function InvestmentsPage() {
                   <input
                     value={name}
                     onChange={(e) => setName(e.target.value)}
-                    placeholder="e.g. Stake portfolio, Hostplus super, Crypto wallet"
+                    placeholder="A name you use for this holding"
                     className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-[15px] text-zinc-900 outline-none focus:ring-2 focus:ring-zinc-200"
                   />
                 </div>
@@ -487,7 +487,7 @@ export default function InvestmentsPage() {
                   <input
                     value={institution}
                     onChange={(e) => setInstitution(e.target.value)}
-                    placeholder="e.g. Vanguard, Betashares, Hostplus, CommSec"
+                    placeholder="A name you use for this holding"
                     className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-[15px] text-zinc-900 outline-none focus:ring-2 focus:ring-zinc-200"
                   />
                 </div>

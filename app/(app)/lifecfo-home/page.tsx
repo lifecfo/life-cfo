@@ -130,10 +130,8 @@ function extractBullets(text: string): string[] {
   return bullets.slice(0, 5);
 }
 
-function tonePill(tone: MemoTone) {
-  if (tone === "attention") return { label: "Needs attention", className: "bg-zinc-900 text-white" };
-  if (tone === "tight") return { label: "A bit tight", className: "bg-white text-zinc-800 border border-zinc-200" };
-  return { label: "All clear", className: "bg-white text-zinc-700 border border-zinc-200" };
+function tonePill(_tone: MemoTone) {
+  return { label: "Figures entered", className: "bg-white text-zinc-700 border border-zinc-200" };
 }
 
 function calmWhatWouldChange(tone: MemoTone): string[] {
@@ -814,6 +812,9 @@ Follow-up question: ${fu}`
           <CardContent className="space-y-5">
             <div>
               <div className="text-base font-semibold text-zinc-900">Your money picture</div>
+              <p className="mt-1 text-sm leading-6 text-zinc-600">
+                Life CFO organises what a household types. It does not connect banks or tell you what to do.
+              </p>
               {authStatus === "signed_out" ? (
                 <div className="mt-2 text-sm text-zinc-600">Sign in to see your household picture.</div>
               ) : homeMoney.status === "idle" || homeMoney.status === "loading" ? (
@@ -828,7 +829,7 @@ Follow-up question: ${fu}`
               ) : homeHasMoney && homeSummary ? (
                 <div className="mt-4 space-y-5">
                   <div className="rounded-3xl bg-zinc-50 px-5 py-5">
-                    <div className="text-sm text-zinc-600">Left after planned bills</div>
+                    <div className="text-sm text-zinc-600">Cash figure minus bills typed for the next 30 days</div>
                     <div className="mt-1 text-3xl font-semibold tracking-tight text-zinc-950">
                       <AnimatedMoney
                         cents={homeSummary.likely_breathing_room_cents}
@@ -840,7 +841,7 @@ Follow-up question: ${fu}`
                     </div>
                     {homeSummary.likely_breathing_room_cents < 0 ? (
                       <div className="mt-2 text-sm text-zinc-700">
-                        Worth a closer look. Expected bills are higher than visible cash.
+                        The bills figure is higher than the cash figure entered.
                       </div>
                     ) : null}
                     <div className="mt-3 text-sm text-zinc-700">

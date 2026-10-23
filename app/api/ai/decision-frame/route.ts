@@ -1,6 +1,8 @@
 // app/api/ai/decision-frame/route.ts
 import { NextResponse } from "next/server";
 import { generateAiText } from "@/lib/ai/provider";
+import { AI_OFF_MESSAGE, aiAskOptedIn } from "@/lib/ai/optIn";
+import { guardAskQuestion } from "@/lib/ask/askGuard";
 import { maybeCrisisIntercept } from "@/lib/safety/guard";
 import {
   readLimitedJson,
@@ -94,8 +96,20 @@ export async function POST(req: Request) {
       return NextResponse.json({ frame, kind: intercept.kind, version: VERSION }, { headers: { "x-keystone-ai-version": VERSION } });
     }
 
+    const guarded = guardAskQuestion(text);
+    const optedIn = guarded.allowed ? await aiAskOptedIn(auth.supabase, auth.user.id) : false;
+    if (!guarded.allowed || !optedIn) {
+      const frame: FrameResult = {
+        title: titleFromStatement(text),
+        statement: text,
+        what_im_hearing: !guarded.allowed ? guarded.message : AI_OFF_MESSAGE,
+        questions: [],
+      };
+      return NextResponse.json({ frame, version: VERSION });
+    }
+
     const system = [
-      "You are Keystone — a calm, practical Life CFO assistant.",
+      "You are Life CFO. Restate the words the person typed. Do not recommend what they should do.",
       "",
       "Task: turn the user's messy decision input into a clear, single decision statement.",
       "Return ONLY valid JSON (no markdown, no code fences, no extra keys).",
@@ -123,6 +137,7 @@ export async function POST(req: Request) {
 
     const rawText = stripCodeFences(await generateAiText({
       purpose: "decision_frame",
+      allowOverseasDisclosure: true,
       system,
       prompt: userContent,
       temperature: 0.2,

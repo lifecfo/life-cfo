@@ -1,6 +1,9 @@
 // app/api/home/ask/route.ts
 import { NextResponse } from "next/server";
 import { generateAiStructured } from "@/lib/ai/provider";
+import { AI_OFF_MESSAGE, aiAskOptedIn } from "@/lib/ai/optIn";
+import { guardAskQuestion } from "@/lib/ask/askGuard";
+import { isAccountVisibleToUser } from "@/lib/server/access/accountVisibility";
 import { createClient } from "@supabase/supabase-js";
 import { maybeCrisisIntercept } from "@/lib/safety/guard";
 import { decideHomeTone, type HomeTone } from "@/lib/lifecfo/homeTone";
@@ -216,15 +219,17 @@ async function buildFactsPack(scope: { userId: string; householdId: string }) {
       cadence: b.cadence ?? null,
     }));
 
-  const { data: accounts, error: acctErr } = await supabase
+    const { data: accounts, error: acctErr } = await supabase
     .from("accounts")
-    .select("id,name,type,status,current_balance_cents,currency,archived,updated_at")
+    .select("id,name,type,status,current_balance_cents,currency,archived,updated_at,user_id,visibility")
     .eq("household_id", householdId)
     .eq("archived", false)
     .order("updated_at", { ascending: false })
     .limit(50);
 
-  const acct = (accounts ?? []) as AccountFact[];
+  const acct = ((accounts ?? []) as Array<AccountFact & { user_id?: string | null; visibility?: string | null }>).filter(
+    (row) => isAccountVisibleToUser(row, userId)
+  );
 
   // --- Goal ↔ Account links (V1: explicit join only) ---
   type GoalAccountLinkRow = { goal_id: string; account_id: string; weight: number | null };
@@ -811,9 +816,9 @@ function buildHomeAiFactsView(facts: any) {
 /* ---------------- prompt ---------------- */
 
 const SYSTEM = `
-You are Life CFO Home Ask.
+You are Life CFO.
 
-You must respond as a calm, careful household CFO.
+List only figures, dates, and items from FACTS PACK. Do not recommend, do not judge affordability or suitability, and do not name products to buy. If the question asks what to do, say Life CFO does not say what to do.
 
 NON-NEGOTIABLE RULES
 - You may ONLY answer using FACTS PACK (+ now_iso). No web. No guessing. No invention.
@@ -919,6 +924,32 @@ export async function POST(req: Request) {
         suggested_next: "none",
         capture_seed: null,
         kind: intercept.kind,
+      });
+    }
+
+    const guarded = guardAskQuestion(question);
+    if (!guarded.allowed) {
+      const headline = guarded.message;
+      const answer = buildMemoAnswer({
+        headline,
+        key_points: guarded.resources,
+        details: "",
+        what_changes_this: [],
+        assumptions: [],
+      });
+      return NextResponse.json({
+        answer,
+        tone: "ok" satisfies HomeTone,
+        verdict: "INSUFFICIENT_DATA" satisfies Verdict,
+        headline,
+        key_points: guarded.resources,
+        details: "",
+        what_changes_this: [],
+        assumptions: [],
+        action: "none",
+        suggested_next: "none",
+        capture_seed: null,
+        kind: "refused",
       });
     }
 
@@ -1303,9 +1334,36 @@ export async function POST(req: Request) {
     // ---- AI path (FIELDS ONLY; server builds memo + verdict) ----
     let parsed: unknown;
 
+    const optedIn = await aiAskOptedIn(routeSupabase, user.id);
+    if (!optedIn) {
+      const headline = AI_OFF_MESSAGE;
+      const answer = buildMemoAnswer({
+        headline,
+        key_points: [],
+        details: "",
+        what_changes_this: [],
+        assumptions: [],
+      });
+      return NextResponse.json({
+        answer,
+        tone: "ok" satisfies HomeTone,
+        verdict: "INSUFFICIENT_DATA" satisfies Verdict,
+        headline,
+        key_points: [],
+        details: "",
+        what_changes_this: [],
+        assumptions: [],
+        action: "none",
+        suggested_next: "none",
+        capture_seed: null,
+        kind: "ai_off",
+      });
+    }
+
     try {
       parsed = await generateAiStructured({
         purpose: "home_ask",
+        allowOverseasDisclosure: true,
         system: SYSTEM,
         prompt: `QUESTION:\n${question}\n\nFACTS PACK:\n${JSON.stringify(aiFacts, null, 2)}`,
         schemaName: "life_cfo_home_ask_fields",

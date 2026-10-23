@@ -32,7 +32,10 @@ function currency(value: string | null | undefined): string {
 // duplicate has been removed and its call sites now import this directly.
 export function accountGroup(account: AccountsTruthRow): MoneyMapAccountGroup["key"] {
   const type = String(account.type || "").trim().toLowerCase();
-  if (/credit|loan|mortgage|liabilit/.test(type)) return "credit_debt";
+  const subtype = String(account.subtype || "").trim().toLowerCase();
+  const haystack = `${type} ${subtype}`;
+  if (/credit|loan|mortgage|liabilit/.test(haystack)) return "credit_debt";
+  if (/invest|brokerage|super|crypto|stock|etf|portfolio/.test(haystack)) return "other";
   if (/cash|checking|cheque|savings|deposit|depository/.test(type)) return "cash";
   return "other";
 }

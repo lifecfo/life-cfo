@@ -23,31 +23,6 @@ export type VerdictDecisionInput = {
 };
 
 export function decideVerdict(input: VerdictDecisionInput): Verdict {
-  const q = (input.question || "").toLowerCase();
-
-  const dq = input.facts?.data_quality;
-  const accountsOk = dq?.accounts_ok !== false;
-  const billsOk = dq?.recurring_bills_ok !== false;
-  const accountsCount = typeof dq?.accounts_count_active === "number" ? dq.accounts_count_active : 0;
-  const billsCount = typeof dq?.recurring_bills_count_active === "number" ? dq.recurring_bills_count_active : 0;
-
-  if (!accountsOk || !billsOk) return "INSUFFICIENT_DATA";
-  if (accountsCount === 0 && billsCount === 0) return "INSUFFICIENT_DATA";
-
-  // For affordability / “should we” questions, we default conservative unless the app has richer timing.
-  if (/(can we afford|can i afford|should we|safe to spend|is it safe to spend|can i spend|can we spend)\b/.test(q)) {
-    return "INSUFFICIENT_DATA";
-  }
-
-  // Very light deterministic “attention” signal (negative balances)
-  const raw = input.facts?.money_summary_raw;
-  const balances = Array.isArray(raw?.balances_by_currency_cents) ? raw!.balances_by_currency_cents! : [];
-
-  for (const b of balances) {
-    const cents = typeof b?.cents === "number" && Number.isFinite(b.cents) ? b.cents : 0;
-    if (cents < 0) return "NEEDS_ATTENTION";
-  }
-
-  // Otherwise we can’t safely assert YES/NO without contextual decision framing.
+  void input;
   return "INSUFFICIENT_DATA";
 }

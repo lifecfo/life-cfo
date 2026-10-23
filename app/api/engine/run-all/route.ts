@@ -298,7 +298,14 @@ async function runForUser(admin: any, userId: string) {
   return { userId, wrote: ["engine_safe_to_spend_week", "engine_upcoming_bills_14d", "engine_upcoming_income_14d"] };
 }
 
-export async function POST(req: Request) {
+export async function POST(_req: Request) {
+  return NextResponse.json(
+    { ok: false, error: "Background money check-ins are off for this beta." },
+    { status: 410 }
+  );
+}
+
+export async function POST_DISABLED(req: Request) {
   try {
     const secret = process.env.ENGINE_CRON_SECRET;
     if (!secret) return NextResponse.json({ error: "Missing ENGINE_CRON_SECRET" }, { status: 500 });

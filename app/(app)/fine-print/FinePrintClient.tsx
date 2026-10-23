@@ -4,6 +4,7 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
+import { safeNextPath } from "@/lib/http/safeNextPath";
 import { Card, CardContent, Chip, Button, useToast } from "@/components/ui";
 import type { MoneyDataCoverage, MoneySetupStatus } from "@/lib/money/reasoning/types";
 import ImportantInformationContent from "./ImportantInformationContent";
@@ -23,15 +24,6 @@ function safeStr(v: unknown) {
   return typeof v === "string" ? v : "";
 }
 
-function safeNext(input: unknown) {
-  if (typeof input !== "string") return "/home";
-  const n = input.trim();
-  if (!n.startsWith("/")) return "/home";
-  if (n.startsWith("//")) return "/home";
-  if (n.includes("http://") || n.includes("https://")) return "/home";
-  return n;
-}
-
 export default function FinePrintClient({ nextPath }: FinePrintClientProps) {
   const router = useRouter();
   const toastApi = useToast();
@@ -46,19 +38,22 @@ export default function FinePrintClient({ nextPath }: FinePrintClientProps) {
     }
   };
 
-  const VERSION = "v1";
-
   const [name, setName] = useState("");
+  const [adult, setAdult] = useState(false);
+  const [resident, setResident] = useState(false);
   const [working, setWorking] = useState(false);
   const [status, setStatus] = useState<string>("");
 
-  const canSave = useMemo(() => name.trim().length >= 2 && !working, [name, working]);
+  const canSave = useMemo(
+    () => name.trim().length >= 2 && adult && resident && !working,
+    [adult, name, resident, working]
+  );
 
   const save = async () => {
     setStatus("");
 
     if (!canSave) {
-      const msg = "Please type your name to continue.";
+      const msg = "Confirm you are 18 or older, live in Australia, and type your name.";
       setStatus(msg);
       toast(msg);
       return;
@@ -77,20 +72,23 @@ export default function FinePrintClient({ nextPath }: FinePrintClientProps) {
         return;
       }
 
-      const payload = {
-        user_id: auth.user.id,
-        fine_print_accepted_at: new Date().toISOString(),
-        fine_print_version: VERSION,
-        fine_print_signed_name: name.trim(),
-      };
-
-      const { error } = await supabase.from("profiles").upsert(payload, { onConflict: "user_id" });
-      if (error) throw error;
+      const response = await fetch("/api/legal/accept", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          signed_name: name.trim(),
+          confirmed_adult: true,
+          confirmed_au_resident: true,
+        }),
+      });
+      const json = (await response.json().catch(() => ({}))) as { error?: string };
+      if (!response.ok) {
+        throw new Error(json.error || "Couldn't save. Please try again.");
+      }
 
       toast("Saved.");
 
-      // ✅ Hard navigate so it always moves on the first click (no router edge cases)
-      let dest = safeNext(nextPath || "/home");
+      let dest = safeNextPath(nextPath || "/home");
 
       // If no specific page was requested, send brand-new users to Start here
       // instead of Home — but fail open to /home if the check itself fails.
@@ -132,8 +130,21 @@ export default function FinePrintClient({ nextPath }: FinePrintClientProps) {
       <Card className="border-zinc-200 bg-white">
         <CardContent>
           <div className="space-y-3">
-            <div className="text-sm font-semibold text-zinc-900">Signature</div>
-            <div className="text-sm text-zinc-700">Type your name once to confirm you understand these boundaries.</div>
+            <div className="text-sm font-semibold text-zinc-900">Before you continue</div>
+            <label className="flex items-start gap-2 text-sm text-zinc-700">
+              <input type="checkbox" checked={adult} onChange={(e) => setAdult(e.target.checked)} className="mt-1" />
+              <span>I am 18 or older.</span>
+            </label>
+            <label className="flex items-start gap-2 text-sm text-zinc-700">
+              <input
+                type="checkbox"
+                checked={resident}
+                onChange={(e) => setResident(e.target.checked)}
+                className="mt-1"
+              />
+              <span>I live in Australia.</span>
+            </label>
+            <div className="text-sm text-zinc-700">Type your name to confirm you have read this.</div>
 
             <input
               value={name}
@@ -152,8 +163,6 @@ export default function FinePrintClient({ nextPath }: FinePrintClientProps) {
             </div>
 
             {status ? <div className="text-sm text-zinc-600">{status}</div> : null}
-
-            <div className="text-xs text-zinc-500">Version: {VERSION}</div>
           </div>
         </CardContent>
       </Card>

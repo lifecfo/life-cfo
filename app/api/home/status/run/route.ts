@@ -1,7 +1,6 @@
 // app/api/home/status/run/route.ts
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { generateAiText } from "@/lib/ai/provider";
 import {
   readLimitedJson,
   requireAuthenticatedAiUser,
@@ -120,46 +119,18 @@ function evaluateStatus(input: {
   return { status: "all_clear" as Status, reasons: reasons.length ? reasons : [{ rule: "no_exceptions", severity: "all_clear" }] };
 }
 
-function statusHeadline(status: Status) {
-  if (status === "attention") return "One thing may need attention (from what I can see).";
-  if (status === "tight") return "You look okay, but it’s a bit tighter than usual (from what I can see).";
-  if (status === "unknown") return "I can’t give a clear check-in yet — I don’t have enough visible data.";
-  return "You look okay right now (from what I can see).";
+function statusHeadline(_status: Status) {
+  return "Figures from what has been entered.";
 }
 
 // AI memo is optional, and only used to write a calmer, clearer memo from deterministic output.
-async function maybeWriteMemo(opts: {
+async function maybeWriteMemo(_opts: {
   useAi: boolean;
   status: Status;
   factsSnapshot: Record<string, unknown>;
   reasons: StatusReason[];
 }) {
-  const { useAi, status, factsSnapshot, reasons } = opts;
-
-  if (!useAi) return null;
-
-  const SYSTEM = `
-You are Life CFO.
-Write a short, calm "CFO memo" for Home.
-
-Rules:
-- 1 headline sentence max.
-- Then up to 3 bullets.
-- No urgency words. No guilt. No "you should".
-- Be explicit this is a snapshot.
-- Use ONLY the provided snapshot.
-- If status is unknown, say what you can’t see.
-`.trim();
-
-  const USER = JSON.stringify({ status, reasons, factsSnapshot }, null, 2);
-
-  const txt = await generateAiText({
-    purpose: "home_status",
-    system: SYSTEM,
-    prompt: USER,
-    maxOutputTokens: 400,
-  });
-  return txt ? txt.slice(0, 1200) : null;
+  return null;
 }
 
 export async function POST(req: Request) {

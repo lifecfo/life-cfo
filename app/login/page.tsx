@@ -1,5 +1,6 @@
 import { Suspense } from "react";
 import LoginClient from "./LoginClient";
+import { safeNextPath } from "@/lib/http/safeNextPath";
 
 export default function LoginPage({
   searchParams,
@@ -7,12 +8,9 @@ export default function LoginPage({
   searchParams: Record<string, string | string[] | undefined>;
 }) {
   const nextParam = searchParams?.next;
-  const next =
-    typeof nextParam === "string"
-      ? nextParam
-      : Array.isArray(nextParam)
-      ? nextParam[0]
-      : "/home";
+  const next = safeNextPath(
+    typeof nextParam === "string" ? nextParam : Array.isArray(nextParam) ? nextParam[0] : "/home"
+  );
 
   return (
     <Suspense

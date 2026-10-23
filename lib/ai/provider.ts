@@ -19,6 +19,8 @@ type GenerateOptions = {
   prompt: string;
   temperature?: number;
   maxOutputTokens: number;
+  /** Caller has confirmed this user opted in to overseas AI processing. */
+  allowOverseasDisclosure: true;
 };
 
 type GenerateStructuredOptions = GenerateOptions & {
@@ -145,6 +147,9 @@ async function anthropicRequest(
 }
 
 export async function generateAiText(options: GenerateOptions): Promise<string> {
+  if (options.allowOverseasDisclosure !== true) {
+    throw new AiConfigurationError();
+  }
   const provider = configuredAiProvider();
   if (provider === "anthropic") return anthropicRequest(options);
 
@@ -165,6 +170,9 @@ export async function generateAiText(options: GenerateOptions): Promise<string> 
 export async function generateAiStructured<T = unknown>(
   options: GenerateStructuredOptions
 ): Promise<T> {
+  if (options.allowOverseasDisclosure !== true) {
+    throw new AiConfigurationError();
+  }
   const provider = configuredAiProvider();
   const raw =
     provider === "anthropic"

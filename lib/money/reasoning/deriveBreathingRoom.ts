@@ -188,12 +188,8 @@ export function deriveBreathingRoom(
       : (incomeLower && !spendingLower) || spendingHigher || monthBehind || cashBelowTwoMonths
         ? "watch"
         : "okay";
-  const label =
-    status === "tight"
-      ? "This month looks tight."
-      : status === "watch"
-        ? "Worth watching."
-        : "Looks okay right now.";
+  const label = `Money in ${money(month.moneyIn, currency)}. Money out ${money(month.moneyOut, currency)}.`;
+  void status;
 
   const reasons: string[] = [];
   if (incomeLower && spendingLower) {
@@ -218,7 +214,7 @@ export function deriveBreathingRoom(
   if (reasons.length === 0) {
     reasons.push(
       month.moneyIn >= month.moneyOut
-        ? "Money in is ahead of money out this month."
+        ? "Money in is higher than money out in the figures entered this month."
         : `Cash buffer: ${money(cash, currency)}.`
     );
   }
@@ -228,6 +224,6 @@ export function deriveBreathingRoom(
     status,
     label,
     reasons: reasons.slice(0, 3),
-    ask_prompt: "Why does this month feel tighter?",
+    ask_prompt: "Which bills and income amounts are entered?",
   };
 }

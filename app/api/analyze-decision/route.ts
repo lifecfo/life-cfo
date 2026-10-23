@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { generateAiStructured } from "@/lib/ai/provider";
+import { AI_OFF_MESSAGE, aiAskOptedIn } from "@/lib/ai/optIn";
+import { guardAskQuestion } from "@/lib/ask/askGuard";
 import {
   readLimitedJson,
   requireAuthenticatedAiUser,
@@ -127,8 +129,18 @@ Inbox type: ${type || "(unknown)"}
 Priority(severity): ${severity ?? "(null)"}
 `.trim();
 
+    const guarded = guardAskQuestion(`${title}\n${details}`);
+    const optedIn = guarded.allowed ? await aiAskOptedIn(auth.supabase, auth.user.id) : false;
+    if (!guarded.allowed || !optedIn) {
+      return NextResponse.json(
+        { error: !guarded.allowed ? guarded.message : AI_OFF_MESSAGE },
+        { status: 403 }
+      );
+    }
+
     const modelOutput = await generateAiStructured({
       purpose: "decision_analysis",
+      allowOverseasDisclosure: true,
       system,
       prompt: user,
       schemaName: "decision_analysis",

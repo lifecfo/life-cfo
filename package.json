@@ -7,6 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "test": "tsx --test lib/ask/askGuard.test.ts lib/legal/betaLegalCopy.test.ts lib/http/safeNextPath.test.ts lib/server/access/accountVisibility.test.ts lib/server/access/betaAccess.test.ts lib/money/reasoning/deriveCashPlan.test.ts lib/money/reasoning/deriveMoneyTimeline.test.ts app/api/money/cash-plan/routeHandler.test.ts scripts/demo/cash-plan-fixtures.test.mjs",
     "demo:inspect": "node scripts/demo-household.mjs inspect",
     "demo:assert-isolation": "node scripts/demo-household.mjs assert-isolation",
     "demo:seed": "node scripts/demo-household.mjs seed",
@@ -42,6 +43,7 @@
     "eslint-config-next": "16.1.1",
     "supabase": "^2.109.1",
     "tailwindcss": "^4",
+    "tsx": "^4.23.15",
     "typescript": "^5"
   }
 }

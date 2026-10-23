@@ -50,6 +50,7 @@
   "exclude": [
     "node_modules",
     ".next",
+    "src/engine/tests",
     "run-engine.ts",
     "inbox-actions-demo.ts"
   ]

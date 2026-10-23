@@ -140,13 +140,13 @@ export default function MoneySetupPage() {
         title: "Add your money",
         detail: setupStatus.usable_now
           ? "Your accounts or recent transactions are already in view."
-          : "Connect accounts, import transactions, or add them manually.",
+          : "Type bills, income, and goals. Bank connections are not part of this beta.",
         label: setupStatus.usable_now
           ? "Done"
           : setupStatus.status === "refresh_needed"
             ? "Worth checking"
             : "When you can",
-        href: "/money/import",
+        href: "/bills",
       },
       {
         key: "income",

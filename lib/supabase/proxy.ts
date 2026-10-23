@@ -2,6 +2,17 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
+import {
+  BANK_TOOL_PREFIXES,
+  DEVELOPER_ONLY_PREFIXES,
+  INVITE_EXEMPT_PREFIXES,
+  isProtectedAppPath,
+  matchesPathPrefix,
+} from "@/lib/http/appPaths";
+import { safeNextPath } from "@/lib/http/safeNextPath";
+import { legalPackSha256 } from "@/lib/legal/legalPackHash";
+import { betaAccessForUser } from "@/lib/server/access/betaAccess";
+
 function envOrThrow(key: string) {
   const v = process.env[key];
   if (!v) throw new Error(`Missing env: ${key}`);
@@ -9,8 +20,17 @@ function envOrThrow(key: string) {
 }
 
 function getSupabaseKey() {
-  // Support either env var name
   return process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || "";
+}
+
+function redirectTo(request: NextRequest, pathname: string, next?: string) {
+  const url = request.nextUrl.clone();
+  const safe = safeNextPath(pathname, "/home");
+  const parsed = new URL(safe, "https://life-cfo.local");
+  url.pathname = parsed.pathname;
+  url.search = parsed.search;
+  if (next) url.searchParams.set("next", safeNextPath(next, "/home"));
+  return NextResponse.redirect(url);
 }
 
 export async function updateSession(request: NextRequest) {
@@ -26,7 +46,6 @@ export async function updateSession(request: NextRequest) {
         return request.cookies.getAll();
       },
       setAll(cookiesToSet) {
-        // write cookies to BOTH the request (for downstream) and response (for browser)
         cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value));
         response = NextResponse.next({ request });
         cookiesToSet.forEach(({ name, value, options }) => response.cookies.set(name, value, options));
@@ -34,9 +53,8 @@ export async function updateSession(request: NextRequest) {
     },
   });
 
-  // IMPORTANT: getClaims verifies JWT properly
   const { data } = await supabase.auth.getClaims();
-  const userClaims = data?.claims;
+  const userClaims = data?.claims as { sub?: string; email?: string; app_metadata?: unknown } | undefined;
 
   const { pathname, search } = request.nextUrl;
 
@@ -46,94 +64,87 @@ export async function updateSession(request: NextRequest) {
     pathname.startsWith("/auth") ||
     pathname.startsWith("/api") ||
     pathname.startsWith("/_next") ||
-    pathname === "/favicon.ico";
-
-  // Keep your existing protected list logic (so we don't accidentally change auth behavior)
-  const isProtected =
-    // ✅ Life CFO Home
-    pathname === "/lifecfo-home" ||
-    pathname.startsWith("/lifecfo-home/") ||
-
-    // ✅ Money hub + subroutes
-    pathname === "/money" ||
-    pathname.startsWith("/money/") ||
-
-    // Existing Keystone routes
-    pathname === "/home" ||
-    pathname.startsWith("/home/") ||
-    pathname === "/inbox" ||
-    pathname.startsWith("/inbox/") ||
-    pathname === "/decisions" ||
-    pathname.startsWith("/decisions/") ||
-    pathname === "/chapters" ||
-    pathname.startsWith("/chapters/") ||
-    pathname === "/accounts" ||
-    pathname.startsWith("/accounts/") ||
-    pathname === "/connections" ||
-    pathname.startsWith("/connections/") ||
-    pathname === "/bills" ||
-    pathname.startsWith("/bills/") ||
-    pathname === "/income" ||
-    pathname.startsWith("/income/") ||
-    pathname === "/investments" ||
-    pathname.startsWith("/investments/") ||
-    pathname === "/budget" ||
-    pathname.startsWith("/budget/") ||
-    pathname === "/transactions" ||
-    pathname.startsWith("/transactions/") ||
-    pathname === "/settings" ||
-    pathname.startsWith("/settings/") ||
+    pathname === "/favicon.ico" ||
+    pathname === "/privacy" ||
+    pathname.startsWith("/privacy/") ||
+    pathname === "/terms" ||
+    pathname.startsWith("/terms/") ||
     pathname === "/how-life-cfo-works" ||
-    pathname.startsWith("/how-life-cfo-works/") ||
-    pathname === "/fine-print" ||
-    pathname.startsWith("/fine-print/");
+    pathname.startsWith("/how-life-cfo-works/");
 
-  // If not signed in and trying to access protected pages → redirect to login with next
-  if (!userClaims && isProtected && !isPublic) {
+  const isProtected = isProtectedAppPath(pathname);
+
+  if (!userClaims?.sub && isProtected && !isPublic) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
-    url.searchParams.set("next", pathname + search);
-    return NextResponse.redirect(url);
-  }
-
-  // If signed in and trying to access /login → send them to next (or home)
-  if (userClaims && pathname.startsWith("/login")) {
-    const url = request.nextUrl.clone();
-    const next = url.searchParams.get("next");
-    url.pathname = next || "/home";
     url.search = "";
+    url.searchParams.set("next", safeNextPath(pathname + search, "/home"));
     return NextResponse.redirect(url);
   }
 
-  // ---------- Fine print gate ----------
-  // Only applies to signed-in users, and only for non-public pages
-  if (userClaims && !isPublic) {
+  if (userClaims?.sub && pathname.startsWith("/login")) {
+    const next = safeNextPath(request.nextUrl.searchParams.get("next"), "/home");
+    return redirectTo(request, next);
+  }
+
+  if (!userClaims?.sub) return response;
+
+  const user = {
+    email: typeof userClaims.email === "string" ? userClaims.email : null,
+    app_metadata: userClaims.app_metadata,
+  };
+  const { data: accessRow } = await supabase
+    .from("beta_access")
+    .select("user_id")
+    .eq("user_id", userClaims.sub)
+    .maybeSingle();
+  const access = betaAccessForUser(user, { hasAccessRow: Boolean(accessRow?.user_id) });
+
+  if (!access.isDeveloper && matchesPathPrefix(pathname, DEVELOPER_ONLY_PREFIXES)) {
+    return redirectTo(request, "/lifecfo-home");
+  }
+
+  if (!access.canUseRealDataSources && matchesPathPrefix(pathname, BANK_TOOL_PREFIXES)) {
+    return redirectTo(request, "/money/setup");
+  }
+
+  if (
+    !access.isInvited &&
+    isProtected &&
+    !isPublic &&
+    !matchesPathPrefix(pathname, INVITE_EXEMPT_PREFIXES)
+  ) {
+    return redirectTo(request, "/beta-invite", pathname + search);
+  }
+
+  if (userClaims && !isPublic && access.isInvited) {
     const allowWithoutConsent = new Set([
       "/fine-print",
+      "/welcome",
       "/how-life-cfo-works",
       "/settings",
       "/settings/delete",
+      "/beta-invite",
+      "/privacy",
+      "/terms",
     ]);
 
     if (!allowWithoutConsent.has(pathname)) {
       const { data: prof, error: profErr } = await supabase
         .from("profiles")
-        .select("fine_print_accepted_at,fine_print_version")
-        .eq("user_id", userClaims.sub) // JWT subject = auth user id
+        .select("fine_print_accepted_at,fine_print_version,confirmed_adult,confirmed_au_resident")
+        .eq("user_id", userClaims.sub)
         .maybeSingle();
 
-      const accepted = !!prof?.fine_print_accepted_at;
+      const accepted =
+        !!prof?.fine_print_accepted_at &&
+        prof?.fine_print_version === legalPackSha256() &&
+        prof?.confirmed_adult === true &&
+        prof?.confirmed_au_resident === true;
 
-      // If profile row doesn't exist yet, treat as not accepted (redirect to fine print)
-      if (!accepted && !profErr) {
-        const url = request.nextUrl.clone();
-        url.pathname = "/fine-print";
-        url.searchParams.set("next", pathname + search);
-        return NextResponse.redirect(url);
+      if (profErr || !accepted) {
+        return redirectTo(request, "/welcome", pathname + search);
       }
-
-      // If there was a DB error, don't hard-block the user (avoid lockout loops)
-      // Just let them through; you'll see the error in logs.
     }
   }
 

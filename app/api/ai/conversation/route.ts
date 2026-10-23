@@ -1,6 +1,8 @@
 ﻿// app/api/ai/conversation/route.ts
 import { NextResponse } from "next/server";
 import { generateAiText } from "@/lib/ai/provider";
+import { AI_OFF_MESSAGE, aiAskOptedIn } from "@/lib/ai/optIn";
+import { guardAskQuestion } from "@/lib/ask/askGuard";
 import { maybeCrisisIntercept } from "@/lib/safety/guard";
 import type {
   DecisionConversationRequest,
@@ -63,7 +65,7 @@ function buildSystemPrompt(args: { decisionTitle: string; decisionStatement?: st
 
   if (mode === "summarise") {
     return [
-      "You are Keystone.",
+      "You are Life CFO. Restate only what was typed. Do not recommend a choice.",
       "Task: Produce a capture preview summary of the conversation.",
       "Rules:",
       "- Do NOT recommend a choice unless explicitly asked.",
@@ -82,7 +84,7 @@ function buildSystemPrompt(args: { decisionTitle: string; decisionStatement?: st
   }
 
   return [
-    "You are Keystone - a calm, values-anchored decision partner.",
+    "You are Life CFO. Restate what was typed. Do not say what the person should do, and do not suggest products.",
     "You help the user think clearly without forcing a decision.",
     "Rules:",
     "- Do NOT recommend a choice unless the user asks you to recommend.",
@@ -101,7 +103,7 @@ function buildSystemPrompt(args: { decisionTitle: string; decisionStatement?: st
 }
 
 function buildTranscript(messages: InMsg[]) {
-  return messages.map((m) => `${m.role === "user" ? "You" : "Keystone"}: ${m.content}`).join("\n\n");
+  return messages.map((m) => `${m.role === "user" ? "You" : "Life CFO"}: ${m.content}`).join("\n\n");
 }
 
 function lastUserText(messages: InMsg[]) {
@@ -322,6 +324,18 @@ export async function POST(req: Request) {
       return NextResponse.json(payload, { headers: { "x-keystone-ai-version": VERSION } });
     }
 
+    const guarded = guardAskQuestion(`${decisionTitle}\n${decisionStatement}\n${userText}`);
+    const factualReply = !guarded.allowed ? guarded.message : null;
+    const optedIn = factualReply ? false : await aiAskOptedIn(auth.supabase, auth.user.id);
+    const blockedText = factualReply || (!optedIn ? AI_OFF_MESSAGE : null);
+    if (blockedText) {
+      const payload: DecisionConversationResponse =
+        mode === "summarise"
+          ? { summaryText: blockedText, version: VERSION }
+          : { assistantText: blockedText, version: VERSION };
+      return NextResponse.json(payload, { headers: { "x-keystone-ai-version": VERSION } });
+    }
+
     const system = buildSystemPrompt({
       decisionTitle,
       decisionStatement: decisionStatement || undefined,
@@ -355,6 +369,7 @@ export async function POST(req: Request) {
 
     const rawText = await generateAiText({
       purpose: "conversation",
+      allowOverseasDisclosure: true,
       system,
       prompt: userContent,
       temperature: mode === "summarise" ? 0.2 : 0.5,

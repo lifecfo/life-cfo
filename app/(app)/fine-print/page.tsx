@@ -30,6 +30,7 @@ function FinePrintInner() {
 
   const [status, setStatus] = useState<"loading" | "signed_out" | "ready">("loading");
   const [profile, setProfile] = useState<ProfileRow | null>(null);
+  const [complete, setComplete] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -46,25 +47,29 @@ function FinePrintInner() {
         return;
       }
 
-      const uid = auth.user.id;
-
-      // 🔑 MUST match the write path exactly
-      const { data: prof, error: profErr } = await supabase
-        .from("profiles")
-        .select("fine_print_accepted_at,fine_print_version,fine_print_signed_name")
-        .eq("user_id", uid)
-        .maybeSingle();
+      const response = await fetch("/api/legal/status", { cache: "no-store" });
+      const json = (await response.json().catch(() => null)) as {
+        matches?: boolean;
+        signed_name?: string | null;
+        accepted_at?: string | null;
+        current_sha256?: string;
+      } | null;
 
       if (!alive) return;
 
-      if (profErr) {
-        console.error("Fine print profile read error:", profErr);
+      if (!response.ok || !json) {
         setProfile(null);
+        setComplete(false);
         setStatus("ready");
         return;
       }
 
-      setProfile(prof ?? null);
+      setComplete(json.matches === true);
+      setProfile({
+        fine_print_accepted_at: json.accepted_at ?? null,
+        fine_print_version: json.current_sha256 ?? null,
+        fine_print_signed_name: json.signed_name ?? null,
+      });
       setStatus("ready");
     })();
 
@@ -73,7 +78,7 @@ function FinePrintInner() {
     };
   }, []);
 
-  const hasSigned = Boolean(profile?.fine_print_accepted_at);
+  const hasSigned = complete;
 
   return (
     <div className="mx-auto w-full max-w-[760px] space-y-4">
@@ -96,7 +101,10 @@ function FinePrintInner() {
 
 export default function FinePrintPage() {
   return (
-    <Page title="Important information" subtitle="A few important things to know before using Life CFO.">
+    <Page
+      title="Before you start"
+      subtitle="Life CFO organises what a household types. It does not connect banks or tell you what to do."
+    >
       <Suspense fallback={<div className="mx-auto w-full max-w-[760px] text-sm text-zinc-600">Loading…</div>}>
         <FinePrintInner />
       </Suspense>

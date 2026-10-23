@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getLifeCfoAccess } from "@/lib/server/access/lifeCfoAccess";
+import { betaAccessForUser } from "@/lib/server/access/betaAccess";
 import { supabaseRoute } from "@/lib/supabaseRoute";
 
 export const dynamic = "force-dynamic";
@@ -18,5 +18,14 @@ export async function GET() {
     );
   }
 
-  return NextResponse.json({ ok: true, ...getLifeCfoAccess(user) });
+  const { data: accessRow } = await supabase
+    .from("beta_access")
+    .select("user_id")
+    .eq("user_id", user.id)
+    .maybeSingle();
+
+  return NextResponse.json({
+    ok: true,
+    ...betaAccessForUser(user, { hasAccessRow: Boolean(accessRow?.user_id) }),
+  });
 }

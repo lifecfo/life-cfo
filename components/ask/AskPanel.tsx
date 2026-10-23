@@ -42,9 +42,7 @@ function cleanAnswer(raw: string) {
 }
 
 function toneLabel(tone?: string | null, verdict?: string | null) {
-  if (verdict === "NEEDS_ATTENTION") return "Needs attention";
-  if (tone === "attention") return "Needs attention";
-  if (tone === "tight") return "A bit tight";
+  if (verdict === "NEEDS_ATTENTION" || tone === "attention") return "Needs attention";
   return "Life CFO";
 }
 

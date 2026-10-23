@@ -9,6 +9,7 @@ import { Chip } from "@/components/ui";
 import { supabase } from "@/lib/supabaseClient";
 import { useAsk } from "@/components/ask/AskProvider";
 import { AskPanel } from "@/components/ask/AskPanel";
+import { useLifeCfoAccess } from "@/lib/access/useLifeCfoAccess";
 
 type AppShellProps = {
   children: ReactNode;
@@ -162,6 +163,7 @@ export function AppShell({ children }: AppShellProps) {
   const pathname = usePathname();
   const router = useRouter();
   const { open: askOpen, setShellSplitHostActive } = useAsk();
+  const access = useLifeCfoAccess();
 
   useEffect(() => {
     setShellSplitHostActive(true);
@@ -201,10 +203,14 @@ export function AppShell({ children }: AppShellProps) {
           { label: "Money details", kind: "section" },
           { href: "/money/in", label: "Money in" },
           { href: "/money/out", label: "Money out" },
-          { label: "Data sources", kind: "section" },
-          { href: "/connections", label: "Connections" },
-          { href: "/money/import", label: "Upload bank file" },
-          { href: "/money/accounts/new", label: "Add manual account" },
+          ...(access.canUseRealDataSources
+            ? [
+                { label: "Data sources", kind: "section" as const },
+                { href: "/connections", label: "Connections" },
+                { href: "/money/import", label: "Upload bank file" },
+                { href: "/money/accounts/new", label: "Add manual account" },
+              ]
+            : []),
           { href: "/money/rules", label: "Rules" },
           { href: "/money/categories", label: "Categories" },
         ],
@@ -235,11 +241,12 @@ export function AppShell({ children }: AppShellProps) {
           { href: "/how-life-cfo-works", label: "How Life CFO works" },
           { href: "/fine-print", label: "Important information" },
           { href: "/privacy", label: "Privacy" },
+          { href: "/terms", label: "Terms" },
           { href: "/feedback", label: "Feedback" },
         ],
       },
     ],
-    []
+    [access.canUseRealDataSources]
   );
 
   const [menuOpen, setMenuOpen] = useState(false);
