@@ -68,22 +68,22 @@ export function monthlyCents(amount: number, cadence: SampleCadence): number {
 
 export function buildSampleHousehold(today = new Date()): SampleHousehold {
   const items: SampleItem[] = [
-    { id: "s-mortgage", title: "Home loan", kind: "bill", category: "Housing", amount_cents: 248000, cadence: "monthly", due_on: shift(today, 6), owner: "Alex" },
+    { id: "s-mortgage", title: "Home loan", kind: "bill", category: "Housing", amount_cents: 248000, cadence: "monthly", due_on: shift(today, 6), owner: "Jade" },
     { id: "s-power", title: "Electricity", kind: "bill", category: "Utilities", amount_cents: 18600, cadence: "quarterly", due_on: shift(today, 11), owner: "Jordan" },
-    { id: "s-net", title: "Internet", kind: "bill", category: "Utilities", amount_cents: 8900, cadence: "monthly", due_on: shift(today, 18), owner: "Alex" },
-    { id: "s-phone-a", title: "Alex mobile", kind: "bill", category: "Utilities", amount_cents: 4500, cadence: "monthly", due_on: shift(today, 4), owner: "Alex" },
+    { id: "s-net", title: "Internet", kind: "bill", category: "Utilities", amount_cents: 8900, cadence: "monthly", due_on: shift(today, 18), owner: "Jade" },
+    { id: "s-phone-a", title: "Jade mobile", kind: "bill", category: "Utilities", amount_cents: 4500, cadence: "monthly", due_on: shift(today, 4), owner: "Jade" },
     { id: "s-phone-j", title: "Jordan mobile", kind: "bill", category: "Utilities", amount_cents: 3900, cadence: "monthly", due_on: shift(today, 21), owner: "Jordan" },
-    { id: "s-rego", title: "Car registration", kind: "renewal", category: "Transport", amount_cents: 74200, cadence: "yearly", due_on: shift(today, 120), owner: "Alex" },
+    { id: "s-rego", title: "Car registration", kind: "renewal", category: "Transport", amount_cents: 74200, cadence: "yearly", due_on: shift(today, 120), owner: "Jade" },
     { id: "s-car-ins", title: "Car insurance", kind: "bill", category: "Transport", amount_cents: 12800, cadence: "monthly", due_on: shift(today, 40), owner: "Jordan" },
-    { id: "s-health", title: "Health insurance", kind: "bill", category: "Health", amount_cents: 31200, cadence: "monthly", due_on: shift(today, 50), owner: "Alex" },
+    { id: "s-health", title: "Health insurance", kind: "bill", category: "Health", amount_cents: 31200, cadence: "monthly", due_on: shift(today, 50), owner: "Jade" },
     { id: "s-rates", title: "Council rates", kind: "renewal", category: "Housing", amount_cents: 168000, cadence: "yearly", due_on: shift(today, 200), owner: "Jordan" },
     { id: "s-care", title: "Childcare", kind: "bill", category: "Care", amount_cents: 42000, cadence: "fortnightly", due_on: shift(today, 9), owner: "Jordan" },
-    { id: "s-pet", title: "Pet insurance", kind: "bill", category: "Pets", amount_cents: 5200, cadence: "monthly", due_on: shift(today, 25), owner: "Alex" },
-    { id: "s-stream", title: "Streaming", kind: "bill", category: "Entertainment", amount_cents: 1700, cadence: "monthly", due_on: shift(today, 2), owner: "Alex" },
-    { id: "s-pay-a", title: "Alex pay", kind: "income", category: "Pay", amount_cents: 284000, cadence: "fortnightly", due_on: shift(today, 5), owner: "Alex" },
+    { id: "s-pet", title: "Pet insurance", kind: "bill", category: "Pets", amount_cents: 5200, cadence: "monthly", due_on: shift(today, 25), owner: "Jade" },
+    { id: "s-stream", title: "Streaming", kind: "bill", category: "Entertainment", amount_cents: 1700, cadence: "monthly", due_on: shift(today, 2), owner: "Jade" },
+    { id: "s-pay-a", title: "Jade pay", kind: "income", category: "Pay", amount_cents: 284000, cadence: "fortnightly", due_on: shift(today, 5), owner: "Jade" },
     { id: "s-pay-j", title: "Jordan pay", kind: "income", category: "Pay", amount_cents: 520000, cadence: "monthly", due_on: shift(today, 14), owner: "Jordan" },
     { id: "s-woolies", title: "Woolworths", kind: "receipt", category: "Groceries", amount_cents: 14620, cadence: "weekly", due_on: shift(today, -2), owner: "Jordan" },
-    { id: "s-chemist", title: "Chemist", kind: "receipt", category: "Health", amount_cents: 2840, cadence: "monthly", due_on: shift(today, -8), owner: "Alex" },
+    { id: "s-chemist", title: "Chemist", kind: "receipt", category: "Health", amount_cents: 2840, cadence: "monthly", due_on: shift(today, -8), owner: "Jade" },
     { id: "s-vet", title: "Vet visit", kind: "receipt", category: "Pets", amount_cents: 9500, cadence: "yearly", due_on: shift(today, -20), owner: "Jordan" },
   ];
 
@@ -118,8 +118,8 @@ export function buildSampleHousehold(today = new Date()): SampleHousehold {
 
   return {
     people: [
-      { name: "Alex", role: "Adult" },
       { name: "Jordan", role: "Adult" },
+      { name: "Jade", role: "Adult" },
       { name: "Mia", role: "Child" },
     ],
     pets: [{ name: "Pepper", kind: "Dog" }],
