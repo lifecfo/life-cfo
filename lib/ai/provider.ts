@@ -81,6 +81,14 @@ export function configuredAiProvider(): AiProviderName {
   throw new AiConfigurationError();
 }
 
+function cheapModel(value: string | undefined): string | undefined {
+  const model = value?.trim();
+  if (!model) return undefined;
+  const name = model.toLowerCase();
+  if (name.includes("mini") || name.includes("haiku") || name.includes("nano")) return model;
+  return undefined;
+}
+
 function modelFor(provider: AiProviderName, purpose: AiPurpose): string {
   if (provider === "anthropic") {
     const anthropicDefaults: Record<AiPurpose, string> = {
@@ -95,7 +103,7 @@ function modelFor(provider: AiProviderName, purpose: AiPurpose): string {
     const purposeKey = `ANTHROPIC_MODEL_${purpose.toUpperCase()}`;
     return (
       process.env[purposeKey] ||
-      process.env.ANTHROPIC_MODEL ||
+      cheapModel(process.env.ANTHROPIC_MODEL) ||
       anthropicDefaults[purpose]
     );
   }
@@ -111,13 +119,10 @@ function modelFor(provider: AiProviderName, purpose: AiPurpose): string {
   };
   const purposeOverride = process.env[`OPENAI_MODEL_${purpose.toUpperCase()}`];
   if (purposeOverride) return purposeOverride;
-  if (purpose === "decision_frame") {
-    return process.env.OPENAI_MODEL_FRAME || process.env.OPENAI_MODEL || defaults[purpose];
+  if (purpose === "decision_frame" && process.env.OPENAI_MODEL_FRAME) {
+    return process.env.OPENAI_MODEL_FRAME;
   }
-  if (purpose === "conversation" || purpose === "decision_analysis") {
-    return process.env.OPENAI_MODEL || defaults[purpose];
-  }
-  return defaults[purpose];
+  return cheapModel(process.env.OPENAI_MODEL) || defaults[purpose];
 }
 
 function openAiClient(): OpenAI {
