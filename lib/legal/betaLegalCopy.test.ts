@@ -17,6 +17,11 @@ test("legal text is final and does not say it is waiting on a lawyer", () => {
   assert.match(text, /National Debt Helpline/);
   assert.match(text, /moneysmart\.gov\.au/);
   assert.match(text, /Australian Consumer Law/);
+  assert.match(text, /Singapore \(ap-southeast-1\)/);
+  assert.match(text, /Australian Privacy Principle 8/);
+  assert.match(text, /syd1/);
+  assert.match(text, /does not keep the file/);
+  assert.doesNotMatch(text, /ap-southeast-2/);
   assert.doesNotMatch(text, /lawyer/i);
   assert.doesNotMatch(text, /draft/i);
   assert.doesNotMatch(text, /pending review/i);

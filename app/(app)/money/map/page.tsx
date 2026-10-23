@@ -34,7 +34,7 @@ function cashPlanStatusLabel(status: CashPlanBucket["backing_status"]): string {
     case "tracked_only":
       return "Tracked separately";
     case "needs_review":
-      return "Needs review";
+      return "Not matched to an account";
   }
 }
 

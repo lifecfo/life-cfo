@@ -54,6 +54,8 @@ export async function POST(req: Request) {
     { onConflict: "user_id" }
   );
 
+  await supabase.auth.refreshSession();
+
   return NextResponse.json({
     ok: true,
     stored: rowErr ? "metadata" : "metadata_and_record",

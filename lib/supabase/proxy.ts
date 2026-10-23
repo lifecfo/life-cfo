@@ -6,6 +6,7 @@ import {
   BANK_TOOL_PREFIXES,
   DEVELOPER_ONLY_PREFIXES,
   INVITE_EXEMPT_PREFIXES,
+  hiddenBetaDestination,
   isProtectedAppPath,
   matchesPathPrefix,
 } from "@/lib/http/appPaths";
@@ -106,8 +107,11 @@ export async function updateSession(request: NextRequest) {
     return redirectTo(request, "/lifecfo-home");
   }
 
+  const hidden = hiddenBetaDestination(pathname);
+  if (hidden) return redirectTo(request, hidden);
+
   if (!access.canUseRealDataSources && matchesPathPrefix(pathname, BANK_TOOL_PREFIXES)) {
-    return redirectTo(request, "/money/setup");
+    return redirectTo(request, "/start");
   }
 
   if (

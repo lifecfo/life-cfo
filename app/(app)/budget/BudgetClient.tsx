@@ -184,10 +184,9 @@ export default function BudgetClient() {
   const isMountedRef = useRef(true);
 
   async function resolveActiveHouseholdId(): Promise<string> {
-    // We reuse money API since it already returns household_id using cookie/fallback logic.
-    const data = await fetchJson<{ ok: boolean; household_id: string }>("/api/money/accounts");
-    if (!data?.household_id) throw new Error("User not linked to a household.");
-    return data.household_id;
+    const data = await fetchJson<{ ok: boolean; active_household_id?: string | null }>("/api/households");
+    if (!data?.active_household_id) throw new Error("User not linked to a household.");
+    return data.active_household_id;
   }
 
   async function loadAll(uid: string, hid: string, opts?: { silent?: boolean }) {
@@ -819,7 +818,7 @@ export default function BudgetClient() {
   );
 
   return (
-    <Page title="Budget" subtitle="A simple monthly view of expected money in, expected money out, and what may be left." right={right}>
+    <Page title="Budget" subtitle="A monthly list of expected money in and expected money out." right={right}>
       <div className="mx-auto w-full max-w-[760px] space-y-4">
         <div className="text-xs text-zinc-500">{statusLine}</div>
 
@@ -851,7 +850,7 @@ export default function BudgetClient() {
                   <div className="mt-1 h-px bg-zinc-100" />
 
                   <div className="flex items-center justify-between gap-6">
-                    <div className="font-semibold text-zinc-900">May be left after bills + budget</div>
+                    <div className="font-semibold text-zinc-900">Difference (expected in minus expected out)</div>
                     <div className="font-semibold text-zinc-900">
                       {leftoverCents >= 0 ? (
                         <Money cents={leftoverCents} />
@@ -935,28 +934,33 @@ export default function BudgetClient() {
 
             <div className="mt-3 grid gap-3 md:grid-cols-6">
               <div className="md:col-span-2">
-                <div className="text-xs text-zinc-500 mb-1">Name</div>
+                <label className="mb-1 block text-xs text-zinc-500" htmlFor="budget-name">Name</label>
                 <input
+                  id="budget-name"
                   className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200"
                   placeholder="Groceries, fuel, giving…"
+                  aria-label="Budget item name"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                 />
               </div>
 
               <div>
-                <div className="text-xs text-zinc-500 mb-1">Amount (AUD)</div>
+                <label className="mb-1 block text-xs text-zinc-500" htmlFor="budget-amount">Amount (AUD)</label>
                 <input
+                  id="budget-amount"
                   className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200"
                   placeholder="e.g. 250"
+                  aria-label="Budget amount"
                   value={amount}
                   onChange={(e) => setAmount(e.target.value)}
                 />
               </div>
 
               <div>
-                <div className="text-xs text-zinc-500 mb-1">Cadence</div>
+                <label className="mb-1 block text-xs text-zinc-500" htmlFor="budget-cadence">Cadence</label>
                 <select
+                  id="budget-cadence"
                   className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200"
                   value={cadence}
                   onChange={(e) => setCadence(normalizeCadence(e.target.value))}
@@ -970,8 +974,9 @@ export default function BudgetClient() {
               </div>
 
               <div className="md:col-span-2">
-                <div className="text-xs text-zinc-500 mb-1">Section</div>
+                <label className="mb-1 block text-xs text-zinc-500" htmlFor="budget-section">Section</label>
                 <select
+                  id="budget-section"
                   className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200"
                   value={kind}
                   onChange={(e) => setKind(e.target.value as BudgetKind)}

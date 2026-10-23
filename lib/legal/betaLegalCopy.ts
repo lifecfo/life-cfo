@@ -52,7 +52,7 @@ export const termsSections: LegalSection[] = [
   },
   {
     title: "No advice, no products, and no payments",
-    body: "Life CFO shows sums, dates, and lists from what you typed. It does not give personal financial, credit, or investment advice, and it does not recommend a product or say what you should do. This beta does not connect to banks. Life CFO does not move money and does not take payments. You decide what any figure means.",
+    body: "Life CFO shows sums, dates, and lists from what you typed or confirmed from a file you uploaded. It does not give personal financial, credit, or investment advice, and it does not recommend a product or say what you should do. This beta does not connect to banks and does not ask for a banking password. Life CFO does not move money and does not take payments. You decide what any figure means.",
   },
   {
     title: "Your household",
@@ -79,7 +79,7 @@ export const privacySections: LegalSection[] = [
   },
   {
     title: "What we collect",
-    body: "We collect the email address and sign-in details you use for your account, handled by our authentication provider. We collect information you type, such as household names, bills, renewals, income, dates, notes, and decisions. If you add a photo of a receipt or bill, we store that image in Supabase in the same Sydney region (ap-southeast-2). We collect the confirmations you give (that you are 18 or older, that you live in Australia, and that you accept these terms) and a copy of the text you accepted. We ask for your birth year only to check that you are 18 or older, and we do not store that year. We may look at your browser timezone and language to show a warning if they do not look Australian, and we do not store them. If you join the public waitlist, we store that email address until you ask us to remove it by writing to admin@life-cfo.com. We store usage events in our own database: sign-up, finishing the first setup, using the brain dump, inviting a household member, and a daily note that a household opened the shared picture. We use those counts to see whether households keep using the beta. We do not send them to a separate analytics company. We collect technical logs needed to run and protect the service. We do not ask you to connect a bank in this beta, and we do not collect bank passwords.",
+    body: "We collect the email address and sign-in details you use for your account, handled by our authentication provider. We collect information you type, such as household names, bills, renewals, income, dates, notes, and decisions. If you add a photo of a receipt or bill, we store that image in Supabase in Singapore (ap-southeast-1), which is outside Australia. We collect the confirmations you give (that you are 18 or older, that you live in Australia, and that you accept these terms) and a copy of the text you accepted. We ask for your birth year only to check that you are 18 or older, and we do not store that year. We may look at your browser timezone and language to show a warning if they do not look Australian, and we do not store them. If you join the public waitlist, we store that email address until you ask us to remove it by writing to admin@life-cfo.com. We store usage events in our own database: sign-up, finishing the first setup, using the brain dump, inviting a household member, and a daily note that a household opened the shared picture. We use those counts to see whether households keep using the beta. We do not send them to a separate analytics company. We collect technical logs needed to run and protect the service. We do not ask you to connect a bank in this beta, and we do not collect bank passwords.",
   },
   {
     title: "Why we collect it",
@@ -91,7 +91,11 @@ export const privacySections: LegalSection[] = [
   },
   {
     title: "Where information is processed",
-    body: "This beta is set up so the database is intended to be in Sydney (ap-southeast-2) and the app functions are configured for Sydney (syd1). If those regions are not the ones selected, information may be processed outside Australia. AI is off until you opt in and the operator switches it on. If it is used, OpenAI or Anthropic may process the question and selected household figures outside Australia. A receipt or bill photo is sent to OpenAI or Anthropic only if you opt in and the operator switches AI on. Requests are sent with settings that ask the provider not to store them for training where the provider allows that. You can turn your opt-in off again in Settings.",
+    body: "Household information, including photos and imported rows, is stored in Supabase in Singapore (ap-southeast-1). That location is outside Australia. Life CFO takes reasonable steps under Australian Privacy Principle 8 to handle that overseas storage. The app functions are configured for Sydney (syd1). AI is off until you opt in and the operator switches it on. If it is used, OpenAI or Anthropic may process the question and selected household figures outside Australia. A receipt or bill photo is sent to OpenAI or Anthropic only if you opt in and the operator switches AI on. Imported bank rows are sent to an AI provider only if you have opted in and the operator has switched AI on. Requests are sent with settings that ask the provider not to store them for training where the provider allows that. You can turn your opt-in off again in Settings.",
+  },
+  {
+    title: "Bank files and spreadsheets",
+    body: "You choose when to upload a bank file or a household spreadsheet. Life CFO reads the file in memory and does not keep the file. From a bank file it keeps the date, description, and amount of each row, plus an account nickname you choose. It does not keep account numbers, BSBs, or running balances. Life CFO never asks for your banking password. Before a bank file is read you confirm that you are allowed to share that account's transactions with everyone in the household. A spreadsheet is handled the same way: the file is discarded, and bills, income, or renewals are saved only after you confirm the rows.",
   },
   {
     title: "Access, correction, export, and deletion",

@@ -1,11 +1,12 @@
 "use client";
 
 import { useRef, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 
 import { Page } from "@/components/Page";
 import { Button, Card, CardContent } from "@/components/ui";
-import { PRODUCT_DESCRIPTOR, PRODUCT_TAGLINE } from "@/lib/brand";
+import { PRODUCT_TAGLINE } from "@/lib/brand";
 import { compressReceiptImage } from "@/lib/picture/compressReceiptImage";
 import { removeUploadedReceipt, uploadCompressedReceipt } from "@/lib/picture/uploadReceipt";
 
@@ -60,6 +61,7 @@ export default function StartClient() {
   const [inviteEmail, setInviteEmail] = useState("");
   const [pasted, setPasted] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  const sheetRef = useRef<HTMLInputElement>(null);
 
   async function ensureHousehold(): Promise<string | null> {
     if (householdId) return householdId;
@@ -120,6 +122,36 @@ export default function StartClient() {
       setDrafts(next.length ? next : [{ ...EMPTY }]);
       setPasted(true);
       setPhase("confirm");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function previewSheet(file: File) {
+    setBusy(true);
+    setMessage(null);
+    try {
+      const form = new FormData();
+      form.set("file", file);
+      const response = await fetch("/api/picture/sheet", { method: "POST", body: form });
+      const json = (await response.json().catch(() => null)) as {
+        rows?: Array<{ title: string; kind: Kind; amount_cents: number | null; due_on: string | null; notes: string | null }>;
+        issues?: string[];
+        error?: string;
+      } | null;
+      if (!response.ok) {
+        setMessage(json?.error || "That spreadsheet could not be read.");
+        return;
+      }
+      const rows = json?.rows ?? [];
+      if (!rows.length) {
+        setMessage(json?.issues?.join(" ") || "No rows were found in that spreadsheet.");
+        return;
+      }
+      setDrafts(rows.map(toDraft));
+      setPasted(false);
+      setPhase("confirm");
+      if (json?.issues?.length) setMessage(json.issues.join(" "));
     } finally {
       setBusy(false);
     }
@@ -199,7 +231,7 @@ export default function StartClient() {
   }
 
   return (
-    <Page title="Start here" subtitle={<><div>{PRODUCT_TAGLINE}</div><div className="mt-1">{PRODUCT_DESCRIPTOR}</div></>}>
+    <Page title="Start here" subtitle={PRODUCT_TAGLINE}>
       <div className="mx-auto max-w-[760px] space-y-4">
         {phase === "dump" ? (
           <Card>
@@ -207,18 +239,32 @@ export default function StartClient() {
               <p className="text-sm leading-6 text-zinc-600">
                 Paste bills, renewals, due dates, and notes. Life CFO turns them into a list you confirm before anything is saved. This is not a budget score, and it does not need a bank login.
               </p>
+              <label className="block text-sm font-medium text-zinc-800" htmlFor="brain-dump">
+                Household notes
+              </label>
               <textarea
+                id="brain-dump"
                 className="min-h-40 w-full rounded-xl border border-neutral-border bg-white px-3 py-2 text-sm text-neutral-text outline-none focus:border-cfo focus:ring-2 focus:ring-cfo/10"
                 value={text}
                 onChange={(event) => setText(event.target.value)}
                 placeholder={"Rent $450 due 1 Nov\nCar rego renewal 12 March $320"}
               />
-              <label className="flex items-start gap-2 text-sm leading-6 text-zinc-700">
-                <input type="checkbox" className="mt-1" checked={optIn} onChange={(event) => setOptIn(event.target.checked)} />
-                <span>
-                  Use AI to sort this. The text is sent to OpenAI or Anthropic, which may process it outside Australia. Life CFO asks the provider not to store it for training where that is allowed. Nothing is saved until you confirm the list.
-                </span>
-              </label>
+              <div className="space-y-1">
+                <label className="flex items-start gap-2 text-sm leading-6 text-zinc-700" htmlFor="ai-opt-in">
+                  <input
+                    id="ai-opt-in"
+                    type="checkbox"
+                    className="mt-1"
+                    checked={optIn}
+                    onChange={(event) => setOptIn(event.target.checked)}
+                    aria-describedby="ai-opt-in-help"
+                  />
+                  <span>Use AI to sort this.</span>
+                </label>
+                <p id="ai-opt-in-help" className="pl-6 text-sm leading-6 text-zinc-600">
+                  The text is sent to OpenAI or Anthropic, which may process it outside Australia. Life CFO asks the provider not to store it for training where that is allowed. Nothing is saved until you confirm the list.
+                </p>
+              </div>
               <p className="text-sm leading-6 text-zinc-600">
                 A photo is stored in Life CFO either way. It is sent to the same provider only if this box is ticked.
               </p>
@@ -235,6 +281,20 @@ export default function StartClient() {
                 <Button type="button" variant="secondary" disabled={busy} onClick={() => fileRef.current?.click()}>
                   Add a photo
                 </Button>
+              </div>
+              <div className="space-y-2 border-t border-zinc-100 pt-4">
+                <Link href="/money/import" className="block text-sm font-medium text-cfo underline">
+                  Upload a bank file (CSV)
+                </Link>
+                <a href="/api/picture/sheet-template" className="block text-sm font-medium text-cfo underline">
+                  Download a spreadsheet template
+                </a>
+                <Button type="button" variant="secondary" disabled={busy} onClick={() => sheetRef.current?.click()}>
+                  Upload a spreadsheet
+                </Button>
+                <p className="text-sm leading-6 text-zinc-600">
+                  The template columns are name, type (bill, income, or renewal), amount, how often, next due date, category, and notes. Life CFO shows the rows here and saves them only after you confirm. The file is not stored.
+                </p>
               </div>
             </CardContent>
           </Card>
@@ -349,6 +409,19 @@ export default function StartClient() {
             </CardContent>
           </Card>
         ) : null}
+
+        <input
+          ref={sheetRef}
+          type="file"
+          accept=".csv,text/csv"
+          className="sr-only"
+          aria-label="Upload a household spreadsheet"
+          onChange={(event) => {
+            const file = event.target.files?.[0];
+            event.target.value = "";
+            if (file) void previewSheet(file);
+          }}
+        />
 
         <input
           ref={fileRef}

@@ -27,7 +27,7 @@ export function hasInviteMetadata(user: AuthenticatedUserMetadata): boolean {
 
 /**
  * Typed-household beta.
- * Bank feeds, CSV upload, and manual bank accounts stay compiled off.
+ * Bank feeds stay compiled off. A CSV the person uploads is separate.
  * Demo households are not forced onto invitees.
  */
 export function getLifeCfoAccess(user: AuthenticatedUserMetadata): LifeCfoAccess {
@@ -40,4 +40,4 @@ export function getLifeCfoAccess(user: AuthenticatedUserMetadata): LifeCfoAccess
 }
 
 export const REAL_DATA_DISABLED_MESSAGE =
-  "Bank connections and bank-file upload are not part of this beta.";
+  "Bank connections are not part of this beta.";

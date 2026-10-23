@@ -1,14 +1,13 @@
 import { createHash } from "node:crypto";
 import { NextResponse } from "next/server";
-import { BANK_CONNECT_DISABLED_ERROR, bankConnectIsEnabled } from "@/lib/flags/bankConnect";
 import { resolveHouseholdIdRoute } from "@/lib/households/resolveHouseholdIdRoute";
 import {
   BANK_CSV_MAX_FILE_BYTES,
   parseBankCsvForImport,
   type BankCsvImportRow,
 } from "@/lib/money/import/parseBankCsv";
+import { isNicknameOnly, scrubBankText } from "@/lib/money/import/scrubBankText";
 import { supabaseRoute } from "@/lib/supabaseRoute";
-import { getLifeCfoAccess, REAL_DATA_DISABLED_MESSAGE } from "@/lib/server/access/lifeCfoAccess";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -73,10 +72,7 @@ function transactionRows(params: {
   const now = new Date().toISOString();
 
   return params.rows.map((row) => {
-    const reference = row.reference ? normalizedText(row.reference) : "";
-    const identity = reference
-      ? `reference:${reference}`
-      : `description:${normalizedText(row.description)}`;
+    const identity = `description:${normalizedText(scrubBankText(row.description))}`;
     const canonical = [
       "csv:v1",
       params.accountId,
@@ -90,7 +86,7 @@ function transactionRows(params: {
     const externalId = `csv:v1:${createHash("sha256")
       .update(`${canonical}|occurrence:${occurrence}`)
       .digest("hex")}`;
-    const description = row.description.trim();
+    const description = scrubBankText(row.description).slice(0, 240);
 
     return {
       household_id: params.householdId,
@@ -115,9 +111,6 @@ function transactionRows(params: {
 }
 
 export async function POST(request: Request) {
-  if (!bankConnectIsEnabled()) {
-    return NextResponse.json({ ok: false, error: BANK_CONNECT_DISABLED_ERROR }, { status: 404 });
-  }
   try {
     const supabase = await supabaseRoute();
     const {
@@ -131,10 +124,6 @@ export async function POST(request: Request) {
         { status: 401 }
       );
     }
-    if (!getLifeCfoAccess(user).canUseRealDataSources) {
-      return NextResponse.json({ ok: false, error: REAL_DATA_DISABLED_MESSAGE }, { status: 403 });
-    }
-
     const householdId = await resolveHouseholdIdRoute(supabase, user.id);
     if (!householdId) {
       return NextResponse.json(
@@ -167,7 +156,15 @@ export async function POST(request: Request) {
 
     const form = await request.formData();
     const file = form.get("file");
-    const accountId = String(form.get("account_id") || "").trim();
+    const shareConfirmed = String(form.get("share_confirmed") || "") === "yes";
+    const nickname = String(form.get("account_nickname") || "").trim();
+    let accountId = String(form.get("account_id") || "").trim();
+    if (!shareConfirmed) {
+      return NextResponse.json(
+        { ok: false, error: "Tick the box if everyone in this household may see these transactions." },
+        { status: 400 }
+      );
+    }
     if (!(file instanceof File)) {
       return NextResponse.json(
         { ok: false, error: "Choose a CSV file first." },
@@ -186,24 +183,54 @@ export async function POST(request: Request) {
         { status: 400 }
       );
     }
-    if (!accountId || accountId.length > 100) {
-      return NextResponse.json(
-        { ok: false, error: "Choose a manual account first." },
-        { status: 400 }
-      );
+    const text = await file.text();
+    if (!accountId) {
+      if (!isNicknameOnly(nickname)) {
+        return NextResponse.json(
+          { ok: false, error: "Enter a short nickname. Do not include an account number or BSB." },
+          { status: 400 }
+        );
+      }
+      const createdId = crypto.randomUUID();
+      const providerAccountId = `manual:${createdId}`;
+      const created = await supabase
+        .from("accounts")
+        .insert({
+          id: createdId,
+          household_id: householdId,
+          user_id: user.id,
+          provider: "manual",
+          name: nickname,
+          type: "cash",
+          subtype: "checking",
+          status: "active",
+          archived: false,
+          currency: "AUD",
+          current_balance_cents: null,
+          available_balance_cents: null,
+          provider_account_id: providerAccountId,
+          external_id: providerAccountId,
+          connection_id: null,
+        })
+        .select("id")
+        .single();
+      if (created.error || !created.data?.id) {
+        return NextResponse.json(
+          { ok: false, error: "Life CFO couldn't save that nickname." },
+          { status: 500 }
+        );
+      }
+      accountId = created.data.id;
     }
 
-    const [{ data: account, error: accountError }, text] = await Promise.all([
-      supabase
-        .from("accounts")
-        .select("id,currency,provider,archived")
-        .eq("id", accountId)
-        .eq("household_id", householdId)
-        .eq("provider", "manual")
-        .eq("archived", false)
-        .maybeSingle(),
-      file.text(),
-    ]);
+    const { data: account, error: accountError } = await supabase
+      .from("accounts")
+      .select("id,currency,provider,archived")
+      .eq("id", accountId)
+      .eq("household_id", householdId)
+      .eq("provider", "manual")
+      .eq("archived", false)
+      .maybeSingle();
 
     if (accountError) throw accountError;
     if (!account) {

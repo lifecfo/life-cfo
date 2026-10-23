@@ -1,7 +1,5 @@
-import InClient from "./InClient";
+import { redirect } from "next/navigation";
 
-export const dynamic = "force-dynamic";
-
-export default function Page() {
-  return <InClient />;
+export default function MoneyInRedirect() {
+  redirect("/spending");
 }

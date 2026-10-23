@@ -26,7 +26,7 @@ export function verdictToUI(v: Verdict): VerdictUI {
     default:
       return { label: "Figures entered", className: "bg-zinc-50 text-zinc-700 border border-zinc-200" };
     case "NEEDS_ATTENTION":
-      return { label: "Needs attention", className: "bg-zinc-900 text-white" };
+      return { label: "Open", className: "bg-zinc-900 text-white" };
   }
 }
 
@@ -37,7 +37,7 @@ export function verdictToUI(v: Verdict): VerdictUI {
 export function verdictSentence(v: Verdict): string {
   switch (v) {
     case "NEEDS_ATTENTION":
-      return "Needs attention.";
+      return "Open.";
     case "CLEAR_YES":
     case "YES_NEEDS_PLANNING":
     case "NOT_YET":
