@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { readLimitedJson, requireAuthenticatedAiUser } from "@/lib/ai/routeSecurity";
-import { sanitiseDraftItems } from "@/lib/picture/draftItems";
+import { confirmedItemsWithReceipts } from "@/lib/picture/receiptFacts";
 import { recordUsage } from "@/lib/usage/recordUsage";
 import { resolveHouseholdIdRoute } from "@/lib/households/resolveHouseholdIdRoute";
 
@@ -14,7 +14,8 @@ export async function POST(req: Request) {
   const parsedBody = await readLimitedJson(req, 64 * 1024);
   if (!parsedBody.ok) return parsedBody.response;
 
-  const items = sanitiseDraftItems(parsedBody.value.items);
+  const paired = confirmedItemsWithReceipts(parsedBody.value.items);
+  const items = paired.map((row) => row.item);
   if (!items.length) {
     return NextResponse.json({ ok: false, error: "Add at least one item with a title." }, { status: 400 });
   }
@@ -67,6 +68,19 @@ export async function POST(req: Request) {
     await auth.supabase.from("household_reminders").insert(reminders);
   }
 
+  let photoLinkFailed = false;
+  for (let index = 0; index < (data ?? []).length; index += 1) {
+    const receiptId = paired[index]?.receiptId;
+    const itemId = data?.[index]?.id;
+    if (!receiptId || !itemId) continue;
+    const linked = await auth.supabase
+      .from("household_receipts")
+      .update({ item_id: itemId })
+      .eq("id", receiptId)
+      .eq("household_id", householdId);
+    if (linked.error) photoLinkFailed = true;
+  }
+
   if (source === "brain_dump") {
     await recordUsage(auth.supabase, {
       name: "brain_dump_used",
@@ -75,5 +89,14 @@ export async function POST(req: Request) {
     });
   }
 
-  return NextResponse.json({ ok: true, saved: data?.length ?? items.length });
+  return NextResponse.json({
+    ok: true,
+    saved: data?.length ?? items.length,
+    ...(photoLinkFailed
+      ? {
+          message:
+            "The items were saved. A photo could not be linked yet. Apply the latest database migration, then add the photo again.",
+        }
+      : {}),
+  });
 }

@@ -36,6 +36,7 @@ export const DATA_TABLES: readonly DataTable[] = [
   { table: "household_reminder_reads", userIdColumn: "user_id" },
   { table: "household_reminders", householdIdColumn: "household_id" },
   { table: "household_items", householdIdColumn: "household_id" },
+  { table: "household_receipts", householdIdColumn: "household_id" },
   { table: "usage_events", userIdColumn: "user_id", householdIdColumn: "household_id" },
   { table: "home_status_runs", userIdColumn: "user_id", householdIdColumn: "household_id" },
   { table: "home_status_latest", userIdColumn: "user_id" },

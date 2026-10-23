@@ -1,11 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { Page } from "@/components/Page";
 import { Button, Card, CardContent } from "@/components/ui";
 import { PRODUCT_DESCRIPTOR, PRODUCT_TAGLINE } from "@/lib/brand";
+import { compressReceiptImage } from "@/lib/picture/compressReceiptImage";
+import { removeUploadedReceipt, uploadCompressedReceipt } from "@/lib/picture/uploadReceipt";
 
 type Kind = "bill" | "renewal" | "income" | "note";
 
@@ -15,9 +17,11 @@ type Draft = {
   amount: string;
   due_on: string;
   notes: string;
+  receiptId: string | null;
+  previewUrl: string | null;
 };
 
-const EMPTY: Draft = { title: "", kind: "note", amount: "", due_on: "", notes: "" };
+const EMPTY: Draft = { title: "", kind: "note", amount: "", due_on: "", notes: "", receiptId: null, previewUrl: null };
 
 function dollars(cents: number | null): string {
   if (cents == null) return "";
@@ -31,6 +35,8 @@ function toDraft(item: { title: string; kind: Kind; amount_cents: number | null;
     amount: dollars(item.amount_cents),
     due_on: item.due_on ?? "",
     notes: item.notes ?? "",
+    receiptId: null,
+    previewUrl: null,
   };
 }
 
@@ -53,6 +59,7 @@ export default function StartClient() {
   const [householdId, setHouseholdId] = useState<string | null>(null);
   const [inviteEmail, setInviteEmail] = useState("");
   const [pasted, setPasted] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
 
   async function ensureHousehold(): Promise<string | null> {
     if (householdId) return householdId;
@@ -138,6 +145,7 @@ export default function StartClient() {
           amount_cents: centsFromDollars(draft.amount),
           due_on: draft.due_on || null,
           notes: draft.notes.trim() || null,
+          receipt_id: draft.receiptId,
         }))
         .filter((item) => item.title);
       const response = await fetch("/api/picture/items", {
@@ -145,11 +153,12 @@ export default function StartClient() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ items, source: pasted ? "brain_dump" : "manual" }),
       });
-      const json = (await response.json().catch(() => null)) as { error?: string } | null;
+      const json = (await response.json().catch(() => null)) as { error?: string; message?: string } | null;
       if (!response.ok) {
         setMessage(json?.error || "Those items could not be saved.");
         return;
       }
+      if (json?.message) setMessage(json.message);
       setPhase("invite");
     } finally {
       setBusy(false);
@@ -210,6 +219,9 @@ export default function StartClient() {
                   Use AI to sort this. The text is sent to OpenAI or Anthropic, which may process it outside Australia. Life CFO asks the provider not to store it for training where that is allowed. Nothing is saved until you confirm the list.
                 </span>
               </label>
+              <p className="text-sm leading-6 text-zinc-600">
+                A photo is stored in Life CFO either way. It is sent to the same provider only if this box is ticked.
+              </p>
               <div className="flex flex-wrap gap-2">
                 <Button type="button" disabled={busy || !text.trim() || !optIn} onClick={() => void sort(true)}>
                   Sort with AI
@@ -219,6 +231,9 @@ export default function StartClient() {
                 </Button>
                 <Button type="button" variant="ghost" disabled={busy} onClick={addBlank}>
                   Type items myself
+                </Button>
+                <Button type="button" variant="secondary" disabled={busy} onClick={() => fileRef.current?.click()}>
+                  Add a photo
                 </Button>
               </div>
             </CardContent>
@@ -231,6 +246,15 @@ export default function StartClient() {
               <p className="text-sm leading-6 text-zinc-600">Confirm or edit each item. Unwanted rows can be cleared. Saving adds them to the shared picture.</p>
               {drafts.map((draft, index) => (
                 <div key={index} className="grid gap-2 rounded-2xl border border-zinc-200 p-3 sm:grid-cols-2">
+                  {draft.previewUrl ? (
+                    // Local preview of a private photo. The optimizer cannot fetch a blob URL.
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={draft.previewUrl}
+                      alt="Receipt or bill photo"
+                      className="h-24 w-24 rounded-xl object-cover sm:col-span-2"
+                    />
+                  ) : null}
                   <input
                     className="rounded-xl border border-neutral-border bg-white px-2 py-1 text-sm text-neutral-text outline-none focus:border-cfo focus:ring-2 focus:ring-cfo/10 sm:col-span-2"
                     value={draft.title}
@@ -266,11 +290,29 @@ export default function StartClient() {
                     placeholder="Note"
                     onChange={(event) => updateDraft(index, { notes: event.target.value })}
                   />
+                  {draft.receiptId ? (
+                    <button
+                      type="button"
+                      className="text-left text-sm text-zinc-600 underline sm:col-span-2"
+                      onClick={() => void deletePhoto(index)}
+                    >
+                      Delete photo
+                    </button>
+                  ) : null}
                 </div>
               ))}
+              <label className="flex items-start gap-2 text-sm leading-6 text-zinc-700">
+                <input type="checkbox" className="mt-1" checked={optIn} onChange={(event) => setOptIn(event.target.checked)} />
+                <span>
+                  Use AI to sort this. A photo is stored either way. It is sent to OpenAI or Anthropic, which may process it outside Australia, only if this is ticked. Nothing is saved until you confirm.
+                </span>
+              </label>
               <div className="flex flex-wrap gap-2">
                 <Button type="button" variant="secondary" onClick={() => setDrafts((current) => [...current, { ...EMPTY }])}>
                   Add a row
+                </Button>
+                <Button type="button" variant="secondary" disabled={busy} onClick={() => fileRef.current?.click()}>
+                  Add a photo
                 </Button>
                 <Button type="button" disabled={busy} onClick={() => void saveItems()}>
                   Save confirmed items
@@ -308,6 +350,21 @@ export default function StartClient() {
           </Card>
         ) : null}
 
+        <input
+          ref={fileRef}
+          type="file"
+          accept="image/*,application/pdf"
+          capture="environment"
+          multiple
+          className="sr-only"
+          aria-label="Add a photo of a receipt or bill"
+          onChange={(event) => {
+            const files = Array.from(event.target.files ?? []);
+            event.target.value = "";
+            if (files.length) void addPhotos(files);
+          }}
+        />
+
         {message ? <p className="text-sm leading-6 text-zinc-700">{message}</p> : null}
 
         <button type="button" className="text-sm text-zinc-600 underline" onClick={() => void leave(phase !== "dump")}>
@@ -319,5 +376,94 @@ export default function StartClient() {
 
   function updateDraft(index: number, patch: Partial<Draft>) {
     setDrafts((current) => current.map((draft, itemIndex) => (itemIndex === index ? { ...draft, ...patch } : draft)));
+  }
+
+  async function deletePhoto(index: number) {
+    const draft = drafts[index];
+    if (!draft) return;
+    if (draft.previewUrl?.startsWith("blob:")) URL.revokeObjectURL(draft.previewUrl);
+    if (draft.receiptId) {
+      await fetch(`/api/picture/receipts/${draft.receiptId}`, { method: "DELETE" });
+    }
+    updateDraft(index, { receiptId: null, previewUrl: null });
+  }
+
+  async function addPhotos(files: File[]) {
+    setBusy(true);
+    setMessage(null);
+    const notes: string[] = [];
+    const next: Draft[] = [];
+    try {
+      let readWithAi = optIn;
+      if (optIn) {
+        const opted = await fetch("/api/settings/ai", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ opt_in: true }),
+        });
+        if (!opted.ok) {
+          readWithAi = false;
+          notes.push("Life CFO couldn't save the AI opt-in. The photo is stored. Type the fields.");
+        }
+      }
+      const household = await ensureHousehold();
+      if (!household) return;
+      for (const file of files) {
+        const isPdf = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
+        if (isPdf) {
+          notes.push("PDF files are not stored. Add a photo of the bill instead.");
+          continue;
+        }
+        if (file.type && !file.type.startsWith("image/")) {
+          notes.push("Only photos can be stored.");
+          continue;
+        }
+        let blob: Blob;
+        try {
+          blob = await compressReceiptImage(file);
+        } catch (error) {
+          notes.push(error instanceof Error ? error.message : "That photo could not be prepared.");
+          continue;
+        }
+        let storagePath: string | null = null;
+        try {
+          storagePath = await uploadCompressedReceipt(household, blob);
+          const response = await fetch("/api/picture/receipts", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ storage_path: storagePath, use_ai: readWithAi }),
+          });
+          const json = (await response.json().catch(() => null)) as {
+            receipt_id?: string;
+            preview_url?: string | null;
+            message?: string;
+            error?: string;
+            draft?: { title: string; kind: Kind; amount_cents: number | null; due_on: string | null; notes: string | null };
+          } | null;
+          if (!response.ok || !json?.receipt_id) {
+            await removeUploadedReceipt(storagePath);
+            notes.push(json?.error || "That photo could not be stored.");
+            continue;
+          }
+          const draft = json.draft ? toDraft(json.draft) : { ...EMPTY };
+          next.push({
+            ...draft,
+            receiptId: json.receipt_id,
+            previewUrl: URL.createObjectURL(blob),
+          });
+          if (json.message) notes.push(json.message);
+        } catch (error) {
+          if (storagePath) await removeUploadedReceipt(storagePath);
+          notes.push(error instanceof Error ? error.message : "That photo could not be stored.");
+        }
+      }
+      if (next.length) {
+        setDrafts((current) => (phase === "confirm" ? [...current, ...next] : next));
+        setPhase("confirm");
+      }
+      if (notes.length) setMessage(notes.join(" "));
+    } finally {
+      setBusy(false);
+    }
   }
 }

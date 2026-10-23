@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { DATA_TABLES } from "@/lib/account/dataRegistry";
 import { deletionBlockers, soleMemberHouseholdIds, type DeletionMembership } from "@/lib/account/deletionPlan";
+import { collectReceiptPaths, isReceiptStoragePath, RECEIPT_BUCKET } from "@/lib/picture/receiptImage";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { supabaseRoute } from "@/lib/supabaseRoute";
 
@@ -18,6 +19,76 @@ function missingRelation(error: { code?: string; message?: string } | null) {
     message.includes("could not find") ||
     message.includes("column")
   );
+}
+
+function storageGone(error: { message?: string } | null) {
+  const message = (error?.message || "").toLowerCase();
+  return message.includes("bucket") || message.includes("not found") || message.includes("does not exist");
+}
+
+/**
+ * keystone_delete_my_data() removes database rows only.
+ * Photo bytes live in the private household-receipts bucket, so this route
+ * deletes them with the service role before the receipt rows are removed.
+ * Photos linked to a shared household stay with that household.
+ */
+async function removeStoredReceipts(
+  admin: ReturnType<typeof supabaseAdmin>,
+  householdIds: string[],
+  userId: string
+) {
+  const paths = new Set<string>();
+  const draftIds: string[] = [];
+
+  for (const householdId of householdIds) {
+    const { data, error } = await admin.from("household_receipts").select("storage_path").eq("household_id", householdId);
+    if (error && !missingRelation(error)) throw new Error(error.message);
+    const rowPaths = error
+      ? []
+      : (data ?? []).map((row) => (typeof row.storage_path === "string" ? row.storage_path : null));
+    const names: string[] = [];
+    for (let offset = 0; offset < 5000; offset += 100) {
+      const listed = await admin.storage.from(RECEIPT_BUCKET).list(householdId, { limit: 100, offset });
+      if (listed.error) {
+        if (storageGone(listed.error)) break;
+        throw new Error(listed.error.message);
+      }
+      const batch = listed.data ?? [];
+      for (const entry of batch) {
+        if (entry.name) names.push(entry.name);
+      }
+      if (batch.length < 100) break;
+    }
+    for (const path of collectReceiptPaths(householdId, rowPaths, names)) {
+      paths.add(path);
+    }
+  }
+
+  const own = await admin
+    .from("household_receipts")
+    .select("id, storage_path, household_id")
+    .eq("created_by", userId)
+    .is("item_id", null);
+  if (own.error) {
+    if (!missingRelation(own.error)) throw new Error(own.error.message);
+  } else {
+    for (const row of own.data ?? []) {
+      const storagePath = typeof row.storage_path === "string" ? row.storage_path : "";
+      if (isReceiptStoragePath(storagePath)) paths.add(storagePath);
+      const householdId = typeof row.household_id === "string" ? row.household_id : "";
+      if (typeof row.id === "string" && householdId && !householdIds.includes(householdId)) draftIds.push(row.id);
+    }
+  }
+
+  const list = [...paths];
+  for (let index = 0; index < list.length; index += 100) {
+    const removed = await admin.storage.from(RECEIPT_BUCKET).remove(list.slice(index, index + 100));
+    if (removed.error && !storageGone(removed.error)) throw new Error(removed.error.message);
+  }
+  for (const id of draftIds) {
+    const { error } = await admin.from("household_receipts").delete().eq("id", id);
+    if (error && !missingRelation(error)) throw new Error(error.message);
+  }
 }
 
 async function deleteWhere(
@@ -75,6 +146,8 @@ export async function POST(req: Request) {
     if (deletionBlockers(memberships).length > 0) {
       return NextResponse.json({ ok: false, error: "This account can't be deleted yet." }, { status: 409 });
     }
+
+    await removeStoredReceipts(admin, soleMemberHouseholdIds(memberships), user.id);
 
     for (const householdId of soleMemberHouseholdIds(memberships)) {
       for (const table of DATA_TABLES) {

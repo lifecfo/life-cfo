@@ -35,7 +35,12 @@ const STRUCTURE_SKIP = new Set(["super_guidance", "investment_guidance", "insura
 
 export function screenAiOutput(text: string, options?: { purpose?: string }): OutputScreen {
   const patterns = ADVICE_PATTERNS.filter((rule) => {
-    if (options?.purpose === "structure_record" && STRUCTURE_SKIP.has(rule.name)) return false;
+    if (
+      (options?.purpose === "structure_record" || options?.purpose === "read_receipt") &&
+      STRUCTURE_SKIP.has(rule.name)
+    ) {
+      return false;
+    }
     return rule.pattern.test(text);
   }).map((rule) => rule.name);
   if (patterns.length === 0) return { ok: true };

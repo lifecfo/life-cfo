@@ -41,7 +41,7 @@ export async function GET() {
     {
       exported_at: new Date().toISOString(),
       user_id: user.id,
-      note: "This file contains the rows your account is allowed to read. It is a copy of what was typed, not a recommendation.",
+      note: "This file contains the rows your account is allowed to read. It is a copy of what was typed, not a recommendation. Rows in household_receipts are references to private photos in the household-receipts storage bucket. The image bytes are not in this file.",
       tables: exported,
       skipped,
     },

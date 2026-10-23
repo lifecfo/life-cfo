@@ -30,7 +30,9 @@ test("structuring a typed insurance item is not treated as insurance guidance", 
   const extracted = '{"title":"car insurance renewal","kind":"renewal","amount_cents":32000}';
   assert.equal(screenAiOutput(extracted).ok, false);
   assert.equal(screenAiOutput(extracted, { purpose: "structure_record" }).ok, true);
+  assert.equal(screenAiOutput(extracted, { purpose: "read_receipt" }).ok, true);
   assert.equal(screenAiOutput("You should renew the insurance.", { purpose: "structure_record" }).ok, false);
+  assert.equal(screenAiOutput("You should renew the insurance.", { purpose: "read_receipt" }).ok, false);
 });
 
 test("post-check redacts figures before a blocked answer is logged", () => {

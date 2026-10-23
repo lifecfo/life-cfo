@@ -13,9 +13,15 @@ export type AiPurpose =
   | "decision_analysis"
   | "home_ask"
   | "home_status"
-  | "structure_record";
+  | "structure_record"
+  | "read_receipt";
 
 type JsonSchema = Record<string, unknown>;
+
+export type AiImageInput = {
+  mediaType: "image/jpeg" | "image/png" | "image/webp" | "image/gif";
+  base64: string;
+};
 
 type GenerateOptions = {
   purpose: AiPurpose;
@@ -25,6 +31,7 @@ type GenerateOptions = {
   maxOutputTokens: number;
   /** Caller has confirmed this user opted in to overseas AI processing. */
   allowOverseasDisclosure: true;
+  image?: AiImageInput;
 };
 
 type GenerateStructuredOptions = GenerateOptions & {
@@ -80,6 +87,7 @@ function modelFor(provider: AiProviderName, purpose: AiPurpose): string {
       home_ask: "claude-haiku-4-5-20251001",
       home_status: "claude-haiku-4-5-20251001",
       structure_record: "claude-haiku-4-5-20251001",
+      read_receipt: "claude-haiku-4-5-20251001",
     };
     const purposeKey = `ANTHROPIC_MODEL_${purpose.toUpperCase()}`;
     return (
@@ -96,6 +104,7 @@ function modelFor(provider: AiProviderName, purpose: AiPurpose): string {
     home_ask: "gpt-4o-mini",
     home_status: "gpt-4o-mini",
     structure_record: "gpt-4o-mini",
+    read_receipt: "gpt-4o-mini",
   };
   const purposeOverride = process.env[`OPENAI_MODEL_${purpose.toUpperCase()}`];
   if (purposeOverride) return purposeOverride;
@@ -132,6 +141,33 @@ function guardedSystem(system: string): string {
   return `${FACTUAL_SYSTEM_PROMPT}\n\n${system}`;
 }
 
+function anthropicUserContent(options: GenerateOptions): Anthropic.MessageParam["content"] {
+  if (!options.image) return options.prompt;
+  return [
+    {
+      type: "image",
+      source: {
+        type: "base64",
+        media_type: options.image.mediaType,
+        data: options.image.base64,
+      },
+    },
+    { type: "text", text: options.prompt },
+  ];
+}
+
+function openAiUserContent(options: GenerateOptions) {
+  if (!options.image) return options.prompt;
+  return [
+    { type: "input_text" as const, text: options.prompt },
+    {
+      type: "input_image" as const,
+      detail: "low" as const,
+      image_url: `data:${options.image.mediaType};base64,${options.image.base64}`,
+    },
+  ];
+}
+
 function releaseText(purpose: AiPurpose, text: string): string {
   const screened = screenAiOutput(text);
   if (screened.ok) return text;
@@ -150,7 +186,7 @@ async function anthropicRequest(
         model: modelFor("anthropic", options.purpose),
         max_tokens: options.maxOutputTokens,
         system: guardedSystem(options.system),
-        messages: [{ role: "user", content: options.prompt }],
+        messages: [{ role: "user", content: anthropicUserContent(options) }],
         // Note: `temperature` is intentionally not forwarded here. Newer Claude
         // models (e.g. claude-sonnet-5) reject the parameter outright ("temperature
         // is deprecated for this model"), and there's no forward-compatible way to
@@ -201,7 +237,7 @@ async function openAiText(options: GenerateOptions): Promise<string> {
     model: modelFor("openai", options.purpose),
     input: [
       { role: "system", content: guardedSystem(options.system) },
-      { role: "user", content: options.prompt },
+      { role: "user", content: openAiUserContent(options) },
     ],
     temperature: options.temperature,
     max_output_tokens: options.maxOutputTokens,
@@ -228,7 +264,7 @@ export async function generateAiStructured<T = unknown>(
               model: modelFor("openai", options.purpose),
               input: [
                 { role: "system", content: guardedSystem(options.system) },
-                { role: "user", content: options.prompt },
+                { role: "user", content: openAiUserContent(options) },
               ],
               temperature: options.temperature,
               max_output_tokens: options.maxOutputTokens,
