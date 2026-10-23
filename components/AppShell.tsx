@@ -541,7 +541,7 @@ export function AppShell({ children }: AppShellProps) {
               className={
                 askOpen
                   ? "md:grid md:h-full md:min-h-0 md:grid-cols-[minmax(0,2fr)_minmax(360px,1fr)] md:gap-4"
-                  : ""
+                  : "md:h-full md:min-h-0"
               }
             >
               <div className="min-h-0 md:h-full md:overflow-y-auto md:pr-1">{children}</div>
