@@ -84,81 +84,83 @@ function displayHouseholdName(name: string): string {
 
 function navIcon(href: string) {
   const shared = "h-4 w-4 text-zinc-600";
+  const stroke = { stroke: "currentColor", strokeWidth: 1.8, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
 
   switch (href) {
-    case "/start":
-    case "/bills":
-    case "/income":
-    case "/spending":
-    case "/budget":
     case "/lifecfo-home":
       return (
         <svg viewBox="0 0 24 24" fill="none" className={shared} aria-hidden="true">
-          <path d="M3 10.5L12 3l9 7.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-          <path d="M5.5 9.8V20h13V9.8" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+          <path d="M4 10.5 12 4l8 6.5" {...stroke} />
+          <path d="M6.5 9.8V20h11V9.8" {...stroke} />
         </svg>
       );
-    case "/money":
-    case "/money/setup":
-    case "/money/map":
-    case "/money/in":
-    case "/money/out":
-    case "/money/saved":
-    case "/money/planned":
+    case "/start":
+      return (
+        <svg viewBox="0 0 24 24" fill="none" className={shared} aria-hidden="true">
+          <circle cx="12" cy="12" r="8" {...stroke} />
+          <path d="M12 8.5v7M8.5 12h7" {...stroke} />
+        </svg>
+      );
+    case "/bills":
+      return (
+        <svg viewBox="0 0 24 24" fill="none" className={shared} aria-hidden="true">
+          <path d="M7 3.5h10v17l-2.2-1.3L12.5 20.5 10.3 19.2 8 20.5 7 19.8V3.5z" {...stroke} />
+          <path d="M9.5 8h5M9.5 11.5h5" {...stroke} />
+        </svg>
+      );
+    case "/income":
+      return (
+        <svg viewBox="0 0 24 24" fill="none" className={shared} aria-hidden="true">
+          <path d="M12 4v8.5" {...stroke} />
+          <path d="M8.5 10 12 13.5 15.5 10" {...stroke} />
+          <path d="M5 14.5h3.4l1.3 2h4.6l1.3-2H19V20H5v-5.5z" {...stroke} />
+        </svg>
+      );
+    case "/budget":
+      return (
+        <svg viewBox="0 0 24 24" fill="none" className={shared} aria-hidden="true">
+          <circle cx="12" cy="12" r="7.5" {...stroke} />
+          <path d="M12 12V4.5" {...stroke} />
+          <path d="M12 12l5.3 5.3" {...stroke} />
+        </svg>
+      );
+    case "/spending":
+      return (
+        <svg viewBox="0 0 24 24" fill="none" className={shared} aria-hidden="true">
+          <path d="M5 19.5h14" {...stroke} />
+          <path d="M8 19.5V11" {...stroke} />
+          <path d="M12 19.5V6.5" {...stroke} />
+          <path d="M16 19.5V14" {...stroke} />
+        </svg>
+      );
     case "/money/year":
-    case "/money/goals":
       return (
         <svg viewBox="0 0 24 24" fill="none" className={shared} aria-hidden="true">
-          <rect x="3.5" y="6.5" width="17" height="11" rx="2.5" stroke="currentColor" strokeWidth="1.8" />
-          <circle cx="12" cy="12" r="2.4" stroke="currentColor" strokeWidth="1.8" />
-        </svg>
-      );
-    case "/accounts":
-      return (
-        <svg viewBox="0 0 24 24" fill="none" className={shared} aria-hidden="true">
-          <rect x="3.5" y="5.5" width="17" height="13" rx="2.5" stroke="currentColor" strokeWidth="1.8" />
-          <path d="M3.5 10h17" stroke="currentColor" strokeWidth="1.8" />
-        </svg>
-      );
-    case "/transactions":
-      return (
-        <svg viewBox="0 0 24 24" fill="none" className={shared} aria-hidden="true">
-          <path d="M6 8h12M6 12h9M6 16h7" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-        </svg>
-      );
-    case "/connections":
-      return (
-        <svg viewBox="0 0 24 24" fill="none" className={shared} aria-hidden="true">
-          <path d="M9.5 14.5l-2 2a3 3 0 104.2 4.2l2-2" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-          <path d="M14.5 9.5l2-2a3 3 0 10-4.2-4.2l-2 2" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-          <path d="M8.5 15.5l7-7" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+          <rect x="4" y="5.5" width="16" height="14" rx="2" {...stroke} />
+          <path d="M8 4v3M16 4v3M4 10h16" {...stroke} />
         </svg>
       );
     case "/decisions":
       return (
         <svg viewBox="0 0 24 24" fill="none" className={shared} aria-hidden="true">
-          <path d="M12 4v16M4 8h8M12 16h8" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-        </svg>
-      );
-    case "/family":
-      return (
-        <svg viewBox="0 0 24 24" fill="none" className={shared} aria-hidden="true">
-          <circle cx="9" cy="9" r="2.3" stroke="currentColor" strokeWidth="1.8" />
-          <circle cx="15.2" cy="10.2" r="1.8" stroke="currentColor" strokeWidth="1.8" />
-          <path d="M5.5 18c.7-2.3 2.3-3.5 4.7-3.5s4 1.2 4.7 3.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+          <path d="M7 4.5h8.2A2 2 0 0 1 17.2 6.5V19.5H9a2 2 0 0 0-2 2V6.5a2 2 0 0 1 2-2z" {...stroke} />
+          <path d="M9.5 9h5M9.5 12.5h4" {...stroke} />
+          <path d="M15.2 16.2 18 13.4l1.4 1.4-2.8 2.8H15v-1.4z" {...stroke} />
         </svg>
       );
     case "/household":
       return (
         <svg viewBox="0 0 24 24" fill="none" className={shared} aria-hidden="true">
-          <path d="M3 10.5L12 3l9 7.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-          <path d="M6.5 20v-7.5h11V20" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+          <circle cx="9" cy="8.2" r="2.2" {...stroke} />
+          <circle cx="15.6" cy="9" r="1.7" {...stroke} />
+          <path d="M4.6 18.5c.7-2.5 2.3-3.7 4.4-3.7s3.7 1.2 4.4 3.7" {...stroke} />
+          <path d="M13.4 15c.7-.4 1.5-.6 2.4-.6 1.7 0 3 .9 3.6 2.8" {...stroke} />
         </svg>
       );
     default:
       return (
         <svg viewBox="0 0 24 24" fill="none" className={shared} aria-hidden="true">
-          <circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="1.8" />
+          <circle cx="12" cy="12" r="3" {...stroke} />
         </svg>
       );
   }
@@ -266,9 +268,14 @@ export function AppShell({ children }: AppShellProps) {
       { href: "/start", label: "Add things" },
       { href: "/bills", label: "Bills & renewals" },
       { href: "/income", label: "Income" },
+      { href: "/budget", label: "Budget" },
     ];
     if (showSpending) items.push({ href: "/spending", label: "Spending" });
-    items.push({ href: "/money/year", label: "Year ahead" }, { href: "/household", label: "Household" });
+    items.push(
+      { href: "/money/year", label: "Year ahead" },
+      { href: "/decisions", label: "Decision notes" },
+      { href: "/household", label: "Household" }
+    );
     return items;
   }, [showSpending]);
 
@@ -408,12 +415,6 @@ export function AppShell({ children }: AppShellProps) {
                     </Link>
                   ) : null}
 
-                  <Link href="/budget" className={menuItemClass} onClick={() => setMenuOpen(false)}>
-                    Budget
-                  </Link>
-                  <Link href="/decisions" className={menuItemClass} onClick={() => setMenuOpen(false)}>
-                    Decision notes
-                  </Link>
                   <Link href="/settings" className={menuItemClass} onClick={() => setMenuOpen(false)}>
                     Settings
                   </Link>

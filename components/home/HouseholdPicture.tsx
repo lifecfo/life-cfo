@@ -141,7 +141,7 @@ export function HouseholdPicture() {
         <section className="space-y-2">
           <h3 className="text-sm font-semibold text-zinc-900">Reminders</h3>
           <p className="text-sm leading-6 text-zinc-600">
-            Due dates stay in the app, where every household member can see them. Email is not sent. Supabase only sends sign-in mail, and a separate mail service would be an extra cost.
+            Due dates show here for everyone in the household. Reminders aren&apos;t emailed in this beta.
           </p>
           {picture.reminders.length === 0 ? <p className="text-sm text-zinc-600">No due-date reminders yet.</p> : null}
           {picture.reminders.map((reminder) => (
