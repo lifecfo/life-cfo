@@ -1,7 +1,8 @@
+import Image from "next/image";
 import Link from "next/link";
 
 import { PrintPackButton } from "@/components/decisions/PrintPackButton";
-import { PRODUCT_DESCRIPTOR } from "@/lib/brand";
+import { PRODUCT_DESCRIPTOR, PRODUCT_NAME } from "@/lib/brand";
 import { formatMoneyFromCents } from "@/lib/money/formatMoney";
 import { buildDecisionPack, recordedFactorsAndQuestions, type PackItem } from "@/lib/picture/decisionPack";
 import { supabaseRoute } from "@/lib/supabaseRoute";
@@ -81,17 +82,24 @@ export default async function DecisionPackPage({ params }: PackPageProps) {
   });
 
   return (
-    <main className="mx-auto max-w-3xl space-y-6 px-6 py-8 text-zinc-900">
+    <main className="mx-auto max-w-3xl space-y-6 px-6 py-8 text-neutral-text">
       <div className="flex items-start justify-between gap-4 print:hidden">
         <Link className="text-sm underline" href="/decisions">
           Back to decisions
         </Link>
         <PrintPackButton />
       </div>
-      <header className="space-y-2">
-        <p className="text-sm text-zinc-600">{PRODUCT_DESCRIPTOR}</p>
+      <header className="space-y-3">
+        <Image
+          src="/brand/lifecfo-horizontal-transparent.svg"
+          alt={PRODUCT_NAME}
+          width={170}
+          height={40}
+          className="h-auto w-[150px]"
+        />
+        <p className="text-sm text-neutral-text-2">{PRODUCT_DESCRIPTOR}</p>
         <h1 className="text-3xl font-semibold">Decision pack</h1>
-        <p className="text-sm leading-6 text-zinc-700">{pack.note}</p>
+        <p className="text-sm leading-6 text-neutral-text-2">{pack.note}</p>
       </header>
       <section className="space-y-2">
         <h2 className="text-lg font-semibold">Decision as stated</h2>

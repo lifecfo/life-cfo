@@ -9,6 +9,7 @@ import {
   ACTIVE_HOUSEHOLD_STORAGE_KEY,
   resolveActiveHouseholdIdClient,
 } from "@/lib/households/resolveActiveHouseholdClient";
+import { ProgressMeter } from "@/components/charts/BrandCharts";
 import { Page } from "@/components/Page";
 import { Card, CardContent, Button, Chip, Badge, Money, useToast } from "@/components/ui";
 import { useCountUp } from "@/lib/ui/useCountUp";
@@ -302,16 +303,8 @@ function GoalRow({
           <GoalRing percent={p} />
         </div>
       ) : showBar ? (
-        <div className="mt-3 h-2 w-full rounded-full bg-zinc-100">
-          <div
-            className="motion-fill h-2 rounded-full bg-cfo"
-            style={
-              {
-                width: `${clamp(p, 0, 100)}%`,
-                "--fill-target": `${clamp(p, 0, 100)}%`,
-              } as CSSProperties
-            }
-          />
+        <div className="mt-3">
+          <ProgressMeter percent={p} label={`${p} percent of the typed target`} />
         </div>
       ) : null}
     </button>
@@ -361,16 +354,8 @@ function PrimaryGoalCard({
               Not started yet
             </div>
           ) : showBar ? (
-            <div className="mt-4 h-3 w-full rounded-full bg-zinc-100">
-              <div
-                className="motion-fill h-3 rounded-full bg-cfo"
-                style={
-                  {
-                    width: `${clamp(p, 0, 100)}%`,
-                    "--fill-target": `${clamp(p, 0, 100)}%`,
-                  } as CSSProperties
-                }
-              />
+            <div className="mt-4">
+              <ProgressMeter percent={p} label={`${p} percent of the typed target`} />
             </div>
           ) : null}
         </div>
@@ -467,24 +452,14 @@ function SelectedGoalSummaryCard({
               Not started yet
             </div>
           ) : showBar ? (
-            <div className="mt-4">
+            <div className="mt-4 space-y-2">
               <div className="flex items-center justify-between text-xs text-zinc-600">
                 <span>{p}%</span>
                 <span>
                   <Money cents={tgt} currency={goal.currency} />
                 </span>
               </div>
-              <div className="mt-2 h-4 w-full rounded-full bg-zinc-100">
-                <div
-                  className="motion-fill h-4 rounded-full bg-cfo"
-                  style={
-                    {
-                      width: `${clamp(p, 0, 100)}%`,
-                      "--fill-target": `${clamp(p, 0, 100)}%`,
-                    } as CSSProperties
-                  }
-                />
-              </div>
+              <ProgressMeter percent={p} label={`${p} percent of the typed target`} />
             </div>
           ) : null}
 

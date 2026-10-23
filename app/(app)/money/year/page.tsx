@@ -2,6 +2,7 @@
 
 import { useEffect, useState, type CSSProperties } from "react";
 import Link from "next/link";
+import { LineChart } from "@/components/charts/BrandCharts";
 import { Page } from "@/components/Page";
 import { Card, CardContent, Chip, Money } from "@/components/ui";
 import { formatMoneyFromCents } from "@/lib/money/formatMoney";
@@ -65,35 +66,6 @@ function yearScopeSentence(year: MoneyYearSummary): string {
   return `${base} ${excluded} item${excluded === 1 ? "" : "s"} couldn't be included because of a missing date or unsupported cadence — see Timing needed below. ${readOnly}`;
 }
 
-const CHART_WIDTH = 960;
-const CHART_HEIGHT = 300;
-const CHART_LEFT = 64;
-const CHART_RIGHT = 20;
-const CHART_TOP = 20;
-const CHART_BOTTOM = 54;
-
-function chartX(index: number, monthCount: number): number {
-  if (monthCount <= 1) return CHART_LEFT;
-  return CHART_LEFT + ((CHART_WIDTH - CHART_LEFT - CHART_RIGHT) * index) / (monthCount - 1);
-}
-
-function chartY(value: number, timeline: MoneyTimelineCurrency): number {
-  const range = timeline.scale_max_cents - timeline.scale_min_cents;
-  if (range <= 0) return (CHART_TOP + CHART_HEIGHT - CHART_BOTTOM) / 2;
-  return CHART_TOP +
-    ((timeline.scale_max_cents - value) / range) *
-      (CHART_HEIGHT - CHART_TOP - CHART_BOTTOM);
-}
-
-function points(
-  timeline: MoneyTimelineCurrency,
-  key: "known_money_in_cents" | "known_money_out_cents" | "difference_cents"
-): string {
-  return timeline.months
-    .map((month, index) => `${chartX(index, timeline.months.length)},${chartY(month[key], timeline)}`)
-    .join(" ");
-}
-
 function closerLookText(month: MoneyTimelineMonth): string {
   const reasons = month.closer_look_reasons.map((reason) =>
     reason === "bills_above_income"
@@ -104,51 +76,41 @@ function closerLookText(month: MoneyTimelineMonth): string {
 }
 
 function YearTimelineChart({ timeline }: { timeline: MoneyTimelineCurrency }) {
-  const zeroY = chartY(0, timeline);
-
   return (
-    <div className="space-y-3 rounded-2xl border border-zinc-200 p-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="text-sm font-medium text-zinc-900">{timeline.currency}</div>
-        <div className="flex flex-wrap gap-3 text-xs text-zinc-600" aria-hidden="true">
-          <span><span className="mr-1 inline-block h-2 w-2 rounded-full bg-cfo" />Money in</span>
-          <span><span className="mr-1 inline-block h-2 w-2 rounded-full bg-cfo/60" />Money out</span>
-          <span><span className="mr-1 inline-block h-2 w-2 rounded-full bg-cfo/25" />Difference</span>
-        </div>
-      </div>
-      <div className="overflow-x-auto">
-        <svg viewBox={`0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`} className="min-w-[720px]" role="img" aria-label={`Twelve month timeline for ${timeline.currency}`}>
-          <line x1={CHART_LEFT} x2={CHART_WIDTH - CHART_RIGHT} y1={zeroY} y2={zeroY} stroke="#d4d4d8" strokeDasharray="4 4" />
-          <polyline points={points(timeline, "known_money_in_cents")} fill="none" strokeWidth="4" strokeLinejoin="round" strokeLinecap="round" className="stroke-cfo" />
-          <polyline points={points(timeline, "known_money_out_cents")} fill="none" strokeWidth="4" strokeLinejoin="round" strokeLinecap="round" className="stroke-cfo/60" />
-          <polyline points={points(timeline, "difference_cents")} fill="none" strokeWidth="4" strokeLinejoin="round" strokeLinecap="round" className="stroke-cfo/25" />
-          {timeline.months.map((month, index) => {
-            const x = chartX(index, timeline.months.length);
-            return (
-              <g key={month.month_key}>
-                <title>{`${month.label}: money in ${formatMoneyFromCents(month.known_money_in_cents, timeline.currency)}, money out ${formatMoneyFromCents(month.known_money_out_cents, timeline.currency)}, difference ${formatMoneyFromCents(month.difference_cents, timeline.currency)}`}</title>
-                <circle cx={x} cy={chartY(month.known_money_in_cents, timeline)} r="5" className="fill-cfo" />
-                <circle cx={x} cy={chartY(month.known_money_out_cents, timeline)} r="5" className="fill-cfo/60" />
-                <circle cx={x} cy={chartY(month.difference_cents, timeline)} r="5" className="fill-cfo/25" />
-                {month.needs_closer_look ? (
-                  <circle
-                    cx={x}
-                    cy={CHART_TOP + 4}
-                    r="5"
-                    fill="none"
-                    strokeWidth="2"
-                    className="stroke-zinc-500"
-                  />
-                ) : null}
-                <text x={x} y={CHART_HEIGHT - 20} textAnchor="middle" className="fill-zinc-500 text-[11px]">{month.label.replace(/ \d{4}$/, "")}</text>
-              </g>
-            );
-          })}
-          <text x={CHART_LEFT - 8} y={CHART_TOP + 4} textAnchor="end" className="fill-zinc-500 text-[11px]">{formatMoneyFromCents(timeline.scale_max_cents, timeline.currency)}</text>
-          <text x={CHART_LEFT - 8} y={zeroY + 4} textAnchor="end" className="fill-zinc-500 text-[11px]">{formatMoneyFromCents(0, timeline.currency)}</text>
-          {timeline.scale_min_cents < 0 ? <text x={CHART_LEFT - 8} y={CHART_HEIGHT - CHART_BOTTOM + 4} textAnchor="end" className="fill-zinc-500 text-[11px]">{formatMoneyFromCents(timeline.scale_min_cents, timeline.currency)}</text> : null}
-        </svg>
-      </div>
+    <div className="space-y-3 rounded-2xl border border-neutral-border bg-neutral-surface p-4">
+      <div className="text-sm font-medium text-neutral-text">{timeline.currency}</div>
+      <LineChart
+        ariaLabel={`Twelve month timeline for ${timeline.currency}`}
+        empty="Add dates to regular income or bills to build the timeline."
+        labels={timeline.months.map((month) => month.label.replace(/ \d{4}$/, ""))}
+        formatValue={(value) => formatMoneyFromCents(value, timeline.currency)}
+        series={[
+          {
+            id: "in",
+            label: "Money in",
+            values: timeline.months.map((month) => month.known_money_in_cents),
+            strokeClass: "stroke-cfo",
+            fillClass: "fill-cfo",
+            swatchClass: "bg-cfo",
+          },
+          {
+            id: "out",
+            label: "Money out",
+            values: timeline.months.map((month) => month.known_money_out_cents),
+            strokeClass: "stroke-cfo/60",
+            fillClass: "fill-cfo/60",
+            swatchClass: "bg-cfo/60",
+          },
+          {
+            id: "difference",
+            label: "Difference",
+            values: timeline.months.map((month) => month.difference_cents),
+            strokeClass: "stroke-cfo/25",
+            fillClass: "fill-cfo/25",
+            swatchClass: "bg-cfo/25",
+          },
+        ]}
+      />
       <details className="rounded-2xl bg-zinc-50 px-4 py-3">
         <summary className="cursor-pointer text-sm font-medium text-zinc-800">Monthly details</summary>
         <div className="mt-3 overflow-x-auto">
@@ -187,9 +149,6 @@ function YearTimelineChart({ timeline }: { timeline: MoneyTimelineCurrency }) {
           </table>
         </div>
       </details>
-      {timeline.months.some((month) => month.needs_closer_look) ? (
-        <div className="text-xs text-zinc-500"><span className="mr-1 inline-block h-2 w-2 rounded-full border border-zinc-500" />A marker shows a month with a shortfall or a heavier schedule.</div>
-      ) : null}
     </div>
   );
 }

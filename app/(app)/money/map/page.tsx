@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import { ProgressMeter } from "@/components/charts/BrandCharts";
 import { Page } from "@/components/Page";
 import { Card, CardContent, Chip, Money } from "@/components/ui";
 import { useCountUp } from "@/lib/ui/useCountUp";
@@ -383,15 +384,10 @@ export default function MoneyMapPage() {
                         </div>
                         <div className="text-xs font-medium text-zinc-700">{item.progress_percent}%</div>
                       </div>
-                      <div className="mt-3 h-2 overflow-hidden rounded-full bg-zinc-200">
-                        <div
-                          className="motion-fill h-full rounded-full bg-cfo"
-                          style={
-                            {
-                              width: `${item.progress_percent}%`,
-                              "--fill-target": `${item.progress_percent}%`,
-                            } as CSSProperties
-                          }
+                      <div className="mt-3">
+                        <ProgressMeter
+                          percent={item.progress_percent}
+                          label={`${item.title}: ${item.progress_percent} percent of the typed target`}
                         />
                       </div>
                       <div className="mt-2 text-xs text-zinc-600">

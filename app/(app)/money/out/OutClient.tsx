@@ -3,8 +3,9 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { SegmentedBar } from "@/components/charts/BrandCharts";
 import { Page } from "@/components/Page";
-import { Card, CardContent, Chip, Money, useToast } from "@/components/ui";
+import { Card, CardContent, Chip, useToast } from "@/components/ui";
 import { formatMoneyFromCents } from "@/lib/money/formatMoney";
 import { categoryColorSlot, categoryColorClasses } from "@/lib/ui/categoryColorSlot";
 import type { MoneyDataCoverage } from "@/lib/money/reasoning/types";
@@ -179,24 +180,17 @@ export default function OutClient() {
             <div className="text-sm font-semibold text-zinc-900">Where it went</div>
             {loading ? (
               <div className="text-xs text-zinc-500">Loading...</div>
-            ) : categorySegments.length === 0 ? (
-              <div className="text-xs text-zinc-500">No categorized spending yet.</div>
             ) : (
-              <>
-                <div className="flex h-3 w-full overflow-hidden rounded-full bg-zinc-100">
-                  {categorySegments.map((seg) => (
-                    <div key={seg.category} className={seg.classes.bg} style={{ width: `${seg.percent}%` }} />
-                  ))}
-                </div>
-                <div className="flex flex-wrap gap-3 text-xs text-zinc-500">
-                  {categorySegments.map((seg) => (
-                    <span key={seg.category} className="inline-flex items-center gap-1.5">
-                      <span className={`h-2 w-2 rounded-full ${seg.classes.bg}`} />
-                      {seg.category}: <Money cents={seg.cents} currency="AUD" />
-                    </span>
-                  ))}
-                </div>
-              </>
+              <SegmentedBar
+                empty="No categorized spending yet."
+                segments={categorySegments.map((seg) => ({
+                  id: seg.category,
+                  label: seg.category,
+                  amountLabel: formatMoneyFromCents(seg.cents, "AUD"),
+                  percent: seg.percent,
+                  swatchClass: seg.classes.bg,
+                }))}
+              />
             )}
           </CardContent>
         </Card>

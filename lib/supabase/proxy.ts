@@ -9,6 +9,7 @@ import {
   isProtectedAppPath,
   matchesPathPrefix,
 } from "@/lib/http/appPaths";
+import { isLoggedOutEntryPath } from "@/lib/http/publicPaths";
 import { safeNextPath } from "@/lib/http/safeNextPath";
 import { legalPackSha256 } from "@/lib/legal/legalPackHash";
 import { betaAccessForUser } from "@/lib/server/access/betaAccess";
@@ -59,6 +60,7 @@ export async function updateSession(request: NextRequest) {
   const { pathname, search } = request.nextUrl;
 
   const isPublic =
+    isLoggedOutEntryPath(pathname) ||
     pathname.startsWith("/login") ||
     pathname.startsWith("/reset") ||
     pathname.startsWith("/auth") ||

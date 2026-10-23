@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 
 import { Page } from "@/components/Page";
 import { Button, Card, CardContent } from "@/components/ui";
-import { PRODUCT_TAGLINE } from "@/lib/brand";
+import { PRODUCT_DESCRIPTOR, PRODUCT_TAGLINE } from "@/lib/brand";
 
 type Kind = "bill" | "renewal" | "income" | "note";
 
@@ -190,7 +190,7 @@ export default function StartClient() {
   }
 
   return (
-    <Page title="Start here" subtitle={PRODUCT_TAGLINE}>
+    <Page title="Start here" subtitle={<><div>{PRODUCT_TAGLINE}</div><div className="mt-1">{PRODUCT_DESCRIPTOR}</div></>}>
       <div className="mx-auto max-w-[760px] space-y-4">
         {phase === "dump" ? (
           <Card>
@@ -199,7 +199,7 @@ export default function StartClient() {
                 Paste bills, renewals, due dates, and notes. Life CFO turns them into a list you confirm before anything is saved. This is not a budget score, and it does not need a bank login.
               </p>
               <textarea
-                className="min-h-40 w-full rounded-2xl border border-zinc-200 px-3 py-2 text-sm text-zinc-900"
+                className="min-h-40 w-full rounded-xl border border-neutral-border bg-white px-3 py-2 text-sm text-neutral-text outline-none focus:border-cfo focus:ring-2 focus:ring-cfo/10"
                 value={text}
                 onChange={(event) => setText(event.target.value)}
                 placeholder={"Rent $450 due 1 Nov\nCar rego renewal 12 March $320"}
@@ -232,13 +232,13 @@ export default function StartClient() {
               {drafts.map((draft, index) => (
                 <div key={index} className="grid gap-2 rounded-2xl border border-zinc-200 p-3 sm:grid-cols-2">
                   <input
-                    className="rounded-xl border border-zinc-200 px-2 py-1 text-sm sm:col-span-2"
+                    className="rounded-xl border border-neutral-border bg-white px-2 py-1 text-sm text-neutral-text outline-none focus:border-cfo focus:ring-2 focus:ring-cfo/10 sm:col-span-2"
                     value={draft.title}
                     placeholder="Title"
                     onChange={(event) => updateDraft(index, { title: event.target.value })}
                   />
                   <select
-                    className="rounded-xl border border-zinc-200 px-2 py-1 text-sm"
+                    className="rounded-xl border border-neutral-border bg-white px-2 py-1 text-sm text-neutral-text outline-none focus:border-cfo focus:ring-2 focus:ring-cfo/10"
                     value={draft.kind}
                     onChange={(event) => updateDraft(index, { kind: event.target.value as Kind })}
                   >
@@ -248,20 +248,20 @@ export default function StartClient() {
                     <option value="note">Note</option>
                   </select>
                   <input
-                    className="rounded-xl border border-zinc-200 px-2 py-1 text-sm"
+                    className="rounded-xl border border-neutral-border bg-white px-2 py-1 text-sm text-neutral-text outline-none focus:border-cfo focus:ring-2 focus:ring-cfo/10"
                     value={draft.amount}
                     placeholder="Amount in dollars"
                     inputMode="decimal"
                     onChange={(event) => updateDraft(index, { amount: event.target.value })}
                   />
                   <input
-                    className="rounded-xl border border-zinc-200 px-2 py-1 text-sm"
+                    className="rounded-xl border border-neutral-border bg-white px-2 py-1 text-sm text-neutral-text outline-none focus:border-cfo focus:ring-2 focus:ring-cfo/10"
                     type="date"
                     value={draft.due_on}
                     onChange={(event) => updateDraft(index, { due_on: event.target.value })}
                   />
                   <input
-                    className="rounded-xl border border-zinc-200 px-2 py-1 text-sm"
+                    className="rounded-xl border border-neutral-border bg-white px-2 py-1 text-sm text-neutral-text outline-none focus:border-cfo focus:ring-2 focus:ring-cfo/10"
                     value={draft.notes}
                     placeholder="Note"
                     onChange={(event) => updateDraft(index, { notes: event.target.value })}
@@ -290,7 +290,7 @@ export default function StartClient() {
                 Invite the other person who should see this picture. The invite is stored for their email. Life CFO does not send an email.
               </p>
               <input
-                className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm"
+                className="w-full rounded-xl border border-neutral-border bg-white px-3 py-2 text-sm text-neutral-text outline-none focus:border-cfo focus:ring-2 focus:ring-cfo/10"
                 type="email"
                 value={inviteEmail}
                 placeholder="Their email"

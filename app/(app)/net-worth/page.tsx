@@ -4,8 +4,10 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabaseClient";
+import { SegmentedBar } from "@/components/charts/BrandCharts";
 import { Page } from "@/components/Page";
 import { Card, CardContent, Money, useToast } from "@/components/ui";
+import { formatMoneyFromCents } from "@/lib/money/formatMoney";
 import { useCountUp } from "@/lib/ui/useCountUp";
 
 export const dynamic = "force-dynamic";
@@ -244,6 +246,32 @@ export default function NetWorthPage() {
                       </div>
                     </div>
                   </div>
+
+                  <SegmentedBar
+                    empty="No asset or liability amounts are entered for this currency."
+                    segments={(() => {
+                      const assets = Math.max(0, b.assetsCents);
+                      const liabilities = Math.max(0, b.liabilitiesCents);
+                      const total = assets + liabilities;
+                      if (total <= 0) return [];
+                      return [
+                        {
+                          id: "assets",
+                          label: "Assets",
+                          amountLabel: formatMoneyFromCents(assets, b.currency),
+                          percent: (assets / total) * 100,
+                          swatchClass: "bg-cfo",
+                        },
+                        {
+                          id: "liabilities",
+                          label: "Liabilities",
+                          amountLabel: formatMoneyFromCents(liabilities, b.currency),
+                          percent: (liabilities / total) * 100,
+                          swatchClass: "bg-cfo/40",
+                        },
+                      ];
+                    })()}
+                  />
 
                   <div className="text-xs text-zinc-500">
                     Assets are cash and investment accounts, plus your Investments list.

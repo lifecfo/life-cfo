@@ -8,7 +8,11 @@ export const dynamic = "force-dynamic";
 export default async function RootPage() {
   const cookieStore = await cookies();
   const hasSession = cookieStore.getAll().some((cookie) => {
-    return cookie.name === "sb-access-token" || cookie.name === "sb-refresh-token" || cookie.name.endsWith("-auth-token");
+    const named =
+      cookie.name === "sb-access-token" ||
+      cookie.name === "sb-refresh-token" ||
+      cookie.name.endsWith("-auth-token");
+    return named && cookie.value.length > 20;
   });
   if (hasSession) redirect("/home");
   return <Landing />;

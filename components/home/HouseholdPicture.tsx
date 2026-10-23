@@ -107,11 +107,11 @@ export function HouseholdPicture() {
   const undated = picture.items.filter((item) => !item.due_on);
 
   return (
-    <Card className="border-zinc-200 bg-white shadow-none">
+    <Card className="border-neutral-border bg-neutral-surface shadow-none">
       <CardContent className="space-y-6">
         <div>
-          <h2 className="text-base font-semibold text-zinc-900">Shared household picture</h2>
-          <p className="mt-1 text-sm leading-6 text-zinc-600">
+          <h2 className="text-base font-semibold text-neutral-text">Shared household picture</h2>
+          <p className="mt-1 text-sm leading-6 text-neutral-text-2">
             Bills, renewals, and dates the household typed, and who is looking after each one. These are the figures that were entered.
           </p>
           {picture.notice ? <p className="mt-2 text-sm text-zinc-600">{picture.notice}</p> : null}
@@ -145,7 +145,7 @@ export function HouseholdPicture() {
           </p>
           {picture.reminders.length === 0 ? <p className="text-sm text-zinc-600">No due-date reminders yet.</p> : null}
           {picture.reminders.map((reminder) => (
-            <div key={reminder.id} className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-zinc-200 px-4 py-3">
+            <div key={reminder.id} className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-neutral-border bg-neutral-bg px-4 py-3">
               <div className="text-sm text-zinc-800">
                 <div className="font-medium text-zinc-900">{reminder.title}</div>
                 <div>
@@ -206,7 +206,7 @@ function ItemRow({
   const amount =
     item.amount_cents == null ? "No amount" : formatMoneyFromCents(item.amount_cents, item.currency || "AUD");
   return (
-    <div className="grid gap-2 rounded-2xl border border-zinc-200 px-4 py-3 sm:grid-cols-[1fr_auto] sm:items-center">
+    <div className="grid gap-2 rounded-2xl border border-neutral-border bg-neutral-bg px-4 py-3 sm:grid-cols-[1fr_auto] sm:items-center">
       <div className="text-sm text-zinc-800">
         <div className="font-medium text-zinc-900">{item.title}</div>
         <div>
