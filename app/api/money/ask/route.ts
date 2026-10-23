@@ -18,36 +18,6 @@ type AskBody = {
   limit?: number;
 };
 
-const ORIENTATION_KEYWORDS = [
-  "are we okay",
-  "how are things looking",
-  "financial status",
-];
-
-const DIAGNOSIS_KEYWORDS = [
-  "why does money feel tight",
-  "why does money feel",
-  "what changed recently",
-  "what is the main pressure",
-  "main pressure",
-  "feel tight",
-  "pressure right now",
-];
-
-const AFFORDABILITY_KEYWORDS = [
-  "can we afford",
-  "could we afford",
-  "can i afford",
-  "could i afford",
-  "can we manage this",
-  "could we manage this",
-  "can we manage that",
-  "would this stretch us",
-  "would that stretch us",
-  "is this affordable",
-  "is that affordable",
-];
-
 function safeStr(v: unknown) {
   return typeof v === "string" ? v : "";
 }
@@ -138,8 +108,7 @@ export async function POST(req: Request) {
 
     const { role } = await ensureHouseholdMember(supabase, user.id, householdId);
 
-    const lowerQ = q.toLowerCase();
-    const guarded = q ? guardAskQuestion(q) : { allowed: true as const };
+    const guarded = guardAskQuestion(q);
     if (!guarded.allowed) {
       return NextResponse.json({
         ok: true,
@@ -150,14 +119,11 @@ export async function POST(req: Request) {
       });
     }
 
-    const looksOrientation =
-      !q || ORIENTATION_KEYWORDS.some((kw) => lowerQ.includes(kw));
-    const looksDiagnosis =
-      !!q && DIAGNOSIS_KEYWORDS.some((kw) => lowerQ.includes(kw));
-    const looksAffordability =
-      !!q && AFFORDABILITY_KEYWORDS.some((kw) => lowerQ.includes(kw));
-
-    if (looksOrientation || looksDiagnosis || looksAffordability) {
+    if (
+      guarded.intent === "totals" ||
+      guarded.intent === "category_sums" ||
+      guarded.intent === "goal_progress"
+    ) {
       const truth = await getHouseholdMoneyTruth(supabase, { householdId });
       const snapshot = buildFinancialSnapshot(truth);
       const explanation = explainSnapshot(snapshot);
@@ -166,80 +132,57 @@ export async function POST(req: Request) {
       explanation.insights = explanation.insights.filter(
         (line) => !/committed|room|tight|okay|afford/i.test(line)
       );
+      const goals =
+        guarded.intent === "goal_progress"
+          ? await supabase
+              .from("money_goals")
+              .select("id,title,current_cents,target_cents,currency,status")
+              .eq("household_id", householdId)
+              .limit(limit)
+          : null;
 
       return NextResponse.json({
         ok: true,
         mode: "snapshot",
+        intent: guarded.intent,
         household_id: householdId,
         snapshot,
         explanation,
+        goals: goals?.data ?? [],
         sample_data: sample,
       });
     }
 
-    const like = `%${q.replace(/[\\%_]/g, (char) => `\\${char}`)}%`;
-
-    async function rowsFor(
-      table: "accounts" | "transactions",
-      columns: string[],
-      select: string,
-      orderColumn: string
-    ) {
-      const results = await Promise.all(
-        columns.map((column) =>
-          supabase
-            .from(table)
-            .select(select)
-            .eq("household_id", householdId)
-            .ilike(column, like)
-            .order(orderColumn, { ascending: false })
-            .limit(limit)
-        )
-      );
-      const error = results.find((result) => result.error)?.error ?? null;
-      const byId = new Map<string, Record<string, unknown>>();
-      for (const result of results) {
-        const rows = (result.data ?? []) as unknown[];
-        for (const row of rows) {
-          if (!row || typeof row !== "object") continue;
-          const id = "id" in row && typeof row.id === "string" ? row.id : "";
-          if (id && !byId.has(id)) byId.set(id, row as Record<string, unknown>);
-        }
-      }
-      return { data: [...byId.values()].slice(0, limit), error };
-    }
-
-    const [accountsRes, billsRes, txRes] = await Promise.all([
-      rowsFor(
-        "accounts",
-        ["name", "provider", "type", "status"],
-        "id,name,provider,type,status,currency,current_balance_cents,updated_at,archived",
-        "updated_at"
-      ),
+    const [billsRes, incomeRes, txRes] = await Promise.all([
       supabase
         .from("recurring_bills")
         .select("id,name,amount_cents,currency,cadence,next_due_at,autopay,active,updated_at")
         .eq("household_id", householdId)
-        .ilike("name", like)
         .order("next_due_at", { ascending: true })
         .limit(limit),
-      rowsFor(
-        "transactions",
-        ["merchant", "description", "category"],
-        "id,account_id,posted_at,amount_cents,currency,merchant,description,category",
-        "posted_at"
-      ),
+      supabase
+        .from("recurring_income")
+        .select("id,name,amount_cents,currency,cadence,next_pay_at,active")
+        .eq("household_id", householdId)
+        .order("next_pay_at", { ascending: true })
+        .limit(limit),
+      supabase
+        .from("transactions")
+        .select("id,account_id,posted_at,amount_cents,currency,merchant,description,category")
+        .eq("household_id", householdId)
+        .order("posted_at", { ascending: false })
+        .limit(limit),
     ]);
 
-    const firstErr = accountsRes.error || billsRes.error || txRes.error;
+    const firstErr = billsRes.error || incomeRes.error || txRes.error;
     if (firstErr) {
       return NextResponse.json(
         {
           ok: false,
           error: firstErr.message,
           debug: {
-            accounts_ok: !accountsRes.error,
             bills_ok: !billsRes.error,
+            income_ok: !incomeRes.error,
             transactions_ok: !txRes.error,
           },
         },
@@ -250,12 +193,13 @@ export async function POST(req: Request) {
     return NextResponse.json({
       ok: true,
       mode: "search",
+      intent: guarded.intent,
       household_id: householdId,
       role,
       q,
       results: {
-        accounts: accountsRes.data ?? [],
         bills: billsRes.data ?? [],
+        income: incomeRes.data ?? [],
         transactions: txRes.data ?? [],
       },
     });

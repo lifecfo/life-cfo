@@ -1,3 +1,5 @@
+import { bankConnectIsEnabled } from "@/lib/flags/bankConnect";
+
 type AuthenticatedUserMetadata = {
   app_metadata?: unknown;
   email?: string | null;
@@ -25,7 +27,7 @@ export function hasInviteMetadata(user: AuthenticatedUserMetadata): boolean {
 
 /**
  * Typed-household beta.
- * Bank feeds, CSV upload, and manual bank accounts stay developer-only.
+ * Bank feeds, CSV upload, and manual bank accounts stay compiled off.
  * Demo households are not forced onto invitees.
  */
 export function getLifeCfoAccess(user: AuthenticatedUserMetadata): LifeCfoAccess {
@@ -33,7 +35,7 @@ export function getLifeCfoAccess(user: AuthenticatedUserMetadata): LifeCfoAccess
   return {
     isDemoMode: false,
     isDeveloper,
-    canUseRealDataSources: isDeveloper,
+    canUseRealDataSources: bankConnectIsEnabled() && isDeveloper,
   };
 }
 

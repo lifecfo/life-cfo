@@ -1,7 +1,8 @@
+import { PRODUCT_DESCRIPTOR } from "@/lib/brand";
+
 export const LEGAL_UPDATED = "23 October 2026";
 
-export const PRODUCT_POSITIONING =
-  "Life CFO organises what a household types. It does not connect banks or tell you what to do.";
+export const PRODUCT_POSITIONING = PRODUCT_DESCRIPTOR;
 
 export type LegalSection = { title: string; body: string };
 
@@ -36,7 +37,7 @@ export const importantInformationSections: LegalSection[] = [
   },
   {
     title: "Ask",
-    body: "Ask lists figures, dates, and items you typed. It refuses questions about what you should do, products, debt, super, and investments, and points you to Moneysmart and, for debt, the National Debt Helpline. An optional AI answer is off unless you turn it on in Settings. If you turn it on, that question and the household figures needed to answer it are sent to OpenAI or Anthropic, which may process them outside Australia.",
+    body: "Ask lists figures, dates, and items you typed. It can also turn messy notes into a structured list for you to confirm, summarise what was typed, explain those figures in plain language, or restate a decision with the factors and questions you raised and a review date you named. It does not choose an option. It refuses recommendations, product names, and questions about debt, credit, super, insurance, and investments, and points you to Moneysmart and the National Debt Helpline. AI is off until you opt in and the operator switches it on. If it is on, the text and the household figures needed to answer are sent to OpenAI or Anthropic, which may process them outside Australia. Requests are sent with settings that ask the provider not to store them for training where the provider allows that.",
   },
 ];
 
@@ -78,7 +79,7 @@ export const privacySections: LegalSection[] = [
   },
   {
     title: "What we collect",
-    body: "We collect the email address and sign-in details you use for your account, handled by our authentication provider. We collect information you type, such as household names, bills, income, budget items, goals, family and pet notes, and decisions. We collect the confirmations you give (that you are 18 or older, that you live in Australia, and that you accept these terms) and a copy of the text you accepted. We collect technical logs needed to run and protect the service. We do not ask you to connect a bank in this beta, and we do not collect bank passwords.",
+    body: "We collect the email address and sign-in details you use for your account, handled by our authentication provider. We collect information you type, such as household names, bills, income, budget items, goals, family and pet notes, and decisions. We collect the confirmations you give (that you are 18 or older, that you live in Australia, and that you accept these terms) and a copy of the text you accepted. We ask for your birth year only to check that you are 18 or older, and we do not store that year. We may look at your browser timezone and language to show a warning if they do not look Australian, and we do not store them. We collect technical logs needed to run and protect the service. We do not ask you to connect a bank in this beta, and we do not collect bank passwords.",
   },
   {
     title: "Why we collect it",
@@ -89,12 +90,12 @@ export const privacySections: LegalSection[] = [
     body: "People you add to a household may see information stored for that household. Where the product has a visibility setting, it applies to accounts marked shared, balance only, or private.",
   },
   {
-    title: "Ask and overseas processing",
-    body: "AI Ask is off unless you turn it on. If you leave it off, your questions are not sent to an AI provider. If you turn it on, we send your question and selected household figures to the configured AI provider, OpenAI or Anthropic. Those providers may process that information outside Australia. Hosting and database providers (Vercel and Supabase) may also process account and household information outside Australia. You can turn AI Ask off again at any time in Settings.",
+    title: "Where information is processed",
+    body: "This beta is set up so the database is intended to be in Sydney (ap-southeast-2) and the app functions are configured for Sydney (syd1). If those regions are not the ones selected, information may be processed outside Australia. AI is off until you opt in and the operator switches it on. If it is used, OpenAI or Anthropic may process the question and selected household figures outside Australia. Requests are sent with settings that ask the provider not to store them for training where the provider allows that. You can turn your opt-in off again in Settings.",
   },
   {
     title: "Access, correction, export, and deletion",
-    body: "You can see and edit what you typed in the app. You can download a copy of your data from Settings. You can delete your account from Settings. Deletion removes the account and the household data that only you hold. If you are the only owner of a household that still has other members, you need to add another owner or remove those members first. If other people share a household and you are not the only owner, deleting your account removes your membership and what you personally stored. Information the household still needs can remain for the other members. A bank connection, if a developer has one, has to be cleared before deletion.",
+    body: "You can see and edit what you typed in the app. You can download a copy of your data from Settings. You can delete your account from Settings. Deletion removes the live account and the live household rows that only you hold. The free Supabase plan does not include dashboard access to automatic backups. Paid plans do: the Pro plan keeps daily backups for 7 days. Supabase has said a free project may still have backups that become available only if the project is upgraded, and that this may stop. Log retention on the free plan is 1 day. A backup a provider keeps, if any, is not guaranteed to be erased the same day you delete the account. A free project pauses after one week without use. If you are the only owner of a household that still has other members, you need to add another owner or remove those members first. If other people share a household and you are not the only owner, deleting your account removes your membership and what you personally stored. Information the household still needs can remain for the other members.",
   },
   {
     title: "Complaints",

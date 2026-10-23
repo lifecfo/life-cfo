@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { australiaSoftWarning, birthYearIsAdult } from "@/lib/onboarding/suitability";
 import { legalPackCanonicalText } from "@/lib/legal/betaLegalCopy";
 import { legalPackSha256 } from "@/lib/legal/legalPackHash";
 import { betaAccessForUser } from "@/lib/server/access/betaAccess";
@@ -31,6 +32,9 @@ export async function POST(req: Request) {
     signed_name?: unknown;
     confirmed_adult?: unknown;
     confirmed_au_resident?: unknown;
+    birth_year?: unknown;
+    time_zone?: unknown;
+    locale?: unknown;
   };
   const signedName = typeof body.signed_name === "string" ? body.signed_name.trim() : "";
   if (signedName.length < 2 || signedName.length > 120) {
@@ -42,6 +46,17 @@ export async function POST(req: Request) {
       { status: 400 }
     );
   }
+  const birthYear = typeof body.birth_year === "number" ? body.birth_year : Number(body.birth_year);
+  if (!birthYearIsAdult(birthYear)) {
+    return NextResponse.json(
+      { ok: false, error: "Enter the year you were born. Life CFO is for people who are 18 or older." },
+      { status: 400 }
+    );
+  }
+  const localeWarning = australiaSoftWarning(
+    typeof body.time_zone === "string" ? body.time_zone : null,
+    typeof body.locale === "string" ? body.locale : null
+  );
 
   const contentSha256 = legalPackSha256();
   const contentSnapshot = legalPackCanonicalText();
@@ -81,5 +96,10 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "Life CFO couldn't save your acceptance." }, { status: 500 });
   }
 
-  return NextResponse.json({ ok: true, content_sha256: contentSha256, accepted_at: acceptedAt });
+  return NextResponse.json({
+    ok: true,
+    content_sha256: contentSha256,
+    accepted_at: acceptedAt,
+    locale_warning: localeWarning,
+  });
 }

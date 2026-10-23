@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { BANK_CONNECT_DISABLED_ERROR, bankConnectIsEnabled } from "@/lib/flags/bankConnect";
 import { resolveHouseholdIdRoute } from "@/lib/households/resolveHouseholdIdRoute";
 import {
   BANK_CSV_MAX_FILE_BYTES,
@@ -16,6 +17,9 @@ function isOwnerOrEditor(role: unknown): boolean {
 }
 
 export async function POST(request: Request) {
+  if (!bankConnectIsEnabled()) {
+    return NextResponse.json({ ok: false, error: BANK_CONNECT_DISABLED_ERROR }, { status: 404 });
+  }
   try {
     const supabase = await supabaseRoute();
     const {

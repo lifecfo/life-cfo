@@ -19,18 +19,14 @@ export function verdictToUI(v: Verdict): VerdictUI {
   // Keep this minimal + calm. No “alarm red” in V1.
   switch (v) {
     case "CLEAR_YES":
-      return { label: "Comfortable", className: "bg-zinc-50 text-zinc-700 border border-zinc-200" };
     case "YES_NEEDS_PLANNING":
-      return { label: "Needs planning", className: "bg-zinc-50 text-zinc-700 border border-zinc-200" };
     case "NOT_YET":
-      return { label: "Not yet", className: "bg-zinc-50 text-zinc-700 border border-zinc-200" };
-    case "NEEDS_ATTENTION":
-      return { label: "Needs attention", className: "bg-zinc-900 text-white" };
     case "NO":
-      return { label: "Doesn’t fit", className: "bg-zinc-900 text-white" };
     case "INSUFFICIENT_DATA":
     default:
-      return { label: "Not enough data", className: "bg-zinc-50 text-zinc-700 border border-zinc-200" };
+      return { label: "Figures entered", className: "bg-zinc-50 text-zinc-700 border border-zinc-200" };
+    case "NEEDS_ATTENTION":
+      return { label: "Needs attention", className: "bg-zinc-900 text-white" };
   }
 }
 
@@ -40,18 +36,14 @@ export function verdictToUI(v: Verdict): VerdictUI {
  */
 export function verdictSentence(v: Verdict): string {
   switch (v) {
-    case "CLEAR_YES":
-      return "Yes — this fits comfortably within your current position.";
-    case "YES_NEEDS_PLANNING":
-      return "This is achievable, but it would need planning.";
-    case "NOT_YET":
-      return "Not yet — this would stretch things too far right now.";
     case "NEEDS_ATTENTION":
-      return "This needs attention before you commit.";
+      return "Needs attention.";
+    case "CLEAR_YES":
+    case "YES_NEEDS_PLANNING":
+    case "NOT_YET":
     case "NO":
-      return "No — this doesn’t fit within your current financial reality.";
     case "INSUFFICIENT_DATA":
     default:
-      return "I don’t have enough information to answer this safely yet.";
+      return "Life CFO is showing figures that were typed.";
   }
 }

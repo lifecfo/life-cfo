@@ -1,40 +1,9 @@
 import { NextResponse } from "next/server";
 
+import { DATA_TABLES } from "@/lib/account/dataRegistry";
 import { supabaseRoute } from "@/lib/supabaseRoute";
 
 export const dynamic = "force-dynamic";
-
-const TABLES = [
-  "profiles",
-  "legal_acceptances",
-  "beta_access",
-  "households",
-  "household_members",
-  "household_preferences",
-  "household_invites",
-  "accounts",
-  "transactions",
-  "external_accounts",
-  "external_connections",
-  "recurring_bills",
-  "recurring_income",
-  "money_goals",
-  "money_goal_updates",
-  "money_goal_accounts",
-  "money_buckets",
-  "money_bucket_allocations",
-  "family_members",
-  "pets",
-  "decisions",
-  "decision_summaries",
-  "decision_inbox",
-  "transaction_pattern_confirmations",
-  "liabilities",
-  "investment_accounts",
-  "home_status_runs",
-  "home_status_latest",
-  "engine_runs",
-] as const;
 
 function missingTable(error: { code?: string; message?: string } | null) {
   if (!error) return false;
@@ -59,7 +28,7 @@ export async function GET() {
 
   const exported: Record<string, unknown> = {};
   const skipped: string[] = [];
-  for (const table of TABLES) {
+  for (const table of DATA_TABLES.map((entry) => entry.table)) {
     const result = await supabase.from(table).select("*");
     if (result.error) {
       if (!missingTable(result.error)) skipped.push(table);

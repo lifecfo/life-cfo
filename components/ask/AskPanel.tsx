@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useAsk } from "@/components/ask/AskProvider";
 import { Chip } from "@/components/ui";
 import type { DecisionCandidate } from "@/lib/memory/contracts";
+import { PRODUCT_NAME } from "@/lib/brand";
 
 type AskPanelMode = "overlay" | "split";
 const MONEY_SMART_INSIGHT_PREVIEW_KEY = "lifecfo:money-smart-insight-preview";
@@ -43,7 +44,7 @@ function cleanAnswer(raw: string) {
 
 function toneLabel(tone?: string | null, verdict?: string | null) {
   if (verdict === "NEEDS_ATTENTION" || tone === "attention") return "Needs attention";
-  return "Life CFO";
+  return PRODUCT_NAME;
 }
 
 function friendlyScopeLabel(scope: string | null) {
@@ -348,9 +349,9 @@ export function AskPanel({ mode = "overlay" }: { mode?: AskPanelMode }) {
                 </div>
                 <div className="mt-2 flex flex-wrap gap-2">
                   {[
-                    "Why does money feel tight?",
-                    "What changed recently?",
-                    "Are we okay this month?",
+                    "What bills are entered?",
+                    "What income amounts are entered?",
+                    "Which bills are due?",
                   ].map((prompt) => (
                     <button
                       key={prompt}
@@ -378,10 +379,10 @@ export function AskPanel({ mode = "overlay" }: { mode?: AskPanelMode }) {
                 </div>
                 {examplesExpanded ? (
                   <div className="mt-2 space-y-1 text-sm text-zinc-600">
-                    <div>• Are we okay this month?</div>
-                    <div>• What bills are coming up?</div>
-                    <div>• Where is our money leaking?</div>
-                    <div>• Can we afford this?</div>
+                    <div>• What bills are entered?</div>
+                    <div>• What income amounts are entered?</div>
+                    <div>• Which bills are due this month?</div>
+                    <div>• What amounts have been entered for goals?</div>
                   </div>
                 ) : (
                   <div className="mt-2 text-xs text-zinc-500">
@@ -402,10 +403,10 @@ export function AskPanel({ mode = "overlay" }: { mode?: AskPanelMode }) {
                   </button>
                 </div>
                 <div className="space-y-1 text-sm text-zinc-600">
-                  <div>• Are we okay this month?</div>
-                  <div>• What bills are coming up?</div>
-                  <div>• Where is our money leaking?</div>
-                  <div>• Can we afford this?</div>
+                  <div>• What bills are entered?</div>
+                  <div>• What income amounts are entered?</div>
+                  <div>• Which bills are due this month?</div>
+                  <div>• What amounts have been entered for goals?</div>
                 </div>
               </div>
             ) : null

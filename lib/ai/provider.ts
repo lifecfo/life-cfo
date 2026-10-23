@@ -2,6 +2,9 @@ import "server-only";
 
 import OpenAI from "openai";
 import Anthropic from "@anthropic-ai/sdk";
+import { isAiEnabled } from "@/lib/ai/aiFlag";
+import { FACTUAL_SYSTEM_PROMPT } from "@/lib/ai/factualPrompt";
+import { logBlockedOutput, screenAiOutput } from "@/lib/ai/outputGuard";
 
 export type AiProviderName = "openai" | "anthropic";
 export type AiPurpose =
@@ -39,6 +42,22 @@ export class AiProviderError extends Error {
   constructor() {
     super("AI provider request failed.");
     this.name = "AiProviderError";
+  }
+}
+
+export class AiDisabledError extends Error {
+  constructor() {
+    super("AI is switched off.");
+    this.name = "AiDisabledError";
+  }
+}
+
+export class AiOutputBlockedError extends Error {
+  replacement: string;
+  constructor(replacement: string) {
+    super("AI output was blocked.");
+    this.name = "AiOutputBlockedError";
+    this.replacement = replacement;
   }
 }
 
@@ -106,6 +125,17 @@ function textFromAnthropicResponse(content: Anthropic.ContentBlock[]): string {
     .trim();
 }
 
+function guardedSystem(system: string): string {
+  return `${FACTUAL_SYSTEM_PROMPT}\n\n${system}`;
+}
+
+function releaseText(purpose: AiPurpose, text: string): string {
+  const screened = screenAiOutput(text);
+  if (screened.ok) return text;
+  logBlockedOutput(purpose, screened);
+  return screened.replacement;
+}
+
 async function anthropicRequest(
   options: GenerateOptions,
   schema?: JsonSchema
@@ -116,7 +146,7 @@ async function anthropicRequest(
       {
         model: modelFor("anthropic", options.purpose),
         max_tokens: options.maxOutputTokens,
-        system: options.system,
+        system: guardedSystem(options.system),
         messages: [{ role: "user", content: options.prompt }],
         // Note: `temperature` is intentionally not forwarded here. Newer Claude
         // models (e.g. claude-sonnet-5) reject the parameter outright ("temperature
@@ -146,21 +176,33 @@ async function anthropicRequest(
   return text;
 }
 
-export async function generateAiText(options: GenerateOptions): Promise<string> {
+function assertAiCallAllowed(options: GenerateOptions) {
   if (options.allowOverseasDisclosure !== true) {
     throw new AiConfigurationError();
   }
-  const provider = configuredAiProvider();
-  if (provider === "anthropic") return anthropicRequest(options);
+  if (!isAiEnabled()) throw new AiDisabledError();
+}
 
+export async function generateAiText(options: GenerateOptions): Promise<string> {
+  assertAiCallAllowed(options);
+  const provider = configuredAiProvider();
+  const text =
+    provider === "anthropic"
+      ? await anthropicRequest(options)
+      : await openAiText(options);
+  return releaseText(options.purpose, text);
+}
+
+async function openAiText(options: GenerateOptions): Promise<string> {
   const response = await openAiClient().responses.create({
     model: modelFor("openai", options.purpose),
     input: [
-      { role: "system", content: options.system },
+      { role: "system", content: guardedSystem(options.system) },
       { role: "user", content: options.prompt },
     ],
     temperature: options.temperature,
     max_output_tokens: options.maxOutputTokens,
+    store: false,
   });
   const text = String(response.output_text || "").trim();
   if (!text) throw new AiProviderError();
@@ -170,9 +212,7 @@ export async function generateAiText(options: GenerateOptions): Promise<string> 
 export async function generateAiStructured<T = unknown>(
   options: GenerateStructuredOptions
 ): Promise<T> {
-  if (options.allowOverseasDisclosure !== true) {
-    throw new AiConfigurationError();
-  }
+  assertAiCallAllowed(options);
   const provider = configuredAiProvider();
   const raw =
     provider === "anthropic"
@@ -184,11 +224,12 @@ export async function generateAiStructured<T = unknown>(
             await openAiClient().responses.create({
               model: modelFor("openai", options.purpose),
               input: [
-                { role: "system", content: options.system },
+                { role: "system", content: guardedSystem(options.system) },
                 { role: "user", content: options.prompt },
               ],
               temperature: options.temperature,
               max_output_tokens: options.maxOutputTokens,
+              store: false,
               text: {
                 format: {
                   type: "json_schema",
@@ -202,6 +243,11 @@ export async function generateAiStructured<T = unknown>(
         ).trim();
 
   if (!raw) throw new AiProviderError();
+  const screened = screenAiOutput(raw);
+  if (!screened.ok) {
+    logBlockedOutput(options.purpose, screened);
+    throw new AiOutputBlockedError(screened.replacement);
+  }
   try {
     return JSON.parse(raw) as T;
   } catch {

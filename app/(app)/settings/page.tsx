@@ -20,6 +20,7 @@ export default function SettingsPage() {
   const [loaded, setLoaded] = useState(false);
   const [working, setWorking] = useState(false);
   const [aiOptIn, setAiOptIn] = useState(false);
+  const [aiEnabled, setAiEnabled] = useState(false);
   const [aiWorking, setAiWorking] = useState(false);
   const [aiMessage, setAiMessage] = useState("");
 
@@ -39,8 +40,11 @@ export default function SettingsPage() {
       setEmail(safeStr(data.user.email));
       setLoaded(true);
       const ai = await fetch("/api/settings/ai", { cache: "no-store" });
-      const aiJson = (await ai.json().catch(() => null)) as { opted_in?: boolean } | null;
-      if (alive) setAiOptIn(aiJson?.opted_in === true);
+      const aiJson = (await ai.json().catch(() => null)) as { opted_in?: boolean; enabled?: boolean } | null;
+      if (alive) {
+        setAiOptIn(aiJson?.opted_in === true);
+        setAiEnabled(aiJson?.enabled === true);
+      }
     })();
 
     return () => {
@@ -121,8 +125,12 @@ export default function SettingsPage() {
             <div className="space-y-3">
               <div className="text-sm font-semibold text-zinc-900">AI Ask</div>
               <div className="text-sm leading-6 text-zinc-700">
-                AI Ask is off. Life CFO can still list figures, dates, and items you typed without sending them to an AI provider.
-                If you turn this on, your question and selected household figures are sent to OpenAI or Anthropic, which may process them outside Australia.
+                AI stays off until you opt in and the operator switches it on for this deployment.
+                {aiEnabled
+                  ? " AI is switched on for this deployment. It still runs only if you opt in."
+                  : " AI is switched off for this deployment, so opting in does not send anything yet."}
+                {" "}
+                Life CFO can still list figures, dates, and items you typed. If both are on, your text and selected household figures are sent to OpenAI or Anthropic, which may process them outside Australia. Requests ask the provider not to use them for training where that setting exists.
               </div>
               <label className="flex items-start gap-2 text-sm text-zinc-800">
                 <input

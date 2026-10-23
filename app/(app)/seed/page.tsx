@@ -727,7 +727,7 @@ function LegacySeedPage() {
             decision_id: dDraft,
             kind: "thinking",
             body:
-              "First pass:\n- treat school fees as a fixed monthly bill\n- confirm cashflow margin after mortgage + tithe + essentials\n- if margin is tight, delay 12 months and build buffer",
+              "Sample notes:\n- school fees entered as a monthly bill\n- mortgage, tithe, and essentials entered as bills\n- a review date can be typed by the household",
           },
           {
             user_id: userId,

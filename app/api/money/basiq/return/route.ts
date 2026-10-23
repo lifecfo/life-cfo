@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { BANK_CONNECT_DISABLED_ERROR, bankConnectIsEnabled } from "@/lib/flags/bankConnect";
 import { supabaseRoute } from "@/lib/supabaseRoute";
 import { resolveHouseholdIdRoute } from "@/lib/households/resolveHouseholdIdRoute";
 import {
@@ -44,6 +45,9 @@ function redirectToConnections(url: URL, message?: string) {
 }
 
 export async function GET(req: Request) {
+  if (!bankConnectIsEnabled()) {
+    return NextResponse.json({ ok: false, error: BANK_CONNECT_DISABLED_ERROR }, { status: 404 });
+  }
   const url = new URL(req.url);
   const jobIds = Array.from(
     new Set(

@@ -4,6 +4,7 @@ import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { Page } from "@/components/Page";
+import { PRODUCT_DESCRIPTOR } from "@/lib/brand";
 import FinePrintClient from "./FinePrintClient";
 import FinePrintReadOnly from "./FinePrintReadOnly";
 
@@ -103,7 +104,7 @@ export default function FinePrintPage() {
   return (
     <Page
       title="Before you start"
-      subtitle="Life CFO organises what a household types. It does not connect banks or tell you what to do."
+      subtitle={PRODUCT_DESCRIPTOR}
     >
       <Suspense fallback={<div className="mx-auto w-full max-w-[760px] text-sm text-zinc-600">Loading…</div>}>
         <FinePrintInner />

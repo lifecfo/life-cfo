@@ -112,45 +112,10 @@ export function deriveAskLanguageContext(params: {
 }
 
 export function stableGroundLine(params: StableGroundParams) {
-  const { mode, hasCaveat = false, hasEvidence = true, context } = params;
-  const pressure = context?.pressure ?? "unknown";
-  const data = context?.data ?? "unknown";
-  const evidence = context?.evidence ?? (hasEvidence ? "clear" : "thin");
-
-  if (mode === "search") {
-    return hasEvidence
-      ? "These are direct matches from the available records, not a complete household summary."
-      : "There are few direct record matches for that wording.";
+  if (params.mode === "search") {
+    return params.hasEvidence === false
+      ? "No matching typed records were found for that wording."
+      : "These rows are what was found in the typed records.";
   }
-
-  if (data === "stale") {
-    return "Some data looks a bit out of date, but there is still enough here to get your bearings.";
-  }
-
-  if (hasCaveat || evidence === "thin") {
-    return "This still gives useful direction, and a little more detail would sharpen it.";
-  }
-
-  switch (mode) {
-    case "snapshot":
-      return pressure === "elevated"
-        ? "It makes sense if this feels heavy right now, and the upside is the pattern is visible."
-        : "The picture is fairly clear, which makes the next choices easier to weigh.";
-    case "diagnosis":
-      return pressure === "elevated"
-        ? "This may feel like a lot, but it does not look random."
-        : "This gives a clearer read on what is actually driving the pressure.";
-    case "planning":
-      return "There is enough mapped out here to plan ahead with a bit more confidence.";
-    case "affordability":
-      return pressure === "elevated"
-        ? "There may be pressure here, and this gives you a clear baseline before getting more specific."
-        : "This is a solid baseline before getting more specific.";
-    case "scenario":
-      return evidence === "clear"
-        ? "You can treat this as the before picture, then layer the change on top."
-        : "There is enough here for a useful first pass before adding more scenario detail.";
-    default:
-      return null;
-  }
+  return "These lines restate figures that were entered.";
 }

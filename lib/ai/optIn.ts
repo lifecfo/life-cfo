@@ -1,7 +1,7 @@
 import "server-only";
 
 export const AI_OFF_MESSAGE =
-  "AI Ask is off. Life CFO has not sent this to an overseas provider. You can turn it on in Settings after reading that OpenAI or Anthropic may process the question outside Australia. Life CFO can still list figures, dates, and items you typed.";
+  "AI is off. Life CFO has not sent this to an overseas provider. AI runs only after you opt in and the operator switches it on. Life CFO can still list figures, dates, and items you typed.";
 
 export async function aiAskOptedIn(supabase: unknown, userId: string): Promise<boolean> {
   const client = supabase as {

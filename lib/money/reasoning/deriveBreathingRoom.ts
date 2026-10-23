@@ -144,13 +144,13 @@ export function deriveBreathingRoom(
     return {
       version: 1,
       status: "closer_look",
-      label: "Needs a closer look.",
+      label: "No accounts or transactions have been entered.",
       reasons: [
         dataCoverage.has_reference_only_sources
           ? "A money source may need refreshing."
-          : "Add accounts or transactions when you’re ready.",
+          : "Accounts or transactions have not been entered.",
       ],
-      ask_prompt: "What would help Life CFO understand our money better?",
+      ask_prompt: "Which bills and income amounts are entered?",
     };
   }
 

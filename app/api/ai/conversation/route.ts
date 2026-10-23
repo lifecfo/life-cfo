@@ -1,8 +1,11 @@
 ﻿// app/api/ai/conversation/route.ts
 import { NextResponse } from "next/server";
-import { generateAiText } from "@/lib/ai/provider";
+import { AiDisabledError, generateAiText } from "@/lib/ai/provider";
+import { isAiEnabled } from "@/lib/ai/aiFlag";
+import { FACTUAL_SYSTEM_PROMPT } from "@/lib/ai/factualPrompt";
 import { AI_OFF_MESSAGE, aiAskOptedIn } from "@/lib/ai/optIn";
-import { guardAskQuestion } from "@/lib/ask/askGuard";
+import { guardAiInput } from "@/lib/ask/askGuard";
+import { AI_OUTPUT_REFUSAL } from "@/lib/ai/outputGuard";
 import { maybeCrisisIntercept } from "@/lib/safety/guard";
 import type {
   DecisionConversationRequest,
@@ -37,63 +40,29 @@ const STYLE_GUIDE = [
   "- Output MUST be valid Markdown.",
   "- Use blank lines between paragraphs and between sections.",
   "- Keep replies calm and scannable. No walls of text.",
-  "- Start by answering the user's NEW message in 1-3 sentences.",
+  "- Start by restating the person's latest message in 1-3 sentences.",
   "- Only use structured sections if they genuinely help this turn.",
   "- Do NOT reuse the same full structure every reply.",
   "- If listing 3+ items, use bullets.",
   "- If you write 'Label: text', convert it to a bullet: '- **Label:** text'.",
-  "- Bold key numbers and key phrases using **bold**.",
-  "- Ask at most 1 question at the end (2 max only if essential).",
+  "- Do not add a question the person did not raise.",
   "",
   "Headings:",
   "- If you use headings, use '###'.",
   "- Do not add headings unless you are actually creating sections.",
 ].join("\n");
 
-const OPTIONAL_SECTION_HEADINGS = [
-  "Optional headings you may use (only when helpful):",
-  "- ### What I'm hearing",
-  "- ### Key factors",
-  "- ### Options",
-  "- ### Trade-offs",
-  "- ### Suggested next step",
-  "- ### Next question",
-].join("\n");
-
 function buildSystemPrompt(args: { decisionTitle: string; decisionStatement?: string; mode: Mode }) {
   const { decisionTitle, decisionStatement, mode } = args;
 
-  if (mode === "summarise") {
-    return [
-      "You are Life CFO. Restate only what was typed. Do not recommend a choice.",
-      "Task: Produce a capture preview summary of the conversation.",
-      "Rules:",
-      "- Do NOT recommend a choice unless explicitly asked.",
-      "- Keep it scannable and calm.",
-      "- Include: what's decided (if anything), constraints, open questions, suggested next step.",
-      "",
-      STYLE_GUIDE,
-      "",
-      OPTIONAL_SECTION_HEADINGS,
-      "",
-      `Decision title: ${decisionTitle}`,
-      decisionStatement ? `Decision statement: ${decisionStatement}` : "",
-    ]
-      .filter(Boolean)
-      .join("\n");
-  }
-
   return [
-    "You are Life CFO. Restate what was typed. Do not say what the person should do, and do not suggest products.",
-    "You help the user think clearly without forcing a decision.",
-    "Rules:",
-    "- Do NOT recommend a choice unless the user asks you to recommend.",
-    "- Stay anchored to the user's latest message.",
-    "- Do NOT repeat the same structure every reply.",
+    FACTUAL_SYSTEM_PROMPT,
+    mode === "summarise"
+      ? "Task: summarise only what was typed in this conversation. List factors and questions the person raised. Do not choose an option or suggest a next step."
+      : "Task: restate the latest message. List factors and questions the person raised. Do not choose an option.",
+    "Do not recommend, even if the person asks for a recommendation.",
     "",
     STYLE_GUIDE,
-    "",
-    OPTIONAL_SECTION_HEADINGS,
     "",
     `Decision title: ${decisionTitle}`,
     decisionStatement ? `Decision statement: ${decisionStatement}` : "",
@@ -324,15 +293,22 @@ export async function POST(req: Request) {
       return NextResponse.json(payload, { headers: { "x-keystone-ai-version": VERSION } });
     }
 
-    const guarded = guardAskQuestion(`${decisionTitle}\n${decisionStatement}\n${userText}`);
-    const factualReply = !guarded.allowed ? guarded.message : null;
-    const optedIn = factualReply ? false : await aiAskOptedIn(auth.supabase, auth.user.id);
-    const blockedText = factualReply || (!optedIn ? AI_OFF_MESSAGE : null);
-    if (blockedText) {
+    const job = mode === "summarise" ? "summarise_typed" : "frame_decision";
+    const guarded = guardAiInput(`${decisionTitle}\n${decisionStatement}\n${userText}`, job);
+    if (!guarded.allowed) {
       const payload: DecisionConversationResponse =
         mode === "summarise"
-          ? { summaryText: blockedText, version: VERSION }
-          : { assistantText: blockedText, version: VERSION };
+          ? { summaryText: guarded.message, version: VERSION }
+          : { assistantText: guarded.message, version: VERSION };
+      return NextResponse.json(payload, { headers: { "x-keystone-ai-version": VERSION } });
+    }
+    const optedIn = await aiAskOptedIn(auth.supabase, auth.user.id);
+    if (!optedIn || !isAiEnabled()) {
+      const restatement = `You wrote: ${userText || decisionStatement || decisionTitle}. ${AI_OFF_MESSAGE}`;
+      const payload: DecisionConversationResponse =
+        mode === "summarise"
+          ? { summaryText: restatement, version: VERSION }
+          : { assistantText: restatement, version: VERSION };
       return NextResponse.json(payload, { headers: { "x-keystone-ai-version": VERSION } });
     }
 
@@ -367,16 +343,29 @@ export async function POST(req: Request) {
             transcript,
           ].join("\n");
 
-    const rawText = await generateAiText({
-      purpose: "conversation",
-      allowOverseasDisclosure: true,
-      system,
-      prompt: userContent,
-      temperature: mode === "summarise" ? 0.2 : 0.5,
-      maxOutputTokens: mode === "summarise" ? 520 : 900,
-    });
+    let rawText: string;
+    try {
+      rawText = await generateAiText({
+        purpose: "conversation",
+        allowOverseasDisclosure: true,
+        system,
+        prompt: userContent,
+        temperature: mode === "summarise" ? 0.2 : 0.5,
+        maxOutputTokens: mode === "summarise" ? 520 : 900,
+      });
+    } catch (error) {
+      if (error instanceof AiDisabledError) {
+        const restatement = `You wrote: ${userText || decisionStatement || decisionTitle}. ${AI_OFF_MESSAGE}`;
+        const payload: DecisionConversationResponse =
+          mode === "summarise"
+            ? { summaryText: restatement, version: VERSION }
+            : { assistantText: restatement, version: VERSION };
+        return NextResponse.json(payload, { headers: { "x-keystone-ai-version": VERSION } });
+      }
+      throw error;
+    }
 
-    const text = normalizeMarkdown(rawText);
+    const text = rawText === AI_OUTPUT_REFUSAL ? rawText : normalizeMarkdown(rawText);
 
     const payload: DecisionConversationResponse =
       mode === "summarise" ? { summaryText: text, version: VERSION } : { assistantText: text, version: VERSION };

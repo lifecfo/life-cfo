@@ -3,6 +3,7 @@
 import Image from "next/image";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { PRODUCT_DESCRIPTOR, PRODUCT_NAME } from "@/lib/brand";
 import { supabase } from "@/lib/supabaseClient";
 
 type Mode = "signin" | "signup" | "reset";
@@ -188,7 +189,7 @@ export default function LoginClient({ nextPath }: { nextPath: string }) {
 
             <Image
               src="/brand/lifecfo-logo-stacked-white-transparent.svg"
-              alt="Life CFO"
+              alt={PRODUCT_NAME}
               width={180}
               height={180}
               priority
@@ -198,7 +199,7 @@ export default function LoginClient({ nextPath }: { nextPath: string }) {
           <div className="space-y-3">
             <h1 className="text-2xl font-semibold tracking-tight text-white">
               {mode === "signin"
-                ? "Welcome to Life CFO"
+                ? `Welcome to ${PRODUCT_NAME}`
                 : mode === "signup"
                 ? "Create your account"
                 : "Reset your password"}
@@ -209,11 +210,7 @@ export default function LoginClient({ nextPath }: { nextPath: string }) {
             ) : (
               <div className="space-y-1">
                 <p className="text-sm leading-relaxed text-white/85">
-                  Personal financial intelligence for modern families.
-                </p>
-
-                <p className="text-sm leading-relaxed text-white/85">
-                  Clarity. Structure. Better decisions.
+                  {PRODUCT_DESCRIPTOR}
                 </p>
 
                 <p className="pt-2 text-sm font-semibold tracking-wide text-white/95">

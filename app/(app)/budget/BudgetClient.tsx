@@ -610,10 +610,8 @@ export default function BudgetClient() {
       : "border border-zinc-200 bg-zinc-50 text-zinc-700";
 
   const pictureHint = useMemo(() => {
-    if (risk === "no_income") return "Add income timing when you want a fuller monthly picture.";
-    if (risk === "negative") return "This month may need review. Expected outgoings are higher than expected income based on what Life CFO can currently see.";
-    if (risk === "tight") return "This month may be worth reviewing. The amount left is small based on these inputs.";
-    return "Nothing stands out from these numbers.";
+    if (risk === "no_income") return "No income amount is entered yet. Bills and plan items that were typed are listed below.";
+    return "Income, bills, and plan items that were entered are listed below.";
   }, [risk]);
 
   // Deliberately the same neutral treatment for every risk state -- the

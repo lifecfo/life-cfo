@@ -957,7 +957,7 @@ export default function DecisionsClient() {
 
     setItems(list);
     setTotalCount(typeof count === "number" ? count : list.length);
-    setStatusLine(list.length === 0 ? "All clear." : "Loaded.");
+    setStatusLine(list.length === 0 ? "No open items." : "Loaded.");
 
     // User-scoped domains/constellations remain user_id-based (personal taxonomy)
     const [domRes, conRes] = await Promise.all([
@@ -2884,7 +2884,7 @@ export default function DecisionsClient() {
 
             {filteredItems.length === 0 ? (
               <div className="space-y-2 pt-2">
-                <div className="text-sm font-semibold text-zinc-900">All clear.</div>
+                <div className="text-sm font-semibold text-zinc-900">No open items.</div>
                 <div className="text-sm text-zinc-600">This space stays ready for anything worth thinking through.</div>
               </div>
             ) : (

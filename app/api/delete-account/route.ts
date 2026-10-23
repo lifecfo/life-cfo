@@ -1,60 +1,11 @@
 import { NextResponse } from "next/server";
 
+import { DATA_TABLES } from "@/lib/account/dataRegistry";
 import { deletionBlockers, soleMemberHouseholdIds, type DeletionMembership } from "@/lib/account/deletionPlan";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { supabaseRoute } from "@/lib/supabaseRoute";
 
 export const dynamic = "force-dynamic";
-
-const USER_TABLES = [
-  "decision_inbox",
-  "engine_runs",
-  "home_status_runs",
-  "home_status_latest",
-  "decisions",
-  "decision_summaries",
-  "money_goal_updates",
-  "money_goal_accounts",
-  "money_goals",
-  "money_buckets",
-  "money_bucket_allocations",
-  "transaction_pattern_confirmations",
-  "liabilities",
-  "investment_accounts",
-  "family_members",
-  "pets",
-  "household_invites",
-  "legal_acceptances",
-  "beta_access",
-  "profiles",
-];
-
-const HOUSEHOLD_TABLES = [
-  "transactions",
-  "accounts",
-  "external_accounts",
-  "external_connections",
-  "recurring_bills",
-  "recurring_income",
-  "money_goal_updates",
-  "money_goal_accounts",
-  "money_goals",
-  "money_buckets",
-  "money_bucket_allocations",
-  "family_members",
-  "pets",
-  "decisions",
-  "decision_summaries",
-  "decision_inbox",
-  "transaction_pattern_confirmations",
-  "liabilities",
-  "investment_accounts",
-  "household_preferences",
-  "household_invites",
-  "household_members",
-  "home_status_runs",
-  "engine_runs",
-];
 
 function missingRelation(error: { code?: string; message?: string } | null) {
   if (!error) return false;
@@ -126,8 +77,9 @@ export async function POST(req: Request) {
     }
 
     for (const householdId of soleMemberHouseholdIds(memberships)) {
-      for (const table of HOUSEHOLD_TABLES) {
-        await deleteWhere(admin, table, "household_id", householdId);
+      for (const table of DATA_TABLES) {
+        if (!table.householdIdColumn) continue;
+        await deleteWhere(admin, table.table, table.householdIdColumn, householdId);
       }
       await deleteWhere(admin, "households", "household_id", householdId);
       const { error: householdError } = await admin.from("households").delete().eq("id", householdId);
@@ -141,8 +93,9 @@ export async function POST(req: Request) {
       throw new Error(membershipError.message);
     }
 
-    for (const table of USER_TABLES) {
-      await deleteWhere(admin, table, "user_id", user.id);
+    for (const table of DATA_TABLES) {
+      if (!table.userIdColumn) continue;
+      await deleteWhere(admin, table.table, table.userIdColumn, user.id);
     }
 
     const { error: authDeleteError } = await admin.auth.admin.deleteUser(user.id);

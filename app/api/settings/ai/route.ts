@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { isAiEnabled } from "@/lib/ai/aiFlag";
 import { supabaseRoute } from "@/lib/supabaseRoute";
 
 export const dynamic = "force-dynamic";
@@ -25,6 +26,7 @@ export async function GET() {
 
   return NextResponse.json({
     ok: true,
+    enabled: isAiEnabled(),
     opted_in: Boolean(data?.ai_ask_opt_in_at),
     opted_in_at: data?.ai_ask_opt_in_at ?? null,
   });

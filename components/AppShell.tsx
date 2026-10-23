@@ -10,6 +10,7 @@ import { supabase } from "@/lib/supabaseClient";
 import { useAsk } from "@/components/ask/AskProvider";
 import { AskPanel } from "@/components/ask/AskPanel";
 import { useLifeCfoAccess } from "@/lib/access/useLifeCfoAccess";
+import { PRODUCT_DESCRIPTOR, PRODUCT_NAME } from "@/lib/brand";
 
 type AppShellProps = {
   children: ReactNode;
@@ -351,11 +352,11 @@ export function AppShell({ children }: AppShellProps) {
             <Link
               href="/lifecfo-home"
               className="flex items-center"
-              aria-label="Life CFO home"
+              aria-label={PRODUCT_DESCRIPTOR}
             >
               <Image
                 src="/brand/lifecfo-horizontal-transparent.svg"
-                alt="Life CFO"
+                alt={PRODUCT_NAME}
                 width={170}
                 height={40}
                 priority
@@ -403,7 +404,7 @@ export function AppShell({ children }: AppShellProps) {
                       >
                         <Image
                           src="/brand/lifecfo-horizontal-transparent.svg"
-                          alt="Life CFO"
+                          alt={PRODUCT_NAME}
                           width={150}
                           height={35}
                           className="h-auto w-[150px]"
