@@ -262,7 +262,7 @@ export default function StartClient() {
                   <span>Use AI to sort this.</span>
                 </label>
                 <p id="ai-opt-in-help" className="pl-6 text-sm leading-6 text-zinc-600">
-                  The text is sent to OpenAI or Anthropic, which may process it outside Australia. Life CFO asks the provider not to store it for training where that is allowed. Nothing is saved until you confirm the list.
+                  The text is sent to OpenAI or Anthropic, which may process it outside Australia. These providers do not use it to train their models under their standard business terms. They may keep it for up to 30 days for safety and abuse monitoring. Nothing is saved until you confirm the list.
                 </p>
               </div>
               <p className="text-sm leading-6 text-zinc-600">

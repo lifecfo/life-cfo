@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState, type FormEvent } from "react";
 
 export function WaitlistForm() {
@@ -53,8 +54,13 @@ export function WaitlistForm() {
       </div>
       {message ? <p className="text-xs text-white/80">{message}</p> : null}
       <p className="text-xs leading-5 text-white/70">
-        We’ll email you when a place is open. Joining does not create an account.
+        We’ll email you about the Life CFO beta and launch. Unsubscribe any time. See our{" "}
+        <Link href="/privacy" className="underline underline-offset-2">
+          Privacy Policy
+        </Link>
+        .
       </p>
+      <p className="text-xs leading-5 text-white/70">Joining does not create an account.</p>
     </form>
   );
 }

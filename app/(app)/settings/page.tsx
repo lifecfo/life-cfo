@@ -150,7 +150,7 @@ export default function SettingsPage() {
                   ? " AI is switched on for this deployment. It still runs only if you opt in."
                   : " AI is switched off for this deployment, so opting in does not send anything yet."}
                 {" "}
-                Life CFO can still list figures, dates, and items you typed. If both are on, your text and selected household figures are sent to OpenAI or Anthropic, which may process them outside Australia. Requests ask the provider not to use them for training where that setting exists.
+                Life CFO can still list figures, dates, and items you typed. If both are on, your text and selected household figures are sent to OpenAI or Anthropic, which may process them outside Australia. These providers do not use it to train their models under their standard business terms. They may keep it for up to 30 days for safety and abuse monitoring.
               </div>
               <label className="flex items-start gap-2 text-sm text-zinc-800">
                 <input
