@@ -3,7 +3,9 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 
+import { PageGlance } from "@/components/glance/PageGlance";
 import { Page } from "@/components/Page";
+import { useSampleMode } from "@/lib/demo/sampleMode";
 import { Button, Card, CardContent } from "@/components/ui";
 
 type Pattern = {
@@ -31,6 +33,7 @@ function money(cents: number, currency = "AUD") {
 }
 
 export default function SpendingPage() {
+  const { on: sampleOn } = useSampleMode();
   const [review, setReview] = useState<Review | null>(null);
   const [tab, setTab] = useState<"totals" | "check">("check");
   const [message, setMessage] = useState<string | null>(null);
@@ -89,8 +92,10 @@ export default function SpendingPage() {
   const patterns = review?.patterns ?? [];
 
   return (
-    <Page title="Spending" subtitle="Totals from imported rows, and rows waiting for you to confirm.">
+    <Page title="Spending" subtitle="Imported amounts by category.">
       <div className="mx-auto max-w-[760px] space-y-4">
+        <PageGlance page="spending" />
+        {sampleOn ? null : <>
         {!review?.imported ? (
           <p className="text-sm leading-6 text-zinc-600">
             Nothing has been imported yet.{" "}
@@ -167,6 +172,7 @@ export default function SpendingPage() {
           </div>
         )}
         {message ? <p className="text-sm text-zinc-700">{message}</p> : null}
+        </>}
       </div>
     </Page>
   );

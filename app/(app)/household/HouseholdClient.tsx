@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { PageGlance } from "@/components/glance/PageGlance";
 import { Page } from "@/components/Page";
 import { Card, CardContent, Chip, useToast } from "@/components/ui";
 import { notifyActiveHouseholdChanged } from "@/lib/households/resolveActiveHouseholdClient";
@@ -613,9 +614,9 @@ export default function HouseholdClient() {
       const nextDismissed = dismissedIncomingInviteIds.filter((x) => x !== id);
       persistDismissedInviteIds(nextDismissed);
 
-      setStatusLine(action === "accept" ? "Accepted." : "Declined.");
       await load();
       await loadIncomingInvites();
+      setStatusLine(action === "accept" ? "Accepted." : "Declined.");
     } catch (error: unknown) {
       showToast({ message: errorMessage(error, "Couldn’t update invite.") }, 2500);
     }
@@ -679,6 +680,29 @@ export default function HouseholdClient() {
           <Card className="border-zinc-200 bg-white">
             <CardContent className="space-y-3">
               <div>
+                <div className="text-sm font-semibold text-zinc-900">Waiting for you</div>
+                <div className="mt-0.5 text-xs text-zinc-500">
+                  Accept an invite to share that household. You do not need a separate one.
+                </div>
+              </div>
+              {incomingInvitesLoading ? <div className="text-sm text-zinc-600">Looking for an invite…</div> : null}
+              {!incomingInvitesLoading && incomingPendingInvites.length === 0 ? (
+                <div className="text-sm text-zinc-600">No invites are waiting for this email.</div>
+              ) : null}
+              {incomingPendingInvites.map((inv) => (
+                <div key={inv.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-zinc-200 px-3 py-2">
+                  <div>
+                    <div className="text-sm font-medium text-zinc-900">{inv.household_name}</div>
+                    <div className="text-xs text-zinc-500">Role: {inv.role}</div>
+                  </div>
+                  <Chip onClick={() => void actOnIncomingInvite(inv.id, "accept")}>Accept</Chip>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+          <Card className="border-zinc-200 bg-white">
+            <CardContent className="space-y-3">
+              <div>
                 <div className="text-sm font-semibold text-zinc-900">Set up your household</div>
                 <div className="mt-0.5 text-xs text-zinc-500">You can change this later.</div>
               </div>
@@ -709,8 +733,9 @@ export default function HouseholdClient() {
 
   // ---------- NORMAL HOUSEHOLD UI ----------
   return (
-    <Page title="Household" subtitle="Membership and permissions.">
+    <Page title="Household" subtitle="Who shares this picture.">
       <div className="mx-auto w-full max-w-[760px] space-y-6">
+        <PageGlance page="household" />
         {access.isDemoMode && !demoReady && !demoStatusLoading ? (
           <Card className="border-zinc-200 bg-white">
             <CardContent className="space-y-3">

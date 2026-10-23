@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 
-import { Card, CardContent } from "@/components/ui";
+import { PageGlance } from "@/components/glance/PageGlance";
+import { useSampleMode } from "@/lib/demo/sampleMode";
 import { formatMoneyFromCents } from "@/lib/money/formatMoney";
 
 type Member = { user_id: string; role: string; label: string };
@@ -49,6 +50,7 @@ function labelFor(members: Member[], userId: string | null): string {
 }
 
 export function HouseholdPicture() {
+  const { on: sampleOn } = useSampleMode();
   const [picture, setPicture] = useState<Picture | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -105,92 +107,51 @@ export function HouseholdPicture() {
 
   const dated = picture.items.filter((item) => item.due_on);
   const undated = picture.items.filter((item) => !item.due_on);
+  const rows = [...dated, ...undated];
 
   return (
-    <Card className="border-neutral-border bg-neutral-surface shadow-none">
-      <CardContent className="space-y-6">
-        <div>
-          <h2 className="text-base font-semibold text-neutral-text">Shared household picture</h2>
-          <p className="mt-1 text-sm leading-6 text-neutral-text-2">
-            Bills, renewals, and dates the household typed, and who is looking after each one. These are the figures that were entered.
-          </p>
-          {picture.notice ? <p className="mt-2 text-sm text-zinc-600">{picture.notice}</p> : null}
-          {!picture.household_id ? (
-            <p className="mt-2 text-sm text-zinc-600">
-              <Link className="underline" href="/start">
-                Start with a brain dump
-              </Link>{" "}
-              to put the first items here.
-            </p>
-          ) : null}
-        </div>
-
-        <section className="space-y-2">
-          <h3 className="text-sm font-semibold text-zinc-900">Coming up</h3>
-          {dated.length === 0 && undated.length === 0 ? (
-            <p className="text-sm text-zinc-600">Nothing is typed yet.</p>
-          ) : null}
-          {dated.map((item) => (
+    <div className="space-y-4">
+      {picture.notice ? <p className="text-sm text-neutral-text-2">{picture.notice}</p> : null}
+      <PageGlance page="home" picture={picture} />
+      {sampleOn ? null : (
+        <div className="space-y-3">
+          {rows.map((item) => (
             <ItemRow key={item.id} item={item} members={picture.members} onAssign={assign} />
           ))}
-          {undated.map((item) => (
-            <ItemRow key={item.id} item={item} members={picture.members} onAssign={assign} />
-          ))}
-        </section>
-
-        <section className="space-y-2">
-          <h3 className="text-sm font-semibold text-zinc-900">Reminders</h3>
-          <p className="text-sm leading-6 text-zinc-600">
-            Due dates show here for everyone in the household. Reminders aren&apos;t emailed in this beta.
-          </p>
-          {picture.reminders.length === 0 ? <p className="text-sm text-zinc-600">No due-date reminders yet.</p> : null}
           {picture.reminders.map((reminder) => (
-            <div key={reminder.id} className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-neutral-border bg-neutral-bg px-4 py-3">
-              <div className="text-sm text-zinc-800">
-                <div className="font-medium text-zinc-900">{reminder.title}</div>
-                <div>
+            <div key={reminder.id} className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-neutral-border bg-white px-4 py-3">
+              <div className="text-sm text-neutral-text">
+                <div className="font-medium">{reminder.title}</div>
+                <div className="text-neutral-text-2">
                   {auDate(reminder.remind_on)} · {labelFor(picture.members, reminder.assignee_user_id)}
                   {reminder.seen ? " · Seen by you" : ""}
                 </div>
               </div>
               {reminder.seen ? null : (
-                <button type="button" className="text-sm text-zinc-700 underline" onClick={() => void markSeen(reminder.id)}>
+                <button type="button" className="text-sm text-cfo underline" onClick={() => void markSeen(reminder.id)}>
                   Mark seen
                 </button>
               )}
             </div>
           ))}
-        </section>
-
-        <section className="space-y-2">
-          <h3 className="text-sm font-semibold text-zinc-900">Recent changes by someone else</h3>
-          {picture.recent_changes.length === 0 ? (
-            <p className="text-sm text-zinc-600">No changes from another member in the last 14 days.</p>
-          ) : (
-            picture.recent_changes.map((change) => (
-              <p key={change.id} className="text-sm text-zinc-800">
-                {change.actor} {change.verb} {change.title} on {auDate(change.at)}.
-              </p>
-            ))
-          )}
-        </section>
-
-        <section className="space-y-2">
-          <h3 className="text-sm font-semibold text-zinc-900">Open decisions</h3>
-          {picture.decisions.length === 0 ? <p className="text-sm text-zinc-600">No open decisions.</p> : null}
+          {picture.recent_changes.map((change) => (
+            <p key={change.id} className="text-sm text-neutral-text-2">
+              {change.actor} {change.verb} {change.title} on {auDate(change.at)}.
+            </p>
+          ))}
           {picture.decisions.map((decision) => (
-            <div key={decision.id} className="text-sm text-zinc-800">
-              <span className="font-medium text-zinc-900">{decision.title}</span>
+            <p key={decision.id} className="text-sm text-neutral-text">
+              {decision.title}
               {decision.review_at ? ` · Review ${auDate(decision.review_at)}` : ""}
               {" · "}
-              <Link className="underline" href={`/decisions/${decision.id}/pack`}>
+              <Link className="text-cfo underline" href={`/decisions/${decision.id}/pack`}>
                 Print pack
               </Link>
-            </div>
+            </p>
           ))}
-        </section>
-      </CardContent>
-    </Card>
+        </div>
+      )}
+    </div>
   );
 }
 

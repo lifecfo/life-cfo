@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { SegmentedBar } from "@/components/charts/BrandCharts";
+import { PageGlance } from "@/components/glance/PageGlance";
 import { Page } from "@/components/Page";
 import { Card, CardContent, Chip, Button, Badge, Money, useToast } from "@/components/ui";
 
@@ -820,6 +821,7 @@ export default function BudgetClient() {
   return (
     <Page title="Budget" subtitle="A monthly list of expected money in and expected money out." right={right}>
       <div className="mx-auto w-full max-w-[760px] space-y-4">
+        <PageGlance page="budget" />
         <div className="text-xs text-zinc-500">{statusLine}</div>
 
         {error ? (

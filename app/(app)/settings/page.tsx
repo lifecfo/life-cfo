@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { Page } from "@/components/Page";
 import { Card, CardContent, Chip, Button } from "@/components/ui";
+import { useSampleMode } from "@/lib/demo/sampleMode";
 
 export const dynamic = "force-dynamic";
 
@@ -23,6 +24,7 @@ export default function SettingsPage() {
   const [aiEnabled, setAiEnabled] = useState(false);
   const [aiWorking, setAiWorking] = useState(false);
   const [aiMessage, setAiMessage] = useState("");
+  const { on: sampleOn, setOn: setSampleOn } = useSampleMode();
 
   useEffect(() => {
     let alive = true;
@@ -89,6 +91,24 @@ export default function SettingsPage() {
                   {working ? "Signing out…" : "Sign out"}
                 </Button>
               </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="border-neutral-border bg-white">
+          <CardContent>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <div className="text-sm font-semibold text-neutral-text">Sample household</div>
+                <p className="mt-1 text-sm text-neutral-text-2">Example figures stay on this device. They are not saved, exported, or sent anywhere.</p>
+              </div>
+              <button
+                type="button"
+                className="rounded-xl bg-cfo px-3 py-1.5 text-sm font-medium text-white"
+                onClick={() => setSampleOn(!sampleOn)}
+              >
+                {sampleOn ? "Hide sample" : "Show sample"}
+              </button>
             </div>
           </CardContent>
         </Card>

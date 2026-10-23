@@ -10,6 +10,7 @@ import { supabase } from "@/lib/supabaseClient";
 import { useAsk } from "@/components/ask/AskProvider";
 import { AskPanel } from "@/components/ask/AskPanel";
 import { PRODUCT_DESCRIPTOR, PRODUCT_NAME } from "@/lib/brand";
+import { SampleProvider } from "@/lib/demo/sampleMode";
 
 type AppShellProps = {
   children: ReactNode;
@@ -310,7 +311,8 @@ export function AppShell({ children }: AppShellProps) {
     "block w-full rounded-xl px-4 py-3 text-left text-sm font-medium text-zinc-900 transition hover:bg-zinc-50";
 
   return (
-    <div className="min-h-dvh bg-white md:flex md:h-dvh md:flex-col md:overflow-hidden">
+    <SampleProvider>
+    <div className="min-h-dvh bg-neutral-bg md:flex md:h-dvh md:flex-col md:overflow-hidden">
       <div className="sticky top-0 z-40 border-b border-zinc-100 bg-white">
         <div className={["mx-auto flex w-full items-center justify-between gap-2 px-4 py-3", askOpen ? "max-w-[1720px]" : "max-w-[1320px]"].join(" ")}>
           <div className="flex min-w-0 items-center gap-3">
@@ -556,6 +558,7 @@ export function AppShell({ children }: AppShellProps) {
         </div>
       </div>
     </div>
+    </SampleProvider>
   );
 }
 

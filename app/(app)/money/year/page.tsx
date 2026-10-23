@@ -3,6 +3,7 @@
 import { useEffect, useState, type CSSProperties } from "react";
 import Link from "next/link";
 import { LineChart } from "@/components/charts/BrandCharts";
+import { PageGlance } from "@/components/glance/PageGlance";
 import { Page } from "@/components/Page";
 import { Card, CardContent, Chip, Money } from "@/components/ui";
 import { formatMoneyFromCents } from "@/lib/money/formatMoney";
@@ -189,8 +190,8 @@ export default function MoneyYearPage() {
 
   return (
     <Page
-      title="Year at a glance"
-      subtitle="See the bigger costs, quieter months, and goals across the next 12 months."
+      title="Year ahead"
+      subtitle="Renewal dates across the next 12 months."
       right={
         <div className="flex flex-wrap gap-2">
           <Chip onClick={() => void loadYear()} disabled={loading}>Refresh</Chip>
@@ -199,6 +200,7 @@ export default function MoneyYearPage() {
       }
     >
       <div className="mx-auto w-full max-w-[1040px] space-y-4">
+        <PageGlance page="year" />
         {loading ? (
           <Card><CardContent className="text-sm text-zinc-600">Building the year from current schedules...</CardContent></Card>
         ) : null}
@@ -256,11 +258,11 @@ export default function MoneyYearPage() {
                     <div key={season.currency} className="rounded-2xl bg-zinc-50 p-4">
                       <div className="text-sm font-medium text-zinc-900">{season.currency}</div>
                       {season.status === "fairly_even" ? (
-                        <div className="mt-2 text-sm text-zinc-600">Current schedules look fairly even.</div>
+                        <div className="mt-2 text-sm text-zinc-600">Scheduled amounts are similar across these months.</div>
                       ) : (
                         <div className="mt-2 space-y-2 text-sm text-zinc-600">
-                          <div>Heavier months: {season.heavier_months.map(monthName).join(", ") || "None"}.</div>
-                          <div>Quieter months: {season.quieter_months.map(monthName).join(", ") || "None"}.</div>
+                          <div>Larger scheduled amounts: {season.heavier_months.map(monthName).join(", ") || "None"}.</div>
+                          <div>Smaller scheduled amounts: {season.quieter_months.map(monthName).join(", ") || "None"}.</div>
                         </div>
                       )}
                     </div>

@@ -3,6 +3,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
+import { PageGlance } from "@/components/glance/PageGlance";
 import { Page } from "@/components/Page";
 import { Card, CardContent, Button, Chip, Badge, useToast } from "@/components/ui";
 import { AssistedSearch } from "@/components/AssistedSearch";
@@ -910,8 +911,9 @@ export default function BillsPage() {
   );
 
   return (
-    <Page title="Bills" subtitle="Known bill dates you want Life CFO to keep in mind." right={right}>
+    <Page title="Bills & renewals" subtitle="Dates and amounts entered for this household." right={right}>
       <div className="grid gap-4">
+        <PageGlance page="bills" />
         {/* Search bills (escape hatch) */}
         <Card>
           <CardContent>

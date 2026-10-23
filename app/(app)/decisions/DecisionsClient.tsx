@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
+import { PageGlance } from "@/components/glance/PageGlance";
 import { Page } from "@/components/Page";
 import { Chip, useToast } from "@/components/ui";
 import { ConversationPanel } from "./ConversationPanel";
@@ -2701,6 +2702,7 @@ export default function DecisionsClient() {
     <Page title={pageTitle} subtitle={pageSubtitle} right={null}>
       {/* ✅ wider layout so cards fill the page better */}
       <div className="mx-auto w-full max-w-[1100px] space-y-6 px-4 sm:px-6 lg:px-8">
+        <PageGlance page="decisions" />
         <SegTabs
           tab={tab}
           onTab={(t) => {
