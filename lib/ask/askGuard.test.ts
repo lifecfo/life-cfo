@@ -108,6 +108,12 @@ test("frame and structure notes that ask for advice are refused", () => {
     guardAiInput("which is better Hostplus or Vanguard", "structure_record").allowed,
     false
   );
+  assert.equal(guardAiInput("should I renew the rego", "structure_record").allowed, false);
+});
+
+test("a brain dump can name a renewal without asking for advice", () => {
+  const result = guardAiInput("car insurance renewal 12 March 900", "structure_record");
+  assert.equal(result.allowed, true);
 });
 
 test("explain and summarise accept a narrow factual wording", () => {

@@ -2,6 +2,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { Page } from "@/components/Page";
@@ -1627,6 +1628,10 @@ export default function DecisionsClient() {
             Started {softWhen(d.created_at)}
             {d.review_at ? <> • Next review {softWhen(d.review_at)}</> : null}
             {d.user_id && userId && d.user_id !== userId ? <span className="ml-2">• Shared</span> : null}
+            {" · "}
+            <Link className="underline" href={`/decisions/${d.id}/pack`}>
+              Print pack
+            </Link>
           </div>
         </div>
         <div className="shrink-0">
@@ -1796,6 +1801,10 @@ export default function DecisionsClient() {
               Started {softWhen(d.created_at)}
               {d.review_at ? <> • Next review {softWhen(d.review_at)}</> : null}
               {d.user_id && userId && d.user_id !== userId ? <span className="ml-2">• Shared</span> : null}
+              {" · "}
+              <Link className="underline" href={`/decisions/${d.id}/pack`}>
+                Print pack
+              </Link>
             </div>
           </div>
           <div className="shrink-0 flex items-center gap-2">

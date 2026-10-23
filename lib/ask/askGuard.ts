@@ -169,11 +169,25 @@ export function guardAskQuestion(question: string): AskGuardResult {
  * structure_record and frame_decision allow messy notes that are not advice-seeking.
  * explain_figures and summarise_typed need a factual ask or a narrow explain/summarise wording.
  */
+const CAPTURE_ADVICE =
+  /\b(should|ought|recommend\w*|suggest\w*|better|good idea|smart to|worth it|right for|suitab\w*|afford\w*|cope|okay|ok|what would you|which is better|how are we|are we|id suggest|i suggest|consider switching|you can afford)\b/;
+
+const CAPTURE_PRODUCT =
+  /\b(vanguard|hostplus|betashares|commsec|stake|afterpay|which (bank|fund|product|card|loan|platform)|what product)\b/;
+
+/** Brain-dump capture blocks advice and product names. A bill labelled insurance or rego is still a typed item. */
+function captureReasons(text: string): AskGuardReason[] {
+  const reasons: AskGuardReason[] = [];
+  if (CAPTURE_ADVICE.test(text)) reasons.push("advice");
+  if (CAPTURE_PRODUCT.test(text)) reasons.push("product");
+  return reasons;
+}
+
 export function guardAiInput(text: string, job: AiJob): AskGuardResult {
   if (job === "ask") return guardAskQuestion(text);
   const normalized = stripPolite(normalize(text));
   if (!normalized) return refuse(["unmatched"]);
-  const reasons = blockReasons(normalized);
+  const reasons = job === "structure_record" ? captureReasons(normalized) : blockReasons(normalized);
   if (reasons.length > 0) return refuse(reasons);
   if (job === "explain_figures" || job === "summarise_typed") {
     const ask = guardAskQuestion(text);

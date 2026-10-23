@@ -12,7 +12,8 @@ export type AiPurpose =
   | "decision_frame"
   | "decision_analysis"
   | "home_ask"
-  | "home_status";
+  | "home_status"
+  | "structure_record";
 
 type JsonSchema = Record<string, unknown>;
 
@@ -78,6 +79,7 @@ function modelFor(provider: AiProviderName, purpose: AiPurpose): string {
       decision_analysis: "claude-haiku-4-5-20251001",
       home_ask: "claude-haiku-4-5-20251001",
       home_status: "claude-haiku-4-5-20251001",
+      structure_record: "claude-haiku-4-5-20251001",
     };
     const purposeKey = `ANTHROPIC_MODEL_${purpose.toUpperCase()}`;
     return (
@@ -93,6 +95,7 @@ function modelFor(provider: AiProviderName, purpose: AiPurpose): string {
     decision_analysis: "gpt-4o-mini-2024-07-18",
     home_ask: "gpt-4o-mini",
     home_status: "gpt-4o-mini",
+    structure_record: "gpt-4o-mini",
   };
   const purposeOverride = process.env[`OPENAI_MODEL_${purpose.toUpperCase()}`];
   if (purposeOverride) return purposeOverride;
@@ -243,7 +246,7 @@ export async function generateAiStructured<T = unknown>(
         ).trim();
 
   if (!raw) throw new AiProviderError();
-  const screened = screenAiOutput(raw);
+  const screened = screenAiOutput(raw, { purpose: options.purpose });
   if (!screened.ok) {
     logBlockedOutput(options.purpose, screened);
     throw new AiOutputBlockedError(screened.replacement);

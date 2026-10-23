@@ -1,6 +1,7 @@
 // app/api/households/invites/route.ts
 import { NextResponse } from "next/server";
 import { supabaseRoute } from "@/lib/supabaseRoute";
+import { recordUsage } from "@/lib/usage/recordUsage";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import crypto from "crypto";
 
@@ -158,6 +159,8 @@ export async function POST(req: Request) {
     });
 
     if (insErr) throw insErr;
+
+    await recordUsage(supabase, { name: "partner_invite", userId: user.id, householdId: household_id });
 
     return NextResponse.json({ ok: true });
   } catch (error: unknown) {

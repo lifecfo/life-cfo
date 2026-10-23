@@ -24,6 +24,7 @@ const PROTECTED_PREFIXES = [
   "/planned-upgrades",
   "/beta-invite",
   "/welcome",
+  "/start",
   "/engine",
   "/seed",
   "/lab",

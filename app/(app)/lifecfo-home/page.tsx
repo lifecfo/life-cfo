@@ -3,6 +3,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { PRODUCT_DESCRIPTOR } from "@/lib/brand";
+import { HouseholdPicture } from "@/components/home/HouseholdPicture";
 import { supabase } from "@/lib/supabaseClient";
 import { Page } from "@/components/Page";
 import { Card, CardContent, Chip, Button, Money, useToast } from "@/components/ui";
@@ -784,6 +785,7 @@ Follow-up question: ${fu}`
   return (
     <Page title="Home" subtitle={subtitle}>
       <div className="mx-auto max-w-[760px] space-y-6">
+        <HouseholdPicture />
         {!access.loading && access.isDemoMode && authStatus === "signed_in" ? (
           <Card className="border-zinc-200 bg-zinc-50 shadow-none">
             <CardContent className="space-y-3">

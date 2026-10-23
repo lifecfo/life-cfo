@@ -26,6 +26,13 @@ test("post-check blocks advice patterns and product names", () => {
   assert.equal(screenAiOutput(samples[6]).ok, true);
 });
 
+test("structuring a typed insurance item is not treated as insurance guidance", () => {
+  const extracted = '{"title":"car insurance renewal","kind":"renewal","amount_cents":32000}';
+  assert.equal(screenAiOutput(extracted).ok, false);
+  assert.equal(screenAiOutput(extracted, { purpose: "structure_record" }).ok, true);
+  assert.equal(screenAiOutput("You should renew the insurance.", { purpose: "structure_record" }).ok, false);
+});
+
 test("post-check redacts figures before a blocked answer is logged", () => {
   const raw = "You should move the $4,500 balance to Stake.";
   const screened = screenAiOutput(raw);

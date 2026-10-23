@@ -6,6 +6,7 @@ import { legalPackSha256 } from "@/lib/legal/legalPackHash";
 import { betaAccessForUser } from "@/lib/server/access/betaAccess";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { supabaseRoute } from "@/lib/supabaseRoute";
+import { recordUsage } from "@/lib/usage/recordUsage";
 
 export const dynamic = "force-dynamic";
 
@@ -95,6 +96,8 @@ export async function POST(req: Request) {
   if (profileErr) {
     return NextResponse.json({ ok: false, error: "Life CFO couldn't save your acceptance." }, { status: 500 });
   }
+
+  await recordUsage(supabase, { name: "signup", userId: user.id });
 
   return NextResponse.json({
     ok: true,

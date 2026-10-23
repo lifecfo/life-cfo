@@ -31,8 +31,13 @@ export function redactFigures(text: string): string {
     .replace(/\b\d[\d,]*(?:\.\d+)?\b/g, "[n]");
 }
 
-export function screenAiOutput(text: string): OutputScreen {
-  const patterns = ADVICE_PATTERNS.filter((rule) => rule.pattern.test(text)).map((rule) => rule.name);
+const STRUCTURE_SKIP = new Set(["super_guidance", "investment_guidance", "insurance_guidance"]);
+
+export function screenAiOutput(text: string, options?: { purpose?: string }): OutputScreen {
+  const patterns = ADVICE_PATTERNS.filter((rule) => {
+    if (options?.purpose === "structure_record" && STRUCTURE_SKIP.has(rule.name)) return false;
+    return rule.pattern.test(text);
+  }).map((rule) => rule.name);
   if (patterns.length === 0) return { ok: true };
   const redacted = redactFigures(text);
   return {

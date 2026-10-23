@@ -9,7 +9,7 @@ export type LegalSection = { title: string; body: string };
 export const importantInformationSections: LegalSection[] = [
   {
     title: "What Life CFO does",
-    body: "Life CFO organises what a household types: bills, income, a budget, goals, family notes, and decisions. It shows those figures, dates, and lists back to the household.",
+    body: "Life CFO turns notes a household types into one shared picture: bills, renewals, dates, and who is looking after each item. Reminders for those dates stay in the app, where every household member can see them. It shows the figures, dates, and lists that were typed. It is not a budgeting score.",
   },
   {
     title: "What Life CFO does not do",
@@ -17,11 +17,11 @@ export const importantInformationSections: LegalSection[] = [
   },
   {
     title: "Who it is for",
-    body: "It is for adults who live in Australia and want a private place to type household figures. You confirm that you are 18 or older and that you live in Australia before you use it.",
+    body: "It is for adults who live in Australia, including couples and families where one person carries the money and admin load, and households that do not want to share bank logins. You confirm that you are 18 or older and that you live in Australia before you use it.",
   },
   {
     title: "Who it is not for",
-    body: "It is not for anyone under 18. It is not a bank, lender, broker, or financial adviser. It is not for choosing a product, getting out of debt, or deciding whether you can afford something. If you need that help, use the free official services below.",
+    body: "It is not for anyone under 18 or anyone who does not live in Australia. It is not for people who want a bank connection, a budget score, or someone to say what they should do. It is not a bank, lender, broker, or financial adviser. If you need that help, use the free official services below.",
   },
   {
     title: "If you need help now",
@@ -79,15 +79,15 @@ export const privacySections: LegalSection[] = [
   },
   {
     title: "What we collect",
-    body: "We collect the email address and sign-in details you use for your account, handled by our authentication provider. We collect information you type, such as household names, bills, income, budget items, goals, family and pet notes, and decisions. We collect the confirmations you give (that you are 18 or older, that you live in Australia, and that you accept these terms) and a copy of the text you accepted. We ask for your birth year only to check that you are 18 or older, and we do not store that year. We may look at your browser timezone and language to show a warning if they do not look Australian, and we do not store them. We collect technical logs needed to run and protect the service. We do not ask you to connect a bank in this beta, and we do not collect bank passwords.",
+    body: "We collect the email address and sign-in details you use for your account, handled by our authentication provider. We collect information you type, such as household names, bills, renewals, income, dates, notes, and decisions. We collect the confirmations you give (that you are 18 or older, that you live in Australia, and that you accept these terms) and a copy of the text you accepted. We ask for your birth year only to check that you are 18 or older, and we do not store that year. We may look at your browser timezone and language to show a warning if they do not look Australian, and we do not store them. If you join the public waitlist, we store that email address until you ask us to remove it by writing to admin@life-cfo.com. We store usage events in our own database: sign-up, finishing the first setup, using the brain dump, inviting a household member, and a daily note that a household opened the shared picture. We use those counts to see whether households keep using the beta. We do not send them to a separate analytics company. We collect technical logs needed to run and protect the service. We do not ask you to connect a bank in this beta, and we do not collect bank passwords.",
   },
   {
     title: "Why we collect it",
-    body: "We use this information to run your account, show your household what was typed, keep the service secure, and honour a deletion or export request. We do not sell personal information. We do not use it to recommend products or to decide whether something is suitable for you.",
+    body: "We use this information to run your account, show your household what was typed, keep the service secure, tell waitlist addresses when a place is open, count whether households keep using the beta, and honour a deletion or export request. We do not sell personal information. We do not use it to recommend products or to decide whether something is suitable for you.",
   },
   {
     title: "Household sharing",
-    body: "People you add to a household may see information stored for that household. Where the product has a visibility setting, it applies to accounts marked shared, balance only, or private.",
+    body: "People you add to a household may see information stored for that household, including items, due-date reminders, and decisions. Where the product has a visibility setting, it applies to accounts marked shared, balance only, or private.",
   },
   {
     title: "Where information is processed",

@@ -4,14 +4,14 @@ import Link from "next/link";
 
 import { Page } from "@/components/Page";
 import { Card, CardContent, Chip } from "@/components/ui";
-import { PRODUCT_DESCRIPTOR, PRODUCT_NAME } from "@/lib/brand";
+import { PRODUCT_DESCRIPTOR, PRODUCT_NAME, PRODUCT_TAGLINE } from "@/lib/brand";
 
 export const dynamic = "force-dynamic";
 
 const lifeCfoSections = [
   {
     title: "Type what you want to keep",
-    body: "Enter bills, income, a budget, goals, and notes. This beta does not connect banks.",
+    body: `${PRODUCT_TAGLINE} Paste bills, renewals, and dates, then confirm the list. This beta does not connect banks and it is not a budget score.`,
   },
   {
     title: "See the figures",
@@ -49,7 +49,7 @@ export default function HowLifeCfoWorksPage() {
         </Card>
 
         <div className="flex flex-wrap gap-2">
-          <Link href="/money/setup">
+          <Link href="/start">
             <Chip>Start here</Chip>
           </Link>
           <Link href="/fine-print">
