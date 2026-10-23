@@ -24,6 +24,7 @@ export default function SettingsPage() {
   const [aiEnabled, setAiEnabled] = useState(false);
   const [aiWorking, setAiWorking] = useState(false);
   const [aiMessage, setAiMessage] = useState("");
+  const [aiDailyLimit, setAiDailyLimit] = useState(15);
   const { on: sampleOn, setOn: setSampleOn } = useSampleMode();
 
   useEffect(() => {
@@ -42,10 +43,17 @@ export default function SettingsPage() {
       setEmail(safeStr(data.user.email));
       setLoaded(true);
       const ai = await fetch("/api/settings/ai", { cache: "no-store" });
-      const aiJson = (await ai.json().catch(() => null)) as { opted_in?: boolean; enabled?: boolean } | null;
+      const aiJson = (await ai.json().catch(() => null)) as {
+        opted_in?: boolean;
+        enabled?: boolean;
+        daily_limit?: number;
+      } | null;
       if (alive) {
         setAiOptIn(aiJson?.opted_in === true);
         setAiEnabled(aiJson?.enabled === true);
+        if (typeof aiJson?.daily_limit === "number" && aiJson.daily_limit > 0) {
+          setAiDailyLimit(aiJson.daily_limit);
+        }
       }
     })();
 
@@ -150,8 +158,9 @@ export default function SettingsPage() {
                   ? " AI is switched on for this deployment. It still runs only if you opt in."
                   : " AI is switched off for this deployment, so opting in does not send anything yet."}
                 {" "}
-                Life CFO can still list figures, dates, and items you typed. If both are on, your text and selected household figures are sent to OpenAI or Anthropic, which may process them outside Australia. These providers do not use it to train their models under their standard business terms. They may keep it for up to 30 days for safety and abuse monitoring.
+                Life CFO can still list figures, dates, and items you typed. If both are on, your text and selected household figures are sent to OpenAI or Anthropic, which may process them outside Australia. These providers do not use it to train their models under their standard business terms.                 They may keep it for up to 30 days for safety and abuse monitoring.
               </div>
+              <p className="text-sm leading-6 text-zinc-700">Beta: up to {aiDailyLimit} AI requests a day.</p>
               <label className="flex items-start gap-2 text-sm text-zinc-800">
                 <input
                   type="checkbox"

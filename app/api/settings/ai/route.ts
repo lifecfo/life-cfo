@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { isAiEnabled } from "@/lib/ai/aiFlag";
+import { readAiDailyLimits } from "@/lib/ai/usageLimit";
 import { supabaseRoute } from "@/lib/supabaseRoute";
 
 export const dynamic = "force-dynamic";
@@ -29,6 +30,7 @@ export async function GET() {
     enabled: isAiEnabled(),
     opted_in: Boolean(data?.ai_ask_opt_in_at),
     opted_in_at: data?.ai_ask_opt_in_at ?? null,
+    daily_limit: readAiDailyLimits().perUser,
   });
 }
 

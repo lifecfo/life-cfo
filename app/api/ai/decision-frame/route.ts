@@ -1,6 +1,7 @@
 // app/api/ai/decision-frame/route.ts
 import { NextResponse } from "next/server";
 import { AiDisabledError, generateAiText } from "@/lib/ai/provider";
+import { AiDailyLimitError, AiUsageUnavailableError } from "@/lib/ai/usageLimit";
 import { isAiEnabled } from "@/lib/ai/aiFlag";
 import { FACTUAL_SYSTEM_PROMPT } from "@/lib/ai/factualPrompt";
 import { AI_OFF_MESSAGE, aiAskOptedIn } from "@/lib/ai/optIn";
@@ -166,6 +167,7 @@ export async function POST(req: Request) {
     try {
       rawText = stripCodeFences(await generateAiText({
         purpose: "decision_frame",
+        userId: auth.user.id,
         allowOverseasDisclosure: true,
         system,
         prompt: userContent,
@@ -173,6 +175,9 @@ export async function POST(req: Request) {
         maxOutputTokens: 480,
       }));
     } catch (error) {
+      if (error instanceof AiDailyLimitError || error instanceof AiUsageUnavailableError) {
+        return NextResponse.json({ error: error.message, version: VERSION }, { status: 429 });
+      }
       if (error instanceof AiDisabledError) {
         const frame: FrameResult = {
           title: titleFromStatement(text),

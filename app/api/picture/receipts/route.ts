@@ -8,6 +8,7 @@ import {
   AiOutputBlockedError,
   generateAiStructured,
 } from "@/lib/ai/provider";
+import { AiDailyLimitError, AiUsageUnavailableError } from "@/lib/ai/usageLimit";
 import { readLimitedJson, requireAuthenticatedAiUser } from "@/lib/ai/routeSecurity";
 import { guardAiInput } from "@/lib/ask/askGuard";
 import { resolveHouseholdIdRoute } from "@/lib/households/resolveHouseholdIdRoute";
@@ -128,6 +129,7 @@ export async function POST(req: Request) {
     const bytes = Buffer.from(await downloaded.data.arrayBuffer());
     const structured = await generateAiStructured<unknown>({
       purpose: "read_receipt",
+      userId: auth.user.id,
       system: RECEIPT_READ_SYSTEM,
       prompt,
       image: { mediaType: "image/jpeg", base64: bytes.toString("base64") },
@@ -157,6 +159,9 @@ export async function POST(req: Request) {
       message: "Check these fields. Nothing is saved until you confirm.",
     });
   } catch (error) {
+    if (error instanceof AiDailyLimitError || error instanceof AiUsageUnavailableError) {
+      return NextResponse.json(manualPayload(receiptId, previewUrl, error.message));
+    }
     if (error instanceof AiOutputBlockedError) {
       return NextResponse.json(manualPayload(receiptId, previewUrl, error.replacement));
     }

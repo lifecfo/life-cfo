@@ -1,6 +1,7 @@
 // app/api/home/ask/route.ts
 import { NextResponse } from "next/server";
 import { AiDisabledError, AiOutputBlockedError, generateAiStructured } from "@/lib/ai/provider";
+import { AiDailyLimitError, AiUsageUnavailableError } from "@/lib/ai/usageLimit";
 import { isAiEnabled } from "@/lib/ai/aiFlag";
 import { FACTUAL_SYSTEM_PROMPT } from "@/lib/ai/factualPrompt";
 import { AI_OFF_MESSAGE, aiAskOptedIn } from "@/lib/ai/optIn";
@@ -1332,6 +1333,7 @@ export async function POST(req: Request) {
     try {
       parsed = await generateAiStructured({
         purpose: "home_ask",
+        userId: user.id,
         allowOverseasDisclosure: true,
         system: SYSTEM,
         prompt: `QUESTION:\n${question}\n\nFACTS PACK:\n${JSON.stringify(aiFacts, null, 2)}`,
@@ -1354,6 +1356,9 @@ export async function POST(req: Request) {
         maxOutputTokens: 800,
       });
     } catch (error) {
+      if (error instanceof AiDailyLimitError || error instanceof AiUsageUnavailableError) {
+        return NextResponse.json({ error: error.message }, { status: 429 });
+      }
       const blocked = error instanceof AiOutputBlockedError || error instanceof AiDisabledError;
       const headline = error instanceof AiOutputBlockedError
         ? error.replacement

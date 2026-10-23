@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { AiDisabledError, AiOutputBlockedError, generateAiStructured } from "@/lib/ai/provider";
+import { AiDailyLimitError, AiUsageUnavailableError } from "@/lib/ai/usageLimit";
 import { isAiEnabled } from "@/lib/ai/aiFlag";
 import { FACTUAL_SYSTEM_PROMPT } from "@/lib/ai/factualPrompt";
 import { AI_OFF_MESSAGE, aiAskOptedIn } from "@/lib/ai/optIn";
@@ -122,6 +123,7 @@ Inbox type: ${type || "(unknown)"}
     try {
       const modelOutput = await generateAiStructured({
         purpose: "decision_analysis",
+        userId: auth.user.id,
         allowOverseasDisclosure: true,
         system,
         prompt: user,
@@ -140,6 +142,9 @@ Inbox type: ${type || "(unknown)"}
         },
       });
     } catch (error) {
+      if (error instanceof AiDailyLimitError || error instanceof AiUsageUnavailableError) {
+        return NextResponse.json({ error: error.message }, { status: 429 });
+      }
       if (error instanceof AiOutputBlockedError) {
         return NextResponse.json({
           analysis: {

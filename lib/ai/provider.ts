@@ -5,6 +5,8 @@ import Anthropic from "@anthropic-ai/sdk";
 import { isAiEnabled } from "@/lib/ai/aiFlag";
 import { FACTUAL_SYSTEM_PROMPT } from "@/lib/ai/factualPrompt";
 import { logBlockedOutput, screenAiOutput } from "@/lib/ai/outputGuard";
+import { capOutputTokens, trimAiPrompt } from "@/lib/ai/usageLimit";
+import { reserveAiRequest } from "@/lib/ai/usageQuota";
 
 export type AiProviderName = "openai" | "anthropic";
 export type AiPurpose =
@@ -25,6 +27,7 @@ export type AiImageInput = {
 
 type GenerateOptions = {
   purpose: AiPurpose;
+  userId: string;
   system: string;
   prompt: string;
   temperature?: number;
@@ -81,8 +84,8 @@ export function configuredAiProvider(): AiProviderName {
 function modelFor(provider: AiProviderName, purpose: AiPurpose): string {
   if (provider === "anthropic") {
     const anthropicDefaults: Record<AiPurpose, string> = {
-      conversation: "claude-sonnet-5",
-      decision_frame: "claude-sonnet-5",
+      conversation: "claude-haiku-4-5-20251001",
+      decision_frame: "claude-haiku-4-5-20251001",
       decision_analysis: "claude-haiku-4-5-20251001",
       home_ask: "claude-haiku-4-5-20251001",
       home_status: "claude-haiku-4-5-20251001",
@@ -98,9 +101,9 @@ function modelFor(provider: AiProviderName, purpose: AiPurpose): string {
   }
 
   const defaults: Record<AiPurpose, string> = {
-    conversation: "gpt-4.1",
-    decision_frame: "gpt-4.1",
-    decision_analysis: "gpt-4o-mini-2024-07-18",
+    conversation: "gpt-4o-mini",
+    decision_frame: "gpt-4o-mini",
+    decision_analysis: "gpt-4o-mini",
     home_ask: "gpt-4o-mini",
     home_status: "gpt-4o-mini",
     structure_record: "gpt-4o-mini",
@@ -222,14 +225,25 @@ function assertAiCallAllowed(options: GenerateOptions) {
   if (!isAiEnabled()) throw new AiDisabledError();
 }
 
-export async function generateAiText(options: GenerateOptions): Promise<string> {
+async function beginAiRequest<T extends GenerateOptions>(options: T): Promise<T> {
   assertAiCallAllowed(options);
+  const limited = {
+    ...options,
+    prompt: trimAiPrompt(options.prompt),
+    maxOutputTokens: capOutputTokens(options.maxOutputTokens),
+  };
+  await reserveAiRequest(limited.userId);
+  return limited;
+}
+
+export async function generateAiText(options: GenerateOptions): Promise<string> {
+  const limited = await beginAiRequest(options);
   const provider = configuredAiProvider();
   const text =
     provider === "anthropic"
-      ? await anthropicRequest(options)
-      : await openAiText(options);
-  return releaseText(options.purpose, text);
+      ? await anthropicRequest(limited)
+      : await openAiText(limited);
+  return releaseText(limited.purpose, text);
 }
 
 async function openAiText(options: GenerateOptions): Promise<string> {
@@ -251,30 +265,30 @@ async function openAiText(options: GenerateOptions): Promise<string> {
 export async function generateAiStructured<T = unknown>(
   options: GenerateStructuredOptions
 ): Promise<T> {
-  assertAiCallAllowed(options);
+  const limited = await beginAiRequest(options);
   const provider = configuredAiProvider();
   const raw =
     provider === "anthropic"
-      ? await anthropicRequest(options, {
-          ...options.schema,
+      ? await anthropicRequest(limited, {
+          ...limited.schema,
         })
       : String(
           (
             await openAiClient().responses.create({
-              model: modelFor("openai", options.purpose),
+              model: modelFor("openai", limited.purpose),
               input: [
-                { role: "system", content: guardedSystem(options.system) },
-                { role: "user", content: openAiUserContent(options) },
+                { role: "system", content: guardedSystem(limited.system) },
+                { role: "user", content: openAiUserContent(limited) },
               ],
-              temperature: options.temperature,
-              max_output_tokens: options.maxOutputTokens,
+              temperature: limited.temperature,
+              max_output_tokens: limited.maxOutputTokens,
               store: false,
               text: {
                 format: {
                   type: "json_schema",
-                  name: options.schemaName,
+                  name: limited.schemaName,
                   strict: true,
-                  schema: options.schema,
+                  schema: limited.schema,
                 },
               },
             })

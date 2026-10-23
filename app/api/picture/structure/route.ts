@@ -9,6 +9,7 @@ import {
   AiOutputBlockedError,
   generateAiStructured,
 } from "@/lib/ai/provider";
+import { AiDailyLimitError, AiUsageUnavailableError } from "@/lib/ai/usageLimit";
 import { readLimitedJson, requireAuthenticatedAiUser } from "@/lib/ai/routeSecurity";
 import { guardAiInput } from "@/lib/ask/askGuard";
 import { sanitiseDraftItems } from "@/lib/picture/draftItems";
@@ -106,6 +107,7 @@ export async function POST(req: Request) {
   try {
     const structured = await generateAiStructured<unknown>({
       purpose: "structure_record",
+      userId: auth.user.id,
       system:
         "Extract only items that appear in the household's text. Do not add items. Do not advise. If a date or amount is not stated, use null. Dates are YYYY-MM-DD. Amounts are integer cents. Kind is bill, renewal, income, or note.",
       prompt: text,
@@ -133,6 +135,9 @@ export async function POST(req: Request) {
       message: "Check this list. Nothing is saved until you confirm.",
     });
   } catch (error) {
+    if (error instanceof AiDailyLimitError || error instanceof AiUsageUnavailableError) {
+      return NextResponse.json({ ok: false, error: error.message }, { status: 429 });
+    }
     if (error instanceof AiOutputBlockedError) {
       return NextResponse.json({
         ok: false,
