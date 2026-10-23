@@ -1,9 +1,11 @@
 // app/(app)/budget/BudgetClient.tsx
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
+import { SegmentedBar } from "@/components/charts/BrandCharts";
+import { PageGlance } from "@/components/glance/PageGlance";
 import { Page } from "@/components/Page";
 import { Card, CardContent, Chip, Button, Badge, Money, useToast } from "@/components/ui";
 
@@ -183,10 +185,9 @@ export default function BudgetClient() {
   const isMountedRef = useRef(true);
 
   async function resolveActiveHouseholdId(): Promise<string> {
-    // We reuse money API since it already returns household_id using cookie/fallback logic.
-    const data = await fetchJson<{ ok: boolean; household_id: string }>("/api/money/accounts");
-    if (!data?.household_id) throw new Error("User not linked to a household.");
-    return data.household_id;
+    const data = await fetchJson<{ ok: boolean; active_household_id?: string | null }>("/api/households");
+    if (!data?.active_household_id) throw new Error("User not linked to a household.");
+    return data.active_household_id;
   }
 
   async function loadAll(uid: string, hid: string, opts?: { silent?: boolean }) {
@@ -610,10 +611,8 @@ export default function BudgetClient() {
       : "border border-zinc-200 bg-zinc-50 text-zinc-700";
 
   const pictureHint = useMemo(() => {
-    if (risk === "no_income") return "Add income timing when you want a fuller monthly picture.";
-    if (risk === "negative") return "This month may need review. Expected outgoings are higher than expected income based on what Life CFO can currently see.";
-    if (risk === "tight") return "This month may be worth reviewing. The amount left is small based on these inputs.";
-    return "Nothing stands out from these numbers.";
+    if (risk === "no_income") return "No income amount is entered yet. Bills and plan items that were typed are listed below.";
+    return "Income, bills, and plan items that were entered are listed below.";
   }, [risk]);
 
   // Deliberately the same neutral treatment for every risk state -- the
@@ -820,8 +819,9 @@ export default function BudgetClient() {
   );
 
   return (
-    <Page title="Budget" subtitle="A simple monthly view of expected money in, expected money out, and what may be left." right={right}>
+    <Page title="Budget" subtitle="A monthly list of expected money in and expected money out." right={right}>
       <div className="mx-auto w-full max-w-[760px] space-y-4">
+        <PageGlance page="budget" />
         <div className="text-xs text-zinc-500">{statusLine}</div>
 
         {error ? (
@@ -852,7 +852,7 @@ export default function BudgetClient() {
                   <div className="mt-1 h-px bg-zinc-100" />
 
                   <div className="flex items-center justify-between gap-6">
-                    <div className="font-semibold text-zinc-900">May be left after bills + budget</div>
+                    <div className="font-semibold text-zinc-900">Difference (expected in minus expected out)</div>
                     <div className="font-semibold text-zinc-900">
                       {leftoverCents >= 0 ? (
                         <Money cents={leftoverCents} />
@@ -864,51 +864,14 @@ export default function BudgetClient() {
                 </div>
 
                 {composition ? (
-                  <div className="space-y-1.5">
-                    <div className="flex h-2 w-full overflow-hidden rounded-full bg-zinc-100">
-                      <div
-                        className="motion-fill h-full bg-cfo"
-                        style={
-                          {
-                            width: `${composition.billsPercent}%`,
-                            "--fill-target": `${composition.billsPercent}%`,
-                          } as CSSProperties
-                        }
-                      />
-                      <div
-                        className="motion-fill h-full bg-cfo/60"
-                        style={
-                          {
-                            width: `${composition.planPercent}%`,
-                            "--fill-target": `${composition.planPercent}%`,
-                          } as CSSProperties
-                        }
-                      />
-                      <div
-                        className="motion-fill h-full bg-cfo/25"
-                        style={
-                          {
-                            width: `${composition.leftoverPercent}%`,
-                            "--fill-target": `${composition.leftoverPercent}%`,
-                          } as CSSProperties
-                        }
-                      />
-                    </div>
-                    <div className="flex flex-wrap gap-3 text-xs text-zinc-500">
-                      <span className="inline-flex items-center gap-1.5">
-                        <span className="h-2 w-2 rounded-full bg-cfo" />
-                        Bills
-                      </span>
-                      <span className="inline-flex items-center gap-1.5">
-                        <span className="h-2 w-2 rounded-full bg-cfo/60" />
-                        Budget items
-                      </span>
-                      <span className="inline-flex items-center gap-1.5">
-                        <span className="h-2 w-2 rounded-full bg-cfo/25" />
-                        Leftover
-                      </span>
-                    </div>
-                  </div>
+                  <SegmentedBar
+                    empty="No income, bills, or plan amounts are entered yet."
+                    segments={[
+                      { id: "bills", label: "Bills", amountLabel: "", percent: composition.billsPercent, swatchClass: "bg-cfo" },
+                      { id: "plan", label: "Budget items", amountLabel: "", percent: composition.planPercent, swatchClass: "bg-cfo/60" },
+                      { id: "left", label: "Remainder", amountLabel: "", percent: composition.leftoverPercent, swatchClass: "bg-cfo/25" },
+                    ].map((segment) => ({ ...segment, amountLabel: `${Math.round(segment.percent)}%` }))}
+                  />
                 ) : null}
 
                 <div className={["mt-2 rounded-2xl border px-3 py-2 text-sm", pictureHintClass].join(" ")}>{pictureHint}</div>
@@ -973,28 +936,33 @@ export default function BudgetClient() {
 
             <div className="mt-3 grid gap-3 md:grid-cols-6">
               <div className="md:col-span-2">
-                <div className="text-xs text-zinc-500 mb-1">Name</div>
+                <label className="mb-1 block text-xs text-zinc-500" htmlFor="budget-name">Name</label>
                 <input
+                  id="budget-name"
                   className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200"
                   placeholder="Groceries, fuel, giving…"
+                  aria-label="Budget item name"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                 />
               </div>
 
               <div>
-                <div className="text-xs text-zinc-500 mb-1">Amount (AUD)</div>
+                <label className="mb-1 block text-xs text-zinc-500" htmlFor="budget-amount">Amount (AUD)</label>
                 <input
+                  id="budget-amount"
                   className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200"
                   placeholder="e.g. 250"
+                  aria-label="Budget amount"
                   value={amount}
                   onChange={(e) => setAmount(e.target.value)}
                 />
               </div>
 
               <div>
-                <div className="text-xs text-zinc-500 mb-1">Cadence</div>
+                <label className="mb-1 block text-xs text-zinc-500" htmlFor="budget-cadence">Cadence</label>
                 <select
+                  id="budget-cadence"
                   className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200"
                   value={cadence}
                   onChange={(e) => setCadence(normalizeCadence(e.target.value))}
@@ -1008,8 +976,9 @@ export default function BudgetClient() {
               </div>
 
               <div className="md:col-span-2">
-                <div className="text-xs text-zinc-500 mb-1">Section</div>
+                <label className="mb-1 block text-xs text-zinc-500" htmlFor="budget-section">Section</label>
                 <select
+                  id="budget-section"
                   className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200"
                   value={kind}
                   onChange={(e) => setKind(e.target.value as BudgetKind)}

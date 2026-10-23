@@ -1,5 +1,6 @@
 // app/api/money/basiq/start/route.ts
 import { NextResponse } from "next/server";
+import { BANK_CONNECT_DISABLED_ERROR, bankConnectIsEnabled } from "@/lib/flags/bankConnect";
 import { supabaseRoute } from "@/lib/supabaseRoute";
 import { getLifeCfoAccess, REAL_DATA_DISABLED_MESSAGE } from "@/lib/server/access/lifeCfoAccess";
 import { resolveHouseholdIdRoute } from "@/lib/households/resolveHouseholdIdRoute";
@@ -75,21 +76,6 @@ function tryParseBasiqError(rawMsg: string) {
     }
   }
   return { correlationId: undefined, code: undefined, title: undefined, detail: undefined };
-}
-
-function envDiag() {
-  const raw = (process.env.BASIQ_API_KEY || "").trim();
-  return {
-    hasBasiqKey: Boolean(raw),
-    basiqKeyLen: raw.length,
-    basiqKeyLooksPrefixedBasic: raw.toLowerCase().startsWith("basic "),
-    basiqBaseUrl: (process.env.BASIQ_BASE_URL || "https://au-api.basiq.io").trim(),
-    basiqVersion: (process.env.BASIQ_VERSION || "3.0").trim(),
-    nodeEnv: process.env.NODE_ENV || "",
-    vercelEnv: process.env.VERCEL_ENV || "",
-    vercelRegion: process.env.VERCEL_REGION || "",
-    vercelCommit: process.env.VERCEL_GIT_COMMIT_SHA || "",
-  };
 }
 
 function unwrapBasiq(e: any): {
@@ -276,8 +262,9 @@ async function resolveBasiqConnectionForStart(params: {
 }
 
 export async function POST(req: Request) {
-  const diag = envDiag();
-
+  if (!bankConnectIsEnabled()) {
+    return NextResponse.json({ ok: false, error: BANK_CONNECT_DISABLED_ERROR }, { status: 404 });
+  }
   try {
     const supabase = await supabaseRoute();
 
@@ -354,7 +341,6 @@ export async function POST(req: Request) {
             status: u.status,
             error: u.message,
             basiq: u.basiq,
-            diag,
           },
           { status: 500 }
         );
@@ -363,7 +349,7 @@ export async function POST(req: Request) {
       basiqUserId = String(created?.id || "");
       if (!basiqUserId) {
         return NextResponse.json(
-          { ok: false, step: "create_user", error: "Basiq user create failed (missing id).", diag },
+          { ok: false, step: "create_user", error: "Basiq user create failed (missing id)." },
           { status: 500 }
         );
       }
@@ -389,7 +375,6 @@ export async function POST(req: Request) {
           error: u.message,
           basiq: u.basiq,
           basiq_user_id: basiqUserId,
-          diag,
         },
         { status: 500 }
       );
@@ -414,7 +399,6 @@ export async function POST(req: Request) {
       connection_id: connectionId,
       basiq_user_id: basiqUserId,
       consent_url: consentUrl,
-      diag,
     });
   } catch (e: any) {
     const u = unwrapBasiq(e);
@@ -426,7 +410,6 @@ export async function POST(req: Request) {
         status: u.status,
         error: u.message,
         basiq: u.basiq,
-        diag,
       },
       { status: 500 }
     );

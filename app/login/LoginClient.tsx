@@ -1,8 +1,11 @@
 "use client";
 
 import Image from "next/image";
+import Link from "next/link";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { PRODUCT_NAME } from "@/lib/brand";
+import { WaitlistForm } from "@/components/landing/WaitlistForm";
 import { supabase } from "@/lib/supabaseClient";
 
 type Mode = "signin" | "signup" | "reset";
@@ -11,7 +14,13 @@ function safeStr(v: unknown) {
   return typeof v === "string" ? v : "";
 }
 
-export default function LoginClient({ nextPath }: { nextPath: string }) {
+export default function LoginClient({
+  nextPath,
+  publicEntry = false,
+}: {
+  nextPath: string;
+  publicEntry?: boolean;
+}) {
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -24,6 +33,7 @@ export default function LoginClient({ nextPath }: { nextPath: string }) {
   const [showPassword, setShowPassword] = useState(false);
   const [working, setWorking] = useState(false);
   const [status, setStatus] = useState<string>("");
+  const [waitlistOpen, setWaitlistOpen] = useState(false);
 
   useEffect(() => {
     const err =
@@ -170,9 +180,7 @@ export default function LoginClient({ nextPath }: { nextPath: string }) {
       : "Send reset email";
 
   const subtitle =
-    mode === "signin"
-      ? "Personal financial intelligence for modern families."
-      : mode === "signup"
+    mode === "signup"
       ? "Create your account to get started."
       : "We’ll email you a reset link.";
 
@@ -188,7 +196,7 @@ export default function LoginClient({ nextPath }: { nextPath: string }) {
 
             <Image
               src="/brand/lifecfo-logo-stacked-white-transparent.svg"
-              alt="Life CFO"
+              alt={PRODUCT_NAME}
               width={180}
               height={180}
               priority
@@ -198,28 +206,26 @@ export default function LoginClient({ nextPath }: { nextPath: string }) {
           <div className="space-y-3">
             <h1 className="text-2xl font-semibold tracking-tight text-white">
               {mode === "signin"
-                ? "Welcome to Life CFO"
+                ? `Welcome to ${PRODUCT_NAME}`
                 : mode === "signup"
                 ? "Create your account"
                 : "Reset your password"}
             </h1>
 
-            {mode === "reset" ? (
-              <p className="text-sm leading-relaxed text-white/85">{subtitle}</p>
-            ) : (
+            {mode === "signin" ? (
               <div className="space-y-1">
                 <p className="text-sm leading-relaxed text-white/85">
-                  Personal financial intelligence for modern families.
+                  One shared picture of your household’s bills, dates and admin.
                 </p>
-
                 <p className="text-sm leading-relaxed text-white/85">
-                  Clarity. Structure. Better decisions.
+                  Clarity. Structure. Peace of mind.
                 </p>
-
                 <p className="pt-2 text-sm font-semibold tracking-wide text-white/95">
-                  Launching soon.
+                  Invite-only beta.
                 </p>
               </div>
+            ) : (
+              <p className="text-sm leading-relaxed text-white/85">{subtitle}</p>
             )}
           </div>
         </div>
@@ -227,10 +233,11 @@ export default function LoginClient({ nextPath }: { nextPath: string }) {
         <div className="rounded-2xl border border-white/20 bg-neutral-surface p-6 shadow-[0_30px_80px_rgba(0,0,0,0.28),0_10px_24px_rgba(0,0,0,0.18)] backdrop-blur-[2px]">
           <form onSubmit={onSubmit} className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-neutral-text">
+              <label className="block text-sm font-medium text-neutral-text" htmlFor="login-email">
                 Email
               </label>
               <input
+                id="login-email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 type="email"
@@ -243,12 +250,13 @@ export default function LoginClient({ nextPath }: { nextPath: string }) {
             {mode !== "reset" ? (
               <div className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-neutral-text">
+                  <label className="block text-sm font-medium text-neutral-text" htmlFor="login-password">
                     Password
                   </label>
 
                   <div className="mt-1 relative">
                     <input
+                      id="login-password"
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       type={showPassword ? "text" : "password"}
@@ -276,10 +284,11 @@ export default function LoginClient({ nextPath }: { nextPath: string }) {
 
                 {mode === "signup" ? (
                   <div>
-                    <label className="block text-sm font-medium text-neutral-text">
+                    <label className="block text-sm font-medium text-neutral-text" htmlFor="login-confirm">
                       Confirm password
                     </label>
                     <input
+                      id="login-confirm"
                       value={confirmPassword}
                       onChange={(e) => setConfirmPassword(e.target.value)}
                       type={showPassword ? "text" : "password"}
@@ -376,6 +385,32 @@ export default function LoginClient({ nextPath }: { nextPath: string }) {
             )}
           </form>
         </div>
+
+        {publicEntry ? (
+          <div className="space-y-3 text-center">
+            <button
+              type="button"
+              className="text-sm text-white/80 underline underline-offset-2"
+              onClick={() => setWaitlistOpen((open) => !open)}
+              aria-expanded={waitlistOpen}
+            >
+              Not invited yet? Join the waitlist
+            </button>
+            {waitlistOpen ? <WaitlistForm /> : null}
+            <p className="text-xs leading-5 text-white/70">
+              A household record-keeping tool for adults in Australia. Not financial advice. Planned price A$7/month or A$59/year per household, not charged during the beta.
+            </p>
+            <p className="text-xs text-white/70">
+              <Link className="underline underline-offset-2" href="/privacy">
+                Privacy
+              </Link>
+              {" · "}
+              <Link className="underline underline-offset-2" href="/terms">
+                Terms
+              </Link>
+            </p>
+          </div>
+        ) : null}
       </div>
     </main>
   );

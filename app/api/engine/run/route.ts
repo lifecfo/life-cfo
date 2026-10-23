@@ -191,8 +191,11 @@ function severityForUpcomingIncome(t: any) {
   return 2;
 }
 
-export async function POST(req: Request) {
-  return NextResponse.json({ error: "Not found." }, { status: 404 });
+export async function POST(_req: Request) {
+  return NextResponse.json(
+    { ok: false, error: "Background money check-ins are off for this beta." },
+    { status: 410 }
+  );
 
   /*
   try {

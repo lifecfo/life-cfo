@@ -1,7 +1,5 @@
-import TransactionsClient from "./TransactionsClient";
+import { redirect } from "next/navigation";
 
-export const dynamic = "force-dynamic";
-
-export default function TransactionsPage() {
-  return <TransactionsClient />;
+export default function TransactionsRedirect() {
+  redirect("/spending");
 }

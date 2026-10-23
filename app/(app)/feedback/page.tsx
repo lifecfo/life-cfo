@@ -37,7 +37,7 @@ export default function FeedbackPage() {
   };
 
   return (
-    <Page title="Feedback" subtitle="Private notes to help improve Keystone. No replies, no tracking.">
+    <Page title="Feedback" subtitle="Private notes to help improve Life CFO. No replies, no tracking.">
       <div className="mx-auto w-full max-w-[640px] space-y-4">
         <Card>
           <CardContent className="space-y-3">

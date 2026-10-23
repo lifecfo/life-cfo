@@ -1,8 +1,4 @@
 {
-  "crons": [
-    {
-      "path": "/api/engine/cron",
-      "schedule": "0 3 * * *"
-    }
-  ]
+  "regions": ["syd1"],
+  "crons": []
 }

@@ -9,6 +9,8 @@ import { Chip } from "@/components/ui";
 import { supabase } from "@/lib/supabaseClient";
 import { useAsk } from "@/components/ask/AskProvider";
 import { AskPanel } from "@/components/ask/AskPanel";
+import { PRODUCT_DESCRIPTOR, PRODUCT_NAME } from "@/lib/brand";
+import { SampleProvider } from "@/lib/demo/sampleMode";
 
 type AppShellProps = {
   children: ReactNode;
@@ -83,76 +85,83 @@ function displayHouseholdName(name: string): string {
 
 function navIcon(href: string) {
   const shared = "h-4 w-4 text-zinc-600";
+  const stroke = { stroke: "currentColor", strokeWidth: 1.8, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
 
   switch (href) {
     case "/lifecfo-home":
       return (
         <svg viewBox="0 0 24 24" fill="none" className={shared} aria-hidden="true">
-          <path d="M3 10.5L12 3l9 7.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-          <path d="M5.5 9.8V20h13V9.8" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+          <path d="M4 10.5 12 4l8 6.5" {...stroke} />
+          <path d="M6.5 9.8V20h11V9.8" {...stroke} />
         </svg>
       );
-    case "/money":
-    case "/money/setup":
-    case "/money/map":
-    case "/money/in":
-    case "/money/out":
-    case "/money/saved":
-    case "/money/planned":
+    case "/start":
+      return (
+        <svg viewBox="0 0 24 24" fill="none" className={shared} aria-hidden="true">
+          <circle cx="12" cy="12" r="8" {...stroke} />
+          <path d="M12 8.5v7M8.5 12h7" {...stroke} />
+        </svg>
+      );
+    case "/bills":
+      return (
+        <svg viewBox="0 0 24 24" fill="none" className={shared} aria-hidden="true">
+          <path d="M7 3.5h10v17l-2.2-1.3L12.5 20.5 10.3 19.2 8 20.5 7 19.8V3.5z" {...stroke} />
+          <path d="M9.5 8h5M9.5 11.5h5" {...stroke} />
+        </svg>
+      );
+    case "/income":
+      return (
+        <svg viewBox="0 0 24 24" fill="none" className={shared} aria-hidden="true">
+          <path d="M12 4v8.5" {...stroke} />
+          <path d="M8.5 10 12 13.5 15.5 10" {...stroke} />
+          <path d="M5 14.5h3.4l1.3 2h4.6l1.3-2H19V20H5v-5.5z" {...stroke} />
+        </svg>
+      );
+    case "/budget":
+      return (
+        <svg viewBox="0 0 24 24" fill="none" className={shared} aria-hidden="true">
+          <circle cx="12" cy="12" r="7.5" {...stroke} />
+          <path d="M12 12V4.5" {...stroke} />
+          <path d="M12 12l5.3 5.3" {...stroke} />
+        </svg>
+      );
+    case "/spending":
+      return (
+        <svg viewBox="0 0 24 24" fill="none" className={shared} aria-hidden="true">
+          <path d="M5 19.5h14" {...stroke} />
+          <path d="M8 19.5V11" {...stroke} />
+          <path d="M12 19.5V6.5" {...stroke} />
+          <path d="M16 19.5V14" {...stroke} />
+        </svg>
+      );
     case "/money/year":
-    case "/money/goals":
       return (
         <svg viewBox="0 0 24 24" fill="none" className={shared} aria-hidden="true">
-          <rect x="3.5" y="6.5" width="17" height="11" rx="2.5" stroke="currentColor" strokeWidth="1.8" />
-          <circle cx="12" cy="12" r="2.4" stroke="currentColor" strokeWidth="1.8" />
-        </svg>
-      );
-    case "/accounts":
-      return (
-        <svg viewBox="0 0 24 24" fill="none" className={shared} aria-hidden="true">
-          <rect x="3.5" y="5.5" width="17" height="13" rx="2.5" stroke="currentColor" strokeWidth="1.8" />
-          <path d="M3.5 10h17" stroke="currentColor" strokeWidth="1.8" />
-        </svg>
-      );
-    case "/transactions":
-      return (
-        <svg viewBox="0 0 24 24" fill="none" className={shared} aria-hidden="true">
-          <path d="M6 8h12M6 12h9M6 16h7" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-        </svg>
-      );
-    case "/connections":
-      return (
-        <svg viewBox="0 0 24 24" fill="none" className={shared} aria-hidden="true">
-          <path d="M9.5 14.5l-2 2a3 3 0 104.2 4.2l2-2" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-          <path d="M14.5 9.5l2-2a3 3 0 10-4.2-4.2l-2 2" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-          <path d="M8.5 15.5l7-7" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+          <rect x="4" y="5.5" width="16" height="14" rx="2" {...stroke} />
+          <path d="M8 4v3M16 4v3M4 10h16" {...stroke} />
         </svg>
       );
     case "/decisions":
       return (
         <svg viewBox="0 0 24 24" fill="none" className={shared} aria-hidden="true">
-          <path d="M12 4v16M4 8h8M12 16h8" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-        </svg>
-      );
-    case "/family":
-      return (
-        <svg viewBox="0 0 24 24" fill="none" className={shared} aria-hidden="true">
-          <circle cx="9" cy="9" r="2.3" stroke="currentColor" strokeWidth="1.8" />
-          <circle cx="15.2" cy="10.2" r="1.8" stroke="currentColor" strokeWidth="1.8" />
-          <path d="M5.5 18c.7-2.3 2.3-3.5 4.7-3.5s4 1.2 4.7 3.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+          <path d="M7 4.5h8.2A2 2 0 0 1 17.2 6.5V19.5H9a2 2 0 0 0-2 2V6.5a2 2 0 0 1 2-2z" {...stroke} />
+          <path d="M9.5 9h5M9.5 12.5h4" {...stroke} />
+          <path d="M15.2 16.2 18 13.4l1.4 1.4-2.8 2.8H15v-1.4z" {...stroke} />
         </svg>
       );
     case "/household":
       return (
         <svg viewBox="0 0 24 24" fill="none" className={shared} aria-hidden="true">
-          <path d="M3 10.5L12 3l9 7.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-          <path d="M6.5 20v-7.5h11V20" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+          <circle cx="9" cy="8.2" r="2.2" {...stroke} />
+          <circle cx="15.6" cy="9" r="1.7" {...stroke} />
+          <path d="M4.6 18.5c.7-2.5 2.3-3.7 4.4-3.7s3.7 1.2 4.4 3.7" {...stroke} />
+          <path d="M13.4 15c.7-.4 1.5-.6 2.4-.6 1.7 0 3 .9 3.6 2.8" {...stroke} />
         </svg>
       );
     default:
       return (
         <svg viewBox="0 0 24 24" fill="none" className={shared} aria-hidden="true">
-          <circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="1.8" />
+          <circle cx="12" cy="12" r="3" {...stroke} />
         </svg>
       );
   }
@@ -168,81 +177,8 @@ export function AppShell({ children }: AppShellProps) {
     return () => setShellSplitHostActive(false);
   }, [setShellSplitHostActive]);
 
-  const topNav: NavLinkItem[] = useMemo(
-    () => [
-      { href: "/lifecfo-home", label: "Home" },
-      { href: "/money", label: "Money" },
-      { href: "/decisions", label: "Decisions" },
-    ],
-    []
-  );
-
-  const sidebarGroups: NavGroup[] = useMemo(
-    () => [
-      {
-        label: "Home",
-        items: [{ href: "/lifecfo-home", label: "Home" }],
-      },
-      {
-        label: "Money",
-        items: [
-          { href: "/money/setup", label: "Start here" },
-          { href: "/money", label: "Review" },
-          { href: "/money/map", label: "Money Map" },
-          { href: "/money/year", label: "Year at a glance" },
-          { href: "/accounts", label: "Accounts" },
-          { href: "/transactions", label: "Transactions" },
-          { label: "Plan", kind: "section" },
-          { href: "/budget", label: "Budget" },
-          { href: "/money/goals", label: "Goals" },
-          { label: "Bills & Income", kind: "section" },
-          { href: "/bills", label: "Bills" },
-          { href: "/income", label: "Income" },
-          { label: "Money details", kind: "section" },
-          { href: "/money/in", label: "Money in" },
-          { href: "/money/out", label: "Money out" },
-          { label: "Data sources", kind: "section" },
-          { href: "/connections", label: "Connections" },
-          { href: "/money/import", label: "Upload bank file" },
-          { href: "/money/accounts/new", label: "Add manual account" },
-          { href: "/money/rules", label: "Rules" },
-          { href: "/money/categories", label: "Categories" },
-        ],
-      },
-      {
-        label: "What we own and owe",
-        items: [
-          { href: "/net-worth", label: "Net worth" },
-          { href: "/liabilities", label: "Liabilities" },
-          { href: "/investments", label: "Investments" },
-        ],
-      },
-      {
-        label: "Decisions",
-        items: [{ href: "/decisions", label: "Decisions" }],
-      },
-      {
-        label: "Household",
-        items: [
-          { href: "/family", label: "Family & pets" },
-          { href: "/household", label: "Household" },
-        ],
-      },
-      {
-        label: "Settings / Info",
-        items: [
-          { href: "/settings", label: "Settings" },
-          { href: "/how-life-cfo-works", label: "How Life CFO works" },
-          { href: "/fine-print", label: "Important information" },
-          { href: "/privacy", label: "Privacy" },
-          { href: "/feedback", label: "Feedback" },
-        ],
-      },
-    ],
-    []
-  );
-
   const [menuOpen, setMenuOpen] = useState(false);
+  const [showSpending, setShowSpending] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
@@ -276,7 +212,9 @@ export function AppShell({ children }: AppShellProps) {
             "/settings",
             "/fine-print",
             "/how-life-cfo-works",
-            "/planned-upgrades",
+            "/start",
+            "/beta-invite",
+            "/welcome",
             "/login",
           ]);
 
@@ -310,6 +248,40 @@ export function AppShell({ children }: AppShellProps) {
     };
   }, [router, pathname]);
 
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/money/import/status", { cache: "no-store" })
+      .then((response) => response.json())
+      .then((json: { imported?: boolean }) => {
+        if (!cancelled) setShowSpending(Boolean(json?.imported));
+      })
+      .catch(() => {
+        if (!cancelled) setShowSpending(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [pathname]);
+
+  const primaryLinks: NavLinkItem[] = useMemo(() => {
+    const items: NavLinkItem[] = [
+      { href: "/lifecfo-home", label: "Home" },
+      { href: "/start", label: "Add things" },
+      { href: "/bills", label: "Bills & renewals" },
+      { href: "/income", label: "Income" },
+      { href: "/budget", label: "Budget" },
+    ];
+    if (showSpending) items.push({ href: "/spending", label: "Spending" });
+    items.push(
+      { href: "/money/year", label: "Year ahead" },
+      { href: "/decisions", label: "Decision notes" },
+      { href: "/household", label: "Household" }
+    );
+    return items;
+  }, [showSpending]);
+
+  const sidebarGroups: NavGroup[] = useMemo(() => [{ label: "", items: primaryLinks }], [primaryLinks]);
+
   const activeHouseholdName = useMemo(() => {
     if (!activeHouseholdId) return null;
     const name = households.find((h) => h.id === activeHouseholdId)?.name;
@@ -330,6 +302,8 @@ export function AppShell({ children }: AppShellProps) {
     }
   };
 
+  if (pathname === "/beta-invite") return <>{children}</>;
+
   const menuItemClass =
     "block w-full rounded-xl px-4 py-3 text-left text-sm text-zinc-800 transition hover:bg-zinc-50";
 
@@ -337,35 +311,25 @@ export function AppShell({ children }: AppShellProps) {
     "block w-full rounded-xl px-4 py-3 text-left text-sm font-medium text-zinc-900 transition hover:bg-zinc-50";
 
   return (
-    <div className="min-h-dvh bg-white md:flex md:h-dvh md:flex-col md:overflow-hidden">
+    <SampleProvider>
+    <div className="min-h-dvh bg-neutral-bg md:flex md:h-dvh md:flex-col md:overflow-hidden">
       <div className="sticky top-0 z-40 border-b border-zinc-100 bg-white">
         <div className={["mx-auto flex w-full items-center justify-between gap-2 px-4 py-3", askOpen ? "max-w-[1720px]" : "max-w-[1320px]"].join(" ")}>
           <div className="flex min-w-0 items-center gap-3">
             <Link
               href="/lifecfo-home"
               className="flex items-center"
-              aria-label="Life CFO home"
+              aria-label={PRODUCT_DESCRIPTOR}
             >
               <Image
                 src="/brand/lifecfo-horizontal-transparent.svg"
-                alt="Life CFO"
+                alt={PRODUCT_NAME}
                 width={170}
                 height={40}
                 priority
                 className="h-auto w-[140px] sm:w-[170px]"
               />
             </Link>
-          </div>
-
-          <div className="hidden flex-1 items-center justify-center gap-2 sm:flex">
-            {topNav.map((it) => {
-              const active = isActivePath(pathname || "", it.href);
-              return (
-                <Link key={it.href} href={it.href}>
-                  <Chip active={active}>{it.label}</Chip>
-                </Link>
-              );
-            })}
           </div>
 
           <div ref={menuRef} className="relative flex items-center justify-end gap-3">
@@ -380,7 +344,12 @@ export function AppShell({ children }: AppShellProps) {
               <div className="hidden sm:block text-xs text-zinc-500">Loading...</div>
             ) : null}
 
-            <Chip onClick={() => setMenuOpen((v) => !v)}>
+            <Chip
+              onClick={() => setMenuOpen((v) => !v)}
+              aria-expanded={menuOpen}
+              aria-haspopup="menu"
+              aria-label="Open menu"
+            >
               Menu <span className="ml-1 opacity-70">v</span>
             </Chip>
 
@@ -396,7 +365,7 @@ export function AppShell({ children }: AppShellProps) {
                       >
                         <Image
                           src="/brand/lifecfo-horizontal-transparent.svg"
-                          alt="Life CFO"
+                          alt={PRODUCT_NAME}
                           width={150}
                           height={35}
                           className="h-auto w-[150px]"
@@ -404,25 +373,29 @@ export function AppShell({ children }: AppShellProps) {
                       </Link>
                     </div>
 
-                    <div className="grid gap-1">
-                      {topNav.map((it) => {
-                        const active = isActivePath(pathname || "", it.href);
-                        return (
-                          <Link
-                            key={it.href}
-                            href={it.href}
-                            className={`rounded-xl px-3 py-2 text-sm ${
-                              active
-                                ? "bg-zinc-100 font-medium text-zinc-900"
-                                : "text-zinc-800 hover:bg-zinc-50"
-                            }`}
-                            onClick={() => setMenuOpen(false)}
-                          >
-                            {it.label}
-                          </Link>
-                        );
-                      })}
-                    </div>
+                    <nav className="grid max-h-[60vh] gap-1 overflow-y-auto" aria-label="Mobile navigation">
+                      {sidebarGroups.flatMap((group) =>
+                        group.items
+                          .filter((item): item is NavLinkItem => item.kind !== "section")
+                          .map((item) => {
+                            const active = isActivePath(pathname || "", item.href);
+                            return (
+                              <Link
+                                key={item.href}
+                                href={item.href}
+                                className={`rounded-xl px-3 py-2 text-sm ${
+                                  active
+                                    ? "bg-zinc-100 font-medium text-zinc-900"
+                                    : "text-zinc-800 hover:bg-zinc-50"
+                                }`}
+                                onClick={() => setMenuOpen(false)}
+                              >
+                                {item.label}
+                              </Link>
+                            );
+                          })
+                      )}
+                    </nav>
 
                     {!needsHousehold && activeHouseholdName ? (
                       <div className="mt-3 px-1">
@@ -442,37 +415,24 @@ export function AppShell({ children }: AppShellProps) {
                     >
                       Set up household
                     </Link>
-                  ) : (
-                    <Link
-                      href="/household"
-                      className={menuItemClass}
-                      onClick={() => setMenuOpen(false)}
-                    >
-                      Household
-                    </Link>
-                  )}
+                  ) : null}
 
-                  <Link
-                    href="/settings"
-                    className={menuItemClass}
-                    onClick={() => setMenuOpen(false)}
-                  >
+                  <Link href="/settings" className={menuItemClass} onClick={() => setMenuOpen(false)}>
                     Settings
                   </Link>
-
-                  <Link
-                    href="/how-life-cfo-works"
-                    className={menuItemClass}
-                    onClick={() => setMenuOpen(false)}
-                  >
+                  <Link href="/how-life-cfo-works" className={menuItemClass} onClick={() => setMenuOpen(false)}>
                     How Life CFO works
                   </Link>
-
-                  <Link
-                    href="/fine-print"
-                    className={menuItemClass}
-                    onClick={() => setMenuOpen(false)}
-                  >
+                  <Link href="/feedback" className={menuItemClass} onClick={() => setMenuOpen(false)}>
+                    Feedback
+                  </Link>
+                  <Link href="/privacy" className={menuItemClass} onClick={() => setMenuOpen(false)}>
+                    Privacy
+                  </Link>
+                  <Link href="/terms" className={menuItemClass} onClick={() => setMenuOpen(false)}>
+                    Terms
+                  </Link>
+                  <Link href="/fine-print" className={menuItemClass} onClick={() => setMenuOpen(false)}>
                     Important information
                   </Link>
 
@@ -528,7 +488,7 @@ export function AppShell({ children }: AppShellProps) {
             <nav className="space-y-3">
               {sidebarGroups.map((group) => (
                 <div key={group.label} className="space-y-1">
-                  {!sidebarCollapsed ? (
+                  {!sidebarCollapsed && group.label ? (
                     <div className="px-2 text-[11px] font-medium uppercase tracking-wide text-zinc-400">
                       {group.label}
                     </div>
@@ -580,23 +540,25 @@ export function AppShell({ children }: AppShellProps) {
           </aside>
 
           <div className="min-w-0 flex-1 md:min-h-0">
-            {askOpen ? (
-              <>
-                <div className="hidden md:grid md:h-full md:min-h-0 md:grid-cols-[minmax(0,2fr)_minmax(360px,1fr)] md:gap-4">
-                  <div className="min-h-0 overflow-y-auto pr-1">{children}</div>
-                  <div className="min-h-0">
-                    <AskPanel mode="split" />
-                  </div>
+            <div
+              className={
+                askOpen
+                  ? "md:grid md:h-full md:min-h-0 md:grid-cols-[minmax(0,2fr)_minmax(360px,1fr)] md:gap-4"
+                  : "md:h-full md:min-h-0"
+              }
+            >
+              <div className="min-h-0 md:h-full md:overflow-y-auto md:pr-1">{children}</div>
+              {askOpen ? (
+                <div className="hidden min-h-0 md:block">
+                  <AskPanel mode="split" />
                 </div>
-                <div className="md:hidden">{children}</div>
-              </>
-            ) : (
-              <div className="md:h-full md:min-h-0 md:overflow-y-auto">{children}</div>
-            )}
+              ) : null}
+            </div>
           </div>
         </div>
       </div>
     </div>
+    </SampleProvider>
   );
 }
 

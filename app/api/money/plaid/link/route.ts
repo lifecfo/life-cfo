@@ -1,5 +1,6 @@
 // app/api/money/plaid/link/route.ts
 import { NextResponse } from "next/server";
+import { BANK_CONNECT_DISABLED_ERROR, bankConnectIsEnabled } from "@/lib/flags/bankConnect";
 import { CountryCode, Products } from "plaid";
 import { supabaseRoute } from "@/lib/supabaseRoute";
 import { resolveHouseholdIdRoute } from "@/lib/households/resolveHouseholdIdRoute";
@@ -24,6 +25,9 @@ function toPlaidCountryCodes(values: string[]): CountryCode[] {
 }
 
 export async function POST(req: Request) {
+  if (!bankConnectIsEnabled()) {
+    return NextResponse.json({ ok: false, error: BANK_CONNECT_DISABLED_ERROR }, { status: 404 });
+  }
   const diag = getPlaidDiag();
 
   try {

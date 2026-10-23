@@ -5,8 +5,8 @@ import {
   BANK_CSV_MAX_ROWS,
   parseBankCsv,
 } from "@/lib/money/import/parseBankCsv";
+import { scrubBankText } from "@/lib/money/import/scrubBankText";
 import { supabaseRoute } from "@/lib/supabaseRoute";
-import { getLifeCfoAccess, REAL_DATA_DISABLED_MESSAGE } from "@/lib/server/access/lifeCfoAccess";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -29,10 +29,6 @@ export async function POST(request: Request) {
         { status: 401 }
       );
     }
-    if (!getLifeCfoAccess(user).canUseRealDataSources) {
-      return NextResponse.json({ ok: false, error: REAL_DATA_DISABLED_MESSAGE }, { status: 403 });
-    }
-
     const householdId = await resolveHouseholdIdRoute(supabase, user.id);
     if (!householdId) {
       return NextResponse.json(
@@ -104,8 +100,17 @@ export async function POST(request: Request) {
     if (accountsError) throw accountsError;
 
     const preview = parseBankCsv(text);
+    const sampleRows = preview.sample_rows.map((row) => ({
+      date: row.date,
+      description: scrubBankText(row.description),
+      amount: row.amount,
+      balance: null,
+      reference: null,
+    }));
     return NextResponse.json({
       ...preview,
+      detected_columns: { ...preview.detected_columns, balance: null, reference: null },
+      sample_rows: sampleRows,
       account_choices: accounts ?? [],
       limits: {
         max_file_bytes: BANK_CSV_MAX_FILE_BYTES,

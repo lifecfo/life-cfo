@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
+import { PageGlance } from "@/components/glance/PageGlance";
 import { Page } from "@/components/Page";
 import { Card, CardContent, Button, Chip, Badge, useToast } from "@/components/ui";
 
@@ -89,10 +90,9 @@ async function fetchJson<T>(url: string): Promise<T> {
 }
 
 async function resolveActiveHouseholdId(): Promise<string> {
-  // Reuse money API: already cookie/fallback household logic
-  const data = await fetchJson<{ ok: boolean; household_id: string }>("/api/money/accounts");
-  if (!data?.household_id) throw new Error("User not linked to a household.");
-  return data.household_id;
+  const data = await fetchJson<{ ok: boolean; active_household_id?: string | null }>("/api/households");
+  if (!data?.active_household_id) throw new Error("User not linked to a household.");
+  return data.active_household_id;
 }
 
 /* ---------- page ---------- */
@@ -285,7 +285,7 @@ export default function IncomePage() {
   return (
     <Page
       title="Income"
-      subtitle="Income you’ve told Life CFO is true. No estimates, no assumptions."
+      subtitle="Income entered for this household."
       right={
         <div className="flex items-center gap-2">
           <Chip className={liveChipClass}>
@@ -296,6 +296,7 @@ export default function IncomePage() {
       }
     >
       <div className="grid gap-4 max-w-[760px] mx-auto">
+        <PageGlance page="income" />
         <Card>
           <CardContent className="flex items-center justify-between gap-3 flex-wrap">
             <Badge>Active: {activeIncome.length}</Badge>
@@ -311,8 +312,9 @@ export default function IncomePage() {
 
             <div className="grid gap-3 md:grid-cols-6">
               <div className="md:col-span-2 space-y-1">
-                <div className="text-xs text-zinc-500">Name</div>
+                <label className="text-xs text-zinc-500" htmlFor="income-name">Name</label>
                 <input
+                  id="income-name"
                   className="w-full rounded-md border px-3 py-2 bg-transparent"
                   placeholder="Wages, Centrelink, Rent…"
                   value={name}
@@ -321,8 +323,9 @@ export default function IncomePage() {
               </div>
 
               <div className="space-y-1">
-                <div className="text-xs text-zinc-500">Amount</div>
+                <label className="text-xs text-zinc-500" htmlFor="income-amount">Amount</label>
                 <input
+                  id="income-amount"
                   className="rounded-md border px-3 py-2 bg-transparent w-full tabular-nums"
                   placeholder="Amount"
                   value={amount}
@@ -333,8 +336,9 @@ export default function IncomePage() {
               </div>
 
               <div className="space-y-1">
-                <div className="text-xs text-zinc-500">How often</div>
+                <label className="text-xs text-zinc-500" htmlFor="income-cadence">How often</label>
                 <select
+                  id="income-cadence"
                   className="rounded-md border px-3 py-2 bg-transparent w-full"
                   value={cadence}
                   onChange={(e) => setCadence(e.target.value as Cadence)}
@@ -347,8 +351,9 @@ export default function IncomePage() {
               </div>
 
               <div className="md:col-span-2 space-y-1">
-                <div className="text-xs text-zinc-500">Next pay</div>
+                <label className="text-xs text-zinc-500" htmlFor="income-next">Next pay</label>
                 <input
+                  id="income-next"
                   type="datetime-local"
                   className="w-full rounded-md border px-3 py-2 bg-transparent"
                   value={nextPayLocal}

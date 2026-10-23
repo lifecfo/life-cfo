@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { generateAiStructured } from "@/lib/ai/provider";
+import { AiDisabledError, AiOutputBlockedError, generateAiStructured } from "@/lib/ai/provider";
+import { AiDailyLimitError, AiUsageUnavailableError } from "@/lib/ai/usageLimit";
+import { isAiEnabled } from "@/lib/ai/aiFlag";
+import { FACTUAL_SYSTEM_PROMPT } from "@/lib/ai/factualPrompt";
+import { AI_OFF_MESSAGE, aiAskOptedIn } from "@/lib/ai/optIn";
+import { guardAiInput } from "@/lib/ask/askGuard";
 import {
   readLimitedJson,
   requireAuthenticatedAiUser,
@@ -11,19 +16,11 @@ const MAX_TITLE_LENGTH = 500;
 const MAX_BODY_LENGTH = 12_000;
 const MAX_TYPE_LENGTH = 100;
 
-// ✅ Strict schema the model must follow
 const DecisionAnalysisSchema = z.object({
-  decision_type: z.enum(["spending", "time", "relationship", "health", "other"]),
-  stakes: z.enum(["low", "medium", "high"]),
-  reversible: z.boolean(),
-  time_horizon: z.enum(["today", "this_week", "ongoing"]),
-  suggested_default: z.enum(["decide_now", "delay", "gather_info"]),
-  reasoning: z.string(),
-  key_questions: z.array(z.string()).max(5),
-
-  // ✅ NEW: numeric cadence for DB trigger + backfill
-  // Keep this integer stable; UI can ignore it if you want.
-  suggested_default_review_days: z.number().int().min(1).max(365),
+  restatement: z.string(),
+  factors: z.array(z.string()).max(8),
+  questions: z.array(z.string()).max(8),
+  review_on: z.string().nullable(),
 });
 
 export type DecisionAnalysis = z.infer<typeof DecisionAnalysisSchema>;
@@ -32,51 +29,31 @@ const DecisionAnalysisJsonSchema = {
   type: "object",
   additionalProperties: false,
   properties: {
-    decision_type: { type: "string", enum: ["spending", "time", "relationship", "health", "other"] },
-    stakes: { type: "string", enum: ["low", "medium", "high"] },
-    reversible: { type: "boolean" },
-    time_horizon: { type: "string", enum: ["today", "this_week", "ongoing"] },
-    suggested_default: { type: "string", enum: ["decide_now", "delay", "gather_info"] },
-    reasoning: { type: "string" },
-    key_questions: { type: "array", items: { type: "string" } },
-    suggested_default_review_days: { type: "integer" },
+    restatement: { type: "string" },
+    factors: { type: "array", items: { type: "string" } },
+    questions: { type: "array", items: { type: "string" } },
+    review_on: { anyOf: [{ type: "string" }, { type: "null" }] },
   },
-  required: [
-    "decision_type",
-    "stakes",
-    "reversible",
-    "time_horizon",
-    "suggested_default",
-    "reasoning",
-    "key_questions",
-    "suggested_default_review_days",
-  ],
+  required: ["restatement", "factors", "questions", "review_on"],
 };
 
-function clampDays(n: number) {
-  return Math.max(3, Math.min(365, Math.round(n)));
+function reviewDateOrNull(value: string | null): string | null {
+  if (!value) return null;
+  const trimmed = value.trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return null;
+  const parsed = Date.parse(`${trimmed}T00:00:00.000Z`);
+  if (Number.isNaN(parsed)) return null;
+  return trimmed;
 }
 
-// Deterministic cadence rules (so your DB trigger can rely on it)
-function computeSuggestedReviewDays(analysis: {
-  stakes: "low" | "medium" | "high";
-  suggested_default: "decide_now" | "delay" | "gather_info";
-}) {
-  const { stakes, suggested_default } = analysis;
-
-  let base =
-    stakes === "high" ? 14 :
-    stakes === "medium" ? 30 :
-    stakes === "low" ? 90 :
-    30;
-
-  // If you need to gather info, review soon
-  if (suggested_default === "gather_info") base = Math.min(base, 7);
-
-  // If AI suggests delay, push the review a bit further out
-  if (suggested_default === "delay") base = base + 14;
-
-  return clampDays(base);
+function deterministicAnalysis(title: string, details: string): DecisionAnalysis {
+  const restatement = [title, details].filter(Boolean).join(" ").replace(/\s+/g, " ").trim();
+  return {
+    restatement,
+    factors: [],
+    questions: [],
+    review_on: null,
+  };
 }
 
 export async function POST(req: Request) {
@@ -90,10 +67,6 @@ export async function POST(req: Request) {
     const title = String(body?.title ?? "").trim();
     const details = body?.body == null ? "" : String(body.body);
     const type = String(body?.type ?? "").trim();
-    const severity =
-      body?.severity == null || Number.isNaN(Number(body.severity))
-        ? null
-        : Number(body.severity);
 
     if (!title) {
       return NextResponse.json({ error: "Missing title" }, { status: 400 });
@@ -109,48 +82,89 @@ export async function POST(req: Request) {
       );
     }
 
-    // Structured Outputs via json_schema requires supported snapshots
+    const guarded = guardAiInput(`${title}\n${details}`, "frame_decision");
+    if (!guarded.allowed) {
+      return NextResponse.json({
+        analysis: {
+          restatement: guarded.message,
+          factors: [],
+          questions: [],
+          review_on: null,
+        },
+        refused: true,
+      });
+    }
+
+    const optedIn = await aiAskOptedIn(auth.supabase, auth.user.id);
+    if (!optedIn || !isAiEnabled()) {
+      return NextResponse.json({
+        analysis: deterministicAnalysis(title, details),
+        ai: "off" as const,
+        message: AI_OFF_MESSAGE,
+      });
+    }
+
     const system = `
-You are a helpful decision analyst for a personal finance/life app.
-Return a structured analysis that matches the provided schema.
-Rules:
-- Keep reasoning short (1-3 sentences).
-- key_questions: 0 to 5 items max.
-- Use the provided title/details/type/severity as hints, but don't invent facts.
-- suggested_default_review_days must be a reasonable integer number of days (1-365).
+${FACTUAL_SYSTEM_PROMPT}
+Return JSON only.
+- restatement: the decision in the person's own words. Do not choose an option.
+- factors: factors the person already named. Do not add advice.
+- questions: questions the person already raised. Do not add what they should ask.
+- review_on: an ISO date YYYY-MM-DD only if the person named one, otherwise null.
+Do not return decide_now, delay, or gather_info.
 `.trim();
 
     const user = `
 Title: ${title}
 Details: ${details || "(none)"}
 Inbox type: ${type || "(unknown)"}
-Priority(severity): ${severity ?? "(null)"}
 `.trim();
 
-    const modelOutput = await generateAiStructured({
-      purpose: "decision_analysis",
-      system,
-      prompt: user,
-      schemaName: "decision_analysis",
-      schema: DecisionAnalysisJsonSchema,
-      temperature: 0.2,
-      maxOutputTokens: 400,
-    });
-    const analysis = DecisionAnalysisSchema.parse(modelOutput);
-
-    // ✅ Safety: ensure suggested_default_review_days is stable + deterministic
-    // (even if the model returns something weird, we override with our rules)
-    const computedDays = computeSuggestedReviewDays({
-      stakes: analysis.stakes,
-      suggested_default: analysis.suggested_default,
-    });
-
-    const finalAnalysis: DecisionAnalysis = {
-      ...analysis,
-      suggested_default_review_days: computedDays,
-    };
-
-    return NextResponse.json({ analysis: finalAnalysis });
+    try {
+      const modelOutput = await generateAiStructured({
+        purpose: "decision_analysis",
+        userId: auth.user.id,
+        allowOverseasDisclosure: true,
+        system,
+        prompt: user,
+        schemaName: "decision_frame_factual",
+        schema: DecisionAnalysisJsonSchema,
+        temperature: 0.2,
+        maxOutputTokens: 400,
+      });
+      const analysis = DecisionAnalysisSchema.parse(modelOutput);
+      return NextResponse.json({
+        analysis: {
+          restatement: analysis.restatement.trim(),
+          factors: analysis.factors.map((item) => item.trim()).filter(Boolean).slice(0, 8),
+          questions: analysis.questions.map((item) => item.trim()).filter(Boolean).slice(0, 8),
+          review_on: reviewDateOrNull(analysis.review_on),
+        },
+      });
+    } catch (error) {
+      if (error instanceof AiDailyLimitError || error instanceof AiUsageUnavailableError) {
+        return NextResponse.json({ error: error.message }, { status: 429 });
+      }
+      if (error instanceof AiOutputBlockedError) {
+        return NextResponse.json({
+          analysis: {
+            restatement: error.replacement,
+            factors: [],
+            questions: [],
+            review_on: null,
+          },
+          refused: true,
+        });
+      }
+      if (error instanceof AiDisabledError) {
+        return NextResponse.json({
+          analysis: deterministicAnalysis(title, details),
+          ai: "off" as const,
+          message: AI_OFF_MESSAGE,
+        });
+      }
+      throw error;
+    }
   } catch {
     console.error("ai_route_failed", { route: "analyze-decision", code: "unexpected_error" });
     return NextResponse.json({ error: "Analysis failed" }, { status: 500 });

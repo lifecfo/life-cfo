@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+
+import { deletionBlockers } from "@/lib/account/deletionPlan";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { supabaseRoute } from "@/lib/supabaseRoute";
 
@@ -173,65 +175,21 @@ export async function GET() {
       };
     });
 
-    const blockers: DeleteBlocker[] = [];
-    for (const membership of memberships) {
-      if (membership.sole_owner) {
-        blockers.push({
-          code: "sole_household_owner",
-          household_id: membership.household_id,
-          message:
-            "You’re the only owner of this household. Add another owner before deleting your account.",
-          action_label: "Manage owners",
-          href: "/household",
-        });
-      }
-      if (membership.shared_household) {
-        blockers.push({
-          code: "shared_household",
-          household_id: membership.household_id,
-          message:
-            "This household has other members. Shared household information may stay for them.",
-          action_label: "Open household",
-          href: "/household",
-        });
-      }
-
-      const activeBankCount = activeBankCounts.get(membership.household_id) ?? 0;
-      const supportManagedCount =
-        supportManagedCounts.get(membership.household_id) ?? 0;
-      if (supportManagedCount > 0) {
-        blockers.push({
-          code: "support_managed_connections",
-          household_id: membership.household_id,
-          message: "Some bank connections need support during private beta.",
-          action_label: "Contact support",
-          href: "mailto:admin@life-cfo.com",
-        });
-      }
-      if (activeBankCount > supportManagedCount) {
-        blockers.push({
-          code: "active_bank_connections",
-          household_id: membership.household_id,
-          message: "Bank connections need to be handled before deleting this household.",
-          action_label: "Open connections",
-          href: "/connections",
-        });
-      }
-      if ((activeLifecycleJobCounts.get(membership.household_id) ?? 0) > 0) {
-        blockers.push({
-          code: "active_lifecycle_jobs",
-          household_id: membership.household_id,
-          message: "A bank connection change is still in progress.",
-          action_label: "Open connections",
-          href: "/connections",
-        });
-      }
-    }
+    const deletionMemberships = memberships.map((membership) => ({
+      household_id: membership.household_id,
+      household_name: membership.household_name,
+      role: membership.role,
+      member_count: membership.member_count,
+      owner_count: membership.owner_count,
+      active_bank_connections: activeBankCounts.get(membership.household_id) ?? 0,
+      active_lifecycle_jobs: activeLifecycleJobCounts.get(membership.household_id) ?? 0,
+    }));
+    const blockers = deletionBlockers(deletionMemberships);
 
     return NextResponse.json({
       ok: true,
-      self_service_allowed: false,
-      memberships,
+      self_service_allowed: blockers.length === 0,
+      memberships: deletionMemberships,
       sources: {
         active_bank_connections: activeBankRows.length,
         support_managed_connections: supportManagedRows.length,
@@ -240,7 +198,10 @@ export async function GET() {
       },
       blockers,
       next_steps: [],
-      message: "Account deletion is handled with support during private beta.",
+      message:
+        blockers.length === 0
+          ? "You can download your data and then delete this account."
+          : "Clear the items below, then you can delete this account.",
     });
   } catch (error: unknown) {
     console.error("delete_account_preflight_failed", {

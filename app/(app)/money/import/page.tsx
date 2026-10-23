@@ -9,7 +9,6 @@ import type {
   BankCsvDetectedColumns,
   BankCsvSampleRow,
 } from "@/lib/money/import/parseBankCsv";
-import { useLifeCfoAccess } from "@/lib/access/useLifeCfoAccess";
 
 type AccountChoice = {
   id: string;
@@ -55,7 +54,7 @@ function displayDate(value: string) {
 }
 
 function displayAmount(value: number | null) {
-  if (value === null) return "Needs checking";
+  if (value === null) return "Not read";
   return new Intl.NumberFormat(undefined, {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
@@ -78,7 +77,6 @@ function foundColumns(columns: BankCsvDetectedColumns | undefined) {
 }
 
 function MoneyImportPageContent() {
-  const access = useLifeCfoAccess();
   const router = useRouter();
   const searchParams = useSearchParams();
   const [file, setFile] = useState<File | null>(null);
@@ -89,6 +87,8 @@ function MoneyImportPageContent() {
   const [error, setError] = useState<string | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
   const [importResult, setImportResult] = useState<ImportResponse | null>(null);
+  const [nickname, setNickname] = useState("");
+  const [shareConfirmed, setShareConfirmed] = useState(false);
 
   async function checkFile() {
     if (!file) {
@@ -130,14 +130,16 @@ function MoneyImportPageContent() {
   }
 
   async function importTransactions() {
-    if (!file || !selectedAccountId) return;
+    if (!file || !shareConfirmed || (!selectedAccountId && !nickname.trim())) return;
 
     setImporting(true);
     setImportError(null);
     try {
       const form = new FormData();
       form.set("file", file);
-      form.set("account_id", selectedAccountId);
+      form.set("share_confirmed", "yes");
+      if (nickname.trim()) form.set("account_nickname", nickname.trim());
+      if (selectedAccountId) form.set("account_id", selectedAccountId);
       const response = await fetch("/api/money/import/csv/commit", {
         method: "POST",
         body: form,
@@ -147,6 +149,7 @@ function MoneyImportPageContent() {
         throw new Error(json.error || "Life CFO couldn’t import this file yet.");
       }
       setImportResult(json);
+      router.push("/spending");
     } catch (commitError: unknown) {
       setImportError(
         commitError instanceof Error && commitError.message
@@ -161,38 +164,12 @@ function MoneyImportPageContent() {
   const columns = foundColumns(preview?.detected_columns);
   const accounts = preview?.account_choices ?? [];
 
-  if (access.loading) {
-    return (
-      <Page title="Upload bank file" subtitle="Checking access...">
-        <div />
-      </Page>
-    );
-  }
-
-  if (!access.canUseRealDataSources) {
-    return (
-      <Page title="Upload bank file">
-        <div className="mx-auto w-full max-w-[640px] space-y-4">
-          <Card className="border-zinc-200 bg-white">
-            <CardContent className="space-y-3">
-              <div className="text-sm font-semibold text-zinc-900">
-                Bank file uploads are turned off for this demo.
-              </div>
-              <Link href="/money">
-                <Chip>Go back to Money</Chip>
-              </Link>
-            </CardContent>
-          </Card>
-        </div>
-      </Page>
-    );
-  }
   const needsAnotherChoice = Boolean(
     preview?.needs_user_choice?.date_format ||
       preview?.needs_user_choice?.amount_direction
   );
   const canImport = Boolean(
-    preview?.ok && selectedAccountId && !needsAnotherChoice && file
+    preview?.ok && shareConfirmed && (selectedAccountId || nickname.trim()) && !needsAnotherChoice && file
   );
 
   return (
@@ -202,8 +179,8 @@ function MoneyImportPageContent() {
     >
       <div className="mx-auto w-full max-w-[760px] space-y-4">
         <div>
-          <Link href="/money/setup">
-            <Chip>Back to Start here</Chip>
+          <Link href="/start">
+            <Chip>Back to Add things</Chip>
           </Link>
         </div>
 
@@ -211,7 +188,9 @@ function MoneyImportPageContent() {
           <CardContent className="space-y-3">
             <div>
               <div className="text-sm font-semibold text-zinc-900">Choose a CSV file from your bank</div>
-              <div className="mt-1 text-xs text-zinc-600">Nothing will be saved while Life CFO checks it.</div>
+              <p className="mt-1 text-sm leading-6 text-zinc-600">
+                Most Australian banks, including CommBank, Westpac, NAB, and ANZ, let you download transactions as a CSV from online banking. Look for Export or Download transactions. Life CFO never asks for your banking password. The file is read to pull out the date, description, and amount, then discarded. Account numbers, BSBs, and running balances are not stored.
+              </p>
             </div>
             <input
               type="file"
@@ -225,7 +204,17 @@ function MoneyImportPageContent() {
               }}
               className="block w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-700 file:mr-3 file:rounded-lg file:border-0 file:bg-zinc-100 file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-zinc-700"
             />
-            <Button type="button" onClick={() => void checkFile()} disabled={!file || loading}>
+            <label className="flex items-start gap-2 text-sm leading-6 text-zinc-700" htmlFor="share-confirmed-first">
+              <input
+                id="share-confirmed-first"
+                type="checkbox"
+                className="mt-1"
+                checked={shareConfirmed}
+                onChange={(event) => setShareConfirmed(event.target.checked)}
+              />
+              <span>I&apos;m allowed to share this account&apos;s transactions with everyone in this household.</span>
+            </label>
+            <Button type="button" onClick={() => void checkFile()} disabled={!file || loading || !shareConfirmed}>
               {loading ? "Checking file…" : "Check the preview"}
             </Button>
           </CardContent>
@@ -261,7 +250,7 @@ function MoneyImportPageContent() {
                     <div className="mt-0.5 text-sm font-medium text-zinc-900">
                       {preview.date_range
                         ? `${displayDate(preview.date_range.start)} to ${displayDate(preview.date_range.end)}`
-                        : "Needs checking"}
+                        : "Not found"}
                     </div>
                   </div>
                 </div>
@@ -294,7 +283,7 @@ function MoneyImportPageContent() {
                   ) : null}
                   {preview.warnings?.length ? (
                     <div>
-                      <div className="text-sm font-semibold text-zinc-900">Worth checking</div>
+                      <div className="text-sm font-semibold text-zinc-900">Notes</div>
                       <ul className="mt-1 list-disc space-y-1 pl-4 text-sm text-zinc-600">
                         {preview.warnings.map((warning) => <li key={warning}>{warning}</li>)}
                       </ul>
@@ -315,8 +304,6 @@ function MoneyImportPageContent() {
                           <th className="px-2 py-2 font-medium">Date</th>
                           <th className="px-2 py-2 font-medium">Description</th>
                           <th className="px-2 py-2 text-right font-medium">Amount</th>
-                          {preview.detected_columns?.balance ? <th className="px-2 py-2 text-right font-medium">Balance</th> : null}
-                          {preview.detected_columns?.reference ? <th className="px-2 py-2 font-medium">Reference</th> : null}
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-zinc-100 text-zinc-700">
@@ -325,8 +312,6 @@ function MoneyImportPageContent() {
                             <td className="px-2 py-2 whitespace-nowrap">{row.date}</td>
                             <td className="max-w-[260px] truncate px-2 py-2">{row.description}</td>
                             <td className="px-2 py-2 text-right tabular-nums">{displayAmount(row.amount)}</td>
-                            {preview.detected_columns?.balance ? <td className="px-2 py-2 text-right tabular-nums">{displayAmount(row.balance)}</td> : null}
-                            {preview.detected_columns?.reference ? <td className="px-2 py-2">{row.reference || "—"}</td> : null}
                           </tr>
                         ))}
                       </tbody>
@@ -361,8 +346,8 @@ function MoneyImportPageContent() {
                         : "Not available"}
                     </div>
                   </div>
-                  <Link href="/transactions">
-                    <Chip>View transactions</Chip>
+                  <Link href="/spending">
+                    <Chip>Check and confirm</Chip>
                   </Link>
                 </CardContent>
               </Card>
@@ -371,41 +356,42 @@ function MoneyImportPageContent() {
             <Card className="border-zinc-200 bg-white">
               <CardContent className="space-y-3">
                 <div>
-                  <div className="text-sm font-semibold text-zinc-900">Choose which account this file belongs to</div>
-                  <div className="mt-1 text-xs text-zinc-600">Nothing will be linked or created in this preview.</div>
+                  <label className="text-sm font-semibold text-zinc-900" htmlFor="account-nickname">
+                    Account nickname
+                  </label>
+                  <p className="mt-1 text-xs text-zinc-600">A name you choose, such as Everyday. Not the account number.</p>
+                  <input
+                    id="account-nickname"
+                    value={nickname}
+                    onChange={(event) => setNickname(event.target.value)}
+                    className="mt-2 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                  />
                 </div>
                 {accounts.length ? (
-                  <div className="space-y-2">
-                    <select
-                      value={selectedAccountId}
-                      onChange={(event) => setSelectedAccountId(event.target.value)}
-                      className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800 outline-none focus:ring-2 focus:ring-zinc-200"
-                    >
-                      {accounts.map((account) => (
-                        <option key={account.id} value={account.id}>
-                          {account.name || "Manual account"}{account.currency ? ` (${account.currency})` : ""}
-                        </option>
-                      ))}
-                    </select>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      onClick={() => router.push("/money/accounts/new")}
-                    >
-                      Create a new account
-                    </Button>
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    <div className="text-sm text-zinc-600">Add an account first.</div>
-                    <Button
-                      type="button"
-                      onClick={() => router.push("/money/accounts/new")}
-                    >
-                      Add manual account
-                    </Button>
-                  </div>
-                )}
+                  <select
+                    value={selectedAccountId}
+                    onChange={(event) => setSelectedAccountId(event.target.value)}
+                    aria-label="Existing nickname"
+                    className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800"
+                  >
+                    <option value="">Use the nickname above</option>
+                    {accounts.map((account) => (
+                      <option key={account.id} value={account.id}>
+                        {account.name || "Manual account"}
+                      </option>
+                    ))}
+                  </select>
+                ) : null}
+                <label className="flex items-start gap-2 text-sm leading-6 text-zinc-700" htmlFor="share-confirmed">
+                  <input
+                    id="share-confirmed"
+                    type="checkbox"
+                    className="mt-1"
+                    checked={shareConfirmed}
+                    onChange={(event) => setShareConfirmed(event.target.checked)}
+                  />
+                  <span>I&apos;m allowed to share this account&apos;s transactions with everyone in this household.</span>
+                </label>
                 {needsAnotherChoice ? (
                   <div className="text-sm text-zinc-600">
                     This file needs one more check before it can be imported.

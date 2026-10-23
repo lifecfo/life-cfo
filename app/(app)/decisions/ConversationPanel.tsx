@@ -17,6 +17,7 @@ type Frame = {
 
 function isQuotaError(status: number, errorMsg: string) {
   const msg = (errorMsg || "").toLowerCase();
+  if (msg.includes("today's ai limit") || msg.includes("resting for today")) return false;
   return status === 429 || msg.includes("exceeded your current quota") || msg.includes("insufficient_quota");
 }
 

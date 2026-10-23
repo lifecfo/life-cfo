@@ -392,7 +392,14 @@ export function AskProvider({ children }: { children: ReactNode }) {
           (json?.explanation?.interpretation as PressureInterpretation | undefined);
         const interpretationLines = buildInterpretationLines(interpretation);
 
-        if (isMoneyScope && json?.mode === "snapshot") {
+        if (isMoneyScope && json?.mode === "refused") {
+          const message =
+            typeof json?.message === "string"
+              ? json.message
+              : "Life CFO only lists figures, dates, and items you typed.";
+          content = message;
+          tone = tone || "overview";
+        } else if (isMoneyScope && json?.mode === "snapshot") {
           const headline = typeof json?.explanation?.headline === "string" ? json.explanation.headline : "Money snapshot";
           const summary = typeof json?.explanation?.summary === "string" ? json.explanation.summary : "";
           const insights = Array.isArray(json?.explanation?.insights)

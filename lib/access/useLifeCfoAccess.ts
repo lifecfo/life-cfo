@@ -27,14 +27,21 @@ export function useLifeCfoAccess(): AccessState {
         if (cancelled) return;
         setAccess({
           loading: false,
-          isDemoMode: data.isDemoMode !== false,
+          isDemoMode: data.isDemoMode === true,
           isDeveloper: data.isDeveloper === true,
           canUseRealDataSources:
             response.ok && data.canUseRealDataSources === true,
         });
       })
       .catch(() => {
-        if (!cancelled) setAccess({ ...LOCKED_ACCESS, loading: false });
+        if (!cancelled) {
+          setAccess({
+            loading: false,
+            isDemoMode: false,
+            isDeveloper: false,
+            canUseRealDataSources: false,
+          });
+        }
       });
 
     return () => {

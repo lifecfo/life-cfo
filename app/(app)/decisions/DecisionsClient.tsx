@@ -2,8 +2,10 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
+import { PageGlance } from "@/components/glance/PageGlance";
 import { Page } from "@/components/Page";
 import { Chip, useToast } from "@/components/ui";
 import { ConversationPanel } from "./ConversationPanel";
@@ -469,7 +471,7 @@ function SegTabs({ tab, onTab }: { tab: Tab; onTab: (t: Tab) => void }) {
     <div className="flex justify-center">
       <div className="inline-flex items-center gap-1 rounded-full bg-zinc-100 p-1">
         <SegTabButton tab={tab} target="new" label="New Decision" onTab={onTab} />
-        <SegTabButton tab={tab} target="active" label="Active Decisions" onTab={onTab} />
+        <SegTabButton tab={tab} target="active" label="Decision notes" onTab={onTab} />
         <SegTabButton tab={tab} target="closed" label="Closed Decisions" onTab={onTab} />
       </div>
     </div>
@@ -542,13 +544,13 @@ export default function DecisionsClient() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const pageTitle = "Decisions";
+  const pageTitle = "Decision notes";
   const pageSubtitle =
     tab === "new"
-      ? "This is the place to process any decisions you're working through. I can help clarify what matters, then lay out options and tradeoffs. You can set a review date, or close out the decision when it's done. We'll hold it safely for you."
+      ? "Write a note about a decision you are working through. You can list the factors you raised, set a review date, or close the note when it is done."
       : tab === "active"
-        ? "Active decisions you’re working through."
-        : "Closed decisions live here quietly — still searchable whenever you need them.";
+        ? "Notes you are still working through."
+        : "Closed notes stay here and can be searched.";
 
   const [userId, setUserId] = useState<string | null>(null);
   const [statusLine, setStatusLine] = useState<string>("Loading…");
@@ -957,7 +959,7 @@ export default function DecisionsClient() {
 
     setItems(list);
     setTotalCount(typeof count === "number" ? count : list.length);
-    setStatusLine(list.length === 0 ? "All clear." : "Loaded.");
+    setStatusLine(list.length === 0 ? "No open items." : "Loaded.");
 
     // User-scoped domains/constellations remain user_id-based (personal taxonomy)
     const [domRes, conRes] = await Promise.all([
@@ -1466,7 +1468,7 @@ export default function DecisionsClient() {
       setFrameDraft(null);
       setNewStep("input");
 
-      showToast({ message: "Saved to Active Decisions." }, 1500);
+      showToast({ message: "Saved to Decision notes." }, 1500);
       router.push(
         buildUrl("active", {
           open: id,
@@ -1627,6 +1629,10 @@ export default function DecisionsClient() {
             Started {softWhen(d.created_at)}
             {d.review_at ? <> • Next review {softWhen(d.review_at)}</> : null}
             {d.user_id && userId && d.user_id !== userId ? <span className="ml-2">• Shared</span> : null}
+            {" · "}
+            <Link className="underline" href={`/decisions/${d.id}/pack`}>
+              Print pack
+            </Link>
           </div>
         </div>
         <div className="shrink-0">
@@ -1796,6 +1802,10 @@ export default function DecisionsClient() {
               Started {softWhen(d.created_at)}
               {d.review_at ? <> • Next review {softWhen(d.review_at)}</> : null}
               {d.user_id && userId && d.user_id !== userId ? <span className="ml-2">• Shared</span> : null}
+              {" · "}
+              <Link className="underline" href={`/decisions/${d.id}/pack`}>
+                Print pack
+              </Link>
             </div>
           </div>
           <div className="shrink-0 flex items-center gap-2">
@@ -2692,6 +2702,7 @@ export default function DecisionsClient() {
     <Page title={pageTitle} subtitle={pageSubtitle} right={null}>
       {/* ✅ wider layout so cards fill the page better */}
       <div className="mx-auto w-full max-w-[1100px] space-y-6 px-4 sm:px-6 lg:px-8">
+        <PageGlance page="decisions" />
         <SegTabs
           tab={tab}
           onTab={(t) => {
@@ -2797,7 +2808,7 @@ export default function DecisionsClient() {
                   <div className="flex flex-wrap items-center gap-2 pt-2">
                     {newStep === "confirm" ? (
                       <>
-                        <PrimaryActionButton disabled={creatingNew} onClick={() => void saveFramedDecision()} title="Save to Active Decisions">
+                        <PrimaryActionButton disabled={creatingNew} onClick={() => void saveFramedDecision()} title="Save to Decision notes">
                           {creatingNew ? "Saving…" : "Yes — Save to Active"}
                         </PrimaryActionButton>
                         <TextAction subtle onClick={() => setNewStep("edit")} title="Edit the statement">
@@ -2806,7 +2817,7 @@ export default function DecisionsClient() {
                       </>
                     ) : (
                       <>
-                        <PrimaryActionButton disabled={creatingNew} onClick={() => void saveFramedDecision()} title="Save to Active Decisions">
+                        <PrimaryActionButton disabled={creatingNew} onClick={() => void saveFramedDecision()} title="Save to Decision notes">
                           {creatingNew ? "Saving…" : "Save to Active"}
                         </PrimaryActionButton>
                         <TextAction subtle onClick={() => setNewStep("confirm")} title="Done editing">
@@ -2851,7 +2862,7 @@ export default function DecisionsClient() {
                       { scroll: false }
                     )
                   }
-                  title="Go to Active Decisions"
+                  title="Go to Decision notes"
                 >
                   Go to Active
                 </TextAction>
@@ -2884,7 +2895,7 @@ export default function DecisionsClient() {
 
             {filteredItems.length === 0 ? (
               <div className="space-y-2 pt-2">
-                <div className="text-sm font-semibold text-zinc-900">All clear.</div>
+                <div className="text-sm font-semibold text-zinc-900">No open items.</div>
                 <div className="text-sm text-zinc-600">This space stays ready for anything worth thinking through.</div>
               </div>
             ) : (

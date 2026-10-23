@@ -1,19 +1,15 @@
 // app/(app)/fine-print/FinePrintClient.tsx
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
+import { safeNextPath } from "@/lib/http/safeNextPath";
 import { Card, CardContent, Chip, Button, useToast } from "@/components/ui";
-import type { MoneyDataCoverage, MoneySetupStatus } from "@/lib/money/reasoning/types";
+import { australiaSoftWarning, birthYearIsAdult } from "@/lib/onboarding/suitability";
 import ImportantInformationContent from "./ImportantInformationContent";
 
 export const dynamic = "force-dynamic";
-
-type OverviewResponse = {
-  setup_status?: MoneySetupStatus;
-  data_coverage?: MoneyDataCoverage;
-};
 
 type FinePrintClientProps = {
   nextPath: string;
@@ -21,15 +17,6 @@ type FinePrintClientProps = {
 
 function safeStr(v: unknown) {
   return typeof v === "string" ? v : "";
-}
-
-function safeNext(input: unknown) {
-  if (typeof input !== "string") return "/home";
-  const n = input.trim();
-  if (!n.startsWith("/")) return "/home";
-  if (n.startsWith("//")) return "/home";
-  if (n.includes("http://") || n.includes("https://")) return "/home";
-  return n;
 }
 
 export default function FinePrintClient({ nextPath }: FinePrintClientProps) {
@@ -46,19 +33,33 @@ export default function FinePrintClient({ nextPath }: FinePrintClientProps) {
     }
   };
 
-  const VERSION = "v1";
-
   const [name, setName] = useState("");
+  const [birthYear, setBirthYear] = useState("");
+  const [adult, setAdult] = useState(false);
+  const [resident, setResident] = useState(false);
   const [working, setWorking] = useState(false);
   const [status, setStatus] = useState<string>("");
+  const [localeWarning, setLocaleWarning] = useState<string | null>(null);
 
-  const canSave = useMemo(() => name.trim().length >= 2 && !working, [name, working]);
+  const parsedYear = Number(birthYear);
+  const yearOk = birthYear.trim().length === 4 && birthYearIsAdult(parsedYear);
+
+  useEffect(() => {
+    const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const locale = navigator.language;
+    setLocaleWarning(australiaSoftWarning(timeZone, locale));
+  }, []);
+
+  const canSave = useMemo(
+    () => name.trim().length >= 2 && adult && resident && yearOk && !working,
+    [adult, name, resident, working, yearOk]
+  );
 
   const save = async () => {
     setStatus("");
 
     if (!canSave) {
-      const msg = "Please type your name to continue.";
+      const msg = "Confirm you are 18 or older, live in Australia, enter your birth year, and type your name.";
       setStatus(msg);
       toast(msg);
       return;
@@ -77,42 +78,28 @@ export default function FinePrintClient({ nextPath }: FinePrintClientProps) {
         return;
       }
 
-      const payload = {
-        user_id: auth.user.id,
-        fine_print_accepted_at: new Date().toISOString(),
-        fine_print_version: VERSION,
-        fine_print_signed_name: name.trim(),
-      };
-
-      const { error } = await supabase.from("profiles").upsert(payload, { onConflict: "user_id" });
-      if (error) throw error;
+      const response = await fetch("/api/legal/accept", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          signed_name: name.trim(),
+          confirmed_adult: true,
+          confirmed_au_resident: true,
+          birth_year: parsedYear,
+          time_zone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+          locale: navigator.language,
+        }),
+      });
+      const json = (await response.json().catch(() => ({}))) as { error?: string; locale_warning?: string | null };
+      if (json.locale_warning) setLocaleWarning(json.locale_warning);
+      if (!response.ok) {
+        throw new Error(json.error || "Couldn't save. Please try again.");
+      }
 
       toast("Saved.");
 
-      // ✅ Hard navigate so it always moves on the first click (no router edge cases)
-      let dest = safeNext(nextPath || "/home");
-
-      // If no specific page was requested, send brand-new users to Start here
-      // instead of Home — but fail open to /home if the check itself fails.
-      if (dest === "/home") {
-        try {
-          const overviewRes = await fetch("/api/money/overview", { cache: "no-store" });
-          const overview = (await overviewRes.json().catch(() => null)) as OverviewResponse | null;
-
-          if (overviewRes.ok && overview) {
-            const usableNow =
-              overview.setup_status?.usable_now ??
-              ((overview.data_coverage?.account_count ?? 0) > 0 ||
-                (overview.data_coverage?.transaction_count ?? 0) > 0);
-
-            if (!usableNow) {
-              dest = "/money/setup";
-            }
-          }
-        } catch {
-          // Fail open: keep dest as "/home".
-        }
-      }
+      let dest = safeNextPath(nextPath || "/home");
+      if (dest === "/home") dest = "/start";
 
       window.location.assign(dest);
       return;
@@ -132,8 +119,43 @@ export default function FinePrintClient({ nextPath }: FinePrintClientProps) {
       <Card className="border-zinc-200 bg-white">
         <CardContent>
           <div className="space-y-3">
-            <div className="text-sm font-semibold text-zinc-900">Signature</div>
-            <div className="text-sm text-zinc-700">Type your name once to confirm you understand these boundaries.</div>
+            <div className="text-sm font-semibold text-zinc-900">Before you continue</div>
+            <label className="block text-sm text-zinc-700">
+              <span>Birth year</span>
+              <input
+                value={birthYear}
+                onChange={(e) => setBirthYear(e.target.value.replace(/\D/g, "").slice(0, 4))}
+                inputMode="numeric"
+                autoComplete="bday-year"
+                placeholder="Year of birth"
+                className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-[15px] text-zinc-900 outline-none focus:ring-2 focus:ring-zinc-200"
+              />
+            </label>
+            <p className="text-xs leading-5 text-zinc-500">
+              Used only to check that you are 18 or older. The year is not saved.
+            </p>
+            {birthYear.length === 4 && !yearOk ? (
+              <div className="text-sm text-zinc-600">Enter a birth year for someone who is 18 or older.</div>
+            ) : null}
+            {localeWarning ? (
+              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm leading-6 text-zinc-700">
+                {localeWarning}
+              </div>
+            ) : null}
+            <label className="flex items-start gap-2 text-sm text-zinc-700">
+              <input type="checkbox" checked={adult} onChange={(e) => setAdult(e.target.checked)} className="mt-1" />
+              <span>I am 18 or older.</span>
+            </label>
+            <label className="flex items-start gap-2 text-sm text-zinc-700">
+              <input
+                type="checkbox"
+                checked={resident}
+                onChange={(e) => setResident(e.target.checked)}
+                className="mt-1"
+              />
+              <span>I live in Australia.</span>
+            </label>
+            <div className="text-sm text-zinc-700">Type your name to confirm you have read this.</div>
 
             <input
               value={name}
@@ -152,8 +174,6 @@ export default function FinePrintClient({ nextPath }: FinePrintClientProps) {
             </div>
 
             {status ? <div className="text-sm text-zinc-600">{status}</div> : null}
-
-            <div className="text-xs text-zinc-500">Version: {VERSION}</div>
           </div>
         </CardContent>
       </Card>

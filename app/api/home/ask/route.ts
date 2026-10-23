@@ -1,6 +1,13 @@
 // app/api/home/ask/route.ts
 import { NextResponse } from "next/server";
-import { generateAiStructured } from "@/lib/ai/provider";
+import { AiDisabledError, AiOutputBlockedError, generateAiStructured } from "@/lib/ai/provider";
+import { AiDailyLimitError, AiUsageUnavailableError } from "@/lib/ai/usageLimit";
+import { isAiEnabled } from "@/lib/ai/aiFlag";
+import { FACTUAL_SYSTEM_PROMPT } from "@/lib/ai/factualPrompt";
+import { AI_OFF_MESSAGE, aiAskOptedIn } from "@/lib/ai/optIn";
+import { guardAiInput, guardAskQuestion } from "@/lib/ask/askGuard";
+import { logBlockedOutput, screenAiOutput } from "@/lib/ai/outputGuard";
+import { isAccountVisibleToUser } from "@/lib/server/access/accountVisibility";
 import { createClient } from "@supabase/supabase-js";
 import { maybeCrisisIntercept } from "@/lib/safety/guard";
 import { decideHomeTone, type HomeTone } from "@/lib/lifecfo/homeTone";
@@ -216,15 +223,17 @@ async function buildFactsPack(scope: { userId: string; householdId: string }) {
       cadence: b.cadence ?? null,
     }));
 
-  const { data: accounts, error: acctErr } = await supabase
+    const { data: accounts, error: acctErr } = await supabase
     .from("accounts")
-    .select("id,name,type,status,current_balance_cents,currency,archived,updated_at")
+    .select("id,name,type,status,current_balance_cents,currency,archived,updated_at,user_id,visibility")
     .eq("household_id", householdId)
     .eq("archived", false)
     .order("updated_at", { ascending: false })
     .limit(50);
 
-  const acct = (accounts ?? []) as AccountFact[];
+  const acct = ((accounts ?? []) as Array<AccountFact & { user_id?: string | null; visibility?: string | null }>).filter(
+    (row) => isAccountVisibleToUser(row, userId)
+  );
 
   // --- Goal ↔ Account links (V1: explicit join only) ---
   type GoalAccountLinkRow = { goal_id: string; account_id: string; weight: number | null };
@@ -811,54 +820,18 @@ function buildHomeAiFactsView(facts: any) {
 /* ---------------- prompt ---------------- */
 
 const SYSTEM = `
-You are Life CFO Home Ask.
+${FACTUAL_SYSTEM_PROMPT}
 
-You must respond as a calm, careful household CFO.
-
-NON-NEGOTIABLE RULES
-- You may ONLY answer using FACTS PACK (+ now_iso). No web. No guessing. No invention.
-- If required data isn't present, say what you can/can’t see and STOP.
-- No urgency. No pressure. No “you should”. No pretending anything was saved.
-- Answer-first. Save-later. Never imply persistence.
-
-OUTPUT REQUIREMENT (FIELDS ONLY)
-Return structured fields only:
-- headline: one sentence, plain, specific, non-duplicative
-- key_points: 2–5 bullets max (short, factual)
-- details: optional, short paragraph(s) (factual)
-- what_changes_this: 2–4 bullets max (conditions that would change the conclusion)
-- assumptions: 2–4 bullets max (assumptions from the visible data)
-
-IMPORTANT
-- Do NOT format a full memo. Server will render the memo from your fields.
-- Do NOT choose tone/verdict. Server decides verdict deterministically.
-
-ROUTING
-- Choose action from: open_money, open_decisions, open_chapters, none
-- suggested_next from: none
-- capture_seed must be null
-
-OPEN DECISIONS
-- Use facts.open_decisions_preview for examples (count + up to 3 titles).
-- If asked about open decisions: give count first and include preview titles if present.
-- Never invent titles.
-
-GOALS / REVIEW / CHAPTERS
-- Use facts.goals / facts.review / facts.chapters only.
-- Always count first; list up to 3 items/titles if present.
-- Never say “due”. Use “scheduled for”.
-
-AFFORD / SHOULD-WE
-- Never grant permission.
-- Provide bounded facts and state what's missing.
-- Keep suggested_next as "none".
-
-MONEY GROUNDING
-- If facts.money_reasoning is available, prioritize it over generic financial wording.
-- Use interpretation main pressure and confidence note when they are present.
-- Keep wording plain-English, calm, and factual.
-
-Return JSON only.
+Use only FACTS PACK. Do not invent figures. Do not say anything was saved.
+Return JSON fields only:
+- headline: one sentence about figures that were typed
+- key_points: short factual bullets from FACTS PACK
+- details: optional factual paragraph
+- what_changes_this: factors the person already named, or an empty list
+- assumptions: only limits of the typed data
+- action: open_money, open_decisions, open_chapters, or none
+- suggested_next: none
+- capture_seed: null
 `.trim();
 
 /* ---------------- route ---------------- */
@@ -919,6 +892,34 @@ export async function POST(req: Request) {
         suggested_next: "none",
         capture_seed: null,
         kind: intercept.kind,
+      });
+    }
+
+    const guarded = guardAskQuestion(question);
+    const explainGuard = guarded.allowed ? guarded : guardAiInput(question, "explain_figures");
+    const inputGuard = explainGuard.allowed ? explainGuard : guardAiInput(question, "summarise_typed");
+    if (!inputGuard.allowed) {
+      const headline = inputGuard.message;
+      const answer = buildMemoAnswer({
+        headline,
+        key_points: inputGuard.resources,
+        details: "",
+        what_changes_this: [],
+        assumptions: [],
+      });
+      return NextResponse.json({
+        answer,
+        tone: "ok" satisfies HomeTone,
+        verdict: "INSUFFICIENT_DATA" satisfies Verdict,
+        headline,
+        key_points: inputGuard.resources,
+        details: "",
+        what_changes_this: [],
+        assumptions: [],
+        action: "none",
+        suggested_next: "none",
+        capture_seed: null,
+        kind: "refused",
       });
     }
 
@@ -1303,9 +1304,37 @@ export async function POST(req: Request) {
     // ---- AI path (FIELDS ONLY; server builds memo + verdict) ----
     let parsed: unknown;
 
+    const optedIn = await aiAskOptedIn(routeSupabase, user.id);
+    if (!optedIn || !isAiEnabled()) {
+      const headline = AI_OFF_MESSAGE;
+      const answer = buildMemoAnswer({
+        headline,
+        key_points: [],
+        details: "",
+        what_changes_this: [],
+        assumptions: [],
+      });
+      return NextResponse.json({
+        answer,
+        tone: "ok" satisfies HomeTone,
+        verdict: "INSUFFICIENT_DATA" satisfies Verdict,
+        headline,
+        key_points: [],
+        details: "",
+        what_changes_this: [],
+        assumptions: [],
+        action: "none",
+        suggested_next: "none",
+        capture_seed: null,
+        kind: "ai_off",
+      });
+    }
+
     try {
       parsed = await generateAiStructured({
         purpose: "home_ask",
+        userId: user.id,
+        allowOverseasDisclosure: true,
         system: SYSTEM,
         prompt: `QUESTION:\n${question}\n\nFACTS PACK:\n${JSON.stringify(aiFacts, null, 2)}`,
         schemaName: "life_cfo_home_ask_fields",
@@ -1326,11 +1355,19 @@ export async function POST(req: Request) {
         },
         maxOutputTokens: 800,
       });
-    } catch {
-      const headline = "I couldn’t format that safely.";
+    } catch (error) {
+      if (error instanceof AiDailyLimitError || error instanceof AiUsageUnavailableError) {
+        return NextResponse.json({ error: error.message }, { status: 429 });
+      }
+      const blocked = error instanceof AiOutputBlockedError || error instanceof AiDisabledError;
+      const headline = error instanceof AiOutputBlockedError
+        ? error.replacement
+        : error instanceof AiDisabledError
+          ? AI_OFF_MESSAGE
+          : "Life CFO couldn't format that as typed figures.";
       const answer = buildMemoAnswer({ headline, key_points: [], details: "", what_changes_this: [], assumptions: [] });
 
-      const tone: HomeTone = "tight";
+      const tone: HomeTone = "ok";
       const verdict: Verdict = "INSUFFICIENT_DATA";
 
       return NextResponse.json(
@@ -1346,8 +1383,9 @@ export async function POST(req: Request) {
           action: "none",
           suggested_next: "none",
           capture_seed: null,
+          kind: blocked ? "refused" : "error",
         },
-        { status: 502 }
+        { status: blocked ? 200 : 502 }
       );
     }
 
@@ -1365,6 +1403,34 @@ export async function POST(req: Request) {
     const capture_seed = null;
 
     // ✅ Canonical memo formatting (server owns presentation)
+    const screenedAnswer = screenAiOutput(
+      [headline, ...key_points, details, ...what_changes_this, ...assumptions].join("\n")
+    );
+    if (!screenedAnswer.ok) {
+      logBlockedOutput("home_ask", screenedAnswer);
+      const blockedHeadline = screenedAnswer.replacement;
+      return NextResponse.json({
+        answer: buildMemoAnswer({
+          headline: blockedHeadline,
+          key_points: [],
+          details: "",
+          what_changes_this: [],
+          assumptions: [],
+        }),
+        tone: "ok" satisfies HomeTone,
+        verdict: "INSUFFICIENT_DATA" satisfies Verdict,
+        headline: blockedHeadline,
+        key_points: [],
+        details: "",
+        what_changes_this: [],
+        assumptions: [],
+        action: "none",
+        suggested_next: "none",
+        capture_seed: null,
+        kind: "refused",
+      });
+    }
+
     const answer = buildMemoAnswer({
       headline,
       key_points,

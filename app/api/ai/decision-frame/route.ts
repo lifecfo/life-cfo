@@ -1,6 +1,12 @@
 // app/api/ai/decision-frame/route.ts
 import { NextResponse } from "next/server";
-import { generateAiText } from "@/lib/ai/provider";
+import { AiDisabledError, generateAiText } from "@/lib/ai/provider";
+import { AiDailyLimitError, AiUsageUnavailableError } from "@/lib/ai/usageLimit";
+import { isAiEnabled } from "@/lib/ai/aiFlag";
+import { FACTUAL_SYSTEM_PROMPT } from "@/lib/ai/factualPrompt";
+import { AI_OFF_MESSAGE, aiAskOptedIn } from "@/lib/ai/optIn";
+import { guardAiInput } from "@/lib/ask/askGuard";
+import { AI_OUTPUT_REFUSAL } from "@/lib/ai/outputGuard";
 import { maybeCrisisIntercept } from "@/lib/safety/guard";
 import {
   readLimitedJson,
@@ -18,6 +24,8 @@ type FrameResult = {
   statement: string;
   what_im_hearing: string;
   questions: string[];
+  factors: string[];
+  review_on: string | null;
 };
 
 function safeString(x: unknown) {
@@ -53,12 +61,20 @@ function coerceFrame(text: string, parsed: Record<string, unknown>): FrameResult
     .map((q) => String(q).trim())
     .filter(Boolean)
     .slice(0, 5);
+  const factors = safeArray(parsed?.factors)
+    .map((item) => String(item).trim())
+    .filter(Boolean)
+    .slice(0, 8);
+  const reviewRaw = safeString(parsed?.review_on).trim();
+  const review_on = /^\d{4}-\d{2}-\d{2}$/.test(reviewRaw) ? reviewRaw : null;
 
   return {
     title: title.length > 90 ? `${title.slice(0, 87)}…` : title,
     statement,
     what_im_hearing,
     questions,
+    factors,
+    review_on,
   };
 }
 
@@ -89,29 +105,55 @@ export async function POST(req: Request) {
         title: titleFromStatement(text),
         statement: text,
         what_im_hearing: intercept.content,
-        questions: ["Would you like to talk about what feels most urgent right now?"],
+        questions: [],
+        factors: [],
+        review_on: null,
       };
       return NextResponse.json({ frame, kind: intercept.kind, version: VERSION }, { headers: { "x-keystone-ai-version": VERSION } });
     }
 
+    const guarded = guardAiInput(text, "frame_decision");
+    if (!guarded.allowed) {
+      const frame: FrameResult = {
+        title: titleFromStatement(text),
+        statement: text,
+        what_im_hearing: guarded.message,
+        questions: [],
+        factors: [],
+        review_on: null,
+      };
+      return NextResponse.json({ frame, version: VERSION });
+    }
+    const optedIn = await aiAskOptedIn(auth.supabase, auth.user.id);
+    if (!optedIn || !isAiEnabled()) {
+      const frame: FrameResult = {
+        title: titleFromStatement(text),
+        statement: text,
+        what_im_hearing: text,
+        questions: [],
+        factors: [],
+        review_on: null,
+      };
+      return NextResponse.json({ frame, version: VERSION, ai: "off", message: AI_OFF_MESSAGE });
+    }
+
     const system = [
-      "You are Keystone — a calm, practical Life CFO assistant.",
+      FACTUAL_SYSTEM_PROMPT,
       "",
-      "Task: turn the user's messy decision input into a clear, single decision statement.",
+      "Task: restate the person's messy note as one decision statement.",
       "Return ONLY valid JSON (no markdown, no code fences, no extra keys).",
       "",
-      "Schema (MUST match exactly):",
+      "Schema:",
       `{`,
       `  "title": "string (<= 90 chars)",`,
       `  "statement": "string (one sentence if possible)",`,
-      `  "what_im_hearing": "string (2-4 short bullet-ish lines separated by \\n)",`,
-      `  "questions": ["string (2-5 items)"]`,
+      `  "what_im_hearing": "string (their words, restated)",`,
+      `  "factors": ["factors they already named"],`,
+      `  "questions": ["questions they already raised"],`,
+      `  "review_on": "YYYY-MM-DD or null"`,
       `}`,
       "",
-      "Rules:",
-      "- Do not add advice. Do not decide for them.",
-      "- Keep it neutral and calm.",
-      "- If the user already wrote a clear decision question, keep it.",
+      "Do not choose an option. Do not add a question they did not raise. Set review_on only if they named a date.",
     ].join("\n");
 
     const userContent = [
@@ -121,13 +163,46 @@ export async function POST(req: Request) {
       "Return ONLY the JSON.",
     ].join("\n");
 
-    const rawText = stripCodeFences(await generateAiText({
-      purpose: "decision_frame",
-      system,
-      prompt: userContent,
-      temperature: 0.2,
-      maxOutputTokens: 480,
-    }));
+    let rawText: string;
+    try {
+      rawText = stripCodeFences(await generateAiText({
+        purpose: "decision_frame",
+        userId: auth.user.id,
+        allowOverseasDisclosure: true,
+        system,
+        prompt: userContent,
+        temperature: 0.2,
+        maxOutputTokens: 480,
+      }));
+    } catch (error) {
+      if (error instanceof AiDailyLimitError || error instanceof AiUsageUnavailableError) {
+        return NextResponse.json({ error: error.message, version: VERSION }, { status: 429 });
+      }
+      if (error instanceof AiDisabledError) {
+        const frame: FrameResult = {
+          title: titleFromStatement(text),
+          statement: text,
+          what_im_hearing: text,
+          questions: [],
+          factors: [],
+          review_on: null,
+        };
+        return NextResponse.json({ frame, version: VERSION, ai: "off", message: AI_OFF_MESSAGE });
+      }
+      throw error;
+    }
+
+    if (rawText === AI_OUTPUT_REFUSAL) {
+      const frame: FrameResult = {
+        title: titleFromStatement(text),
+        statement: text,
+        what_im_hearing: rawText,
+        questions: [],
+        factors: [],
+        review_on: null,
+      };
+      return NextResponse.json({ frame, refused: true, version: VERSION });
+    }
 
     let parsed: Record<string, unknown> | null = null;
     try {
@@ -155,8 +230,10 @@ export async function POST(req: Request) {
       : {
           title: titleFromStatement(text),
           statement: text,
-          what_im_hearing: "• A decision is being held.\n• We need to clarify the exact question.",
-          questions: ["What outcome are you trying to decide?", "What constraint matters most (money, time, energy)?"],
+          what_im_hearing: text,
+          questions: [],
+          factors: [],
+          review_on: null,
         };
 
     return NextResponse.json({ frame, version: VERSION }, { headers: { "x-keystone-ai-version": VERSION } });

@@ -1,6 +1,13 @@
 import { NextResponse } from "next/server";
 
-export async function GET(req: Request) {
+export async function GET(_req: Request) {
+  return NextResponse.json(
+    { ok: false, error: "Background money check-ins are off for this beta." },
+    { status: 410 }
+  );
+}
+
+export async function GET_DISABLED(req: Request) {
   const baseUrl = process.env.NEXT_PUBLIC_SITE_URL;
   const secret = process.env.ENGINE_CRON_SECRET;
   const cronSecret = process.env.CRON_SECRET || secret;

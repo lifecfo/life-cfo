@@ -110,34 +110,12 @@ function plainWhyNow(main: SignalDetail, snapshot: FinancialSnapshot): string {
   }
 }
 
-function basePromptForKey(key: PressureKey): string[] {
-  switch (key) {
-    case "structural":
-      return [
-        "Where could we create a little more breathing room in regular bills?",
-        "How tight are we after regular bills each month?",
-      ];
-    case "discretionary":
-      return [
-        "What changed in our recent spending?",
-        "Where has spending drifted up lately?",
-      ];
-    case "timing":
-      return [
-        "What is coming up before the next income?",
-        "How can we smooth the next few weeks?",
-      ];
-    case "stability":
-      return [
-        "How much could data freshness be affecting this view?",
-        "Which account connections should we refresh first?",
-      ];
-    default:
-      return [
-        "Are we okay this month?",
-        "What should we keep in mind for the next few weeks?",
-      ];
-  }
+function basePromptForKey(_key: PressureKey): string[] {
+  return [
+    "What bills are entered?",
+    "Which bills are due this month?",
+    "What income amounts are entered?",
+  ];
 }
 
 function deriveFreshness(snapshot: FinancialSnapshot):
