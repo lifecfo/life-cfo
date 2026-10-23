@@ -1,7 +1,8 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
+import { Suspense } from "react";
 
-import { Landing } from "@/components/landing/Landing";
+import LoginClient from "./login/LoginClient";
 
 export const dynamic = "force-dynamic";
 
@@ -15,5 +16,25 @@ export default async function RootPage() {
     return named && cookie.value.length > 20;
   });
   if (hasSession) redirect("/home");
-  return <Landing />;
+
+  return (
+    <Suspense
+      fallback={
+        <div
+          style={{
+            minHeight: "100vh",
+            display: "grid",
+            placeItems: "center",
+            fontFamily: "system-ui",
+            background: "#1F5E5C",
+            color: "#FFFFFF",
+          }}
+        >
+          Loading…
+        </div>
+      }
+    >
+      <LoginClient nextPath="/home" publicEntry />
+    </Suspense>
+  );
 }

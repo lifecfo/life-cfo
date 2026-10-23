@@ -27,30 +27,33 @@ export function WaitlistForm() {
   }
 
   return (
-    <form onSubmit={(event) => void submit(event)} className="space-y-3">
-      <label className="block text-sm font-medium text-neutral-text" htmlFor="waitlist-email">
-        Email
-      </label>
-      <input
-        id="waitlist-email"
-        type="email"
-        required
-        value={email}
-        onChange={(event) => setEmail(event.target.value)}
-        className="mt-1 w-full rounded-xl border border-neutral-border bg-white px-3 py-2 text-sm text-neutral-text outline-none focus:border-cfo focus:ring-2 focus:ring-cfo/10"
-        autoComplete="email"
-      />
-      <input className="hidden" tabIndex={-1} autoComplete="off" name="company" aria-hidden="true" />
-      <button
-        type="submit"
-        disabled={busy}
-        className="inline-flex items-center justify-center rounded-xl bg-btn-primary px-4 py-2 text-sm font-medium text-btn-primaryText transition hover:bg-btn-primaryHover disabled:cursor-not-allowed disabled:bg-btn-primaryDisabled"
-      >
-        Join the list
-      </button>
-      {message ? <p className="text-sm text-neutral-text">{message}</p> : null}
-      <p className="text-sm leading-6 text-neutral-text-2">
-        Joining the list stores this email so we can tell you when a place is open. It does not create an account and it does not reserve a price.
+    <form onSubmit={(event) => void submit(event)} className="space-y-2">
+      <div className="flex flex-wrap items-center gap-2 rounded-xl border border-white/20 bg-white/10 p-2">
+        <label className="sr-only" htmlFor="waitlist-email">
+          Email
+        </label>
+        <input
+          id="waitlist-email"
+          type="email"
+          required
+          value={email}
+          onChange={(event) => setEmail(event.target.value)}
+          placeholder="you@email.com"
+          className="min-w-0 flex-1 rounded-xl border border-white/20 bg-white/10 px-3 py-2 text-sm text-white outline-none placeholder:text-white/60 focus:border-white/40"
+          autoComplete="email"
+        />
+        <input className="hidden" tabIndex={-1} autoComplete="off" name="company" aria-hidden="true" />
+        <button
+          type="submit"
+          disabled={busy}
+          className="rounded-xl border border-white/20 bg-white/10 px-3 py-2 text-xs font-medium text-white transition hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          Join the list
+        </button>
+      </div>
+      {message ? <p className="text-xs text-white/80">{message}</p> : null}
+      <p className="text-xs leading-5 text-white/70">
+        We’ll email you when a place is open. Joining does not create an account.
       </p>
     </form>
   );
