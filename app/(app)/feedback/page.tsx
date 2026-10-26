@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import { usePathname } from "next/navigation";
-import { supabase } from "@/lib/supabaseClient";
 import { Page } from "@/components/Page";
 import { Card, CardContent, Button } from "@/components/ui";
 
@@ -19,14 +18,12 @@ export default function FeedbackPage() {
     setWorking(true);
 
     try {
-      const { data } = await supabase.auth.getUser();
-      if (!data?.user) return;
-
-      await supabase.from("feedback").insert({
-        user_id: data.user.id,
-        path: pathname,
-        message: msg,
+      const response = await fetch("/api/feedback", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: msg, path: pathname }),
       });
+      if (!response.ok) return;
 
       setText("");
       setDone(true);

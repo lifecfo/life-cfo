@@ -33,7 +33,7 @@ const PROTECTED_PREFIXES = [
   "/demo",
 ];
 
-export const DEVELOPER_ONLY_PREFIXES = ["/engine", "/seed", "/lab", "/demo"];
+export const DEVELOPER_ONLY_PREFIXES = ["/engine", "/seed", "/lab", "/demo", "/feedback/review"];
 
 export const BANK_TOOL_PREFIXES = ["/connections"];
 

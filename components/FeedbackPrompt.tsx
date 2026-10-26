@@ -4,7 +4,6 @@
 import { useState } from "react";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/cn";
-import { supabase } from "@/lib/supabaseClient";
 import { Button, Chip } from "@/components/ui";
 
 type Props = {
@@ -23,23 +22,13 @@ export default function FeedbackPrompt({ className, pageTitle }: Props) {
     setState("sending");
 
     try {
-      const {
-        data: { user },
-        error: authError,
-      } = await supabase.auth.getUser();
-
-      if (authError || !user?.id) {
-        setState("error");
-        return;
-      }
-
-      const { error } = await supabase.from("feedback").insert({
-        user_id: user.id,
-        path: pathname || pageTitle || "unknown",
-        message,
+      const response = await fetch("/api/feedback", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message, path: pathname || pageTitle || "unknown" }),
       });
 
-      if (error) {
+      if (!response.ok) {
         setState("error");
         return;
       }
