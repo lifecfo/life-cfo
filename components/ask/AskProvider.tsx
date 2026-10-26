@@ -40,6 +40,7 @@ export type AskMessage = {
   actionHref?: AskActionHref;
   candidates?: AskCandidatePayload;
   promotions?: Record<string, AskPromotionState>;
+  aiOff?: boolean;
 };
 
 type AskPromotionStatus = "idle" | "saving" | "saved" | "error";
@@ -77,6 +78,7 @@ type AskContextValue = AskState & {
   submitAsk: (question?: string, options?: SubmitOptions) => Promise<void>;
   retryLast: () => Promise<void>;
   promoteCandidate: (params: { messageId: string; candidate: MemoryCandidate }) => Promise<void>;
+  enableAi: () => Promise<{ ok: boolean; dailyLimit?: number | null; error?: string }>;
 };
 
 const AskContext = createContext<AskContextValue | null>(null);
@@ -827,6 +829,7 @@ export function AskProvider({ children }: { children: ReactNode }) {
           verdict,
           actionHref: actionMap[String(json?.action ?? "none")] ?? null,
           candidates: (json?.candidates as AskCandidatePayload | undefined) ?? undefined,
+          aiOff: json?.kind === "ai_off",
         };
 
         setMessages((prev) => [...prev, assistantMessage]);
@@ -853,6 +856,31 @@ export function AskProvider({ children }: { children: ReactNode }) {
     if (!q) return;
     await runQuestion(q, { appendUserMessage: false });
   }, [runQuestion]);
+
+  const enableAi = useCallback(async () => {
+    try {
+      const res = await fetch("/api/settings/ai", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ opt_in: true }),
+      });
+      const json = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        error?: string;
+        daily_limit?: number | null;
+      };
+      if (!res.ok || !json.ok) {
+        return { ok: false, error: json.error || "Couldn't turn on AI right now." };
+      }
+
+      const statusRes = await fetch("/api/settings/ai", { cache: "no-store" });
+      const statusJson = (await statusRes.json().catch(() => ({}))) as { daily_limit?: number | null };
+
+      return { ok: true, dailyLimit: statusJson.daily_limit ?? null };
+    } catch {
+      return { ok: false, error: "Couldn't turn on AI right now." };
+    }
+  }, []);
 
   const promoteCandidate = useCallback(
     async ({ messageId, candidate }: { messageId: string; candidate: MemoryCandidate }) => {
@@ -962,6 +990,7 @@ export function AskProvider({ children }: { children: ReactNode }) {
       submitAsk,
       retryLast,
       promoteCandidate,
+      enableAi,
     }),
     [
       open,
@@ -981,6 +1010,7 @@ export function AskProvider({ children }: { children: ReactNode }) {
       submitAsk,
       retryLast,
       promoteCandidate,
+      enableAi,
     ]
   );
 

@@ -2,12 +2,13 @@ import { Suspense } from "react";
 import LoginClient from "./LoginClient";
 import { safeNextPath } from "@/lib/http/safeNextPath";
 
-export default function LoginPage({
+export default async function LoginPage({
   searchParams,
 }: {
-  searchParams: Record<string, string | string[] | undefined>;
+  searchParams: Promise<Record<string, string | string[] | undefined>> | Record<string, string | string[] | undefined>;
 }) {
-  const nextParam = searchParams?.next;
+  const params = await Promise.resolve(searchParams);
+  const nextParam = params?.next;
   const next = safeNextPath(
     typeof nextParam === "string" ? nextParam : Array.isArray(nextParam) ? nextParam[0] : "/home"
   );

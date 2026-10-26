@@ -101,12 +101,31 @@ export function AskPanel({ mode = "overlay" }: { mode?: AskPanelMode }) {
     currentScope,
     currentPath,
     shellSplitHostActive,
+    enableAi,
   } = useAsk();
 
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const [isDesktop, setIsDesktop] = useState(false);
   const [examplesExpanded, setExamplesExpanded] = useState(mode === "split");
+  const [aiOptInState, setAiOptInState] = useState<Record<string, "working" | "error">>({});
+  const [aiDailyLimit, setAiDailyLimit] = useState<number | null>(null);
+
+  async function handleEnableAi(messageId: string) {
+    setAiOptInState((prev) => ({ ...prev, [messageId]: "working" }));
+    const result = await enableAi();
+    if (!result.ok) {
+      setAiOptInState((prev) => ({ ...prev, [messageId]: "error" }));
+      return;
+    }
+    setAiDailyLimit(result.dailyLimit ?? null);
+    setAiOptInState((prev) => {
+      const next = { ...prev };
+      delete next[messageId];
+      return next;
+    });
+    await retryLast();
+  }
 
   useEffect(() => {
     const media = window.matchMedia("(min-width: 768px)");
@@ -243,6 +262,27 @@ export function AskPanel({ mode = "overlay" }: { mode?: AskPanelMode }) {
                         >
                           Copy
                         </Chip>
+                      </div>
+                    ) : null}
+
+                    {!isUser && message.aiOff ? (
+                      <div className="mt-3 rounded-xl border border-zinc-200 bg-zinc-50 p-3 space-y-2">
+                        <div className="text-xs leading-relaxed text-zinc-600">
+                          {aiDailyLimit != null
+                            ? `AI is on now, up to ${aiDailyLimit} replies a day while we're in beta.`
+                            : "You can turn AI on for your own account. Beta testers get a reasonable daily limit on AI replies, and your text and household figures go to OpenAI or Anthropic to answer."}
+                        </div>
+                        {aiDailyLimit == null ? (
+                          <Chip
+                            onClick={() => void handleEnableAi(message.id)}
+                            disabled={aiOptInState[message.id] === "working"}
+                          >
+                            {aiOptInState[message.id] === "working" ? "Turning on…" : "Turn on AI"}
+                          </Chip>
+                        ) : null}
+                        {aiOptInState[message.id] === "error" ? (
+                          <div className="text-xs text-rose-600">Couldn't turn on AI right now. Try again in Settings.</div>
+                        ) : null}
                       </div>
                     ) : null}
 
