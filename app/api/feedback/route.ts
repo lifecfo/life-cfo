@@ -2,7 +2,6 @@
 import { NextResponse } from "next/server";
 
 import { supabaseRoute } from "@/lib/supabaseRoute";
-import { sendFeedbackEmail } from "@/lib/feedback/sendFeedbackEmail";
 
 export const dynamic = "force-dynamic";
 
@@ -37,9 +36,6 @@ export async function POST(request: Request) {
   if (insertError) {
     return NextResponse.json({ ok: false, error: "Couldn't save that yet. Please try again." }, { status: 503 });
   }
-
-  // Best-effort -- feedback is already saved regardless of whether this succeeds.
-  void sendFeedbackEmail({ email: user.email ?? null, path, message });
 
   return NextResponse.json({ ok: true });
 }
