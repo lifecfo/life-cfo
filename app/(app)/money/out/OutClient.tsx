@@ -9,6 +9,8 @@ import { Card, CardContent, Chip, useToast } from "@/components/ui";
 import { formatMoneyFromCents } from "@/lib/money/formatMoney";
 import { categoryColorSlot, categoryColorClasses } from "@/lib/ui/categoryColorSlot";
 import type { MoneyDataCoverage } from "@/lib/money/reasoning/types";
+import { SampleOffer, SampleStrip, useSampleMode } from "@/lib/demo/sampleMode";
+import { buildSampleOutResponse } from "@/lib/demo/sampleMoneyViews";
 
 type MoneyRow = {
   currency: string;
@@ -107,10 +109,12 @@ function getErrorMessage(error: unknown, fallback: string) {
 export default function OutClient() {
   const router = useRouter();
   const { showToast } = useToast();
+  const { on: sampleOn } = useSampleMode();
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<OutResponse | null>(null);
+  const [realEmpty, setRealEmpty] = useState<boolean | null>(null);
 
   const out = data?.out_flow;
 
@@ -127,8 +131,18 @@ export default function OutClient() {
     setError(null);
 
     try {
-      const result = await fetchJson<OutResponse>("/api/money/out");
-      setData(result);
+      if (sampleOn) {
+        setData(buildSampleOutResponse());
+      } else {
+        const result = await fetchJson<OutResponse>("/api/money/out");
+        setData(result);
+        const flow = result.out_flow;
+        setRealEmpty(
+          flow.top_categories.length === 0 &&
+            flow.recent_out_transactions.length === 0 &&
+            flow.recurring_bills_count === 0
+        );
+      }
     } catch (e: unknown) {
       const message = getErrorMessage(e, "Could not load Out view.");
       setError(message);
@@ -136,7 +150,7 @@ export default function OutClient() {
     } finally {
       if (!silent) setLoading(false);
     }
-  }, [showToast]);
+  }, [showToast, sampleOn]);
 
   useEffect(() => {
     void load(false);
@@ -158,6 +172,8 @@ export default function OutClient() {
   return (
     <Page title="Money out" subtitle="Bills, spending, and money leaving the household." right={right}>
       <div className="mx-auto w-full max-w-[860px] space-y-4 px-4 sm:px-6">
+        {!sampleOn && realEmpty ? <SampleOffer /> : null}
+        <SampleStrip />
         {error ? <div className="text-sm text-red-600">{error}</div> : null}
 
         <Card className="border-zinc-200 bg-white">

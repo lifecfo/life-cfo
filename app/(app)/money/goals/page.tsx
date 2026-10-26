@@ -13,6 +13,8 @@ import { ProgressMeter } from "@/components/charts/BrandCharts";
 import { Page } from "@/components/Page";
 import { Card, CardContent, Button, Chip, Badge, Money, useToast } from "@/components/ui";
 import { useCountUp } from "@/lib/ui/useCountUp";
+import { SampleOffer, SampleStrip, useSampleMode } from "@/lib/demo/sampleMode";
+import { buildSampleGoals } from "@/lib/demo/sampleMoneyViews";
 
 export const dynamic = "force-dynamic";
 
@@ -495,6 +497,7 @@ function SelectedGoalSummaryCard({
 
 export default function GoalsPage() {
   const router = useRouter();
+  const { on: sampleOn } = useSampleMode();
 
   const toastApi: any = useToast();
 
@@ -1042,6 +1045,28 @@ export default function GoalsPage() {
     );
   }
 
+  // Sample goals are a separate read-only view, not the real goals list
+  // with fake rows spliced in -- the create/edit/delete/pin handlers below
+  // all write straight to Supabase, and letting them run against a sample
+  // row's fake id would either silently no-op or surface a confusing
+  // error. Loading/auth above still apply; this real household just isn't
+  // what's being shown right now.
+  if (sampleOn) {
+    const sampleGoals = buildSampleGoals();
+    return (
+      <Page title="Goals" subtitle={subtitle}>
+        <div className="mx-auto w-full max-w-[900px] space-y-4">
+          <SampleStrip />
+          <div className="grid gap-3 sm:grid-cols-2">
+            {sampleGoals.map((g) => (
+              <GoalRow key={g.id} g={g} isSelected={false} onSelect={() => {}} />
+            ))}
+          </div>
+        </div>
+      </Page>
+    );
+  }
+
   const SectionHeader = ({ title, right }: { title: string; right?: React.ReactNode }) => (
     <div className="flex items-center justify-between gap-3">
       <div className="text-sm font-semibold text-zinc-900">{title}</div>
@@ -1084,6 +1109,8 @@ export default function GoalsPage() {
       }
     >
       <div className="mx-auto w-full max-w-[900px] space-y-4">
+        {!loadingGoals && goals.length === 0 ? <SampleOffer /> : null}
+
         {/* Focus spotlight */}
         <Card className="border-zinc-200 bg-white shadow-none">
           <CardContent className="p-0">

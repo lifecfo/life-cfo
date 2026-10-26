@@ -81,21 +81,99 @@ function Avatar({ name }: { name: string }) {
 }
 
 function CategoryIcon({ category }: { category: string }) {
-  const common = { fill: "none", stroke: "currentColor", strokeWidth: 1.6, strokeLinecap: "round" as const };
-  return (
-    <svg viewBox="0 0 24 24" className="h-4 w-4 text-cfo" aria-hidden="true">
-      {category === "Housing" ? <path d="M4 11 12 4l8 7M7 10v9h10v-9" {...common} /> : null}
-      {category === "Utilities" ? <path d="M12 3v6M8 9h8l-1 11H9L8 9z" {...common} /> : null}
-      {category === "Transport" ? <path d="M5 16h14M7 16l1-6h8l1 6M8 19h.1M16 19h.1" {...common} /> : null}
-      {category === "Health" ? <path d="M12 6v12M6 12h12" {...common} /> : null}
-      {category === "Care" ? <path d="M8 11a3 3 0 1 1 4 0 3 3 0 1 1 4 0c0 3-4 6-4 6s-4-3-4-6z" {...common} /> : null}
-      {category === "Pets" ? <path d="M8 10a2 2 0 1 0 0-4 2 2 0 0 0 0 4zm8 0a2 2 0 1 0 0-4 2 2 0 0 0 0 4zM12 20c3 0 5-2 5-4a3 3 0 0 0-5-2 3 3 0 0 0-5 2c0 2 2 4 5 4z" {...common} /> : null}
-      {category === "Pay" || category === "Income" ? <path d="M12 5v9M8 11l4 4 4-4M6 19h12" {...common} /> : null}
-      {!["Housing", "Utilities", "Transport", "Health", "Care", "Pets", "Pay", "Income"].includes(category) ? (
-        <path d="M6 7h12v12H6zM9 7V5h6v2" {...common} />
-      ) : null}
-    </svg>
-  );
+  const common = {
+    fill: "none" as const,
+    stroke: "currentColor",
+    strokeWidth: 1.8,
+    strokeLinecap: "round" as const,
+    strokeLinejoin: "round" as const,
+  };
+  const shared = "h-4 w-4 text-cfo";
+
+  switch (category) {
+    // Household's own typed bills/renewals have no finer category today,
+    // so every real (non-sample) item lands here -- same house glyph as
+    // Housing is the right call, not a generic fallback.
+    case "Housing":
+    case "Household":
+      return (
+        <svg viewBox="0 0 24 24" className={shared} aria-hidden="true">
+          <path d="M4 10.5 12 4l8 6.5" {...common} />
+          <path d="M6.5 9.8V20h11V9.8" {...common} />
+        </svg>
+      );
+    case "Utilities":
+      return (
+        <svg viewBox="0 0 24 24" className={shared} aria-hidden="true">
+          <path d="M13 3 6.5 13.5h4.5L10 21l7.5-10.5H13L13 3z" {...common} />
+        </svg>
+      );
+    case "Transport":
+      return (
+        <svg viewBox="0 0 24 24" className={shared} aria-hidden="true">
+          <path d="M6 15.5 7.3 10a2 2 0 0 1 1.9-1.5h5.6a2 2 0 0 1 1.9 1.5l1.3 5.5" {...common} />
+          <path d="M5 15.5h14v3.5h-2v-1.5H7v1.5H5v-3.5z" {...common} />
+          <circle cx="8.5" cy="17" r="1.1" {...common} />
+          <circle cx="15.5" cy="17" r="1.1" {...common} />
+        </svg>
+      );
+    case "Health":
+      return (
+        <svg viewBox="0 0 24 24" className={shared} aria-hidden="true">
+          <circle cx="12" cy="12" r="8" {...common} />
+          <path d="M12 8v8M8 12h8" {...common} />
+        </svg>
+      );
+    case "Care":
+      return (
+        <svg viewBox="0 0 24 24" className={shared} aria-hidden="true">
+          <path
+            d="M12 19.5s-6.5-4.1-6.5-9A3.7 3.7 0 0 1 12 8a3.7 3.7 0 0 1 6.5 2.5c0 4.9-6.5 9-6.5 9z"
+            {...common}
+          />
+        </svg>
+      );
+    case "Pets":
+      return (
+        <svg viewBox="0 0 24 24" className={shared} aria-hidden="true">
+          <ellipse cx="12" cy="15.3" rx="4.2" ry="3.3" {...common} />
+          <circle cx="7" cy="9.2" r="1.6" {...common} />
+          <circle cx="10.6" cy="6.5" r="1.6" {...common} />
+          <circle cx="13.4" cy="6.5" r="1.6" {...common} />
+          <circle cx="17" cy="9.2" r="1.6" {...common} />
+        </svg>
+      );
+    case "Pay":
+    case "Income":
+      return (
+        <svg viewBox="0 0 24 24" className={shared} aria-hidden="true">
+          <rect x="4" y="7" width="16" height="11" rx="2" {...common} />
+          <circle cx="12" cy="12.5" r="2.2" {...common} />
+          <path d="M4 10h2M18 10h2" {...common} />
+        </svg>
+      );
+    case "Groceries":
+      return (
+        <svg viewBox="0 0 24 24" className={shared} aria-hidden="true">
+          <path d="M9 9a3 3 0 0 1 6 0" {...common} />
+          <path d="M5.5 9h13l-1.4 9.3a2 2 0 0 1-2 1.7H8.9a2 2 0 0 1-2-1.7L5.5 9z" {...common} />
+        </svg>
+      );
+    case "Entertainment":
+      return (
+        <svg viewBox="0 0 24 24" className={shared} aria-hidden="true">
+          <circle cx="12" cy="12" r="8" {...common} />
+          <path d="M10.3 9 15 12l-4.7 3V9z" {...common} />
+        </svg>
+      );
+    default:
+      return (
+        <svg viewBox="0 0 24 24" className={shared} aria-hidden="true">
+          <path d="M12 4h6a2 2 0 0 1 2 2v6L11 21l-7-7L12 4z" {...common} />
+          <circle cx="16.2" cy="7.8" r="1.1" {...common} />
+        </svg>
+      );
+  }
 }
 
 function fromPicture(picture: RealPicture): SampleHousehold {
@@ -510,8 +588,7 @@ export function PageGlance({ page, picture }: { page: GlancePage; picture?: Real
   const source = picture ?? loaded;
   const realEmpty = !source || source.items.length === 0;
   const data = on ? buildSampleHousehold() : source ? fromPicture(source) : null;
-  const showOffer = page === "home" && !on && source != null && realEmpty;
-  if (!on && page !== "home" && page !== "spending" && (source == null || realEmpty)) return null;
+  const showOffer = !on && source != null && realEmpty;
 
   return (
     <div className="space-y-3">

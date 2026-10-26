@@ -7,6 +7,8 @@ import { Page } from "@/components/Page";
 import { Card, CardContent, Chip, useToast } from "@/components/ui";
 import { AssistedSearch } from "@/components/AssistedSearch";
 import { formatMoneyFromCents } from "@/lib/money/formatMoney";
+import { SampleOffer, SampleStrip, useSampleMode } from "@/lib/demo/sampleMode";
+import { buildSampleAccounts } from "@/lib/demo/sampleMoneyViews";
 
 type AccountRow = {
   id: string;
@@ -74,9 +76,11 @@ export const dynamic = "force-dynamic";
 
 export default function AccountsPage() {
   const { showToast } = useToast();
+  const { on: sampleOn } = useSampleMode();
 
   const [loading, setLoading] = useState(true);
   const [accounts, setAccounts] = useState<AccountRow[]>([]);
+  const [realEmpty, setRealEmpty] = useState(false);
   const [q, setQ] = useState("");
 
   const filtered = useMemo(() => {
@@ -114,9 +118,14 @@ export default function AccountsPage() {
     (async () => {
       setLoading(true);
       try {
-        const data = await fetchJson<{ ok: boolean; accounts: AccountRow[]; household_id?: string }>("/api/money/accounts");
-        if (!alive) return;
-        setAccounts(data.accounts ?? []);
+        if (sampleOn) {
+          setAccounts(buildSampleAccounts());
+        } else {
+          const data = await fetchJson<{ ok: boolean; accounts: AccountRow[]; household_id?: string }>("/api/money/accounts");
+          if (!alive) return;
+          setAccounts(data.accounts ?? []);
+          setRealEmpty((data.accounts ?? []).length === 0);
+        }
       } catch (e: unknown) {
         if (!alive) return;
         const message = e instanceof Error && e.message ? e.message : "Couldn't load accounts.";
@@ -130,7 +139,7 @@ export default function AccountsPage() {
     return () => {
       alive = false;
     };
-  }, [showToast]);
+  }, [showToast, sampleOn]);
 
   const cardClass = "border-zinc-200 bg-white";
 
@@ -150,6 +159,11 @@ export default function AccountsPage() {
               <Chip>Add manual account</Chip>
             </Link>
           </div>
+        </div>
+
+        <div className="mt-3 space-y-3">
+          {!sampleOn && realEmpty ? <SampleOffer /> : null}
+          <SampleStrip />
         </div>
 
         <div className="mt-5 grid gap-4">

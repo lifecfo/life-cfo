@@ -7,6 +7,8 @@ import { Page } from "@/components/Page";
 import { Card, CardContent, Chip, Badge } from "@/components/ui";
 import { AssistedSearch } from "@/components/AssistedSearch";
 import { formatMoneyFromCents as formatMoneyFromCentsShared } from "@/lib/money/formatMoney";
+import { SampleOffer, SampleStrip, useSampleMode } from "@/lib/demo/sampleMode";
+import { buildSampleAccounts, buildSampleTransactions } from "@/lib/demo/sampleMoneyViews";
 
 type Tx = {
   id: string;
@@ -92,6 +94,7 @@ type PendingFilter = "any" | "pending" | "cleared";
 
 export default function TransactionsClient() {
   const router = useRouter();
+  const { on: sampleOn } = useSampleMode();
 
   const [statusLine, setStatusLine] = useState("Loading...");
   const [error, setError] = useState<string | null>(null);
@@ -112,6 +115,7 @@ export default function TransactionsClient() {
   const [limit, setLimit] = useState<number>(200);
 
   const [accounts, setAccounts] = useState<AccountRow[]>([]);
+  const [realEmpty, setRealEmpty] = useState(false);
 
   const isMountedRef = useRef(true);
 
@@ -134,18 +138,28 @@ export default function TransactionsClient() {
     }
 
     try {
-      const json = await fetchJson<{ ok: boolean; transactions: Tx[] }>(
-        `/api/money/transactions?${queryString}`
-      );
+      let transactions: Tx[];
+      if (sampleOn) {
+        transactions = buildSampleTransactions().filter((t) => {
+          if (accountId && t.account_id !== accountId) return false;
+          if (from && (t.date ?? "") < from) return false;
+          if (to && (t.date ?? "") > to) return false;
+          if (pending === "pending" && !t.pending) return false;
+          if (pending === "cleared" && t.pending) return false;
+          return true;
+        }).slice(0, Math.min(Math.max(limit, 1), 250));
+      } else {
+        const json = await fetchJson<{ ok: boolean; transactions: Tx[] }>(
+          `/api/money/transactions?${queryString}`
+        );
+        transactions = (json.transactions ?? []) as Tx[];
+        if (!silent) setRealEmpty(transactions.length === 0 && !accountId && !from && !to && pending === "any");
+      }
 
       if (!isMountedRef.current) return;
 
-      setItems((json.transactions ?? []) as Tx[]);
-      setStatusLine(
-        (json.transactions?.length ?? 0)
-          ? "Recent household activity loaded."
-          : "No transactions yet."
-      );
+      setItems(transactions);
+      setStatusLine(transactions.length ? "Recent household activity loaded." : "No transactions yet.");
       setLive("live");
     } catch (e: unknown) {
       if (!isMountedRef.current) return;
@@ -158,6 +172,10 @@ export default function TransactionsClient() {
   }
 
   async function loadAccounts() {
+    if (sampleOn) {
+      setAccounts(buildSampleAccounts());
+      return;
+    }
     try {
       const json = await fetchJson<{ ok: boolean; accounts: AccountRow[] }>(`/api/money/accounts`);
       setAccounts((json.accounts ?? []).filter((a) => !a.archived));
@@ -175,7 +193,7 @@ export default function TransactionsClient() {
       isMountedRef.current = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [sampleOn]);
 
   // re-load when filter layer changes
   useEffect(() => {
@@ -278,6 +296,8 @@ export default function TransactionsClient() {
   return (
     <Page title="Transactions" subtitle="Recent household activity from imported and manual sources." right={right}>
       <div className="mx-auto w-full max-w-[760px] space-y-4">
+        {!sampleOn && realEmpty ? <SampleOffer /> : null}
+        <SampleStrip />
         <AssistedSearch scope="transactions" placeholder="Search transactions..." />
 
         {filtersOpen ? (
