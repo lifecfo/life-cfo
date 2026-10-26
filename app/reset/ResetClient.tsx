@@ -14,7 +14,7 @@ function LifeCFOBrand() {
   return (
     <div className="flex justify-center">
       <Image
-        src="/brand/lifecfo-logo-stacked.svg"
+        src="/brand/lifecfo-logo-stacked-white-transparent.svg"
         alt="Life CFO"
         width={180}
         height={180}
