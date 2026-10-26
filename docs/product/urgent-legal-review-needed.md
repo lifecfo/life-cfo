@@ -1,67 +1,43 @@
-# Urgent legal review needed
+# Legal review — resolved
 
-Two issues found during this session's audit of the fine-print/privacy
-surfaces. Both need a real decision from whoever handles legal review —
-not a code fix applied unilaterally. Capturing them here so they aren't
-lost between conversations.
+Both issues originally flagged here have since been resolved in code.
+Kept for history rather than deleted; re-verified directly against the
+current codebase on 2026-10-26, not just reasoned about.
 
 **See also:** `docs/product/legal-boundary-checklist.html` — a working,
 interactive checklist for testing whether a *new feature* (not existing
 copy) stays inside AU/UK/US financial-advice and credit-licensing
-boundaries. Overlapping ground, different angle: this file is about two
-specific defects already in production; the checklist is a forward-looking
-gate to run future features through before they ship.
+boundaries.
 
-## 1. Plaid/Privacy disclosure mismatch — most urgent, live in production
+## 1. Plaid/Privacy disclosure mismatch — resolved (moot)
 
-`/fine-print` (component `ImportantInformationContent.tsx`, "Your money
-data" section) correctly discloses **both** bank-linking providers:
+Originally: `/fine-print` disclosed both Basiq and Plaid as bank-linking
+providers, while `/privacy` named only Basiq.
 
-> "You may connect accounts through Basiq or Plaid, upload bank files, or
-> add information manually."
+Current state: both `/privacy` (`app/privacy/page.tsx`) and `/fine-print`
+(`ImportantInformationContent.tsx`) now render from the single shared
+source `lib/legal/betaLegalCopy.ts`, which contains **no mention of
+Plaid or Basiq at all** — it consistently states "Life CFO does not
+connect banks in this beta" everywhere. The mismatch can't recur because
+there is no longer a second, independently-edited copy of this
+disclosure to drift out of sync. If/when bank connections (`lib/flags/
+bankConnect.ts`) are turned back on for a later release, this needs a
+fresh real disclosure pass at that time — not a reason to reopen this
+item now.
 
-`/privacy` (`app/privacy/page.tsx`) discloses **only Basiq** — it has no
-mention of Plaid anywhere in the page. The "Financial information (via
-Basiq)" section and the "How we share information" list both name Basiq
-specifically and say nothing about Plaid, despite the app's own
-`/connections` page and `/api/money/plaid/*` routes actively supporting
-Plaid-based US bank connections.
+## 2. Content-versioning gap — resolved
 
-This is not a hypothetical gap — it is a live, in-production
-inconsistency between two pages both currently shipped to real users.
-One page tells the person both providers see their data; the other tells
-them only one does. Needs a decision on which is correct (almost
-certainly: update `/privacy` to name both) and then an actual legal-review
-pass on what that disclosure needs to say per jurisdiction (US/UK/AU),
-not just a copy fix.
+Originally: `FinePrintClient.tsx` hardcoded `const VERSION = "v1"` with
+no mechanism tying a past acceptance to the actual content shown at
+signing time.
 
-## 2. Content-versioning gap — signed acceptance isn't tied to what was actually shown
-
-`FinePrintClient.tsx` hardcodes `const VERSION = "v1"` and, on save,
-writes `{ fine_print_accepted_at, fine_print_version, fine_print_signed_name }`
-to the `profiles` table. Separately, `ImportantInformationContent.tsx` is
-imported and rendered live and identically in both the signing flow
-(`FinePrintClient`) and the already-signed read-only view
-(`FinePrintReadOnly`) — it is not fetched or selected based on the stored
-version, and there is no version→content mapping anywhere in the code.
-
-Practical effect: if this content is edited in the future without a real
-versioning mechanism behind it, anyone who signed against an earlier
-version will see **today's live content** on their read-only "already
-accepted" view — not a snapshot of what they actually agreed to at the
-time they signed. The `VERSION` string is a manual convention with
-nothing in the code enforcing that a content change bumps it, or that a
-past acceptance is tied to the specific content that existed at that
-time.
-
-Needs a decision: either (a) snapshot the accepted content at signing
-time (e.g. store the rendered text or a content hash alongside the
-acceptance record), or (b) explicitly accept the current manual-version-
-bump convention as sufficient — and if (b), document why, since as it
-stands nothing prevents content and version silently drifting apart.
-
-## Explicitly not fixed in code
-
-Per instruction, neither issue has been touched in the codebase. Both are
-flagged here for legal/product review and a real decision, not patched
-unilaterally.
+Current state: `fine_print_version` now stores `legalPackSha256()` — a
+real content hash of `betaLegalCopy.ts`, not a manual string — and
+`app/api/legal/accept/route.ts` writes both `content_sha256` and a full
+`content_snapshot` to the acceptance record at signing time
+(`content_sha256`/`content_snapshot` columns, lines ~62-70, ~104).
+`app/api/legal/status/route.ts` compares the stored hash against the
+current `legalPackSha256()` to detect drift. Any future edit to the
+legal text changes the hash, which correctly invalidates prior
+acceptances rather than silently showing someone today's text against
+their old signature.

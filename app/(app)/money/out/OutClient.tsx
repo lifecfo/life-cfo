@@ -151,7 +151,7 @@ export default function OutClient() {
   const right = (
     <div className="flex flex-wrap items-center gap-2">
       <Chip onClick={() => void load(false)}>Refresh</Chip>
-      <Chip onClick={() => router.push("/money")}>Back to Money</Chip>
+      <Chip onClick={() => router.push("/spending")}>Back to Spending</Chip>
     </div>
   );
 
@@ -260,17 +260,14 @@ export default function OutClient() {
               ) : null}
             </div>
             <div className="flex flex-wrap gap-2">
-              <Link href="/money">
-                <Chip>Money</Chip>
+              <Link href="/spending">
+                <Chip>Spending</Chip>
               </Link>
               <Link href="/bills">
                 <Chip>Bills</Chip>
               </Link>
               <Link href="/transactions">
                 <Chip>Transactions</Chip>
-              </Link>
-              <Link href="/money/planned">
-                <Chip>Planned</Chip>
               </Link>
             </div>
           </CardContent>

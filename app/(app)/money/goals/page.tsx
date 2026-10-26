@@ -1065,16 +1065,13 @@ export default function GoalsPage() {
         <div className="flex items-center gap-2 flex-wrap">
           <Chip
             onClick={() => {
-              router.push("/money");
+              router.push("/spending");
               router.refresh();
             }}
-            title="Back to Money"
+            title="Back to Spending"
             className="border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
           >
-            Money
-          </Chip>
-          <Chip onClick={() => router.push("/money/planned")} title="Open Planned">
-            Planned
+            Spending
           </Chip>
           <Chip onClick={() => router.push("/bills")} title="Open Bills">
             Bills
@@ -1148,20 +1145,11 @@ export default function GoalsPage() {
                 </div>
               </div>
               <div className="mt-3 flex flex-wrap items-center gap-2">
-                <Chip onClick={() => router.push("/money/planned")} className="text-xs" title="Open Planned">
-                  Planned
-                </Chip>
                 <Chip onClick={() => router.push("/bills")} className="text-xs" title="Open Bills">
                   Bills
                 </Chip>
-                <Chip onClick={() => router.push("/transactions")} className="text-xs" title="Open Transactions">
-                  Transactions
-                </Chip>
-                <Chip onClick={() => router.push("/connections")} className="text-xs" title="Open Connections">
-                  Connections
-                </Chip>
-                <Chip onClick={() => router.push("/money")} className="text-xs" title="Open Money">
-                  Money
+                <Chip onClick={() => router.push("/spending")} className="text-xs" title="Open Spending">
+                  Spending
                 </Chip>
               </div>
             </div>

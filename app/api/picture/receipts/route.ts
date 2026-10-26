@@ -9,7 +9,7 @@ import {
   generateAiStructured,
 } from "@/lib/ai/provider";
 import { AiDailyLimitError, AiUsageUnavailableError } from "@/lib/ai/usageLimit";
-import { readLimitedJson, requireAuthenticatedAiUser } from "@/lib/ai/routeSecurity";
+import { readLimitedJson, requireAuthenticatedAiUser, requireLegalAcceptance } from "@/lib/ai/routeSecurity";
 import { guardAiInput } from "@/lib/ask/askGuard";
 import { resolveHouseholdIdRoute } from "@/lib/households/resolveHouseholdIdRoute";
 import {
@@ -48,6 +48,9 @@ function manualPayload(
 export async function POST(req: Request) {
   const auth = await requireAuthenticatedAiUser();
   if (!auth.ok) return auth.response;
+
+  const legal = await requireLegalAcceptance(auth.supabase, auth.user.id);
+  if (!legal.ok) return legal.response;
 
   const parsedBody = await readLimitedJson(req, 8 * 1024);
   if (!parsedBody.ok) return parsedBody.response;

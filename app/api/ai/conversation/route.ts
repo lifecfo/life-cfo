@@ -15,6 +15,7 @@ import type {
 import {
   readLimitedJson,
   requireAuthenticatedAiUser,
+  requireLegalAcceptance,
 } from "@/lib/ai/routeSecurity";
 
 export const dynamic = "force-dynamic";
@@ -233,6 +234,9 @@ export async function POST(req: Request) {
   try {
     const auth = await requireAuthenticatedAiUser();
     if (!auth.ok) return auth.response;
+
+    const legal = await requireLegalAcceptance(auth.supabase, auth.user.id);
+    if (!legal.ok) return legal.response;
 
     const parsedBody = await readLimitedJson(req, MAX_REQUEST_BYTES);
     if (!parsedBody.ok) return parsedBody.response;

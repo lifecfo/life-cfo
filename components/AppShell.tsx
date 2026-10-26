@@ -134,6 +134,19 @@ function navIcon(href: string) {
           <path d="M16 19.5V14" {...stroke} />
         </svg>
       );
+    case "/money/out":
+      return (
+        <svg viewBox="0 0 24 24" fill="none" className={shared} aria-hidden="true">
+          <path d="M12 5v12.5" {...stroke} />
+          <path d="M7 13.5 12 18.5 17 13.5" {...stroke} />
+        </svg>
+      );
+    case "/transactions":
+      return (
+        <svg viewBox="0 0 24 24" fill="none" className={shared} aria-hidden="true">
+          <path d="M5 7h14M5 12h14M5 17h9" {...stroke} />
+        </svg>
+      );
     case "/money/year":
       return (
         <svg viewBox="0 0 24 24" fill="none" className={shared} aria-hidden="true">
@@ -279,7 +292,13 @@ export function AppShell({ children }: AppShellProps) {
       { href: "/budget", label: "Budget" },
       { href: "/money/goals", label: "Goals" },
     ];
-    if (showSpending) items.push({ href: "/spending", label: "Spending" });
+    if (showSpending) {
+      items.push(
+        { href: "/spending", label: "Spending" },
+        { href: "/money/out", label: "Money out" },
+        { href: "/transactions", label: "Transactions" }
+      );
+    }
     items.push(
       { href: "/money/year", label: "Year ahead" },
       { href: "/decisions", label: "Decision notes" },

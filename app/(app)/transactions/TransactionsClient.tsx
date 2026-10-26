@@ -271,12 +271,12 @@ export default function TransactionsClient() {
 
       <Chip onClick={() => router.push("/money/import")}>Upload a bank file</Chip>
 
-      <Chip onClick={() => router.push("/money")}>Back to Money</Chip>
+      <Chip onClick={() => router.push("/spending")}>Back to Spending</Chip>
     </div>
   );
 
   return (
-    <Page title="Transactions" subtitle="Recent household activity from connected and manual sources." right={right}>
+    <Page title="Transactions" subtitle="Recent household activity from imported and manual sources." right={right}>
       <div className="mx-auto w-full max-w-[760px] space-y-4">
         <AssistedSearch scope="transactions" placeholder="Search transactions..." />
 

@@ -140,8 +140,8 @@ export default function AccountsPage() {
         {/* Toolbar */}
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex flex-wrap items-center gap-2">
-            <Link href="/money">
-              <Chip>Back to Money</Chip>
+            <Link href="/spending">
+              <Chip>Back to Spending</Chip>
             </Link>
           </div>
 
@@ -181,7 +181,7 @@ export default function AccountsPage() {
                     ? `${importedCount} connected account(s), ${manualCount} manual account(s). ${
                         latestUpdated ? `Last updated ${softDate(latestUpdated)}.` : ""
                       }`
-                    : "Connect a bank or add a manual account to get started."}
+                    : "Add a manual account to get started."}
               </div>
 
               <div className="mt-3 flex items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2">

@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState, type CSSProperties } from "react";
-import Link from "next/link";
 import { LineChart } from "@/components/charts/BrandCharts";
 import { PageGlance } from "@/components/glance/PageGlance";
 import { Page } from "@/components/Page";
@@ -195,7 +194,6 @@ export default function MoneyYearPage() {
       right={
         <div className="flex flex-wrap gap-2">
           <Chip onClick={() => void loadYear()} disabled={loading}>Refresh</Chip>
-          <Link href="/money/planned"><Chip>Open Planned</Chip></Link>
         </div>
       }
     >
