@@ -7,6 +7,7 @@ import { supabase } from "@/lib/supabaseClient";
 import { Page } from "@/components/Page";
 import { Card, CardContent, Chip, Button } from "@/components/ui";
 import { useSampleMode } from "@/lib/demo/sampleMode";
+import { useLifeCfoAccess } from "@/lib/access/useLifeCfoAccess";
 
 export const dynamic = "force-dynamic";
 
@@ -26,6 +27,7 @@ export default function SettingsPage() {
   const [aiMessage, setAiMessage] = useState("");
   const [aiDailyLimit, setAiDailyLimit] = useState(15);
   const { on: sampleOn, setOn: setSampleOn } = useSampleMode();
+  const { isDeveloper } = useLifeCfoAccess();
 
   useEffect(() => {
     let alive = true;
@@ -221,6 +223,18 @@ export default function SettingsPage() {
             </div>
           </CardContent>
         </Card>
+
+        {isDeveloper ? (
+          <Card className="border-zinc-200 bg-white">
+            <CardContent>
+              <div className="space-y-3">
+                <div className="text-sm font-semibold text-zinc-900">Developer</div>
+                <div className="text-sm text-zinc-700">Only visible to developer accounts.</div>
+                <Chip onClick={() => router.push("/feedback/review")}>Feedback review</Chip>
+              </div>
+            </CardContent>
+          </Card>
+        ) : null}
       </div>
     </Page>
   );
