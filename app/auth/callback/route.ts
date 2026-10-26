@@ -1,7 +1,7 @@
 // app/auth/callback/route.ts
 import { NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
-import { friendlyAuthLinkError } from "@/lib/auth/authLinkError";
+import { friendlyAuthLinkError, friendlySignupLinkError } from "@/lib/auth/authLinkError";
 
 function safeNext(input: string | null) {
   if (!input) return null;
@@ -33,11 +33,13 @@ export async function GET(request: Request) {
   const nextPath = type === "recovery" ? "/reset" : safe ?? defaultNext;
 
   if (verifyError && !code) {
-    const friendly = friendlyAuthLinkError(verifyError);
     const destination =
       type === "recovery"
-        ? new URL(`/reset?err=${encodeURIComponent(friendly)}`, url.origin)
-        : new URL(`/login?next=${encodeURIComponent(nextPath)}&err=${encodeURIComponent(friendly)}`, url.origin);
+        ? new URL(`/reset?err=${encodeURIComponent(friendlyAuthLinkError(verifyError))}`, url.origin)
+        : new URL(
+            `/login?next=${encodeURIComponent(nextPath)}&err=${encodeURIComponent(friendlySignupLinkError(verifyError))}`,
+            url.origin
+          );
     return NextResponse.redirect(destination);
   }
 
@@ -64,11 +66,13 @@ export async function GET(request: Request) {
   if (code) {
     const { error } = await supabase.auth.exchangeCodeForSession(code);
     if (error) {
-      const friendly = friendlyAuthLinkError(error.message);
       const destination =
         type === "recovery"
-          ? new URL(`/reset?err=${encodeURIComponent(friendly)}`, url.origin)
-          : new URL(`/login?next=${encodeURIComponent(nextPath)}&err=${encodeURIComponent(friendly)}`, url.origin);
+          ? new URL(`/reset?err=${encodeURIComponent(friendlyAuthLinkError(error.message))}`, url.origin)
+          : new URL(
+              `/login?next=${encodeURIComponent(nextPath)}&err=${encodeURIComponent(friendlySignupLinkError(error.message))}`,
+              url.origin
+            );
       response = NextResponse.redirect(destination);
     }
   }
