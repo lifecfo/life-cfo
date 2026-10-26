@@ -48,52 +48,56 @@ export default function ResetPasswordPage() {
 
   useEffect(() => {
     let mounted = true;
+    let settled = false;
 
-    const check = async () => {
-      setStage("checking");
-      setMessage("Checking reset session…");
-      setSignedInEmail(null);
+    const linkErr = searchParams?.get("err");
+    if (linkErr) {
+      setStage("error");
+      setMessage(decodeURIComponent(linkErr));
+      return;
+    }
 
-      const linkErr = searchParams?.get("err");
-      if (linkErr) {
-        if (!mounted) return;
-        setStage("error");
-        setMessage(decodeURIComponent(linkErr));
-        return;
-      }
+    setStage("checking");
+    setMessage("Checking reset session…");
+    setSignedInEmail(null);
 
-      try {
-        const { data, error } = await supabase.auth.getSession();
-
-        if (!mounted) return;
-
-        if (error) {
-          setStage("error");
-          setMessage(error.message);
-          return;
-        }
-
-        const session = data?.session;
-        if (!session) {
-          setStage("error");
-          setMessage("No active reset session found. Please request a new reset email.");
-          return;
-        }
-
-        setSignedInEmail(session.user?.email ?? null);
-        setStage("ready");
-        setMessage("");
-      } catch (e: any) {
-        if (!mounted) return;
-        setStage("error");
-        setMessage(e?.message ?? "Something went wrong checking the reset session.");
-      }
+    const applySession = (session: { user?: { email?: string | null } } | null) => {
+      if (!mounted || settled) return;
+      if (!session) return; // not settled yet -- keep waiting for a later event or the timeout
+      settled = true;
+      setSignedInEmail(session.user?.email ?? null);
+      setStage("ready");
+      setMessage("");
     };
 
-    check();
+    // The server-side code exchange (app/auth/reset/route.ts) sets the
+    // session cookie, but this freshly-mounted browser client still has to
+    // finish reading it from storage -- a one-shot getSession() call right
+    // on mount can race that and report "no session" even though one is
+    // about to appear. onAuthStateChange's INITIAL_SESSION event is the
+    // documented signal that the client has actually finished checking.
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      applySession(session);
+    });
+
+    // Still attempt an immediate check -- harmless if INITIAL_SESSION beats
+    // it, and covers any client version where that event doesn't fire.
+    void supabase.auth
+      .getSession()
+      .then(({ data }) => applySession(data?.session ?? null))
+      .catch(() => {});
+
+    const timeout = window.setTimeout(() => {
+      if (!mounted || settled) return;
+      settled = true;
+      setStage("error");
+      setMessage("No active reset session found. Please request a new reset email.");
+    }, 5000);
 
     return () => {
       mounted = false;
+      listener.subscription.unsubscribe();
+      window.clearTimeout(timeout);
     };
   }, [searchParams]);
 
