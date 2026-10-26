@@ -178,6 +178,14 @@ function navIcon(href: string) {
           <path d="M13.4 15c.7-.4 1.5-.6 2.4-.6 1.7 0 3 .9 3.6 2.8" {...stroke} />
         </svg>
       );
+    case "/documents":
+      return (
+        <svg viewBox="0 0 24 24" fill="none" className={shared} aria-hidden="true">
+          <path d="M7 3.5h8l3 3V20.5H7z" {...stroke} />
+          <path d="M15 3.5V6.5h3" {...stroke} />
+          <path d="M9.5 11h5M9.5 14.5h5" {...stroke} />
+        </svg>
+      );
     default:
       return (
         <svg viewBox="0 0 24 24" fill="none" className={shared} aria-hidden="true">
@@ -302,6 +310,7 @@ export function AppShell({ children }: AppShellProps) {
     items.push(
       { href: "/money/year", label: "Year ahead" },
       { href: "/decisions", label: "Decision notes" },
+      { href: "/documents", label: "Documents" },
       { href: "/household", label: "Household" }
     );
     return items;

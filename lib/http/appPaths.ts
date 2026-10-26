@@ -4,6 +4,7 @@ const PROTECTED_PREFIXES = [
   "/inbox",
   "/money",
   "/decisions",
+  "/documents",
   "/chapters",
   "/accounts",
   "/connections",
