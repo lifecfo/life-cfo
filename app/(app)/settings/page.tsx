@@ -198,9 +198,11 @@ export default function SettingsPage() {
             <div className="space-y-3">
               <div className="text-sm font-semibold text-zinc-900">Data and account</div>
               <div className="text-sm text-zinc-700">
-                Download a copy of the data your account can read, or delete the account.
+                Download a copy of the data your account can read, print a summary to take to a bank, broker, adviser,
+                or accountant, or delete the account.
               </div>
               <div className="flex flex-wrap items-center gap-2">
+                <Chip onClick={() => router.push("/export")}>Financial summary to print or save</Chip>
                 <a
                   className="inline-flex rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-medium text-zinc-800 hover:bg-zinc-50"
                   href="/api/settings/export"

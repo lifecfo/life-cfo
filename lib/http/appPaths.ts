@@ -20,6 +20,7 @@ const PROTECTED_PREFIXES = [
   "/net-worth",
   "/liabilities",
   "/feedback",
+  "/export",
   "/buffer",
   "/planned-upgrades",
   "/beta-invite",
