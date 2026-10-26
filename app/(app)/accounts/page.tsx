@@ -1,5 +1,1 @@
-import { redirect } from "next/navigation";
-
-export default function AccountsRedirect() {
-  redirect("/lifecfo-home");
-}
+export { default } from "./AccountsPage";

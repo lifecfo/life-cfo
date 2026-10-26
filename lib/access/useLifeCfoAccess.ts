@@ -7,6 +7,7 @@ type AccessState = {
   isDemoMode: boolean;
   isDeveloper: boolean;
   canUseRealDataSources: boolean;
+  canAddManualAccounts: boolean;
 };
 
 const LOCKED_ACCESS: AccessState = {
@@ -14,6 +15,7 @@ const LOCKED_ACCESS: AccessState = {
   isDemoMode: true,
   isDeveloper: false,
   canUseRealDataSources: false,
+  canAddManualAccounts: false,
 };
 
 export function useLifeCfoAccess(): AccessState {
@@ -31,6 +33,8 @@ export function useLifeCfoAccess(): AccessState {
           isDeveloper: data.isDeveloper === true,
           canUseRealDataSources:
             response.ok && data.canUseRealDataSources === true,
+          canAddManualAccounts:
+            response.ok && data.canAddManualAccounts === true,
         });
       })
       .catch(() => {
@@ -40,6 +44,7 @@ export function useLifeCfoAccess(): AccessState {
             isDemoMode: false,
             isDeveloper: false,
             canUseRealDataSources: false,
+            canAddManualAccounts: false,
           });
         }
       });

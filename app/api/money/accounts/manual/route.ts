@@ -53,7 +53,7 @@ export async function POST(request: Request) {
         { status: 401 }
       );
     }
-    if (!getLifeCfoAccess(user).canUseRealDataSources) {
+    if (!getLifeCfoAccess(user).canAddManualAccounts) {
       return NextResponse.json({ ok: false, error: REAL_DATA_DISABLED_MESSAGE }, { status: 403 });
     }
 

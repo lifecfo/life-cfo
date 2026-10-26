@@ -33,17 +33,17 @@ export default function AddManualAccountPage() {
     );
   }
 
-  if (!access.canUseRealDataSources) {
+  if (!access.canAddManualAccounts) {
     return (
       <Page title="Add manual account">
         <div className="mx-auto w-full max-w-[640px] space-y-4">
           <Card className="border-zinc-200 bg-white">
             <CardContent className="space-y-3">
               <div className="text-sm font-semibold text-zinc-900">
-                Manual accounts are turned off for this demo.
+                Manual accounts are turned off right now.
               </div>
-              <Link href="/connections">
-                <Chip>Go back to Connections</Chip>
+              <Link href="/accounts">
+                <Chip>Go back to accounts</Chip>
               </Link>
             </CardContent>
           </Card>
@@ -92,8 +92,8 @@ export default function AddManualAccountPage() {
     >
       <div className="mx-auto w-full max-w-[640px] space-y-4">
         <div>
-          <Link href="/connections">
-            <Chip>Back to Connections</Chip>
+          <Link href="/accounts">
+            <Chip>Back to accounts</Chip>
           </Link>
         </div>
 

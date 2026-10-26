@@ -34,7 +34,7 @@ const PROTECTED_PREFIXES = [
 
 export const DEVELOPER_ONLY_PREFIXES = ["/engine", "/seed", "/lab", "/demo"];
 
-export const BANK_TOOL_PREFIXES = ["/connections", "/money/accounts/new"];
+export const BANK_TOOL_PREFIXES = ["/connections"];
 
 export const INVITE_EXEMPT_PREFIXES = [
   "/beta-invite",
@@ -62,9 +62,7 @@ const HIDDEN_BETA_DESTINATIONS: Array<{ path: string; destination: string; exact
   { path: "/money/out", destination: "/spending" },
   { path: "/money/saved", destination: "/lifecfo-home" },
   { path: "/money/planned", destination: "/lifecfo-home" },
-  { path: "/money/accounts/new", destination: "/start" },
   { path: "/money", destination: "/spending", exact: true },
-  { path: "/accounts", destination: "/lifecfo-home" },
   { path: "/transactions", destination: "/spending" },
   { path: "/connections", destination: "/start" },
   { path: "/net-worth", destination: "/lifecfo-home" },

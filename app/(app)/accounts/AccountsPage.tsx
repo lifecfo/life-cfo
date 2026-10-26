@@ -135,7 +135,7 @@ export default function AccountsPage() {
   const cardClass = "border-zinc-200 bg-white";
 
   return (
-    <Page title="Accounts" subtitle="Your connected and manual accounts.">
+    <Page title="Accounts" subtitle="Your accounts and balances.">
       <div className="mx-auto w-full max-w-[860px] px-4 sm:px-6">
         {/* Toolbar */}
         <div className="flex flex-wrap items-center justify-between gap-2">
@@ -146,8 +146,8 @@ export default function AccountsPage() {
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            <Link href="/connections">
-              <Chip>Manage connections</Chip>
+            <Link href="/money/accounts/new">
+              <Chip>Add manual account</Chip>
             </Link>
           </div>
         </div>

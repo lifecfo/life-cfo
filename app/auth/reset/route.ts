@@ -1,6 +1,7 @@
 // app/auth/reset/route.ts
 import { NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
+import { friendlyAuthLinkError } from "@/lib/auth/authLinkError";
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
@@ -34,11 +35,11 @@ export async function GET(request: Request) {
     const { error } = await supabase.auth.exchangeCodeForSession(code);
 
     if (error) {
-      // Send them back to login with an error message
-      const loginUrl = new URL("/login", url.origin);
-      loginUrl.searchParams.set("next", "/reset");
-      loginUrl.searchParams.set("err", error.message);
-      response = NextResponse.redirect(loginUrl);
+      // Send them to the reset page itself so it can explain what went
+      // wrong, instead of dumping a raw auth error on the login screen.
+      const errorUrl = new URL("/reset", url.origin);
+      errorUrl.searchParams.set("err", friendlyAuthLinkError(error.message));
+      response = NextResponse.redirect(errorUrl);
     }
   } else {
     // No code — go to reset page which will tell them to request a new email

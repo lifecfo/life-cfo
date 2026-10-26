@@ -2,6 +2,7 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { createServerClient } from "@supabase/ssr";
+import { friendlyAuthLinkError } from "@/lib/auth/authLinkError";
 
 function safeNext(input: unknown) {
   if (typeof input !== "string") return null;
@@ -70,7 +71,11 @@ export default async function AuthCallbackPage({
   if (code) {
     const { error } = await supabase.auth.exchangeCodeForSession(code);
     if (error) {
-      redirect(`/login?next=${encodeURIComponent(nextPath)}&err=${encodeURIComponent(error.message)}`);
+      const friendly = friendlyAuthLinkError(error.message);
+      if (type === "recovery") {
+        redirect(`/reset?err=${encodeURIComponent(friendly)}`);
+      }
+      redirect(`/login?next=${encodeURIComponent(nextPath)}&err=${encodeURIComponent(friendly)}`);
     }
   }
 

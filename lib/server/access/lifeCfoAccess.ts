@@ -9,6 +9,7 @@ export type LifeCfoAccess = {
   isDemoMode: boolean;
   isDeveloper: boolean;
   canUseRealDataSources: boolean;
+  canAddManualAccounts: boolean;
 };
 
 function metadataRecord(user: AuthenticatedUserMetadata): Record<string, unknown> {
@@ -28,6 +29,8 @@ export function hasInviteMetadata(user: AuthenticatedUserMetadata): boolean {
 /**
  * Typed-household beta.
  * Bank feeds stay compiled off. A CSV the person uploads is separate.
+ * Manual accounts (name + balance, no account numbers) are not a bank
+ * connection and stay available regardless of canUseRealDataSources.
  * Demo households are not forced onto invitees.
  */
 export function getLifeCfoAccess(user: AuthenticatedUserMetadata): LifeCfoAccess {
@@ -36,6 +39,7 @@ export function getLifeCfoAccess(user: AuthenticatedUserMetadata): LifeCfoAccess
     isDemoMode: false,
     isDeveloper,
     canUseRealDataSources: bankConnectIsEnabled() && isDeveloper,
+    canAddManualAccounts: true,
   };
 }
 
