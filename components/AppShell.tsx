@@ -459,7 +459,11 @@ export function AppShell({ children }: AppShellProps) {
                   <Link href="/how-life-cfo-works" className={menuItemClass} onClick={() => setMenuOpen(false)}>
                     How Life CFO works
                   </Link>
-                  <Link href="/feedback" className={menuItemClass} onClick={() => setMenuOpen(false)}>
+                  <Link
+                    href={`/feedback?from=${encodeURIComponent(pathname || "/feedback")}`}
+                    className={menuItemClass}
+                    onClick={() => setMenuOpen(false)}
+                  >
                     Feedback
                   </Link>
                   <Link href="/privacy" className={menuItemClass} onClick={() => setMenuOpen(false)}>
