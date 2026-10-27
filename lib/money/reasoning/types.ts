@@ -424,6 +424,60 @@ export type MoneyTimelineSummary = {
   commentary: string[];
 };
 
+// The zoomable timeline (lib/money/reasoning/deriveZoomTimeline.ts) is a
+// separate, additive derivation -- MoneyYearSummary/MoneyTimelineSummary
+// above stay untouched since deriveMoneyMap.ts also depends on them.
+
+export type TimelineGranularity = "week" | "month" | "quarter" | "year";
+
+export type TimelineBucket = {
+  key: string;
+  label: string;
+  start_iso: string;
+  end_iso: string;
+  is_past: boolean;
+  is_current: boolean;
+};
+
+export type MoneyZoomPointKind = "actual" | "planned";
+
+export type MoneyZoomBreakdownItem = {
+  name: string;
+  kind: "bill" | "income" | "category";
+  amount_cents: number;
+  currency: string;
+};
+
+export type MoneyZoomPoint = {
+  bucket_key: string;
+  label: string;
+  start_iso: string;
+  end_iso: string;
+  kind: MoneyZoomPointKind;
+  is_today_marker: boolean;
+  money_in_cents: number;
+  money_out_cents: number;
+  difference_cents: number;
+  breakdown: MoneyZoomBreakdownItem[];
+};
+
+export type MoneyZoomCurrency = {
+  currency: string;
+  scale_min_cents: number;
+  scale_max_cents: number;
+  points: MoneyZoomPoint[];
+};
+
+export type MoneyZoomTimelineSummary = {
+  version: 1;
+  granularity: TimelineGranularity;
+  now_iso: string;
+  today_bucket_key: string;
+  currencies: MoneyZoomCurrency[];
+  timing_needed_count: number;
+  mixed_currencies: boolean;
+};
+
 export type MoneyMapAccountItem = {
   name: string;
   balance_cents: number;

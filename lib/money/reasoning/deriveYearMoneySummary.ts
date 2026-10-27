@@ -1,4 +1,10 @@
 import { deriveMoneyBuckets } from "./deriveMoneyBuckets";
+import {
+  SUPPORTED_CADENCES,
+  advanceOccurrence,
+  scheduledItemsFromTruth,
+  type ScheduledItem,
+} from "./scheduleCadence";
 import type {
   HouseholdMoneyTruth,
   MoneyYearAmount,
@@ -8,68 +14,10 @@ import type {
   MoneyYearSeasonSummary,
   MoneyYearSummary,
   MoneyYearTimingNeededItem,
-  RecurringBillsTruthRow,
-  RecurringIncomeTruthRow,
 } from "./types";
-
-type ScheduledItem = {
-  name: string;
-  kind: "income" | "bill";
-  currency: string;
-  amount_cents: number;
-  cadence: string;
-  next_at: string | null;
-};
-
-const SUPPORTED_CADENCES = new Set([
-  "weekly",
-  "fortnightly",
-  "monthly",
-  "quarterly",
-  "annual",
-  "yearly",
-]);
-
-function normalizeCurrency(value: string | null | undefined): string {
-  return String(value || "AUD").trim().toUpperCase() || "AUD";
-}
-
-function normalizeCadence(value: string | null | undefined): string {
-  return String(value || "").trim().toLowerCase();
-}
 
 function monthStart(date: Date): Date {
   return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1));
-}
-
-function addCalendarMonths(date: Date, months: number, anchorDay: number): Date {
-  const first = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + months, 1));
-  const lastDay = new Date(
-    Date.UTC(first.getUTCFullYear(), first.getUTCMonth() + 1, 0)
-  ).getUTCDate();
-  first.setUTCDate(Math.min(anchorDay, lastDay));
-  return first;
-}
-
-function advanceOccurrence(
-  date: Date,
-  cadence: string,
-  anchorDay: number,
-  anchorMonth: number
-): Date | null {
-  const next = new Date(date);
-  if (cadence === "weekly" || cadence === "fortnightly") {
-    next.setUTCDate(next.getUTCDate() + (cadence === "weekly" ? 7 : 14));
-    return next;
-  }
-  if (cadence === "monthly") return addCalendarMonths(date, 1, anchorDay);
-  if (cadence === "quarterly") return addCalendarMonths(date, 3, anchorDay);
-  if (cadence === "annual" || cadence === "yearly") {
-    const year = date.getUTCFullYear() + 1;
-    const lastDay = new Date(Date.UTC(year, anchorMonth + 1, 0)).getUTCDate();
-    return new Date(Date.UTC(year, anchorMonth, Math.min(anchorDay, lastDay)));
-  }
-  return null;
 }
 
 function monthKey(date: Date): string {
@@ -82,26 +30,6 @@ function monthLabel(date: Date): string {
     year: "numeric",
     timeZone: "UTC",
   }).format(date);
-}
-
-function scheduledItems(truth: HouseholdMoneyTruth): ScheduledItem[] {
-  const income = truth.recurring_income.map((item: RecurringIncomeTruthRow) => ({
-    name: String(item.name || "Regular income").trim() || "Regular income",
-    kind: "income" as const,
-    currency: normalizeCurrency(item.currency),
-    amount_cents: Math.max(0, item.amount_cents ?? 0),
-    cadence: normalizeCadence(item.cadence),
-    next_at: item.next_pay_at,
-  }));
-  const bills = truth.recurring_bills.map((item: RecurringBillsTruthRow) => ({
-    name: String(item.name || "Regular payment").trim() || "Regular payment",
-    kind: "bill" as const,
-    currency: normalizeCurrency(item.currency),
-    amount_cents: Math.max(0, item.amount_cents ?? 0),
-    cadence: normalizeCadence(item.cadence),
-    next_at: item.next_due_at,
-  }));
-  return [...income, ...bills].filter((item) => item.amount_cents > 0);
 }
 
 function projectItem(
@@ -280,7 +208,7 @@ export function deriveYearMoneySummary(
 
   const occurrences: MoneyYearScheduledOccurrence[] = [];
   const timingNeeded: MoneyYearTimingNeededItem[] = [];
-  for (const item of scheduledItems(truth)) {
+  for (const item of scheduledItemsFromTruth(truth)) {
     const projected = projectItem(item, windowStart, windowEnd);
     occurrences.push(...projected.occurrences);
     if (projected.timingNeeded) timingNeeded.push(projected.timingNeeded);

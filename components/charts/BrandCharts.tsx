@@ -102,12 +102,21 @@ export function LineChart({
   formatValue,
   ariaLabel,
   empty,
+  splitIndex,
+  onPointClick,
+  maxLabels,
 }: {
   labels: string[];
   series: LineSeries[];
   formatValue: (value: number) => string;
   ariaLabel: string;
   empty: string;
+  /** Index at/after which each series renders dashed instead of solid (e.g. the "today" point). */
+  splitIndex?: number;
+  /** Called with a point's index when its dot is clicked. */
+  onPointClick?: (index: number) => void;
+  /** Thins rendered x-axis text labels to roughly this many (always keeps the last). Point dots are unaffected. */
+  maxLabels?: number;
 }) {
   const [active, setActive] = useState<number | null>(null);
   const count = labels.length;
@@ -119,11 +128,15 @@ export function LineChart({
   const max = Math.max(0, ...values);
   const zeroY = chartY(0, min, max);
   const midY = chartY((min + max) / 2, min, max);
+  const hasSplit = typeof splitIndex === "number" && splitIndex > 0 && splitIndex < count - 1;
+  const labelStep = maxLabels && maxLabels > 0 ? Math.max(1, Math.ceil(count / maxLabels)) : 1;
 
-  function points(item: LineSeries): string {
-    return item.values
-      .map((value, index) => `${chartX(index, count)},${chartY(value, min, max)}`)
-      .join(" ");
+  function points(item: LineSeries, fromIndex: number, toIndex: number): string {
+    const slice: string[] = [];
+    for (let index = fromIndex; index <= toIndex; index += 1) {
+      slice.push(`${chartX(index, count)},${chartY(item.values[index] ?? 0, min, max)}`);
+    }
+    return slice.join(" ");
   }
 
   function onMove(event: MouseEvent<SVGSVGElement>) {
@@ -164,33 +177,89 @@ export function LineChart({
           <line x1={CHART_LEFT} x2={CHART_WIDTH - CHART_RIGHT} y1={CHART_TOP} y2={CHART_TOP} stroke="#DAD6CF" strokeWidth="1" />
           <line x1={CHART_LEFT} x2={CHART_WIDTH - CHART_RIGHT} y1={midY} y2={midY} stroke="#DAD6CF" strokeWidth="1" />
           <line x1={CHART_LEFT} x2={CHART_WIDTH - CHART_RIGHT} y1={zeroY} y2={zeroY} stroke="#DAD6CF" strokeDasharray="4 4" />
-          {series.map((item) => (
-            <polyline
-              key={item.id}
-              points={points(item)}
-              fill="none"
-              strokeWidth="3"
-              strokeLinejoin="round"
-              strokeLinecap="round"
-              className={item.strokeClass}
-            />
-          ))}
+          {hasSplit ? (
+            <>
+              <line
+                x1={chartX(splitIndex as number, count)}
+                x2={chartX(splitIndex as number, count)}
+                y1={CHART_TOP}
+                y2={CHART_HEIGHT - CHART_BOTTOM}
+                stroke="#B7B1A6"
+                strokeDasharray="3 3"
+              />
+              <text
+                x={chartX(splitIndex as number, count)}
+                y={CHART_TOP - 2}
+                textAnchor="middle"
+                className="fill-neutral-text-2 text-[10px]"
+              >
+                Today
+              </text>
+            </>
+          ) : null}
+          {series.map((item) =>
+            hasSplit ? (
+              <g key={item.id}>
+                <polyline
+                  points={points(item, 0, splitIndex as number)}
+                  fill="none"
+                  strokeWidth="3"
+                  strokeLinejoin="round"
+                  strokeLinecap="round"
+                  className={item.strokeClass}
+                />
+                <polyline
+                  points={points(item, splitIndex as number, count - 1)}
+                  fill="none"
+                  strokeWidth="3"
+                  strokeDasharray="6 5"
+                  strokeLinejoin="round"
+                  strokeLinecap="round"
+                  className={item.strokeClass}
+                />
+              </g>
+            ) : (
+              <polyline
+                key={item.id}
+                points={points(item, 0, count - 1)}
+                fill="none"
+                strokeWidth="3"
+                strokeLinejoin="round"
+                strokeLinecap="round"
+                className={item.strokeClass}
+              />
+            )
+          )}
           {labels.map((label, index) => {
             const x = chartX(index, count);
+            const showLabel = index % labelStep === 0 || index === count - 1;
             return (
               <g key={`${label}-${index}`}>
                 {series.map((item) => (
-                  <circle
-                    key={item.id}
-                    cx={x}
-                    cy={chartY(item.values[index] ?? 0, min, max)}
-                    r={active === index ? 6 : 4}
-                    className={item.fillClass}
-                  />
+                  <g key={item.id}>
+                    <circle
+                      cx={x}
+                      cy={chartY(item.values[index] ?? 0, min, max)}
+                      r={active === index ? 6 : 4}
+                      className={item.fillClass}
+                    />
+                    {onPointClick ? (
+                      <circle
+                        cx={x}
+                        cy={chartY(item.values[index] ?? 0, min, max)}
+                        r={12}
+                        fill="transparent"
+                        className="cursor-pointer"
+                        onClick={() => onPointClick(index)}
+                      />
+                    ) : null}
+                  </g>
                 ))}
-                <text x={x} y={CHART_HEIGHT - 12} textAnchor="middle" className="fill-neutral-text-2 text-[11px]">
-                  {label}
-                </text>
+                {showLabel ? (
+                  <text x={x} y={CHART_HEIGHT - 12} textAnchor="middle" className="fill-neutral-text-2 text-[11px]">
+                    {label}
+                  </text>
+                ) : null}
               </g>
             );
           })}

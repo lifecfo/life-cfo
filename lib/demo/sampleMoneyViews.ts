@@ -7,13 +7,17 @@
 import { buildSampleHousehold, monthlyCents, type SampleItem } from "./sampleHousehold";
 import { deriveMoneyTimeline } from "@/lib/money/reasoning/deriveMoneyTimeline";
 import { deriveYearMoneySummary } from "@/lib/money/reasoning/deriveYearMoneySummary";
+import { deriveMoneyZoomTimeline } from "@/lib/money/reasoning/deriveZoomTimeline";
 import type {
   HouseholdMoneyTruth,
   MoneyGoalsTruthRow,
   MoneyTimelineSummary,
   MoneyYearSummary,
+  MoneyZoomTimelineSummary,
   RecurringBillsTruthRow,
   RecurringIncomeTruthRow,
+  TimelineGranularity,
+  TransactionsTruthRow,
 } from "@/lib/money/reasoning/types";
 
 const CURRENCY = "AUD";
@@ -361,7 +365,10 @@ function emptyHouseholdMoneyTruth(today: Date): HouseholdMoneyTruth {
   };
 }
 
-export function buildSampleYearResponse(today = new Date()): { year: MoneyYearSummary; timeline: MoneyTimelineSummary } {
+// Shared by buildSampleYearResponse and buildSampleTimelineResponse --
+// both need the same minimal truth slice (recurring_bills/recurring_income/
+// goals), just run through different real derivation functions.
+function buildSampleTruth(today: Date): HouseholdMoneyTruth {
   const household = buildSampleHousehold(today);
   const goals = buildSampleGoals(today);
 
@@ -407,14 +414,48 @@ export function buildSampleYearResponse(today = new Date()): { year: MoneyYearSu
     purpose_type: goal.purpose_type,
   }));
 
-  const truth: HouseholdMoneyTruth = {
+  return {
     ...emptyHouseholdMoneyTruth(today),
     recurring_bills: recurringBills,
     recurring_income: recurringIncome,
     goals: goalRows,
   };
+}
 
+export function buildSampleYearResponse(today = new Date()): { year: MoneyYearSummary; timeline: MoneyTimelineSummary } {
+  const truth = buildSampleTruth(today);
   const year = deriveYearMoneySummary(truth);
   const timeline = deriveMoneyTimeline(year);
   return { year, timeline };
+}
+
+// --- Zoomable timeline (app/(app)/money/year/YearClient.tsx) ---
+
+export function buildSampleTimelineResponse(
+  granularity: TimelineGranularity,
+  today = new Date()
+): { timeline: MoneyZoomTimelineSummary } {
+  const truth = buildSampleTruth(today);
+  const household = buildSampleHousehold(today);
+
+  const actualRows: TransactionsTruthRow[] = household.transactions.map((row, index) => ({
+    id: `sample-tx-${index}`,
+    connection_id: null,
+    external_connection_id: null,
+    date: row.date,
+    description: row.description,
+    merchant: row.description,
+    category: row.category,
+    pending: false,
+    amount: row.amount_cents / 100,
+    amount_cents: row.amount_cents,
+    currency: CURRENCY,
+    account_id: null,
+    provider: "manual",
+    created_at: `${row.date}T00:00:00.000Z`,
+    updated_at: `${row.date}T00:00:00.000Z`,
+  }));
+
+  const timeline = deriveMoneyZoomTimeline(truth, actualRows, granularity, today.toISOString());
+  return { timeline };
 }

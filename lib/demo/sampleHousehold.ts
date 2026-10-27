@@ -87,8 +87,11 @@ export function buildSampleHousehold(today = new Date()): SampleHousehold {
     { id: "s-vet", title: "Vet visit", kind: "receipt", category: "Pets", amount_cents: 9500, cadence: "yearly", due_on: shift(today, -20), owner: "Jordan" },
   ];
 
+  // 2 years, not just 92 days -- the zoomable timeline's Quarter/Year
+  // granularity needs enough history that past buckets aren't all zero in
+  // sample mode (see lib/money/reasoning/deriveZoomTimeline.ts).
   const transactions: SampleTxn[] = [];
-  for (let daysAgo = 0; daysAgo < 92; daysAgo += 1) {
+  for (let daysAgo = 0; daysAgo < 730; daysAgo += 1) {
     const when = new Date(today);
     when.setDate(today.getDate() - daysAgo);
     const date = iso(when);
