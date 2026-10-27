@@ -5,6 +5,16 @@
  * written anywhere, never sent to an AI provider.
  */
 import { buildSampleHousehold, monthlyCents, type SampleItem } from "./sampleHousehold";
+import { deriveMoneyTimeline } from "@/lib/money/reasoning/deriveMoneyTimeline";
+import { deriveYearMoneySummary } from "@/lib/money/reasoning/deriveYearMoneySummary";
+import type {
+  HouseholdMoneyTruth,
+  MoneyGoalsTruthRow,
+  MoneyTimelineSummary,
+  MoneyYearSummary,
+  RecurringBillsTruthRow,
+  RecurringIncomeTruthRow,
+} from "@/lib/money/reasoning/types";
 
 const CURRENCY = "AUD";
 
@@ -310,4 +320,101 @@ export function buildSampleGoals(today = new Date()): SampleGoal[] {
       updated_at: now,
     },
   ];
+}
+
+// --- Year ahead (app/(app)/money/year/page.tsx) ---
+//
+// Rather than hand-building a MoneyYearSummary/MoneyTimelineSummary (a lot
+// of fields: per-month breakdowns, larger-payment grouping, season
+// detection, closer-look reasons), this builds the minimal
+// HouseholdMoneyTruth slice those derivations actually read
+// (recurring_bills, recurring_income, goals, windows) and runs it through
+// the real deriveYearMoneySummary/deriveMoneyTimeline functions. Same
+// algorithm as the live API route, so sample and real data can never
+// silently drift apart.
+
+function emptyHouseholdMoneyTruth(today: Date): HouseholdMoneyTruth {
+  const nowIso = today.toISOString();
+  const monthStart = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 1)).toISOString();
+  const monthEnd = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() + 1, 0)).toISOString();
+  const next30 = new Date(today.getTime() + 30 * 86_400_000).toISOString();
+  return {
+    household_id: "sample",
+    as_of_iso: nowIso,
+    windows: {
+      now_iso: nowIso,
+      next30_iso: next30,
+      month_start_iso: monthStart,
+      month_end_iso: monthEnd,
+    },
+    accounts: [],
+    recent_transactions: [],
+    month_transactions: [],
+    rolling_transactions: [],
+    recurring_bills: [],
+    recurring_income: [],
+    goals: [],
+    liabilities: [],
+    external_connections: [],
+    transaction_pattern_confirmations: [],
+    counts: { budget_items: 0, investment_accounts: 0 },
+  };
+}
+
+export function buildSampleYearResponse(today = new Date()): { year: MoneyYearSummary; timeline: MoneyTimelineSummary } {
+  const household = buildSampleHousehold(today);
+  const goals = buildSampleGoals(today);
+
+  const recurringBills: RecurringBillsTruthRow[] = household.items
+    .filter((item) => item.kind === "bill" || item.kind === "renewal")
+    .map((item) => ({
+      id: item.id,
+      name: item.title,
+      amount_cents: item.amount_cents,
+      currency: CURRENCY,
+      cadence: item.cadence,
+      next_due_at: `${item.due_on}T00:00:00.000Z`,
+      autopay: false,
+      active: true,
+      notes: null,
+    }));
+
+  const recurringIncome: RecurringIncomeTruthRow[] = household.items
+    .filter((item) => item.kind === "income")
+    .map((item) => ({
+      id: item.id,
+      name: item.title,
+      amount_cents: item.amount_cents,
+      currency: CURRENCY,
+      cadence: item.cadence,
+      next_pay_at: `${item.due_on}T00:00:00.000Z`,
+      active: true,
+      notes: null,
+    }));
+
+  const goalRows: MoneyGoalsTruthRow[] = goals.map((goal) => ({
+    id: goal.id,
+    title: goal.title,
+    currency: goal.currency,
+    target_cents: goal.target_cents,
+    current_cents: goal.current_cents,
+    status: goal.status,
+    target_date: null,
+    deadline_at: goal.deadline_at,
+    notes: goal.notes,
+    is_primary: goal.is_primary,
+    updated_at: goal.updated_at,
+    purpose_type: goal.purpose_type,
+  }));
+
+  const truth: HouseholdMoneyTruth = {
+    ...emptyHouseholdMoneyTruth(today),
+    recurring_bills: recurringBills,
+    recurring_income: recurringIncome,
+    goals: goalRows,
+  };
+
+  const year = deriveYearMoneySummary(truth);
+  const timeline = deriveMoneyTimeline(year);
+  return { year, timeline };
 }

@@ -5,6 +5,8 @@ import { LineChart } from "@/components/charts/BrandCharts";
 import { PageGlance } from "@/components/glance/PageGlance";
 import { Page } from "@/components/Page";
 import { Card, CardContent, Chip, Money } from "@/components/ui";
+import { useSampleMode } from "@/lib/demo/sampleMode";
+import { buildSampleYearResponse } from "@/lib/demo/sampleMoneyViews";
 import { formatMoneyFromCents } from "@/lib/money/formatMoney";
 import { useCountUp } from "@/lib/ui/useCountUp";
 import type {
@@ -154,6 +156,7 @@ function YearTimelineChart({ timeline }: { timeline: MoneyTimelineCurrency }) {
 }
 
 export default function MoneyYearPage() {
+  const { on: sampleOn, ready: sampleReady } = useSampleMode();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [year, setYear] = useState<MoneyYearSummary | null>(null);
@@ -163,6 +166,12 @@ export default function MoneyYearPage() {
     setLoading(true);
     setError(null);
     try {
+      if (sampleOn) {
+        const sample = buildSampleYearResponse();
+        setYear(sample.year);
+        setTimeline(sample.timeline);
+        return;
+      }
       const response = await fetch("/api/money/year", { cache: "no-store" });
       const body = (await response.json().catch(() => ({}))) as YearResponse;
       if (!response.ok || !body.year || !body.timeline) {
@@ -184,8 +193,15 @@ export default function MoneyYearPage() {
   }
 
   useEffect(() => {
+    // Wait for sample mode's own localStorage read to resolve first --
+    // otherwise this fires once with the stale default (sampleOn=false)
+    // and again right after with the real value, and the slower real-data
+    // fetch from the first call can land after the sample call and
+    // clobber it with a "no household" error.
+    if (!sampleReady) return;
     void loadYear();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sampleOn, sampleReady]);
 
   return (
     <Page
