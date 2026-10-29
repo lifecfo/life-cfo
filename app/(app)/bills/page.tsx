@@ -1296,9 +1296,9 @@ export default function BillsPage() {
           </>
         )}
       </div>
-      <MascotCorner mode="celebrate" contentMaxWidth={900} enabled={mascotEnabled} reducedMotion={reducedMotion} celebrateKey={celebrateKey} />
+      <MascotCorner mode="celebrate" enabled={mascotEnabled} reducedMotion={reducedMotion} celebrateKey={celebrateKey} />
       {!loading && bills.length === 0 ? (
-        <MascotCorner mode="static" contentMaxWidth={900} enabled={mascotEnabled} reducedMotion={reducedMotion} />
+        <MascotCorner mode="static" enabled={mascotEnabled} reducedMotion={reducedMotion} />
       ) : null}
     </Page>
   );

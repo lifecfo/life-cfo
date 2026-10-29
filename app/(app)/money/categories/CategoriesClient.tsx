@@ -381,7 +381,7 @@ export default function CategoriesClient() {
         )}
       </div>
       {!loading && grouped.length === 0 ? (
-        <MascotCorner mode="static" contentMaxWidth={860} enabled={mascotEnabled} reducedMotion={reducedMotion} />
+        <MascotCorner mode="static" enabled={mascotEnabled} reducedMotion={reducedMotion} />
       ) : null}
     </Page>
   );

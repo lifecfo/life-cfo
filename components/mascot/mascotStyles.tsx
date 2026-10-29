@@ -3,9 +3,10 @@
 /**
  * All mascot CSS lives here, injected once by MascotHost. Plain <style>
  * (not styled-jsx) so it works regardless of styled-jsx support. Idle
- * loops (blink/tail-flick/ear-twitch/walk-cycle) are CSS keyframes, mostly
- * static with brief motion -- JS only decides WHEN to mount/swap classes,
- * never computes the motion itself.
+ * loops (blink/ear-flick/tail-tip-flick/whisker-twitch/head-tilt) are
+ * long-cycle CSS keyframes, mostly static with brief motion every
+ * 20-60s -- JS only decides pose/expression/wiggle, the motion itself is
+ * native CSS.
  */
 export function MascotStyles() {
   return (
@@ -20,50 +21,68 @@ export function MascotStyles() {
       }
 
       /* ---- Idle loops (always on while the shape is visible) ---- */
-      .mascot-cat-tail {
-        animation: mascot-tail-flick 9s ease-in-out infinite;
+      .mascot-cat-tail-tip {
+        animation: mascot-tail-tip-flick 26s ease-in-out infinite;
       }
-      @keyframes mascot-tail-flick {
-        0%, 85% { transform: rotate(0deg); }
-        90% { transform: rotate(-8deg); }
-        95% { transform: rotate(3deg); }
+      @keyframes mascot-tail-tip-flick {
+        0%, 92% { transform: rotate(0deg); }
+        95% { transform: rotate(-10deg); }
+        98% { transform: rotate(4deg); }
         100% { transform: rotate(0deg); }
       }
 
       .mascot-cat-ear-left {
-        animation: mascot-ear-twitch 11s ease-in-out infinite;
+        animation: mascot-ear-flick 38s ease-in-out infinite;
       }
       .mascot-cat-ear-right {
-        animation: mascot-ear-twitch 12.5s ease-in-out infinite;
-        animation-delay: 1.2s;
+        animation: mascot-ear-flick 44s ease-in-out infinite;
+        animation-delay: 3s;
       }
-      @keyframes mascot-ear-twitch {
-        0%, 90% { transform: rotate(0deg); }
-        93% { transform: rotate(-6deg); }
-        96% { transform: rotate(2deg); }
+      @keyframes mascot-ear-flick {
+        0%, 94% { transform: rotate(0deg); }
+        96% { transform: rotate(-12deg); }
+        98% { transform: rotate(4deg); }
         100% { transform: rotate(0deg); }
       }
-      .mascot-cat-ears-up {
-        transform: translateY(-2px);
+
+      .mascot-cat-eye-open {
+        animation: mascot-blink-open 22s ease-in-out infinite;
+      }
+      .mascot-cat-eye-closed {
+        animation: mascot-blink-closed 22s ease-in-out infinite;
+      }
+      @keyframes mascot-blink-open {
+        0%, 95% { opacity: 1; }
+        96.5% { opacity: 0; }
+        98% { opacity: 1; }
+        100% { opacity: 1; }
+      }
+      @keyframes mascot-blink-closed {
+        0%, 95% { opacity: 0; }
+        96.5% { opacity: 1; }
+        98% { opacity: 0; }
+        100% { opacity: 0; }
       }
 
-      .mascot-cat-eyelid {
-        transform: scaleY(0);
-        animation: mascot-blink 6s ease-in-out infinite;
+      .mascot-cat-whiskers {
+        animation: mascot-whisker-twitch 52s ease-in-out infinite;
+        transform-origin: 56px 31px;
       }
-      @keyframes mascot-blink {
-        0%, 95% { transform: scaleY(0); }
-        97% { transform: scaleY(1); }
-        99% { transform: scaleY(0); }
-        100% { transform: scaleY(0); }
+      @keyframes mascot-whisker-twitch {
+        0%, 93% { transform: rotate(0deg); }
+        95% { transform: rotate(3deg); }
+        97% { transform: rotate(-1deg); }
+        100% { transform: rotate(0deg); }
       }
 
-      .mascot-cat-breathe {
-        animation: mascot-breathe 4s ease-in-out infinite;
+      .mascot-cat-head {
+        animation: mascot-head-tilt 33s ease-in-out infinite;
       }
-      @keyframes mascot-breathe {
-        0%, 100% { transform: scale(1); }
-        50% { transform: scale(1.02); }
+      @keyframes mascot-head-tilt {
+        0%, 90% { transform: rotate(0deg); }
+        93% { transform: rotate(-4deg); }
+        97% { transform: rotate(1deg); }
+        100% { transform: rotate(0deg); }
       }
 
       .mascot-cat-zzz {
@@ -73,6 +92,18 @@ export function MascotStyles() {
         0% { opacity: 0; transform: translateY(0); }
         30% { opacity: 0.85; }
         100% { opacity: 0; transform: translateY(-10px); }
+      }
+
+      .mascot-cat-wiggle {
+        animation: mascot-wiggle 0.35s ease-in-out 4;
+      }
+      @keyframes mascot-wiggle {
+        0%, 100% { transform: translateX(0); }
+        50% { transform: translateX(3px); }
+      }
+
+      .mascot-cat-pose {
+        transition: transform 0.7s ease-in-out, opacity 0.35s ease-in-out;
       }
 
       .mascot-mouse-tail {
@@ -91,76 +122,56 @@ export function MascotStyles() {
         50% { transform: scale(1.15); }
       }
 
-      /* ---- Walk cycle (only while pose="walking") ---- */
-      .mascot-cat-walk-legs .mascot-cat-leg-front {
-        animation: mascot-leg-step 0.9s ease-in-out infinite;
+      /* ---- Layout: a blank in-flow strip at the end of the page's
+             content, on every screen size. Never a fixed overlay, never
+             inside a card. ---- */
+      .mascot-strip {
+        display: flex;
+        align-items: flex-start;
+        justify-content: flex-end;
+        min-height: 140px;
+        padding: 16px 90px 16px 16px;
       }
-      .mascot-cat-walk-legs .mascot-cat-leg-back {
-        animation: mascot-leg-step 0.9s ease-in-out infinite;
-        animation-delay: 0.45s;
-      }
-      @keyframes mascot-leg-step {
-        0%, 100% { transform: translateY(0); }
-        50% { transform: translateY(-3px); }
-      }
-      .mascot-cat-walk-body {
-        animation: mascot-body-bob 0.9s ease-in-out infinite;
-      }
-      @keyframes mascot-body-bob {
-        0%, 100% { transform: translateY(0); }
-        50% { transform: translateY(-1.5px); }
+      @media (max-width: 767px) {
+        .mascot-strip {
+          justify-content: center;
+          padding: 16px;
+        }
       }
 
-      /* ---- Tail wag (celebration) ---- */
-      .mascot-corner--celebrate .mascot-cat-tail {
+      .mascot-strip-cat {
+        width: var(--mascot-cat-size);
+        height: var(--mascot-cat-size);
+        flex-shrink: 0;
+        opacity: 1;
+        transition: opacity 0.9s ease-in-out;
+      }
+      .mascot-strip-cat[data-visible="false"] {
+        opacity: 0;
+      }
+      .mascot-strip-cat svg {
+        width: 100%;
+        height: 100%;
+        display: block;
+      }
+
+      .mascot-cat-button {
+        background: none;
+        border: none;
+        padding: 0;
+        margin: 0;
+        cursor: pointer;
+        display: block;
+        width: 100%;
+        height: 100%;
+      }
+
+      .mascot-corner--celebrate .mascot-cat-tail-tip {
         animation: mascot-tail-wag 0.5s ease-in-out 3;
       }
       @keyframes mascot-tail-wag {
         0%, 100% { transform: rotate(0deg); }
-        50% { transform: rotate(-16deg); }
-      }
-
-      /* ---- Layout: the cat lives beside the content (desktop/tablet
-             gutter) or in-flow at the end of it (mobile). Never a fixed
-             overlay, never inside a card. ---- */
-      .mascot-corner-gutter {
-        position: relative;
-        height: 0;
-        overflow: visible;
-      }
-      .mascot-corner-gutter-cat {
-        position: sticky;
-        top: 130px;
-        width: var(--mascot-cat-size);
-        height: var(--mascot-cat-size);
-        margin-left: 100%;
-        transform: translateX(28px);
-        transition: opacity 0.9s ease-in-out;
-      }
-      .mascot-corner-gutter-cat[data-visible="false"] {
-        opacity: 0;
-      }
-      .mascot-corner-gutter-cat svg {
-        width: 100%;
-        height: 100%;
-      }
-
-      .mascot-corner-strip {
-        display: flex;
-        justify-content: center;
-        padding: 16px 0 8px;
-      }
-      .mascot-corner-strip-cat {
-        width: var(--mascot-cat-size);
-        height: var(--mascot-cat-size);
-        transition: opacity 0.9s ease-in-out;
-      }
-      .mascot-corner-strip-cat[data-visible="false"] {
-        opacity: 0;
-      }
-      .mascot-corner-strip-cat svg {
-        width: 100%;
-        height: 100%;
+        50% { transform: rotate(-18deg); }
       }
 
       /* ---- Layout: the scene band (mouse/hole/cheese -- currently paused) ---- */
@@ -243,37 +254,28 @@ export function MascotStyles() {
         transform: translateX(-50%) scale(1);
       }
 
-      /* ---- Hand-drawn speech bubble ---- */
-      .mascot-bubble-wrap {
+      /* ---- Hand-drawn speech bubble: a real flex sibling of the cat,
+             not an absolute overlay, so it's physically contained by the
+             strip and can never drift above it into page content. ---- */
+      .mascot-bubble-row {
+        display: flex;
+        align-items: flex-start;
+        gap: 12px;
+      }
+      .mascot-bubble-slot {
         position: relative;
-        display: inline-block;
-      }
-      .mascot-bubble {
-        position: absolute;
-        bottom: calc(100% + 12px);
-        left: 50%;
-        transform: translate(-50%, 4px);
-        min-width: 160px;
-        max-width: 230px;
-        padding: 18px 20px 30px;
+        width: 190px;
+        min-height: 70px;
+        padding: 16px 18px 26px;
         font-size: 16px;
-        line-height: 1.4;
+        line-height: 1.35;
         color: #16413f;
-        opacity: 0;
-        transition: opacity 0.2s ease-in-out, transform 0.2s ease-in-out;
-        pointer-events: none;
       }
-      .mascot-bubble[data-tail-side="right"] {
-        left: auto;
-        right: 50%;
-      }
-      .mascot-bubble[data-open="true"] {
-        opacity: 1;
-        transform: translate(-50%, 0);
-        pointer-events: auto;
-      }
-      .mascot-bubble[data-open="true"][data-tail-side="right"] {
-        transform: translate(50%, 0);
+      @media (max-width: 480px) {
+        .mascot-bubble-slot {
+          width: 130px;
+          font-size: 15px;
+        }
       }
       .mascot-bubble-text {
         position: relative;
@@ -282,25 +284,24 @@ export function MascotStyles() {
       }
 
       @media (prefers-reduced-motion: reduce) {
-        .mascot-cat-tail,
+        .mascot-cat-tail-tip,
         .mascot-cat-ear-left,
         .mascot-cat-ear-right,
-        .mascot-cat-eyelid,
-        .mascot-cat-breathe,
+        .mascot-cat-eye-open,
+        .mascot-cat-eye-closed,
+        .mascot-cat-whiskers,
+        .mascot-cat-head,
         .mascot-cat-zzz,
+        .mascot-cat-wiggle,
         .mascot-mouse-tail,
         .mascot-nudge,
-        .mascot-cat-walk-legs .mascot-cat-leg-front,
-        .mascot-cat-walk-legs .mascot-cat-leg-back,
-        .mascot-cat-walk-body,
-        .mascot-corner--celebrate .mascot-cat-tail {
+        .mascot-corner--celebrate .mascot-cat-tail-tip {
           animation: none !important;
         }
-        .mascot-corner-gutter-cat,
-        .mascot-corner-strip-cat,
+        .mascot-cat-pose,
+        .mascot-strip-cat,
         .mascot-scene-item,
-        .mascot-scene-cheese,
-        .mascot-bubble {
+        .mascot-scene-cheese {
           transition: none !important;
         }
       }

@@ -10,18 +10,24 @@ const HOVER_CLOSE_DELAY_MS = 300;
 type SpeechBubbleProps = {
   children: React.ReactNode;
   label: string;
-  tailSide?: "left" | "right";
+  /** Which side of the cat the bubble opens on -- real flex space, never absolutely overlaid, so it can't drift outside the strip. */
+  side: "left" | "right";
   className?: string;
 };
 
 /**
- * Wraps the mascot SVG in a focusable button. Desktop: hover shows the
- * bubble, moving away hides it after a short delay (so it doesn't
- * flicker). Touch: tap toggles it. Keyboard: focus shows, blur hides.
- * The line itself is sticky for 5 minutes (lib/mascot/lineMemory.ts) --
- * repeated open/close never changes it mid-window.
+ * Wraps the mascot SVG in a focusable button, with the speech bubble as
+ * a real flex sibling (not an absolute overlay) so it's physically
+ * contained by whatever row it's laid out in -- it can only ever be as
+ * tall as that row allows, never drifting above it into page content.
+ *
+ * Desktop: hover shows the bubble, moving away hides it after a short
+ * delay (so it doesn't flicker). Touch: tap toggles it. Keyboard: focus
+ * shows, blur hides. The line itself is sticky for 5 minutes
+ * (lib/mascot/lineMemory.ts) -- repeated open/close never changes it
+ * mid-window.
  */
-export function SpeechBubble({ children, label, tailSide = "left", className }: SpeechBubbleProps) {
+export function SpeechBubble({ children, label, side, className }: SpeechBubbleProps) {
   const [open, setOpen] = useState(false);
   const [line, setLine] = useState("");
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -68,33 +74,35 @@ export function SpeechBubble({ children, label, tailSide = "left", className }: 
 
   useEffect(() => clearHideTimer, []);
 
+  const bubble = open ? (
+    <div id={bubbleId} className="mascot-bubble-slot" role="status" aria-live="polite">
+      <BubbleShape tailSide={side} />
+      <span className={`mascot-bubble-text ${mascotHandwrittenFont.className}`}>{line}</span>
+    </div>
+  ) : null;
+
+  const button = (
+    <button
+      type="button"
+      aria-label={label}
+      aria-expanded={open}
+      aria-describedby={open ? bubbleId : undefined}
+      onClick={() => (open ? hideNow() : show())}
+      onMouseEnter={show}
+      onMouseLeave={hideAfterDelay}
+      onFocus={show}
+      onBlur={hideNow}
+      className="mascot-cat-button"
+    >
+      {children}
+    </button>
+  );
+
   return (
-    <div ref={wrapRef} className={`mascot-bubble-wrap ${className ?? ""}`}>
-      <button
-        type="button"
-        aria-label={label}
-        aria-expanded={open}
-        aria-describedby={open ? bubbleId : undefined}
-        onClick={() => (open ? hideNow() : show())}
-        onMouseEnter={show}
-        onMouseLeave={hideAfterDelay}
-        onFocus={show}
-        onBlur={hideNow}
-        style={{ background: "none", border: "none", padding: 0, cursor: "pointer", pointerEvents: "auto", display: "block" }}
-      >
-        {children}
-      </button>
-      <div
-        id={bubbleId}
-        className={`mascot-bubble ${mascotHandwrittenFont.className}`}
-        data-open={open}
-        data-tail-side={tailSide}
-        role="status"
-        aria-live="polite"
-      >
-        <BubbleShape tailSide={tailSide} />
-        <span className="mascot-bubble-text">{open ? line : ""}</span>
-      </div>
+    <div ref={wrapRef} className={`mascot-bubble-row ${className ?? ""}`}>
+      {side === "left" ? bubble : null}
+      {button}
+      {side === "right" ? bubble : null}
     </div>
   );
 }

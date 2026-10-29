@@ -2,123 +2,124 @@
 
 import type { CSSProperties } from "react";
 
-export type CatPose = "sitting" | "walking" | "peek-head";
-export type CatExpression = "open" | "happy" | "sleepy" | "alert";
+export type CatPose = "sitting" | "loaf" | "crouch" | "pounce";
+export type CatExpression = "content" | "alert" | "sleepy" | "happy";
 
 type CatSvgProps = {
   pose?: CatPose;
   expression?: CatExpression;
-  /** Ears rotated up and alert -- used when the cat notices the mouse. */
-  earsUp?: boolean;
+  /** Brief bum-wiggle, used right before a pounce. */
+  wiggle?: boolean;
   className?: string;
   style?: CSSProperties;
 };
 
-// Brand tokens, read from tailwind.config.js -- not guessed.
-const TEAL = "#1F5E5C"; // cfo.DEFAULT / brand.teal -- main fur
-const TEAL_DARK = "#174947"; // cfo.dark -- stripes, leg/tail shading, outline
-const CREAM = "#F6F4F1"; // neutral.bg -- muzzle, chest, belly, paws, tail tip
-const MUTED_PINK = "#B4707E"; // category.7 "Dusty rose" -- the closest on-brand pink; inner ears + nose
-const CHARCOAL = "#2B2B2B"; // neutral.text -- eyes
-const ACCENT = "#9B3C6E"; // brand.hibiscus -- collar, so it doesn't disappear into the teal fur
+const TEAL = "#1F5E5C"; // cfo.DEFAULT / brand.teal
+const ACCENT = "#9B3C6E"; // brand.hibiscus -- a subtle collar line
 
-const outline = { stroke: TEAL_DARK, strokeWidth: 1.5, strokeLinejoin: "round" as const, strokeLinecap: "round" as const };
+const POSE_TRANSFORM: Record<CatPose, string> = {
+  sitting: "none",
+  loaf: "scaleY(0.75) translateY(18px)",
+  crouch: "scaleY(0.85) translateY(10px) translateX(-4px)",
+  pounce: "translateX(26px) translateY(-16px) scaleY(0.95)",
+};
 
-function Eye({ cx, cy, expression }: { cx: number; cy: number; expression: CatExpression }) {
+function EyeShape({ expression }: { expression: CatExpression }) {
+  // Eye centred around (58, 23). A soft upward curve reads as content;
+  // a bigger, rounder upward arc reads as happy; a downward arc as
+  // sleepy; a small dot as alert. The idle blink (mascotStyles.tsx)
+  // crossfades the "content" curve with a flat closed line, so it only
+  // applies to that expression.
   if (expression === "happy") {
-    return <path d={`M ${cx - 4.5} ${cy + 1} Q ${cx} ${cy - 6} ${cx + 4.5} ${cy + 1}`} fill="none" stroke={CHARCOAL} strokeWidth="2.4" strokeLinecap="round" />;
+    return <path d="M 52 25 Q 58 15 64 25" fill="none" stroke={TEAL} strokeWidth="2.2" strokeLinecap="round" />;
   }
   if (expression === "sleepy") {
-    return <path d={`M ${cx - 4.5} ${cy} Q ${cx} ${cy + 3} ${cx + 4.5} ${cy}`} fill="none" stroke={CHARCOAL} strokeWidth="2.2" strokeLinecap="round" />;
+    return (
+      <>
+        <path d="M 53 22 Q 58 27 63 22" fill="none" stroke={TEAL} strokeWidth="2" strokeLinecap="round" />
+        <text x="66" y="12" fontSize="8" fill={TEAL} className="mascot-cat-zzz">
+          z
+        </text>
+      </>
+    );
   }
-  const pupilR = expression === "alert" ? 5 : 4;
+  if (expression === "alert") {
+    return <circle cx="58" cy="23" r="2.1" fill={TEAL} />;
+  }
   return (
-    <g>
-      <circle cx={cx} cy={cy} r={pupilR} fill={CHARCOAL} />
-      <circle cx={cx - 1.4} cy={cy - 1.4} r="1.1" fill="#ffffff" />
-      {/* The eyelid: hidden (scaleY 0) until the idle blink animation briefly closes it. */}
-      <ellipse
-        className="mascot-cat-eyelid"
-        style={{ transformOrigin: `${cx}px ${cy - pupilR - 0.5}px` }}
-        cx={cx}
-        cy={cy}
-        rx={pupilR + 0.8}
-        ry={pupilR + 0.8}
-        fill={TEAL}
-      />
-    </g>
+    <>
+      <path className="mascot-cat-eye-open" d="M 53 24 Q 58 20 63 24" fill="none" stroke={TEAL} strokeWidth="2" strokeLinecap="round" />
+      <path className="mascot-cat-eye-closed" d="M 53 23 L 63 23" fill="none" stroke={TEAL} strokeWidth="2" strokeLinecap="round" opacity="0" />
+    </>
   );
 }
 
 /**
- * Flat, filled cartoon cat mascot -- big round head, small body, short
- * legs, long curvy tail, in Life CFO's brand palette. Each anatomical
- * piece is its own SVG group so CSS keyframes (mascotStyles.tsx) can move
- * them independently: tail sway, ear twitch, blink, a walk cycle (legs
- * alternate + body bob), and a breathing scale while napping.
+ * An original minimalist single-line cat, sitting upright in profile --
+ * brand teal, no fill, variable stroke weight (thicker along the back
+ * and tail, thinner at the ears/chest/paws). Each anatomical piece is
+ * its own SVG group so CSS (mascotStyles.tsx) can move it independently:
+ * tail-tip flick, ear flick, blink, whisker twitch, a head tilt, and
+ * pose changes (sitting/loaf/crouch/pounce) via transform + a soft
+ * opacity dip rather than redrawn geometry.
  */
-export function CatSvg({ pose = "sitting", expression = "open", earsUp = false, className, style }: CatSvgProps) {
-  const showBody = pose !== "peek-head";
-  const walking = pose === "walking";
+export function CatSvg({ pose = "sitting", expression = "content", wiggle = false, className, style }: CatSvgProps) {
+  const round = { strokeLinecap: "round" as const, strokeLinejoin: "round" as const, fill: "none" as const };
 
   return (
-    <svg viewBox="0 0 100 100" className={className} style={style} aria-hidden="true" focusable="false">
-      {showBody ? (
-        <g className={walking ? "mascot-cat-walk-legs" : undefined}>
-          <rect x="36" y="86" width="10" height="12" rx="5" fill={CREAM} {...outline} className="mascot-cat-leg-front" style={{ transformOrigin: "41px 86px" }} />
-          <rect x="54" y="86" width="10" height="12" rx="5" fill={CREAM} {...outline} className="mascot-cat-leg-back" style={{ transformOrigin: "59px 86px" }} />
-        </g>
-      ) : null}
-
-      {showBody ? (
-        <g className={walking ? "mascot-cat-walk-body" : undefined}>
+    <svg viewBox="0 0 110 132" className={className} style={style} aria-hidden="true" focusable="false">
+      <g
+        className="mascot-cat-pose"
+        style={{ transform: POSE_TRANSFORM[pose], transformOrigin: "60px 128px" }}
+      >
+        <g className="mascot-cat-body">
+          {/* chest + front leg -- thin */}
+          <path d="M 46 124 C 42 108 40 85 46 55 C 48 48 50 42 52 38" stroke={TEAL} strokeWidth="1.8" {...round} />
+          {/* back of head to long back arch -- thick */}
+          <path d="M 68 14 C 78 16 88 28 88 46 C 90 58 88 72 84 86" stroke={TEAL} strokeWidth="4" {...round} />
+          {/* haunch to rear leg -- thin, with a brief wiggle right before a pounce */}
           <path
-            className="mascot-cat-tail"
-            style={{ transformOrigin: "70px 80px" }}
-            d="M 70 80 C 92 78 96 52 82 34 C 94 46 94 76 72 86 Z"
-            fill={TEAL}
-            {...outline}
+            className={wiggle ? "mascot-cat-wiggle" : undefined}
+            style={{ transformOrigin: "80px 96px" }}
+            d="M 84 86 C 80 98 74 112 66 124"
+            stroke={TEAL}
+            strokeWidth="1.8"
+            {...round}
           />
-          <ellipse cx="85" cy="40" rx="7" ry="6" fill={CREAM} />
-          <path d="M 86 44 C 90 52 90 62 84 70" fill="none" stroke={TEAL_DARK} strokeWidth="3" strokeLinecap="round" />
+        </g>
 
-          <g className="mascot-cat-breathe" style={{ transformOrigin: "50px 82px" }}>
-            <ellipse cx="50" cy="84" rx="22" ry="17" fill={TEAL} {...outline} />
-            <ellipse cx="50" cy="92" rx="15" ry="6" fill={TEAL_DARK} opacity="0.3" />
-            <ellipse cx="50" cy="80" rx="11" ry="10" fill={CREAM} />
+        <g className="mascot-cat-tail" style={{ transformOrigin: "84px 86px" }}>
+          <path d="M 84 86 C 92 82 98 72 98 58" stroke={TEAL} strokeWidth="3" {...round} />
+          <g className="mascot-cat-tail-tip" style={{ transformOrigin: "98px 58px" }}>
+            <path d="M 98 58 C 98 44 92 34 82 32 C 70 34 60 46 60 64" stroke={TEAL} strokeWidth="1.6" {...round} />
           </g>
         </g>
-      ) : null}
 
-      <g className={earsUp ? "mascot-cat-ears-up" : undefined}>
-        <path className="mascot-cat-ear-left" style={{ transformOrigin: "40px 18px" }} d="M 30 20 L 36 2 L 48 17 Z" fill={TEAL} {...outline} />
-        <path className="mascot-cat-ear-left" style={{ transformOrigin: "40px 18px" }} d="M 34 17 L 37 7 L 43 15 Z" fill={MUTED_PINK} />
-        <path className="mascot-cat-ear-right" style={{ transformOrigin: "60px 18px" }} d="M 52 17 L 64 2 L 70 20 Z" fill={TEAL} {...outline} />
-        <path className="mascot-cat-ear-right" style={{ transformOrigin: "60px 18px" }} d="M 57 15 L 63 7 L 66 17 Z" fill={MUTED_PINK} />
+        <g className="mascot-cat-head" style={{ transformOrigin: "60px 28px" }}>
+          {/* chin to nape -- medium, bridges the body's two segments */}
+          <path d="M 52 38 C 54 30 56 22 58 14 C 60 12 64 12 68 14" stroke={TEAL} strokeWidth="2.2" {...round} />
+
+          <g className="mascot-cat-ear-left" style={{ transformOrigin: "55px 13px" }}>
+            <path d="M 50 13 L 54 2 L 60 12" stroke={TEAL} strokeWidth="1.5" {...round} />
+          </g>
+          <g className="mascot-cat-ear-right" style={{ transformOrigin: "62px 12px" }}>
+            <path d="M 57 12 L 63 1 L 67 13" stroke={TEAL} strokeWidth="1.5" {...round} />
+          </g>
+
+          <g className="mascot-cat-eye">
+            <EyeShape expression={expression} />
+          </g>
+
+          <g className="mascot-cat-whiskers">
+            <path d="M 56 28 L 68 24 M 56 31 L 69 30 M 56 34 L 67 36" stroke={TEAL} strokeWidth="1" strokeLinecap="round" />
+          </g>
+
+          <path d="M 54 33 L 57 36" stroke={TEAL} strokeWidth="1.2" strokeLinecap="round" />
+
+          {/* a subtle collar accent, so it's unmistakably Life CFO's cat */}
+          <path d="M 44 48 C 48 52 56 52 60 47" stroke={ACCENT} strokeWidth="1.5" fill="none" strokeLinecap="round" />
+        </g>
       </g>
-
-      <circle cx="50" cy="38" r="23" fill={TEAL} {...outline} />
-      <path d="M 42 16 C 44 22 44 26 42 30" fill="none" stroke={TEAL_DARK} strokeWidth="3" strokeLinecap="round" />
-      <path d="M 50 14 C 52 20 52 25 50 29" fill="none" stroke={TEAL_DARK} strokeWidth="3" strokeLinecap="round" />
-      <path d="M 58 16 C 60 22 60 26 58 30" fill="none" stroke={TEAL_DARK} strokeWidth="3" strokeLinecap="round" />
-
-      <ellipse cx="50" cy="49" rx="15" ry="10" fill={CREAM} />
-
-      <Eye cx={40} cy={36} expression={expression} />
-      <Eye cx={60} cy={36} expression={expression} />
-
-      <path d="M 50 44 L 47 48 L 53 48 Z" fill={MUTED_PINK} />
-      <path d="M 36 46 L 24 44 M 36 48 L 23 48 M 36 50 L 24 52" stroke={TEAL_DARK} strokeWidth="1.1" strokeLinecap="round" />
-      <path d="M 64 46 L 76 44 M 64 48 L 77 48 M 64 50 L 76 52" stroke={TEAL_DARK} strokeWidth="1.1" strokeLinecap="round" />
-
-      {expression === "sleepy" ? (
-        <text x="68" y="18" fontSize="9" fill={TEAL_DARK} className="mascot-cat-zzz">
-          z
-        </text>
-      ) : null}
-
-      <path d="M 36 60 C 42 64 58 64 64 60 L 62 64 C 56 67 44 67 38 64 Z" fill={ACCENT} />
-      <circle cx="50" cy="65" r="2.6" fill="#ffffff" stroke={ACCENT} strokeWidth="1" />
     </svg>
   );
 }

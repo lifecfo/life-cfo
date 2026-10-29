@@ -202,7 +202,7 @@ export function MascotScene({ enabled, reducedMotion, suppressed, onSceneStart, 
   if (!enabled || reducedMotion || !active) return null;
 
   const toLeft = (value: number) => `${value}%`;
-  const catExpression: CatExpression = catNapping ? "sleepy" : catAlert ? "alert" : "open";
+  const catExpression: CatExpression = catNapping ? "sleepy" : catAlert ? "alert" : "content";
 
   return (
     <div className="mascot-scene-band" data-mascot-layer="true" aria-hidden="true">
@@ -223,7 +223,7 @@ export function MascotScene({ enabled, reducedMotion, suppressed, onSceneStart, 
         data-shown="true"
         style={{ left: toLeft(cat.left), transform: `scale(${cat.scale})` }}
       >
-        <CatSvg pose="sitting" expression={catExpression} earsUp={catAlert} className={catNudge ? "mascot-nudge" : undefined} />
+        <CatSvg pose="sitting" expression={catExpression} className={catNudge ? "mascot-nudge" : undefined} />
       </div>
       <div className="mascot-scene-crumb" data-shown={crumb.opacity > 0 ? "true" : "false"} style={{ left: toLeft(crumb.left) }} />
       <div className="mascot-scene-cheese" data-shown={cheese.opacity > 0 ? "true" : "false"} style={{ left: toLeft(cheese.left) }}>

@@ -1290,7 +1290,7 @@ export default function FamilyClient() {
         )}
       </div>
       {!addingFamily && others.length === 0 ? (
-        <MascotCorner mode="static" contentMaxWidth={760} enabled={mascotEnabled} reducedMotion={reducedMotion} />
+        <MascotCorner mode="static" enabled={mascotEnabled} reducedMotion={reducedMotion} />
       ) : null}
     </Page>
   );

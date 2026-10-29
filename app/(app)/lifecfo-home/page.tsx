@@ -44,7 +44,7 @@ export default function LifeCFOHomePage() {
       <div className="mx-auto max-w-[980px]">
         <HouseholdPicture />
       </div>
-      <MascotCorner mode="ambient" contentMaxWidth={980} enabled={mascotEnabled} reducedMotion={reducedMotion} />
+      <MascotCorner mode="ambient" enabled={mascotEnabled} reducedMotion={reducedMotion} />
     </Page>
   );
 }
