@@ -208,3 +208,51 @@ for (const c of OUTPUT_BACKSTOP_CASES) {
     assert.equal(screened.ok, false, c.text);
   });
 }
+
+// ---------------------------------------------------------------------------
+// Negative cases: factual answers naming a household's own bill/provider
+// must NOT be blocked just because the name happens to contain a word the
+// guard also treats as a judgment or a sensitive topic (2026-10-29 --
+// "Smart TV subscription", "Worth Insurance", "On Track Physio" all tripped
+// the guard before this was narrowed). Every text here is sent with
+// purpose: "home_ask", matching the real call site in
+// app/api/home/ask/route.ts.
+// ---------------------------------------------------------------------------
+const FACTUAL_NAME_CASES: { id: string; text: string }[] = [
+  { id: "smart-tv-subscription", text: "Your Smart TV subscription is $15, due 3 Nov." },
+  { id: "smart-energy", text: "Smart Energy bill entered: $120." },
+  { id: "smart-rider", text: "SmartRider top-up: $30." },
+  { id: "worth-insurance", text: "Worth Insurance bill is $45, due 3 Nov." },
+  { id: "on-track-physio", text: "On Track Physio: $85, due 10 Nov." },
+];
+
+for (const c of FACTUAL_NAME_CASES) {
+  test(`output guard: does not block factual bill/provider name -- ${c.id}`, () => {
+    const screened = screenAiOutput(c.text, { purpose: "home_ask" });
+    assert.equal(screened.ok, true, `"${c.text}" was wrongly blocked: ${screened.ok ? "" : screened.patterns.join(", ")}`);
+  });
+}
+
+// The purpose-based exemption must not weaken the should/recommend/afford/
+// suitability/ranking patterns, which stay topic-agnostic and active
+// regardless of purpose -- actual guidance about insurance/super/investment
+// must still be caught even under purpose: "home_ask".
+test("output guard: genuine guidance about insurance/super/investment is still caught under home_ask purpose", () => {
+  const stillBlocked = [
+    "You should get more insurance.",
+    "I recommend increasing your super contributions.",
+    "It would be better to invest the difference.",
+  ];
+  for (const text of stillBlocked) {
+    const screened = screenAiOutput(text, { purpose: "home_ask" });
+    assert.equal(screened.ok, false, text);
+  }
+});
+
+// The original pre-purpose-exemption behaviour (no purpose given at all)
+// must be unchanged: a bare topic word with no purpose is still blocked,
+// matching lib/ai/outputGuard.test.ts's existing structuring-insurance case.
+test("output guard: a topic word with no purpose specified is still blocked by default", () => {
+  const screened = screenAiOutput('{"title":"car insurance renewal","kind":"renewal","amount_cents":32000}');
+  assert.equal(screened.ok, false);
+});

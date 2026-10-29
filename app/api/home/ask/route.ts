@@ -1457,7 +1457,8 @@ export async function POST(req: Request) {
 
     // ✅ Canonical memo formatting (server owns presentation)
     const screenedAnswer = screenAiOutput(
-      [headline, ...key_points, details, ...what_changes_this, ...assumptions].join("\n")
+      [headline, ...key_points, details, ...what_changes_this, ...assumptions].join("\n"),
+      { purpose: "home_ask" }
     );
     if (!screenedAnswer.ok) {
       logBlockedOutput("home_ask", screenedAnswer);
