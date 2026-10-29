@@ -225,7 +225,7 @@ function navIcon(href: string) {
 export function AppShell({ children }: AppShellProps) {
   const pathname = usePathname();
   const router = useRouter();
-  const { open: askOpen, setShellSplitHostActive } = useAsk();
+  const { open: askOpen, setShellSplitHostActive, setMobileMenuOpen } = useAsk();
 
   useEffect(() => {
     setShellSplitHostActive(true);
@@ -238,6 +238,11 @@ export function AppShell({ children }: AppShellProps) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
   useOutsideClick(menuRef, () => setMenuOpen(false), menuOpen);
+
+  useEffect(() => {
+    setMobileMenuOpen(menuOpen);
+    return () => setMobileMenuOpen(false);
+  }, [menuOpen, setMobileMenuOpen]);
 
   const [households, setHouseholds] = useState<HouseholdItem[]>([]);
   const [activeHouseholdId, setActiveHouseholdId] = useState<string | null>(null);

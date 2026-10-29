@@ -106,7 +106,7 @@ function plainWhyNow(main: SignalDetail, snapshot: FinancialSnapshot): string {
     case "stability":
       return "Data freshness or income coverage is mixed, so confidence is a bit lower.";
     default:
-      return "No strong pressure signal is standing out right now.";
+      return "Nothing stands out as notable from this snapshot right now.";
   }
 }
 
@@ -165,7 +165,7 @@ export function interpretPressure(snapshot: FinancialSnapshot): PressureInterpre
     ? {
         key: "none",
         level: "none",
-        summary: "No major pressure signal is standing out right now.",
+        summary: "Nothing stands out as notable right now.",
         why_now: "Regular income, commitments, timing, and data stability look reasonably balanced from this snapshot.",
       }
     : {

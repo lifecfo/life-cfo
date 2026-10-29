@@ -105,16 +105,17 @@ and output-guard backstop checks (`screenAiOutput`), run via `npm test`
 like everything else. It currently covers 39 input cases (the pre-existing
 19, plus 20 adversarial prompts probing synonym gaps, role-play/jailbreak
 framing, prompt injection, third-person displacement, obfuscation, and
-compound messages) and 27 output cases: the pre-existing 6, 6 output-guard
-backstop checks for the adversarial prompts above, 5 cases for
+compound messages) and 29 output cases: the pre-existing 6, 6 output-guard
+backstop checks for the adversarial prompts above, 7 cases for
 banned-word-list phrases not previously covered ("safe to spend", "enough"
-as a judgment, "too much", "ideally", "shop around"), a negative case
-confirming "enough" doesn't block a harmless "not enough data yet"
-disclaimer, 5 negative cases confirming factual bill/provider names
-("Smart TV subscription", "On Track Physio", ...) aren't blocked just for
-containing a judgment word, 3 cases confirming genuine
-insurance/super/investment guidance is still caught, and 1 case confirming
-a bare topic word with no purpose given is still blocked.
+as a judgment, "too much", "ideally", "shop around", and "pressure" as in
+"pressure signal"/"money pressure"), a negative case confirming "enough"
+doesn't block a harmless "not enough data yet" disclaimer, 5 negative
+cases confirming factual bill/provider names ("Smart TV subscription",
+"On Track Physio", ...) aren't blocked just for containing a judgment
+word, 3 cases confirming genuine insurance/super/investment guidance is
+still caught, and 1 case confirming a bare topic word with no purpose
+given is still blocked.
 
 Before shipping any new AI-adjacent surface (a new Ask mode, a new prompt,
 a new output field that could carry model text):

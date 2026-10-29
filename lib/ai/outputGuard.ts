@@ -39,6 +39,7 @@ const ADVICE_PATTERNS: { name: string; pattern: RegExp }[] = [
   { name: "too_much", pattern: /\btoo much\b/i },
   { name: "ideally", pattern: /\bideally\b/i },
   { name: "shop_around", pattern: /\bshop around\b/i },
+  { name: "pressure", pattern: /\bpressure\b/i },
   { name: "product", pattern: /\b(?:vanguard|hostplus|betashares|commsec|stake|afterpay)\b/i },
   { name: "debt_guidance", pattern: /\b(?:refinance|consolidat\w*|pay off your|pay off the)\b/i },
   { name: "super_guidance", pattern: /\b(?:superannuation|super fund|super)\b/i },

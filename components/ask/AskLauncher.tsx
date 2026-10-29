@@ -4,9 +4,10 @@ import { useAsk } from "@/components/ask/AskProvider";
 import { shouldHideAsk } from "@/lib/ask/publicPagesWithoutAsk";
 
 export function AskLauncher() {
-  const { openAsk, open, currentPath } = useAsk();
+  const { openAsk, open, currentPath, mobileMenuOpen } = useAsk();
 
   if (open) return null;
+  if (mobileMenuOpen) return null;
   if (shouldHideAsk(currentPath)) return null;
 
   return (
