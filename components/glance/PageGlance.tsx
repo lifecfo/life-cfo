@@ -327,7 +327,7 @@ function Stat({ label, value }: { label: string; value: string }) {
   );
 }
 
-function BillsView({ items }: { items: SampleItem[] }) {
+export function BillsView({ items }: { items: SampleItem[] }) {
   const bills = addThingsBillItems(items);
   const groups = new Map<string, SampleItem[]>();
   for (const item of bills) groups.set(item.category, [...(groups.get(item.category) ?? []), item]);
@@ -375,7 +375,7 @@ function BillsView({ items }: { items: SampleItem[] }) {
   );
 }
 
-function IncomeView({ items }: { items: SampleItem[] }) {
+export function IncomeView({ items }: { items: SampleItem[] }) {
   const rows = addThingsIncomeItems(items);
   if (!rows.length) {
     return <EmptyState label="No income added through Add things yet." href="/start" action="Add things" />;
@@ -403,7 +403,7 @@ function IncomeView({ items }: { items: SampleItem[] }) {
   );
 }
 
-function BudgetView({ items }: { items: SampleItem[] }) {
+export function BudgetView({ items }: { items: SampleItem[] }) {
   // Items captured via Add things -- being stored in household_items says
   // nothing about recurrence, so these are shown exactly as entered
   // (amount + date), never restated onto a monthly cadence or combined
