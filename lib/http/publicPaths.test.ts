@@ -8,6 +8,9 @@ test("the site root is a public landing and is not an app path", () => {
   assert.equal(isLoggedOutEntryPath("/"), true);
   assert.equal(isLoggedOutEntryPath("/login"), false);
   assert.equal(isProtectedAppPath("/"), false);
+  assert.equal(isLoggedOutEntryPath("/account-deleted"), true);
+  assert.equal(isProtectedAppPath("/account-deleted"), false);
+  assert.equal(isLoggedOutEntryPath("/account-deleted/anything"), false);
   assert.equal(isProtectedAppPath("/start"), true);
   assert.equal(hiddenBetaDestination("/money"), "/spending");
   assert.equal(hiddenBetaDestination("/money/year"), null);

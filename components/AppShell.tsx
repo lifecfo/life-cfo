@@ -7,6 +7,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { Chip } from "@/components/ui";
 import { redirectReasonLabel } from "@/lib/households/redirectReasonLabel";
+import { resolveHouseholdsLoadOutcome } from "@/lib/households/loadHouseholdsOutcome";
 import { supabase } from "@/lib/supabaseClient";
 import { useAsk } from "@/components/ask/AskProvider";
 import { AskPanel } from "@/components/ask/AskPanel";
@@ -217,6 +218,7 @@ export function AppShell({ children }: AppShellProps) {
   const [activeHouseholdId, setActiveHouseholdId] = useState<string | null>(null);
   const [householdsLoading, setHouseholdsLoading] = useState(false);
   const [needsHousehold, setNeedsHousehold] = useState(false);
+  const [authInvalid, setAuthInvalid] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -225,41 +227,58 @@ export function AppShell({ children }: AppShellProps) {
       setHouseholdsLoading(true);
       try {
         const res = await fetch("/api/households", { method: "GET" });
-        const json = await res.json();
+        const json = await res.json().catch(() => null);
 
         if (cancelled) return;
 
-        if (json?.ok) {
-          const list = Array.isArray(json.households) ? json.households : [];
-          setHouseholds(list);
-          setActiveHouseholdId(json.active_household_id ?? null);
-          setNeedsHousehold(!!json.needs_household);
+        const outcome = resolveHouseholdsLoadOutcome(res.status, json);
 
-          const p = pathname || "";
-          const allow = new Set([
-            "/household",
-            "/settings",
-            "/fine-print",
-            "/how-life-cfo-works",
-            "/start",
-            "/beta-invite",
-            "/welcome",
-            "/login",
-          ]);
-
-          const isAllowed =
-            Array.from(allow).some((a) => p === a || p.startsWith(a + "/")) ||
-            p.startsWith("/api") ||
-            p.startsWith("/auth");
-
-          if (!!json.needs_household && !isAllowed) {
-            const reason = redirectReasonLabel(p);
-            router.push(`/household?reason=${encodeURIComponent(reason)}`);
-          }
-        } else {
+        if (outcome.kind === "unauthenticated") {
+          // The session on this request isn't valid -- including a JWT
+          // that still decodes locally (so middleware's lighter
+          // getClaims() check let the request through) but whose user no
+          // longer exists, e.g. right after account deletion. Send the
+          // visitor to /login instead of rendering the shell around a page
+          // that discovers "not signed in" on its own.
+          setAuthInvalid(true);
           setHouseholds([]);
           setActiveHouseholdId(null);
           setNeedsHousehold(false);
+          router.replace(`/login?next=${encodeURIComponent(pathname || "/home")}`);
+          return;
+        }
+
+        if (outcome.kind === "failed") {
+          setHouseholds([]);
+          setActiveHouseholdId(null);
+          setNeedsHousehold(false);
+          return;
+        }
+
+        setHouseholds(outcome.households);
+        setActiveHouseholdId(outcome.active_household_id);
+        setNeedsHousehold(outcome.needs_household);
+
+        const p = pathname || "";
+        const allow = new Set([
+          "/household",
+          "/settings",
+          "/fine-print",
+          "/how-life-cfo-works",
+          "/start",
+          "/beta-invite",
+          "/welcome",
+          "/login",
+        ]);
+
+        const isAllowed =
+          Array.from(allow).some((a) => p === a || p.startsWith(a + "/")) ||
+          p.startsWith("/api") ||
+          p.startsWith("/auth");
+
+        if (outcome.needs_household && !isAllowed) {
+          const reason = redirectReasonLabel(p);
+          router.push(`/household?reason=${encodeURIComponent(reason)}`);
         }
       } catch {
         if (!cancelled) {
@@ -341,6 +360,7 @@ export function AppShell({ children }: AppShellProps) {
   };
 
   if (pathname === "/beta-invite") return <>{children}</>;
+  if (authInvalid) return null;
 
   const menuItemClass =
     "block w-full rounded-xl px-4 py-3 text-left text-sm text-zinc-800 transition hover:bg-zinc-50";
