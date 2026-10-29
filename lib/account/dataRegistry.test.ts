@@ -58,3 +58,32 @@ test("every migration table with user_id or household_id is in the deletion regi
     assert.ok(registered.has(required), required);
   }
 });
+
+function createViewNames(sql: string): string[] {
+  const withoutLineComments = sql.replace(/--.*$/gm, "");
+  const matcher = /create\s+(or\s+replace\s+)?(materialized\s+)?view\s+(?:if\s+not\s+exists\s+)?(?:public\.)?([a-zA-Z0-9_]+)/gi;
+  return [...withoutLineComments.matchAll(matcher)].map((match) => match[3].toLowerCase());
+}
+
+test("the deletion registry contains no views -- you cannot DELETE FROM a view", () => {
+  const dir = path.join(process.cwd(), "supabase", "migrations");
+  const files = readdirSync(dir).filter((name) => name.endsWith(".sql"));
+  const registered = new Set(registeredTableNames());
+
+  const viewsFromMigrations: string[] = [];
+  for (const file of files) {
+    const sql = readFileSync(path.join(dir, file), "utf8");
+    for (const name of createViewNames(sql)) viewsFromMigrations.push(name);
+  }
+
+  // home_status_latest predates migration tracking (no `create view` for it
+  // exists in supabase/migrations), so it can't be caught by the scan above.
+  // Confirmed via a live pg_class query during the 2026-10-29 RLS/deletion
+  // audit that it is a view, not a table -- keep this list in sync with any
+  // other pre-tracking view discovered the same way.
+  const knownPreTrackingViews = ["home_status_latest"];
+
+  const views = [...new Set([...viewsFromMigrations, ...knownPreTrackingViews])];
+  const registeredViews = views.filter((name) => registered.has(name));
+  assert.deepEqual(registeredViews, []);
+});
