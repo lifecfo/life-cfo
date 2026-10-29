@@ -1,12 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  hasOneOffBills,
-  hasOneOffIncome,
-  oneOffBillItems,
-  oneOffBillsMonthlyCents,
-  oneOffIncomeItems,
-  oneOffIncomeMonthlyCents,
+  addThingsBillItems,
+  addThingsIncomeItems,
+  hasAddThingsBills,
+  hasAddThingsIncome,
 } from "./householdItemsSummary";
 import type { SampleItem } from "@/lib/demo/sampleHousehold";
 
@@ -24,53 +22,63 @@ function item(overrides: Partial<SampleItem>): SampleItem {
   };
 }
 
-test("a one-off bill never contributes to the income total (no double counting across kinds)", () => {
+test("a bill item never appears in the income list (no double counting across kinds)", () => {
   const items = [item({ id: "b1", kind: "bill", amount_cents: 10000 })];
-  assert.equal(oneOffIncomeMonthlyCents(items), 0);
-  assert.equal(oneOffBillsMonthlyCents(items), 10000);
-  assert.equal(hasOneOffIncome(items), false);
-  assert.equal(hasOneOffBills(items), true);
+  assert.deepEqual(addThingsIncomeItems(items), []);
+  assert.deepEqual(addThingsBillItems(items).map((i) => i.id), ["b1"]);
+  assert.equal(hasAddThingsIncome(items), false);
+  assert.equal(hasAddThingsBills(items), true);
 });
 
-test("a one-off income item never contributes to the bills total", () => {
+test("an income item never appears in the bills list", () => {
   const items = [item({ id: "i1", kind: "income", amount_cents: 300000 })];
-  assert.equal(oneOffIncomeMonthlyCents(items), 300000);
-  assert.equal(oneOffBillsMonthlyCents(items), 0);
-  assert.equal(hasOneOffIncome(items), true);
-  assert.equal(hasOneOffBills(items), false);
+  assert.deepEqual(addThingsBillItems(items), []);
+  assert.deepEqual(addThingsIncomeItems(items).map((i) => i.id), ["i1"]);
+  assert.equal(hasAddThingsIncome(items), true);
+  assert.equal(hasAddThingsBills(items), false);
 });
 
-test("renewals count as bills, not income, and notes count as neither", () => {
+test("renewals count as bills, not income; receipts count as neither", () => {
   const items = [
     item({ id: "r1", kind: "renewal", amount_cents: 5000 }),
-    item({ id: "n1", kind: "note", amount_cents: 999999 }),
+    item({ id: "n1", kind: "receipt", amount_cents: 999999 }),
   ];
-  assert.equal(oneOffBillsMonthlyCents(items), 5000);
-  assert.equal(oneOffIncomeMonthlyCents(items), 0);
-  assert.deepEqual(oneOffBillItems(items).map((i) => i.id), ["r1"]);
-  assert.deepEqual(oneOffIncomeItems(items), []);
+  assert.deepEqual(addThingsBillItems(items).map((i) => i.id), ["r1"]);
+  assert.deepEqual(addThingsIncomeItems(items), []);
+  assert.equal(hasAddThingsIncome(items), false);
+  assert.equal(hasAddThingsBills(items), true);
 });
 
-test("mixed income and bills are summed independently, matching the sum of their own kind only", () => {
+test("items are returned exactly as entered -- no monthly restatement, no derived totals", () => {
+  const items = [
+    item({ id: "i1", kind: "income", amount_cents: 300000, cadence: "fortnightly", due_on: "2026-11-03" }),
+    item({ id: "b1", kind: "bill", amount_cents: 10000, cadence: "monthly", due_on: "2026-11-05" }),
+  ];
+  const [income] = addThingsIncomeItems(items);
+  const [bill] = addThingsBillItems(items);
+  // The raw entered amount and date pass through unchanged -- these
+  // helpers must never compute a monthly-equivalent cents figure (that
+  // would imply a recurrence the household_items table never recorded).
+  assert.equal(income.amount_cents, 300000);
+  assert.equal(income.due_on, "2026-11-03");
+  assert.equal(bill.amount_cents, 10000);
+  assert.equal(bill.due_on, "2026-11-05");
+});
+
+test("an empty list has neither income nor bill items added through Add things", () => {
+  assert.equal(hasAddThingsIncome([]), false);
+  assert.equal(hasAddThingsBills([]), false);
+  assert.deepEqual(addThingsIncomeItems([]), []);
+  assert.deepEqual(addThingsBillItems([]), []);
+});
+
+test("mixed income and bill items are each returned in full, independently of each other", () => {
   const items = [
     item({ id: "i1", kind: "income", amount_cents: 300000 }),
     item({ id: "i2", kind: "income", amount_cents: 50000 }),
     item({ id: "b1", kind: "bill", amount_cents: 10000 }),
     item({ id: "b2", kind: "renewal", amount_cents: 2000 }),
   ];
-  assert.equal(oneOffIncomeMonthlyCents(items), 350000);
-  assert.equal(oneOffBillsMonthlyCents(items), 12000);
-});
-
-test("an empty list has neither one-off income nor bills", () => {
-  assert.equal(hasOneOffIncome([]), false);
-  assert.equal(hasOneOffBills([]), false);
-  assert.equal(oneOffIncomeMonthlyCents([]), 0);
-  assert.equal(oneOffBillsMonthlyCents([]), 0);
-});
-
-test("a non-monthly cadence is restated to a monthly equivalent, same as the rest of the app", () => {
-  // fortnightly: amount * 26 / 12
-  const items = [item({ id: "i1", kind: "income", amount_cents: 100000, cadence: "fortnightly" })];
-  assert.equal(oneOffIncomeMonthlyCents(items), Math.round((100000 * 26) / 12));
+  assert.deepEqual(addThingsIncomeItems(items).map((i) => i.id).sort(), ["i1", "i2"]);
+  assert.deepEqual(addThingsBillItems(items).map((i) => i.id).sort(), ["b1", "b2"]);
 });
