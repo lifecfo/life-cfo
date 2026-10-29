@@ -7,6 +7,7 @@ import { Page } from "@/components/Page";
 import { Button, Card, CardContent, Chip, useToast } from "@/components/ui";
 import { notifyActiveHouseholdChanged } from "@/lib/households/resolveActiveHouseholdClient";
 import { useLifeCfoAccess } from "@/lib/access/useLifeCfoAccess";
+import { markMascotCelebrateOnNextHome } from "@/components/mascot/MascotHost";
 
 type HouseholdItem = { id: string; name: string; role: string };
 
@@ -337,6 +338,7 @@ export default function HouseholdClient() {
       setCreateName("");
 
       if (isFirstHousehold) {
+        markMascotCelebrateOnNextHome();
         router.push("/lifecfo-home");
         return;
       }

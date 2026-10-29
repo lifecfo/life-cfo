@@ -7,6 +7,7 @@ import { supabase } from "@/lib/supabaseClient";
 import { Page } from "@/components/Page";
 import { Card, CardContent, Chip, Button } from "@/components/ui";
 import { useSampleMode } from "@/lib/demo/sampleMode";
+import { useMascotEnabled } from "@/lib/mascot/prefs";
 import { useLifeCfoAccess } from "@/lib/access/useLifeCfoAccess";
 
 export const dynamic = "force-dynamic";
@@ -27,6 +28,7 @@ export default function SettingsPage() {
   const [aiMessage, setAiMessage] = useState("");
   const [aiDailyLimit, setAiDailyLimit] = useState(15);
   const { on: sampleOn, setOn: setSampleOn } = useSampleMode();
+  const { enabled: mascotEnabled, setEnabled: setMascotEnabled } = useMascotEnabled();
   const { isDeveloper } = useLifeCfoAccess();
 
   useEffect(() => {
@@ -118,6 +120,26 @@ export default function SettingsPage() {
                 onClick={() => setSampleOn(!sampleOn)}
               >
                 {sampleOn ? "Hide sample" : "Show sample"}
+              </button>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="border-neutral-border bg-white">
+          <CardContent>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <div className="text-sm font-semibold text-neutral-text">Show the cat 🐈</div>
+                <p className="mt-1 text-sm text-neutral-text-2">
+                  A small, calm cat (and occasionally a mouse) that shows up now and then. Stored on this device only.
+                </p>
+              </div>
+              <button
+                type="button"
+                className="rounded-xl bg-cfo px-3 py-1.5 text-sm font-medium text-white"
+                onClick={() => setMascotEnabled(!mascotEnabled)}
+              >
+                {mascotEnabled ? "Turn off" : "Turn on"}
               </button>
             </div>
           </CardContent>

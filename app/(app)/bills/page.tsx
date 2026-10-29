@@ -8,6 +8,8 @@ import { Page } from "@/components/Page";
 import { Card, CardContent, Button, Chip, Badge, useToast } from "@/components/ui";
 import { AssistedSearch } from "@/components/AssistedSearch";
 import { useSampleMode } from "@/lib/demo/sampleMode";
+import { useMascotEnabled, usePrefersReducedMotion } from "@/lib/mascot/prefs";
+import { CatMascot } from "@/components/mascot/CatMascot";
 
 type LiveState = "connecting" | "live" | "offline";
 type Cadence = "weekly" | "fortnightly" | "monthly" | "yearly";
@@ -293,6 +295,9 @@ async function resolveActiveHouseholdId(userId: string): Promise<string | null> 
 
 export default function BillsPage() {
   const { on: sampleOn } = useSampleMode();
+  const { enabled: mascotEnabled } = useMascotEnabled();
+  const reducedMotion = usePrefersReducedMotion();
+  const [celebrateKey, setCelebrateKey] = useState(0);
   const toastApi: any = useToast();
   const showToast =
     toastApi?.showToast ??
@@ -597,6 +602,8 @@ export default function BillsPage() {
       return;
     }
 
+    const wasFirstBill = bills.length === 0;
+
     setSaving(true);
     try {
       const payload = {
@@ -628,6 +635,7 @@ export default function BillsPage() {
 
       notify({ title: "Saved", description: "Recurring bill added." });
       await loadBills(householdId, { silent: true });
+      if (wasFirstBill) setCelebrateKey((n) => n + 1);
     } catch (e: any) {
       notify({ title: "Error", description: e?.message ?? "Failed to add bill." });
     } finally {
@@ -914,6 +922,7 @@ export default function BillsPage() {
 
   return (
     <Page title="Bills & renewals" subtitle="Dates and amounts entered for this household." right={right}>
+      <CatMascot variant="celebrate" enabled={mascotEnabled} reducedMotion={reducedMotion} celebrateKey={celebrateKey} />
       <div className="grid gap-4">
         <PageGlance page="bills" />
         {sampleOn ? (
@@ -1081,7 +1090,14 @@ export default function BillsPage() {
 
             <div className="grid gap-2">
               {visibleBills.length === 0 ? (
-                <div className="opacity-70 text-sm">{bills.length === 0 ? "No bills yet." : "No bills match this filter."}</div>
+                bills.length === 0 ? (
+                  <div className="flex items-center gap-3">
+                    <CatMascot variant="peek" enabled={mascotEnabled} reducedMotion={reducedMotion} />
+                    <div className="opacity-70 text-sm">No bills yet.</div>
+                  </div>
+                ) : (
+                  <div className="opacity-70 text-sm">No bills match this filter.</div>
+                )
               ) : (
                 visibleBills.map((b) => {
                   const editing = !!drafts[b.id];

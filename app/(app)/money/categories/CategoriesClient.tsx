@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import { Page } from "@/components/Page";
 import { Button, Card, CardContent, Chip, useToast } from "@/components/ui";
 import { SampleStrip, useSampleMode } from "@/lib/demo/sampleMode";
+import { useMascotEnabled, usePrefersReducedMotion } from "@/lib/mascot/prefs";
+import { CatMascot } from "@/components/mascot/CatMascot";
 
 type CategoryRow = {
   id: string;
@@ -59,6 +61,8 @@ export default function CategoriesClient() {
   const router = useRouter();
   const { showToast } = useToast();
   const { on: sampleOn } = useSampleMode();
+  const { enabled: mascotEnabled } = useMascotEnabled();
+  const reducedMotion = usePrefersReducedMotion();
 
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<CategoriesResponse | null>(null);
@@ -294,7 +298,10 @@ export default function CategoriesClient() {
 
             <div className="mt-4 space-y-4">
               {!loading && grouped.length === 0 ? (
-                <div className="text-sm text-zinc-500">No categories yet.</div>
+                <div className="flex items-center gap-3">
+                  <CatMascot variant="peek" enabled={mascotEnabled} reducedMotion={reducedMotion} />
+                  <div className="text-sm text-zinc-500">No categories yet.</div>
+                </div>
               ) : null}
 
               {grouped.map(([groupName, rows]) => (

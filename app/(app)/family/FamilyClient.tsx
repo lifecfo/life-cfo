@@ -6,6 +6,8 @@ import { supabase } from "@/lib/supabaseClient";
 import { Page } from "@/components/Page";
 import { Card, CardContent, Chip, useToast } from "@/components/ui";
 import { SampleStrip, useSampleMode } from "@/lib/demo/sampleMode";
+import { useMascotEnabled, usePrefersReducedMotion } from "@/lib/mascot/prefs";
+import { CatMascot } from "@/components/mascot/CatMascot";
 
 export const dynamic = "force-dynamic";
 
@@ -101,6 +103,8 @@ function isMe(m: FamilyMember) {
 export default function FamilyClient() {
   const { toast } = useToast();
   const { on: sampleOn } = useSampleMode();
+  const { enabled: mascotEnabled } = useMascotEnabled();
+  const reducedMotion = usePrefersReducedMotion();
 
   const [loading, setLoading] = useState(true);
   const [statusLine, setStatusLine] = useState<string>("Loading…");
@@ -886,10 +890,13 @@ export default function FamilyClient() {
                 </CardContent>
               </Card>
             ) : others.length === 0 ? (
-              <div className="space-y-1 text-sm text-zinc-600">
-                <div>No family added yet.</div>
-                <div className="text-xs text-zinc-500">
-                  Example: Partner, child, parent, or anyone you want Life CFO to keep track of.
+              <div className="flex items-center gap-3">
+                <CatMascot variant="peek" enabled={mascotEnabled} reducedMotion={reducedMotion} />
+                <div className="space-y-1 text-sm text-zinc-600">
+                  <div>No family added yet.</div>
+                  <div className="text-xs text-zinc-500">
+                    Example: Partner, child, parent, or anyone you want Life CFO to keep track of.
+                  </div>
                 </div>
               </div>
             ) : (
