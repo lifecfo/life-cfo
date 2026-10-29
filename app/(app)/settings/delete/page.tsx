@@ -5,6 +5,8 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Page } from "@/components/Page";
 import { Card, CardContent, Chip } from "@/components/ui";
+import { useSampleMode } from "@/lib/demo/sampleMode";
+import { supabase } from "@/lib/supabaseClient";
 
 export const dynamic = "force-dynamic";
 
@@ -34,6 +36,7 @@ function safeString(value: unknown): string {
 
 export default function DeleteAccountPage() {
   const router = useRouter();
+  const { setOn: setSampleOn } = useSampleMode();
   const [preflight, setPreflight] = useState<DeletePreflight | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
@@ -136,7 +139,9 @@ export default function DeleteAccountPage() {
                         .then(async (response) => {
                           const json = (await response.json().catch(() => ({}))) as { error?: string };
                           if (!response.ok) throw new Error(json.error || "Couldn't delete the account.");
-                          window.location.assign("/login");
+                          setSampleOn(false);
+                          await supabase.auth.signOut();
+                          router.replace("/account-deleted");
                         })
                         .catch((error: unknown) => {
                           setDeleteError(error instanceof Error ? error.message : "Couldn't delete the account.");
