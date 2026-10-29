@@ -1,10 +1,12 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { CatSvg } from "./CatSvg";
+import { CatSvg, type CatExpression } from "./CatSvg";
 import { MouseSvg } from "./MouseSvg";
 import { MouseHoleSvg } from "./MouseHoleSvg";
+import { CheeseSvg } from "./CheeseSvg";
 import { isDevOrPreviewEnvironment } from "@/lib/mascot/isDevOrPreview";
+import { isMascotBandClear, sceneBandSamplePoints } from "@/lib/mascot/isBandClear";
 
 type SceneName = "chase" | "tease" | "cheese" | "peekaboo";
 const SCENE_NAMES: SceneName[] = ["chase", "tease", "cheese", "peekaboo"];
@@ -20,6 +22,7 @@ type SceneStep = {
   crumb?: Partial<ItemState>;
   cheese?: Partial<ItemState>;
   catNapping?: boolean;
+  catAlert?: boolean;
   catNudge?: boolean;
 };
 
@@ -34,9 +37,10 @@ const SCENES: Record<SceneName, { durationMs: number; catStartsNapping: boolean;
     steps: [
       { at: 0, hole: { left: 10, opacity: 1, scale: 1 }, mouse: { left: 68, opacity: 1, scale: 1 } },
       { at: 300, mouse: { left: 16, opacity: 1, scale: 1 } },
+      { at: 500, catAlert: true },
       { at: 700, cat: { left: 22, opacity: 1, scale: 1 } },
       { at: 2200, mouse: { left: 9, opacity: 0, scale: 0.3 } },
-      { at: 2700, cat: { left: 15, opacity: 1, scale: 1 } },
+      { at: 2700, cat: { left: 15, opacity: 1, scale: 1 }, catAlert: false },
       { at: 5200, cat: { left: 2, opacity: 1, scale: 1 } },
       { at: 6600, hole: { left: 10, opacity: 0, scale: 1 } },
     ],
@@ -103,6 +107,7 @@ export function MascotScene({ enabled, reducedMotion, suppressed, onSceneStart, 
   const [crumb, setCrumb] = useState<ItemState>(HIDDEN);
   const [cheese, setCheese] = useState<ItemState>(HIDDEN);
   const [catNapping, setCatNapping] = useState(false);
+  const [catAlert, setCatAlert] = useState(false);
   const [catNudge, setCatNudge] = useState(false);
   const [squeak, setSqueak] = useState(false);
 
@@ -117,7 +122,10 @@ export function MascotScene({ enabled, reducedMotion, suppressed, onSceneStart, 
   }
 
   function playScene(name: SceneName) {
-    if (suppressedRef.current) return;
+    // Defensive backstop: the reserved bottom strip should already keep
+    // this area clear, but skip outright if something's there anyway.
+    if (suppressedRef.current || !isMascotBandClear(sceneBandSamplePoints())) return;
+
     const scene = SCENES[name];
     setActive(name);
     setCatNapping(scene.catStartsNapping);
@@ -131,6 +139,7 @@ export function MascotScene({ enabled, reducedMotion, suppressed, onSceneStart, 
         if (step.crumb) setCrumb((prev) => ({ ...prev, ...step.crumb }));
         if (step.cheese) setCheese((prev) => ({ ...prev, ...step.cheese }));
         if (typeof step.catNapping === "boolean") setCatNapping(step.catNapping);
+        if (typeof step.catAlert === "boolean") setCatAlert(step.catAlert);
         if (step.catNudge) {
           setCatNudge(true);
           setTimeout(() => setCatNudge(false), 650);
@@ -146,6 +155,7 @@ export function MascotScene({ enabled, reducedMotion, suppressed, onSceneStart, 
       setCrumb(HIDDEN);
       setCheese(HIDDEN);
       setCatNapping(false);
+      setCatAlert(false);
       setCat({ left: 2, opacity: 1, scale: 1 });
       onSceneEnd?.();
     }, scene.durationMs);
@@ -154,7 +164,7 @@ export function MascotScene({ enabled, reducedMotion, suppressed, onSceneStart, 
 
   // One shot: on mount, decide whether (and when) to play a scene for this
   // page visit. Reduced motion means no scenes at all. The dev-only
-  // ?mascotScene= override plays instantly, for testing.
+  // ?mascotScene= override plays almost instantly, for testing.
   useEffect(() => {
     if (!enabled || reducedMotion || hasPlayedRef.current) return;
 
@@ -192,11 +202,12 @@ export function MascotScene({ enabled, reducedMotion, suppressed, onSceneStart, 
   if (!enabled || reducedMotion || !active) return null;
 
   const toLeft = (value: number) => `${value}%`;
+  const catExpression: CatExpression = catNapping ? "sleepy" : catAlert ? "alert" : "open";
 
   return (
-    <div className="mascot-scene-band" aria-hidden="true">
+    <div className="mascot-scene-band" data-mascot-layer="true" aria-hidden="true">
       <div className="mascot-scene-item mascot-scene-hole" data-shown={hole.opacity > 0 ? "true" : "false"} style={{ left: toLeft(hole.left) }}>
-        <MouseHoleSvg style={{ width: "100%", height: "100%" }} />
+        <MouseHoleSvg />
       </div>
       <div
         className="mascot-scene-item mascot-scene-mouse"
@@ -204,7 +215,7 @@ export function MascotScene({ enabled, reducedMotion, suppressed, onSceneStart, 
         style={{ left: toLeft(mouse.left), transform: `scale(${mouse.scale})`, pointerEvents: mouse.opacity > 0 ? "auto" : "none", cursor: "pointer" }}
         onClick={onMouseTap}
       >
-        <MouseSvg style={{ width: "100%", height: "100%" }} />
+        <MouseSvg />
         <div className="mascot-squeak" data-shown={squeak ? "true" : "false"}>!</div>
       </div>
       <div
@@ -212,13 +223,11 @@ export function MascotScene({ enabled, reducedMotion, suppressed, onSceneStart, 
         data-shown="true"
         style={{ left: toLeft(cat.left), transform: `scale(${cat.scale})` }}
       >
-        <CatSvg pose="full" napping={catNapping} className={catNudge ? "mascot-nudge" : undefined} style={{ width: "100%", height: "100%" }} />
+        <CatSvg pose="sitting" expression={catExpression} earsUp={catAlert} className={catNudge ? "mascot-nudge" : undefined} />
       </div>
       <div className="mascot-scene-crumb" data-shown={crumb.opacity > 0 ? "true" : "false"} style={{ left: toLeft(crumb.left) }} />
       <div className="mascot-scene-cheese" data-shown={cheese.opacity > 0 ? "true" : "false"} style={{ left: toLeft(cheese.left) }}>
-        <svg viewBox="0 0 14 10" style={{ width: "100%", height: "100%", color: "#1F5E5C" }}>
-          <path d="M 1 9 L 7 1 L 13 9 Z" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
+        <CheeseSvg />
       </div>
     </div>
   );

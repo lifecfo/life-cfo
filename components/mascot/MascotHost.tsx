@@ -9,6 +9,7 @@ import { CatMascot } from "./CatMascot";
 import { MascotScene } from "./MascotScene";
 
 const CELEBRATE_FLAG_KEY = "lifecfo-mascot-celebrate";
+const CELEBRATE_EVENT = "lifecfo-mascot-celebrate-now";
 
 function isHomePath(pathname: string | null): boolean {
   return pathname === "/home" || pathname === "/lifecfo-home";
@@ -47,6 +48,16 @@ export function MascotHost() {
     }
   }, [isHome]);
 
+  // Fired by components already mounted on Home (e.g. HouseholdPicture,
+  // when the last unassigned item gets assigned) that want the
+  // celebration right now, not on next landing.
+  useEffect(() => {
+    if (!isHome) return;
+    const onCelebrateNow = () => setCelebrateKey((n) => n + 1);
+    window.addEventListener(CELEBRATE_EVENT, onCelebrateNow);
+    return () => window.removeEventListener(CELEBRATE_EVENT, onCelebrateNow);
+  }, [isHome]);
+
   if (!ready) return null;
 
   const suppressed = mobileMenuOpen || askOpen || sceneSuppressed;
@@ -77,5 +88,14 @@ export function markMascotCelebrateOnNextHome(): void {
     window.sessionStorage.setItem(CELEBRATE_FLAG_KEY, "1");
   } catch {
     /* private mode */
+  }
+}
+
+/** Called from a component already mounted on Home to celebrate immediately. */
+export function triggerMascotCelebration(): void {
+  try {
+    window.dispatchEvent(new Event(CELEBRATE_EVENT));
+  } catch {
+    /* no-op */
   }
 }

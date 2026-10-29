@@ -5,6 +5,7 @@ import { useAsk } from "@/components/ask/AskProvider";
 import { CatSvg } from "./CatSvg";
 import { BoxSvg } from "./BoxSvg";
 import { SpeechBubble } from "./SpeechBubble";
+import { ambientCatSamplePoints, isMascotBandClear } from "@/lib/mascot/isBandClear";
 
 function randomMs(minMs: number, maxMs: number): number {
   return minMs + Math.random() * (maxMs - minMs);
@@ -41,6 +42,8 @@ export function CatMascot({ variant, enabled, reducedMotion, suppressed = false,
   );
 }
 
+const RETRY_WHEN_BLOCKED_MS = 5000;
+
 function AmbientCat({
   enabled,
   reducedMotion,
@@ -66,8 +69,16 @@ function AmbientCat({
       timerRef.current = setTimeout(() => setPhase(next), delayMs);
     };
 
-    if (phase === "waiting") schedule("peeking", randomMs(20000, 40000));
-    else if (phase === "peeking") schedule("walking", 2200);
+    if (phase === "waiting") {
+      const tryToAppear = () => {
+        if (isMascotBandClear(ambientCatSamplePoints())) {
+          setPhase("peeking");
+        } else {
+          timerRef.current = setTimeout(tryToAppear, RETRY_WHEN_BLOCKED_MS);
+        }
+      };
+      timerRef.current = setTimeout(tryToAppear, randomMs(20000, 40000));
+    } else if (phase === "peeking") schedule("walking", 2200);
     else if (phase === "walking") schedule("sitting", 2400);
     else if (phase === "sitting") {
       const napsNext = Math.random() < 0.3;
@@ -87,24 +98,20 @@ function AmbientCat({
   const walkedOut = phase === "sitting" || phase === "napping";
 
   return (
-    <div className="mascot-ambient-wrap" style={{ opacity: visible ? 1 : 0 }}>
+    <div className="mascot-ambient-wrap" data-mascot-layer="true" style={{ opacity: visible ? 1 : 0 }}>
       <div className="mascot-peek-stage" data-visible={peeking ? "true" : "false"}>
         <div className="mascot-box">
           <BoxSvg style={{ width: "100%", height: "100%" }} />
         </div>
         <div className="mascot-peek-head" data-shown={peeking ? "true" : "false"}>
-          <CatSvg pose="peek-head" style={{ width: "100%", height: "100%" }} />
+          <CatSvg pose="peek-head" />
         </div>
       </div>
 
       {showFullCat ? (
-        <div
-          className="mascot-full-cat"
-          data-shown="true"
-          style={{ transform: walkedOut ? "translateX(26px)" : "translateX(0)" }}
-        >
+        <div className="mascot-full-cat" data-shown="true" style={{ transform: walkedOut ? "translateX(26px)" : "translateX(0)" }}>
           <SpeechBubble label="Life CFO's cat mascot">
-            <CatSvg pose="full" napping={phase === "napping"} style={{ width: "100%", height: "100%" }} />
+            <CatSvg pose={phase === "walking" ? "walking" : "sitting"} expression={phase === "napping" ? "sleepy" : "open"} />
           </SpeechBubble>
         </div>
       ) : null}
@@ -117,13 +124,13 @@ function PeekCat({ enabled, reducedMotion }: { enabled: boolean; reducedMotion: 
   void reducedMotion; // the CSS media query already removes the idle motion; the pose itself is already static.
 
   return (
-    <div className="mascot-peek-stage" data-visible="true" style={{ position: "relative", width: 56, height: 56 }}>
+    <div className="mascot-peek-stage" data-visible="true" data-mascot-layer="true" style={{ position: "relative" }}>
       <div className="mascot-box">
         <BoxSvg style={{ width: "100%", height: "100%" }} />
       </div>
       <div className="mascot-peek-head" data-shown="true">
         <SpeechBubble label="Life CFO's cat mascot">
-          <CatSvg pose="peek-head" style={{ width: "100%", height: "100%" }} />
+          <CatSvg pose="peek-head" />
         </SpeechBubble>
       </div>
     </div>
@@ -158,8 +165,8 @@ function CelebrateCat({
   void reducedMotion; // the CSS media query already removes the tail-wag animation.
 
   return (
-    <div className="mascot-celebrate-wrap" data-shown={shown && !suppressed ? "true" : "false"} aria-hidden="true">
-      <CatSvg pose="full" style={{ width: "100%", height: "100%" }} />
+    <div className="mascot-celebrate-wrap" data-mascot-layer="true" data-shown={shown && !suppressed ? "true" : "false"} aria-hidden="true">
+      <CatSvg pose="sitting" expression="happy" />
     </div>
   );
 }

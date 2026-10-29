@@ -6,6 +6,7 @@ import { HouseholdPicture } from "@/components/home/HouseholdPicture";
 import { Page } from "@/components/Page";
 import { PRODUCT_DESCRIPTOR } from "@/lib/brand";
 import { supabase } from "@/lib/supabaseClient";
+import { useMascotEnabled } from "@/lib/mascot/prefs";
 
 function firstNameOf(full: string) {
   const name = full.trim();
@@ -15,6 +16,7 @@ function firstNameOf(full: string) {
 
 export default function LifeCFOHomePage() {
   const [preferredName, setPreferredName] = useState("");
+  const { enabled: mascotEnabled } = useMascotEnabled();
 
   useEffect(() => {
     let alive = true;
@@ -37,7 +39,7 @@ export default function LifeCFOHomePage() {
 
   return (
     <Page title="Home" subtitle={preferredName ? `Good to see you, ${preferredName}.` : PRODUCT_DESCRIPTOR}>
-      <div className="mx-auto max-w-[980px]">
+      <div className="mx-auto max-w-[980px]" style={{ paddingBottom: mascotEnabled ? 80 : 0 }}>
         <HouseholdPicture />
       </div>
     </Page>

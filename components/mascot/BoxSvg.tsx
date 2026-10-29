@@ -7,21 +7,14 @@ type BoxSvgProps = {
   style?: CSSProperties;
 };
 
-/** A small open box the cat peeks out from behind, same brand line-art style. */
+/** Flat cardboard box the cat peeks out from behind. */
 export function BoxSvg({ className, style }: BoxSvgProps) {
-  const stroke = {
-    fill: "none",
-    stroke: "currentColor",
-    strokeWidth: 1.6,
-    strokeLinecap: "round" as const,
-    strokeLinejoin: "round" as const,
-  };
+  const outline = { stroke: "#4B5563", strokeWidth: 1.4, strokeLinejoin: "round" as const, strokeLinecap: "round" as const };
 
   return (
-    <svg viewBox="0 0 32 24" className={className} style={{ color: "#1F5E5C", ...style }} aria-hidden="true" focusable="false">
-      <path d="M 2 10 L 16 4 L 30 10 L 16 16 Z" {...stroke} />
-      <path d="M 2 10 L 2 20 L 16 24 L 16 16" {...stroke} />
-      <path d="M 30 10 L 30 20 L 16 24" {...stroke} />
+    <svg viewBox="0 0 32 24" className={className} style={style} aria-hidden="true" focusable="false">
+      <path d="M 2 10 L 2 22 L 30 22 L 30 10 Z" fill="#C8A27A" {...outline} />
+      <path d="M 2 10 L 16 4 L 30 10 L 16 15 Z" fill="#A9825A" {...outline} />
     </svg>
   );
 }
