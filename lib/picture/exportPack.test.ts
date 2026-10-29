@@ -58,6 +58,24 @@ test("builds totals, excludes archived accounts and inactive income/bills, and n
   assert.match(pack.note, /not a recommendation/i);
 });
 
+test("the note accurately scopes coverage and does not claim to include one-off items", () => {
+  const pack = buildExportPack({
+    now: new Date("2026-10-26T00:00:00.000Z"),
+    accounts: [],
+    income: [],
+    bills: [],
+    goals: [],
+    transactions: [],
+  });
+
+  // Regression for the export's over-broad "lists what was typed, uploaded,
+  // or imported" wording, which implied coverage of one-off items added via
+  // Add things (household_items) that the export never actually queries.
+  assert.match(pack.note, /recurring income and bills/i);
+  assert.match(pack.note, /does not include one-off items/i);
+  assert.doesNotMatch(pack.note, /uploaded, or imported/i);
+});
+
 test("missing names and currencies fall back to safe defaults instead of blank output", () => {
   const pack = buildExportPack({
     now: new Date("2026-10-26T00:00:00.000Z"),

@@ -8,6 +8,7 @@ import { SegmentedBar } from "@/components/charts/BrandCharts";
 import { PageGlance } from "@/components/glance/PageGlance";
 import { Page } from "@/components/Page";
 import { Card, CardContent, Chip, Button, Badge, Money, useToast } from "@/components/ui";
+import { useSampleMode } from "@/lib/demo/sampleMode";
 
 type Cadence = "weekly" | "fortnightly" | "monthly" | "quarterly" | "yearly";
 type BudgetKind = "expense" | "saving" | "sinking";
@@ -119,6 +120,7 @@ async function fetchJson<T>(url: string): Promise<T> {
 
 export default function BudgetClient() {
   const router = useRouter();
+  const { on: sampleOn } = useSampleMode();
 
   const toastApi: any = useToast();
   const showToast =
@@ -828,6 +830,14 @@ export default function BudgetClient() {
           <div className="rounded-2xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</div>
         ) : null}
 
+        {sampleOn ? (
+          <Card className="border-zinc-200 bg-white">
+            <CardContent className="text-sm text-zinc-600">
+              You&apos;re viewing a sample household above. Turn off the sample to see and manage your own budget.
+            </CardContent>
+          </Card>
+        ) : (
+          <>
         {/* Monthly picture */}
         <Card className="border-zinc-200 bg-white">
           <CardContent>
@@ -1045,6 +1055,8 @@ export default function BudgetClient() {
             </div>
           </CardContent>
         </Card>
+          </>
+        )}
       </div>
     </Page>
   );

@@ -5,6 +5,7 @@ import { supabase } from "@/lib/supabaseClient";
 import { PageGlance } from "@/components/glance/PageGlance";
 import { Page } from "@/components/Page";
 import { Card, CardContent, Button, Chip, Badge, useToast } from "@/components/ui";
+import { useSampleMode } from "@/lib/demo/sampleMode";
 
 type Cadence = "weekly" | "fortnightly" | "monthly" | "yearly";
 
@@ -101,6 +102,7 @@ export const dynamic = "force-dynamic";
 
 export default function IncomePage() {
   const { showToast } = useToast();
+  const { on: sampleOn } = useSampleMode();
 
   const [userId, setUserId] = useState<string | null>(null);
   const [householdId, setHouseholdId] = useState<string | null>(null);
@@ -297,6 +299,14 @@ export default function IncomePage() {
     >
       <div className="grid gap-4 max-w-[760px] mx-auto">
         <PageGlance page="income" />
+        {sampleOn ? (
+          <Card>
+            <CardContent className="text-sm text-zinc-600">
+              You&apos;re viewing a sample household above. Turn off the sample to see and manage your own income.
+            </CardContent>
+          </Card>
+        ) : (
+          <>
         <Card>
           <CardContent className="flex items-center justify-between gap-3 flex-wrap">
             <Badge>Active: {activeIncome.length}</Badge>
@@ -404,6 +414,8 @@ export default function IncomePage() {
             )}
           </CardContent>
         </Card>
+          </>
+        )}
       </div>
     </Page>
   );

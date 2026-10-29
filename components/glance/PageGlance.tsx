@@ -12,6 +12,14 @@ import {
   type SampleHousehold,
   type SampleItem,
 } from "@/lib/demo/sampleHousehold";
+import {
+  hasOneOffBills,
+  hasOneOffIncome,
+  oneOffBillItems,
+  oneOffBillsMonthlyCents,
+  oneOffIncomeItems,
+  oneOffIncomeMonthlyCents,
+} from "@/lib/glance/householdItemsSummary";
 
 export type GlancePage = "home" | "bills" | "income" | "budget" | "year" | "spending" | "decisions" | "household";
 
@@ -323,12 +331,17 @@ function Stat({ label, value }: { label: string; value: string }) {
 }
 
 function BillsView({ items }: { items: SampleItem[] }) {
-  const bills = items.filter((item) => item.kind === "bill" || item.kind === "renewal");
+  const bills = oneOffBillItems(items);
   const groups = new Map<string, SampleItem[]>();
   for (const item of bills) groups.set(item.category, [...(groups.get(item.category) ?? []), item]);
-  if (!bills.length) return <EmptyState label="No bills or renewals are listed yet." href="/start" action="Add things" />;
+  if (!bills.length) {
+    return <EmptyState label="No one-off bills or renewals added via Add things yet." href="/start" action="Add things" />;
+  }
   return (
     <div className="space-y-4">
+      <p className="text-sm text-neutral-text-2">
+        One-off bills and renewals added via Add things. Your recurring bills are tracked separately below.
+      </p>
       {[...groups.entries()].map(([category, rows]) => (
         <section key={category} className="space-y-2">
           <h2 className="flex items-center gap-2 text-sm font-semibold text-neutral-text">
@@ -355,19 +368,22 @@ function BillsView({ items }: { items: SampleItem[] }) {
           </div>
         </section>
       ))}
-      <How>Bills and renewals are the dates and amounts entered for this household.</How>
+      <How>These are one-off bills and renewals entered via Add things, not your recurring bills. They are not counted as recurring and do not appear in Budget&apos;s monthly picture.</How>
     </div>
   );
 }
 
 function IncomeView({ items }: { items: SampleItem[] }) {
-  const rows = items.filter((item) => item.kind === "income");
-  if (!rows.length) return <EmptyState label="No income is listed yet." href="/income" action="Add income" />;
+  const rows = oneOffIncomeItems(items);
+  if (!rows.length) {
+    return <EmptyState label="No one-off income added via Add things yet." href="/start" action="Add things" />;
+  }
   const monthly = rows.map((item) => ({ ...item, month: monthlyCents(item.amount_cents, item.cadence) }));
   const max = Math.max(...monthly.map((item) => item.month), 1);
   return (
     <div className="space-y-3 rounded-2xl border border-neutral-border bg-white p-4 sm:p-5">
-      <h2 className="text-sm font-semibold text-neutral-text">Monthly equivalent</h2>
+      <h2 className="text-sm font-semibold text-neutral-text">One-off income added via Add things</h2>
+      <p className="text-xs text-neutral-text-2">Your recurring income is tracked separately below.</p>
       {monthly.map((item) => (
         <div key={item.id}>
           <div className="mb-1 flex justify-between text-sm text-neutral-text">
@@ -380,24 +396,32 @@ function IncomeView({ items }: { items: SampleItem[] }) {
           <div className="mt-1 text-xs text-neutral-muted">{aud(item.amount_cents)} · {item.cadence}</div>
         </div>
       ))}
-      <How>Each bar is the entered amount restated as a month. Fortnightly pay is counted 26 times a year, then divided by 12.</How>
+      <How>Each bar is a one-off income item entered via Add things, restated as a month. Fortnightly pay is counted 26 times a year, then divided by 12. These are not your recurring income sources.</How>
     </div>
   );
 }
 
 function BudgetView({ items }: { items: SampleItem[] }) {
-  const income = items.filter((item) => item.kind === "income").reduce((sum, item) => sum + monthlyCents(item.amount_cents, item.cadence), 0);
-  const out = items
-    .filter((item) => item.kind === "bill" || item.kind === "renewal")
-    .reduce((sum, item) => sum + monthlyCents(item.amount_cents, item.cadence), 0);
-  if (!income && !out) return <EmptyState label="No expected amounts are listed yet." href="/start" action="Add things" />;
+  // One-off items captured via Add things, kept deliberately separate from
+  // the recurring_income/recurring_bills picture Budget's own "Monthly
+  // picture" section shows -- this does NOT compute a combined
+  // income-minus-out figure, since that would read as a second, competing
+  // budget total. See Budget's "Monthly picture" for the one authoritative
+  // recurring number.
+  const income = oneOffIncomeMonthlyCents(items);
+  const out = oneOffBillsMonthlyCents(items);
+  if (!hasOneOffIncome(items) && !hasOneOffBills(items)) {
+    return <EmptyState label="No one-off income, bills, or renewals added via Add things yet." href="/start" action="Add things" />;
+  }
   const max = Math.max(income, out, 1);
   return (
     <div className="space-y-4 rounded-2xl border border-neutral-border bg-white p-4 sm:p-5">
-      <Bar label="Expected in" cents={income} max={max} color="#1F5E5C" />
-      <Bar label="Expected out" cents={out} max={max} color="#8A8F8C" />
-      <p className="text-sm text-neutral-text">Difference (expected in minus expected out): {aud(income - out)}</p>
-      <How>Expected in is income restated per month. Expected out is bills and renewals restated per month. This is a sum of what was entered.</How>
+      <p className="text-sm text-neutral-text-2">
+        One-off income, bills, and renewals added via Add things. Your recurring monthly picture is below.
+      </p>
+      <Bar label="One-off income entered" cents={income} max={max} color="#1F5E5C" />
+      <Bar label="One-off bills & renewals entered" cents={out} max={max} color="#8A8F8C" />
+      <How>Each bar restates a one-off item entered via Add things as a month. These are not recurring and are not part of the monthly picture below.</How>
     </div>
   );
 }

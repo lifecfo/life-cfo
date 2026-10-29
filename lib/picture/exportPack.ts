@@ -1,7 +1,9 @@
 // lib/picture/exportPack.ts
-// Shapes already-typed household data into a factual summary a person can
-// print or save as a PDF to take to a bank, broker, adviser, or accountant.
-// Lists what was entered. Makes no recommendation and draws no conclusion.
+// Shapes accounts, recurring income/bills, goals, and recent transactions
+// into a factual summary a person can print or save as a PDF to take to a
+// bank, broker, adviser, or accountant. Makes no recommendation and draws
+// no conclusion. Does NOT include one-off items added via Add things
+// (household_items) -- those are a separate, not-yet-recurring record.
 
 export type Cadence = "weekly" | "fortnightly" | "monthly" | "quarterly" | "yearly";
 
@@ -222,6 +224,6 @@ export function buildExportPack(params: {
       by_category: spendingByCategory,
     },
     note:
-      "This is a factual summary of figures entered into Life CFO by this household. It lists what was typed, uploaded, or imported. It is not financial advice, has not been reviewed by a licensed adviser, and is not a recommendation.",
+      "This is a factual summary of accounts, recurring income and bills, goals, and the last 30 days of transactions recorded in Life CFO. It does not include one-off items added via Add things. It is not financial advice, has not been reviewed by a licensed adviser, and is not a recommendation.",
   };
 }

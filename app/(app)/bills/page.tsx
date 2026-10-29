@@ -7,6 +7,7 @@ import { PageGlance } from "@/components/glance/PageGlance";
 import { Page } from "@/components/Page";
 import { Card, CardContent, Button, Chip, Badge, useToast } from "@/components/ui";
 import { AssistedSearch } from "@/components/AssistedSearch";
+import { useSampleMode } from "@/lib/demo/sampleMode";
 
 type LiveState = "connecting" | "live" | "offline";
 type Cadence = "weekly" | "fortnightly" | "monthly" | "yearly";
@@ -291,6 +292,7 @@ async function resolveActiveHouseholdId(userId: string): Promise<string | null> 
 }
 
 export default function BillsPage() {
+  const { on: sampleOn } = useSampleMode();
   const toastApi: any = useToast();
   const showToast =
     toastApi?.showToast ??
@@ -914,6 +916,14 @@ export default function BillsPage() {
     <Page title="Bills & renewals" subtitle="Dates and amounts entered for this household." right={right}>
       <div className="grid gap-4">
         <PageGlance page="bills" />
+        {sampleOn ? (
+          <Card>
+            <CardContent className="text-sm text-zinc-600">
+              You&apos;re viewing a sample household above. Turn off the sample to see and manage your own bills.
+            </CardContent>
+          </Card>
+        ) : (
+          <>
         {/* Search bills (escape hatch) */}
         <Card>
           <CardContent>
@@ -1271,6 +1281,8 @@ export default function BillsPage() {
             )}
           </CardContent>
         </Card>
+          </>
+        )}
       </div>
     </Page>
   );
