@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { PageGlance } from "@/components/glance/PageGlance";
 import { Page } from "@/components/Page";
-import { Card, CardContent, Chip, useToast } from "@/components/ui";
+import { Button, Card, CardContent, Chip, useToast } from "@/components/ui";
 import { notifyActiveHouseholdChanged } from "@/lib/households/resolveActiveHouseholdClient";
 import { useLifeCfoAccess } from "@/lib/access/useLifeCfoAccess";
 
@@ -81,6 +82,9 @@ function formatInviteAge(createdAt: string) {
 export default function HouseholdClient() {
   const access = useLifeCfoAccess();
   const { showToast } = useToast();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const redirectReason = safeStr(searchParams?.get("reason")).trim() || null;
 
   const [loading, setLoading] = useState(true);
   const [statusLine, setStatusLine] = useState("Loading…");
@@ -315,6 +319,8 @@ export default function HouseholdClient() {
     if (creating) return;
     setCreating(true);
 
+    const isFirstHousehold = needsHousehold || households.length === 0;
+
     try {
       const name = safeStr(createName).trim();
 
@@ -329,6 +335,12 @@ export default function HouseholdClient() {
 
       showToast({ message: "Created." }, 1200);
       setCreateName("");
+
+      if (isFirstHousehold) {
+        router.push("/lifecfo-home");
+        return;
+      }
+
       await load();
       await loadIncomingInvites();
     } catch (error: unknown) {
@@ -592,6 +604,8 @@ export default function HouseholdClient() {
   };
 
   const actOnIncomingInvite = async (id: string, action: "accept" | "decline") => {
+    const isFirstHousehold = needsHousehold || households.length === 0;
+
     try {
       const res = await fetch("/api/households/invites", {
         method: "PATCH",
@@ -613,6 +627,11 @@ export default function HouseholdClient() {
 
       const nextDismissed = dismissedIncomingInviteIds.filter((x) => x !== id);
       persistDismissedInviteIds(nextDismissed);
+
+      if (action === "accept" && isFirstHousehold) {
+        router.push("/lifecfo-home");
+        return;
+      }
 
       await load();
       await loadIncomingInvites();
@@ -677,34 +696,19 @@ export default function HouseholdClient() {
     return (
       <Page title="Household" subtitle="This is who shares your money picture.">
         <div className="mx-auto w-full max-w-[760px] space-y-6">
+          {redirectReason ? (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+              Create or join a household first to use {redirectReason}.
+            </div>
+          ) : null}
+
           <Card className="border-zinc-200 bg-white">
-            <CardContent className="space-y-3">
+            <CardContent className="space-y-4">
               <div>
-                <div className="text-sm font-semibold text-zinc-900">Waiting for you</div>
-                <div className="mt-0.5 text-xs text-zinc-500">
-                  Accept an invite to share that household. You do not need a separate one.
+                <div className="text-base font-semibold text-zinc-900">One last step: set up your household</div>
+                <div className="mt-1 text-sm text-zinc-600">
+                  The rest of Life CFO unlocks once you create or join a household.
                 </div>
-              </div>
-              {incomingInvitesLoading ? <div className="text-sm text-zinc-600">Looking for an invite…</div> : null}
-              {!incomingInvitesLoading && incomingPendingInvites.length === 0 ? (
-                <div className="text-sm text-zinc-600">No invites are waiting for this email.</div>
-              ) : null}
-              {incomingPendingInvites.map((inv) => (
-                <div key={inv.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-zinc-200 px-3 py-2">
-                  <div>
-                    <div className="text-sm font-medium text-zinc-900">{inv.household_name}</div>
-                    <div className="text-xs text-zinc-500">Role: {inv.role}</div>
-                  </div>
-                  <Chip onClick={() => void actOnIncomingInvite(inv.id, "accept")}>Accept</Chip>
-                </div>
-              ))}
-            </CardContent>
-          </Card>
-          <Card className="border-zinc-200 bg-white">
-            <CardContent className="space-y-3">
-              <div>
-                <div className="text-sm font-semibold text-zinc-900">Set up your household</div>
-                <div className="mt-0.5 text-xs text-zinc-500">You can change this later.</div>
               </div>
 
               <div className="space-y-1">
@@ -717,13 +721,37 @@ export default function HouseholdClient() {
                 />
               </div>
 
-              <div className="flex items-center gap-2">
-                <Chip onClick={() => void createHousehold()} disabled={creating}>
+              <div>
+                <Button variant="primary" size="lg" onClick={() => void createHousehold()} disabled={creating}>
                   {creating ? "Creating…" : "Create household"}
-                </Chip>
+                </Button>
               </div>
 
-              <div className="text-xs text-zinc-500">Once created, it becomes your active household across the app.</div>
+              <div className="border-t border-zinc-100 pt-4">
+                <div className="text-sm font-medium text-zinc-900">Been invited?</div>
+                <div className="mt-0.5 text-xs text-zinc-500">
+                  Your invite will appear here. Accept it instead of creating a new household.
+                </div>
+
+                <div className="mt-3 space-y-2">
+                  {incomingInvitesLoading ? <div className="text-sm text-zinc-600">Looking for an invite…</div> : null}
+                  {!incomingInvitesLoading && incomingPendingInvites.length === 0 ? (
+                    <div className="text-sm text-zinc-600">No invites are waiting for this email.</div>
+                  ) : null}
+                  {incomingPendingInvites.map((inv) => (
+                    <div
+                      key={inv.id}
+                      className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-zinc-200 px-3 py-2"
+                    >
+                      <div>
+                        <div className="text-sm font-medium text-zinc-900">{inv.household_name}</div>
+                        <div className="text-xs text-zinc-500">Role: {inv.role}</div>
+                      </div>
+                      <Chip onClick={() => void actOnIncomingInvite(inv.id, "accept")}>Accept</Chip>
+                    </div>
+                  ))}
+                </div>
+              </div>
             </CardContent>
           </Card>
         </div>
