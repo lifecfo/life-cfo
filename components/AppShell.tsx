@@ -6,6 +6,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { Chip } from "@/components/ui";
+import { redirectReasonLabel } from "@/lib/households/redirectReasonLabel";
 import { supabase } from "@/lib/supabaseClient";
 import { useAsk } from "@/components/ask/AskProvider";
 import { AskPanel } from "@/components/ask/AskPanel";
@@ -252,7 +253,8 @@ export function AppShell({ children }: AppShellProps) {
             p.startsWith("/auth");
 
           if (!!json.needs_household && !isAllowed) {
-            router.push("/household");
+            const reason = redirectReasonLabel(p);
+            router.push(`/household?reason=${encodeURIComponent(reason)}`);
           }
         } else {
           setHouseholds([]);

@@ -4,7 +4,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
-import { safeNextPath } from "@/lib/http/safeNextPath";
+import { resolvePostFinePrintDestination } from "@/lib/http/resolvePostFinePrintDestination";
 import { Card, CardContent, Chip, Button, useToast } from "@/components/ui";
 import { australiaSoftWarning, birthYearIsAdult } from "@/lib/onboarding/suitability";
 import ImportantInformationContent from "./ImportantInformationContent";
@@ -98,10 +98,16 @@ export default function FinePrintClient({ nextPath }: FinePrintClientProps) {
 
       toast("Saved.");
 
-      let dest = safeNextPath(nextPath || "/home");
-      if (dest === "/home") dest = "/start";
+      let needsHousehold = false;
+      try {
+        const householdsRes = await fetch("/api/households", { cache: "no-store" });
+        const householdsJson = await householdsRes.json().catch(() => null);
+        needsHousehold = householdsRes.ok && !!householdsJson?.needs_household;
+      } catch {
+        // If the household check fails, assume they have one and fall back to the normal destination.
+      }
 
-      window.location.assign(dest);
+      window.location.assign(resolvePostFinePrintDestination(nextPath, needsHousehold));
       return;
     } catch (error: unknown) {
       const msg = safeStr(error instanceof Error ? error.message : "") || "Couldn’t save. Please try again.";
