@@ -368,9 +368,6 @@ export default function CategoriesClient() {
           <CardContent>
             <div className="space-y-1 text-xs text-zinc-500">
               <div>
-                Categories turn raw transactions into something Life CFO can reason about.
-              </div>
-              <div>
                 The next step after this is Rules, so merchants and descriptions can be classified automatically.
               </div>
             </div>

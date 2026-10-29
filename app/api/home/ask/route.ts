@@ -933,7 +933,10 @@ export async function POST(req: Request) {
     if (isHomeAffordabilityIntent(question)) {
       const money = (facts as any)?.money_summary;
       const moneyReasoning = (facts as any)?.money_reasoning;
+      const mainPressureKey = moneyReasoning?.interpretation?.main_pressure?.key;
       const mainPressureSummary =
+        typeof mainPressureKey === "string" &&
+        mainPressureKey !== "none" &&
         typeof moneyReasoning?.interpretation?.main_pressure?.summary === "string"
           ? moneyReasoning.interpretation.main_pressure.summary
           : "";
@@ -961,7 +964,7 @@ export async function POST(req: Request) {
       const key_points = [
         "I'm seeing these available balances by currency.",
         "I'm seeing these recurring commitments by currency.",
-        mainPressureSummary ? `Current pressure baseline: ${mainPressureSummary}` : "",
+        mainPressureSummary,
         confidenceNote ? `From this data: ${confidenceNote}` : "",
         "To answer this clearly, we'd need timing, which account pays, and your buffer.",
       ].filter(Boolean);

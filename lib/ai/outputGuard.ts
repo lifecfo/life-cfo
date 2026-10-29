@@ -39,6 +39,16 @@ const ADVICE_PATTERNS: { name: string; pattern: RegExp }[] = [
   { name: "too_much", pattern: /\btoo much\b/i },
   { name: "ideally", pattern: /\bideally\b/i },
   { name: "shop_around", pattern: /\bshop around\b/i },
+  {
+    name: "pressure",
+    // Scoped to judgment phrasing about the household's financial state
+    // ("money pressure", "under pressure", "pressure on your budget") --
+    // bare "pressure" is too common in factual bill/item names ("Blood
+    // pressure medication", "Tyre pressure check", "Pressure cleaning",
+    // "Pressure cooker") to use as a blanket match.
+    pattern:
+      /\b(?:money pressure|financial pressure|pressure signal|under pressure|pressure baseline|pressure on (?:your|the) (?:budget|cash\s?flow|cash))\b/i,
+  },
   { name: "product", pattern: /\b(?:vanguard|hostplus|betashares|commsec|stake|afterpay)\b/i },
   { name: "debt_guidance", pattern: /\b(?:refinance|consolidat\w*|pay off your|pay off the)\b/i },
   { name: "super_guidance", pattern: /\b(?:superannuation|super fund|super)\b/i },
