@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { DATA_TABLES } from "@/lib/account/dataRegistry";
 import { deletionBlockers, soleMemberHouseholdIds, type DeletionMembership } from "@/lib/account/deletionPlan";
+import { planDeleteOwnRows } from "@/lib/account/deleteOwnRowsPlan";
 import { collectReceiptPaths, isReceiptStoragePath, RECEIPT_BUCKET } from "@/lib/picture/receiptImage";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { supabaseRoute } from "@/lib/supabaseRoute";
@@ -149,12 +150,15 @@ export async function POST(req: Request) {
 
     await removeStoredReceipts(admin, soleMemberHouseholdIds(memberships), user.id);
 
+    // Only a household where this user is the sole member is deleted outright.
+    // A shared household (and everyone's bills/categories/decisions/etc. inside
+    // it) is never touched here, no matter how many of its tables this loop
+    // covers -- see soleMemberHouseholdIds in lib/account/deletionPlan.ts.
     for (const householdId of soleMemberHouseholdIds(memberships)) {
       for (const table of DATA_TABLES) {
         if (!table.householdIdColumn) continue;
         await deleteWhere(admin, table.table, table.householdIdColumn, householdId);
       }
-      await deleteWhere(admin, "households", "household_id", householdId);
       const { error: householdError } = await admin.from("households").delete().eq("id", householdId);
       if (householdError && !missingRelation(householdError)) {
         throw new Error(householdError.message);
@@ -167,8 +171,22 @@ export async function POST(req: Request) {
     }
 
     for (const table of DATA_TABLES) {
-      if (!table.userIdColumn) continue;
-      await deleteWhere(admin, table.table, table.userIdColumn, user.id);
+      const plan = planDeleteOwnRows(table);
+      if (!plan) continue;
+
+      // A table scoped to a household belongs to that household, not to any
+      // one member -- only this user's rows with no household at all go
+      // here. Rows tied to a (shared) household already got handled above
+      // if that household was being deleted outright; otherwise they stay
+      // for the remaining members.
+      let query = admin.from(table.table).delete().eq(table.userIdColumn!, user.id);
+      if (plan.kind === "by_user_and_household_null") {
+        query = query.is(table.householdIdColumn!, null);
+      }
+      const { error } = await query;
+      if (error && !missingRelation(error)) {
+        throw new Error(error.message || `Couldn't delete ${table.table}.`);
+      }
     }
 
     const { error: authDeleteError } = await admin.auth.admin.deleteUser(user.id);
