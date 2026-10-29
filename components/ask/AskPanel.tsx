@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAsk } from "@/components/ask/AskProvider";
 import { Chip } from "@/components/ui";
+import { shouldHideAsk } from "@/lib/ask/publicPagesWithoutAsk";
 import type { DecisionCandidate } from "@/lib/memory/contracts";
 import { PRODUCT_NAME } from "@/lib/brand";
 
@@ -136,7 +137,7 @@ export function AskPanel({ mode = "overlay" }: { mode?: AskPanelMode }) {
   }, []);
 
   const splitHandledByShellDesktop = mode === "overlay" && shellSplitHostActive && isDesktop;
-  const effectiveOpen = open && !splitHandledByShellDesktop;
+  const effectiveOpen = open && !splitHandledByShellDesktop && !shouldHideAsk(currentPath);
 
   useEffect(() => {
     if (!effectiveOpen) return;
