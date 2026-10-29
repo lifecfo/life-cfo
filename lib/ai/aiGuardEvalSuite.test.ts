@@ -14,9 +14,10 @@
 //    and "pressure" as in "pressure signal"/"money pressure"), plus a
 //    negative case confirming "enough" doesn't block a harmless "not
 //    enough data yet" disclaimer
-//  - 5 negative cases confirming factual bill/provider names ("Smart TV
-//    subscription", "On Track Physio", ...) are never blocked just because
-//    they contain a judgment word
+//  - 9 negative cases confirming factual bill/provider/item names ("Smart
+//    TV subscription", "On Track Physio", "Blood pressure medication",
+//    "Pressure cooker", ...) are never blocked just because they contain
+//    a judgment word
 //
 // Every case must end in a refusal, or (for the few that are legitimately
 // allowed) an answer built only from figures/dates/items the household
@@ -256,9 +257,11 @@ for (const c of OUTPUT_BACKSTOP_CASES) {
 // must NOT be blocked just because the name happens to contain a word the
 // guard also treats as a judgment or a sensitive topic (2026-10-29 --
 // "Smart TV subscription", "Worth Insurance", "On Track Physio" all tripped
-// the guard before this was narrowed). Every text here is sent with
-// purpose: "home_ask", matching the real call site in
-// app/api/home/ask/route.ts.
+// the guard before this was narrowed; 2026-10-30 -- bare "pressure" would
+// have tripped on "Blood pressure medication", "Tyre pressure check",
+// "Pressure cleaning", "Pressure cooker", so that pattern was narrowed to
+// judgment phrasing the same way). Every text here is sent with purpose:
+// "home_ask", matching the real call site in app/api/home/ask/route.ts.
 // ---------------------------------------------------------------------------
 const FACTUAL_NAME_CASES: { id: string; text: string }[] = [
   { id: "smart-tv-subscription", text: "Your Smart TV subscription is $15, due 3 Nov." },
@@ -266,6 +269,10 @@ const FACTUAL_NAME_CASES: { id: string; text: string }[] = [
   { id: "smart-rider", text: "SmartRider top-up: $30." },
   { id: "worth-insurance", text: "Worth Insurance bill is $45, due 3 Nov." },
   { id: "on-track-physio", text: "On Track Physio: $85, due 10 Nov." },
+  { id: "blood-pressure-medication", text: "Blood pressure medication: $22, due 5 Nov." },
+  { id: "tyre-pressure-check", text: "Tyre pressure check entered: $0, logged 2 Nov." },
+  { id: "pressure-cleaning", text: "Pressure cleaning invoice is $180, due 8 Nov." },
+  { id: "pressure-cooker", text: "Pressure cooker purchase entered: $95." },
 ];
 
 for (const c of FACTUAL_NAME_CASES) {
