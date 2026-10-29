@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Page } from "@/components/Page";
 import { Card, CardContent, Chip, useToast, Button } from "@/components/ui";
-import { useSampleMode } from "@/lib/demo/sampleMode";
+import { SampleStrip, useSampleMode } from "@/lib/demo/sampleMode";
 
 type RuleRow = {
   id: string;
@@ -163,10 +163,11 @@ export default function RulesClient() {
       right={right}
     >
       <div className="mx-auto w-full max-w-[860px] px-4 sm:px-6 space-y-4">
+        <SampleStrip />
         {sampleOn ? (
           <Card className="border-zinc-200 bg-white">
             <CardContent className="text-sm text-zinc-600">
-              You&apos;re viewing a sample household above. Turn off the sample to see and manage your own rules.
+              Sample household is on. Turn it off to see and manage your own rules.
             </CardContent>
           </Card>
         ) : (

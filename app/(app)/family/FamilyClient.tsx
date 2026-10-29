@@ -5,7 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { Page } from "@/components/Page";
 import { Card, CardContent, Chip, useToast } from "@/components/ui";
-import { useSampleMode } from "@/lib/demo/sampleMode";
+import { SampleStrip, useSampleMode } from "@/lib/demo/sampleMode";
 
 export const dynamic = "force-dynamic";
 
@@ -686,14 +686,15 @@ export default function FamilyClient() {
   };
 
   return (
-    <Page title="Family" subtitle="People and pets Life CFO can keep in mind.">
+    <Page title="Family" subtitle="People and pets Life CFO helps you keep track of.">
       <div className="mx-auto w-full max-w-[760px] space-y-6">
         <div className="text-xs text-zinc-500">{loading ? "Loading…" : statusLine}</div>
 
+        <SampleStrip />
         {sampleOn ? (
           <Card className="border-zinc-200 bg-white">
             <CardContent className="text-sm text-zinc-600">
-              You&apos;re viewing a sample household above. Turn off the sample to see and manage your own family and pets.
+              Sample household is on. Turn it off to see and manage your own family and pets.
             </CardContent>
           </Card>
         ) : (
@@ -704,7 +705,7 @@ export default function FamilyClient() {
             <div className="flex flex-wrap items-start justify-between gap-2">
               <div>
                 <div className="text-sm font-semibold text-zinc-900">Me</div>
-                <div className="text-xs text-zinc-500">Optional. Only what you want Life CFO to consider.</div>
+                <div className="text-xs text-zinc-500">Optional. Only what you want Life CFO to remember.</div>
               </div>
 
               {editingKey === "me" ? (
@@ -888,7 +889,7 @@ export default function FamilyClient() {
               <div className="space-y-1 text-sm text-zinc-600">
                 <div>No family added yet.</div>
                 <div className="text-xs text-zinc-500">
-                  Example: Partner, child, parent, or anyone Life CFO can keep in mind.
+                  Example: Partner, child, parent, or anyone you want Life CFO to keep track of.
                 </div>
               </div>
             ) : (

@@ -3,8 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Page } from "@/components/Page";
-import { Card, CardContent, Chip, useToast } from "@/components/ui";
-import { useSampleMode } from "@/lib/demo/sampleMode";
+import { Button, Card, CardContent, Chip, useToast } from "@/components/ui";
+import { SampleStrip, useSampleMode } from "@/lib/demo/sampleMode";
 
 type CategoryRow = {
   id: string;
@@ -41,8 +41,15 @@ function moneyFromCents(cents: number, currency = "AUD") {
   }
 }
 
-async function fetchJson<T>(url: string): Promise<T> {
-  const res = await fetch(url, { cache: "no-store" });
+async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(url, {
+    cache: "no-store",
+    ...init,
+    headers: {
+      "Content-Type": "application/json",
+      ...(init?.headers ?? {}),
+    },
+  });
   const json = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error((json as any)?.error ?? "Request failed");
   return json as T;
@@ -55,6 +62,15 @@ export default function CategoriesClient() {
 
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<CategoriesResponse | null>(null);
+
+  const [newCategoryName, setNewCategoryName] = useState("");
+  const [savingCategory, setSavingCategory] = useState(false);
+  const [addingCommon, setAddingCommon] = useState(false);
+
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingName, setEditingName] = useState("");
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   async function load(silent = false) {
     if (!silent) setLoading(true);
@@ -81,6 +97,95 @@ export default function CategoriesClient() {
     return () => window.removeEventListener("focus", onFocus);
   }, []);
 
+  async function addCategory() {
+    const name = newCategoryName.trim();
+    if (!name || savingCategory) return;
+
+    setSavingCategory(true);
+    try {
+      await fetchJson("/api/money/categories", {
+        method: "POST",
+        body: JSON.stringify({ name }),
+      });
+      setNewCategoryName("");
+      showToast({ message: "Category added." }, 2000);
+      await load(true);
+    } catch (e: any) {
+      showToast({ message: e?.message ?? "Couldn’t add category." }, 2500);
+    } finally {
+      setSavingCategory(false);
+    }
+  }
+
+  async function addCommonCategories() {
+    if (addingCommon) return;
+
+    setAddingCommon(true);
+    try {
+      const result = await fetchJson<{ ok: boolean; added: CategoryRow[]; skipped: string[] }>(
+        "/api/money/categories",
+        { method: "POST", body: JSON.stringify({ common: true }) }
+      );
+      showToast(
+        {
+          message:
+            result.added.length > 0
+              ? `Added ${result.added.length} categor${result.added.length === 1 ? "y" : "ies"}.`
+              : "Those categories already exist.",
+        },
+        2500
+      );
+      await load(true);
+    } catch (e: any) {
+      showToast({ message: e?.message ?? "Couldn’t add common categories." }, 2500);
+    } finally {
+      setAddingCommon(false);
+    }
+  }
+
+  function startRename(row: CategoryRow) {
+    setEditingId(row.id);
+    setEditingName(row.name);
+  }
+
+  function cancelRename() {
+    setEditingId(null);
+    setEditingName("");
+  }
+
+  async function saveRename() {
+    const name = editingName.trim();
+    if (!editingId || !name || savingEdit) return;
+
+    setSavingEdit(true);
+    try {
+      await fetchJson("/api/money/categories", {
+        method: "PATCH",
+        body: JSON.stringify({ id: editingId, name }),
+      });
+      cancelRename();
+      await load(true);
+    } catch (e: any) {
+      showToast({ message: e?.message ?? "Couldn’t rename category." }, 2500);
+    } finally {
+      setSavingEdit(false);
+    }
+  }
+
+  async function deleteCategory(id: string) {
+    if (deletingId) return;
+
+    setDeletingId(id);
+    try {
+      await fetchJson(`/api/money/categories?id=${encodeURIComponent(id)}`, { method: "DELETE" });
+      await load(true);
+    } catch (e: any) {
+      showToast({ message: e?.message ?? "Couldn’t delete category." }, 2500);
+    } finally {
+      setDeletingId(null);
+    }
+  }
+
   const grouped = useMemo(() => {
     const map = new Map<string, CategoryRow[]>();
 
@@ -104,14 +209,15 @@ export default function CategoriesClient() {
   return (
     <Page
       title="Categories"
-      subtitle="How spending is grouped across the household."
+      subtitle="Categories group your transactions so Life CFO can summarise your spending."
       right={right}
     >
       <div className="mx-auto w-full max-w-[860px] px-4 sm:px-6 space-y-4">
+        <SampleStrip />
         {sampleOn ? (
           <Card className="border-zinc-200 bg-white">
             <CardContent className="text-sm text-zinc-600">
-              You&apos;re viewing a sample household above. Turn off the sample to see and manage your own categories.
+              Sample household is on. Turn it off to see and manage your own categories.
             </CardContent>
           </Card>
         ) : (
@@ -148,6 +254,41 @@ export default function CategoriesClient() {
         </Card>
 
         <Card className="border-zinc-200 bg-white">
+          <CardContent className="space-y-4">
+            <div>
+              <div className="text-sm font-semibold text-zinc-900">Add category</div>
+              <div className="mt-0.5 text-xs text-zinc-500">
+                Create a category, or add a common starter set in one go.
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                value={newCategoryName}
+                onChange={(e) => setNewCategoryName(e.target.value)}
+                placeholder="e.g. Groceries"
+                className="w-full max-w-xs rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200"
+              />
+              <Button
+                onClick={() => void addCategory()}
+                disabled={savingCategory || !newCategoryName.trim()}
+                className="rounded-2xl"
+              >
+                {savingCategory ? "Adding…" : "Add category"}
+              </Button>
+              <Button
+                variant="ghost"
+                onClick={() => void addCommonCategories()}
+                disabled={addingCommon}
+                className="rounded-2xl"
+              >
+                {addingCommon ? "Adding…" : "Add common categories"}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="border-zinc-200 bg-white">
           <CardContent>
             <div className="text-sm font-semibold text-zinc-900">Groups</div>
 
@@ -162,9 +303,36 @@ export default function CategoriesClient() {
                     {groupName}
                   </div>
 
-                  <div className="mt-3 flex flex-wrap gap-2">
+                  <div className="mt-3 divide-y divide-zinc-100">
                     {rows.map((row) => (
-                      <Chip key={row.id}>{row.name}</Chip>
+                      <div key={row.id} className="flex items-center justify-between gap-2 py-2">
+                        {editingId === row.id ? (
+                          <>
+                            <input
+                              value={editingName}
+                              onChange={(e) => setEditingName(e.target.value)}
+                              className="min-w-0 flex-1 rounded-xl border border-zinc-200 bg-white px-2 py-1 text-sm outline-none focus:ring-2 focus:ring-zinc-200"
+                              autoFocus
+                            />
+                            <div className="flex shrink-0 items-center gap-1">
+                              <Chip onClick={() => void saveRename()}>
+                                {savingEdit ? "Saving…" : "Save"}
+                              </Chip>
+                              <Chip onClick={cancelRename}>Cancel</Chip>
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                            <span className="truncate text-sm text-zinc-800">{row.name}</span>
+                            <div className="flex shrink-0 items-center gap-1">
+                              <Chip onClick={() => startRename(row)}>Rename</Chip>
+                              <Chip onClick={() => void deleteCategory(row.id)}>
+                                {deletingId === row.id ? "Deleting…" : "Delete"}
+                              </Chip>
+                            </div>
+                          </>
+                        )}
+                      </div>
                     ))}
                   </div>
                 </div>
