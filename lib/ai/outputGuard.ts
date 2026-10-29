@@ -27,6 +27,18 @@ const ADVICE_PATTERNS: { name: string; pattern: RegExp }[] = [
     // "On Track Physio".
     pattern: /\b(?:(?:look(?:s|ing)?|is|are|you'?re|we'?re)\s+on track|no changes needed)\b/i,
   },
+  { name: "safe_to_spend", pattern: /\bsafe to spend\b/i },
+  {
+    name: "enough",
+    // Scoped to the affordability-judgment shapes ("you have enough",
+    // "enough to cover it") rather than bare "enough", which also shows up
+    // in harmless factual disclaimers ("not enough transactions yet to
+    // show a trend").
+    pattern: /\b(?:have enough|has enough|more than enough|enough (?:to|for))\b/i,
+  },
+  { name: "too_much", pattern: /\btoo much\b/i },
+  { name: "ideally", pattern: /\bideally\b/i },
+  { name: "shop_around", pattern: /\bshop around\b/i },
   { name: "product", pattern: /\b(?:vanguard|hostplus|betashares|commsec|stake|afterpay)\b/i },
   { name: "debt_guidance", pattern: /\b(?:refinance|consolidat\w*|pay off your|pay off the)\b/i },
   { name: "super_guidance", pattern: /\b(?:superannuation|super fund|super)\b/i },
