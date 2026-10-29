@@ -2,9 +2,8 @@
  * Hit-tests a set of points and reports whether any of them land on real
  * page content (as opposed to the mascot's own layer, which is marked
  * with data-mascot-layer and is pointer-events:none anyway, or plain
- * html/body background). Used as a defensive backstop right before the
- * ambient cat appears or a scene starts -- the reserved bottom padding on
- * Home should already keep this area clear in the normal case.
+ * html/body background). Used as a defensive backstop right before a
+ * mouse scene starts (currently paused -- see lib/mascot/mouseFlag.ts).
  */
 export function isMascotBandClear(points: Array<{ x: number; y: number }>): boolean {
   if (typeof document === "undefined") return true;
@@ -21,19 +20,6 @@ export function isMascotBandClear(points: Array<{ x: number; y: number }>): bool
   }
 
   return true;
-}
-
-/** Sample points across the ambient cat's resting footprint, bottom-left. */
-export function ambientCatSamplePoints(): Array<{ x: number; y: number }> {
-  if (typeof window === "undefined") return [];
-  const h = window.innerHeight;
-  return [
-    { x: 20, y: h - 10 },
-    { x: 50, y: h - 10 },
-    { x: 80, y: h - 10 },
-    { x: 20, y: h - 50 },
-    { x: 50, y: h - 50 },
-  ];
 }
 
 /** Sample points across the scene band, excluding the Ask launcher's bottom-right corner. */

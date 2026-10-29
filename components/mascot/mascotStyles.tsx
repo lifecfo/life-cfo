@@ -11,13 +11,11 @@ export function MascotStyles() {
   return (
     <style>{`
       :root {
-        --mascot-cat-size: 72px;
-        --mascot-peek-head-size: 34px;
+        --mascot-cat-size: 120px;
       }
       @media (max-width: 640px) {
         :root {
-          --mascot-cat-size: 64px;
-          --mascot-peek-head-size: 30px;
+          --mascot-cat-size: 96px;
         }
       }
 
@@ -113,88 +111,8 @@ export function MascotStyles() {
         50% { transform: translateY(-1.5px); }
       }
 
-      /* ---- Layout: the reserved bottom strip ---- */
-      .mascot-ambient-wrap {
-        position: fixed;
-        left: 10px;
-        bottom: 6px;
-        z-index: 60;
-        pointer-events: none;
-      }
-
-      .mascot-peek-stage {
-        position: relative;
-        width: calc(var(--mascot-peek-head-size) + 14px);
-        height: calc(var(--mascot-peek-head-size) + 14px);
-        transition: opacity 0.9s ease-in-out;
-      }
-      .mascot-peek-stage[data-visible="false"] {
-        opacity: 0;
-      }
-      .mascot-peek-head {
-        position: absolute;
-        left: 2px;
-        bottom: 2px;
-        width: var(--mascot-peek-head-size);
-        height: var(--mascot-peek-head-size);
-        transition: transform 1.1s ease-out, opacity 0.6s ease-in-out;
-        transform: translateY(10px);
-        opacity: 0;
-      }
-      .mascot-peek-head[data-shown="true"] {
-        transform: translateY(0);
-        opacity: 1;
-      }
-      .mascot-peek-head svg {
-        width: 100%;
-        height: 100%;
-      }
-      .mascot-box {
-        position: absolute;
-        left: -4px;
-        bottom: 0;
-        width: calc(var(--mascot-peek-head-size) + 20px);
-        height: calc(var(--mascot-peek-head-size) * 0.65);
-      }
-
-      .mascot-full-cat {
-        position: absolute;
-        left: 0;
-        bottom: 0;
-        width: var(--mascot-cat-size);
-        height: var(--mascot-cat-size);
-        transition: transform 2.2s ease-in-out, opacity 1s ease-in-out;
-        opacity: 0;
-      }
-      .mascot-full-cat[data-shown="true"] {
-        opacity: 1;
-      }
-      .mascot-full-cat svg {
-        width: 100%;
-        height: 100%;
-      }
-
-      .mascot-celebrate-wrap {
-        position: fixed;
-        left: 10px;
-        bottom: 6px;
-        z-index: 55;
-        pointer-events: none;
-        width: var(--mascot-cat-size);
-        height: var(--mascot-cat-size);
-        transition: opacity 0.6s ease-in-out, transform 0.6s ease-out;
-        opacity: 0;
-        transform: translateY(8px);
-      }
-      .mascot-celebrate-wrap[data-shown="true"] {
-        opacity: 1;
-        transform: translateY(0);
-      }
-      .mascot-celebrate-wrap svg {
-        width: 100%;
-        height: 100%;
-      }
-      .mascot-celebrate-wrap .mascot-cat-tail {
+      /* ---- Tail wag (celebration) ---- */
+      .mascot-corner--celebrate .mascot-cat-tail {
         animation: mascot-tail-wag 0.5s ease-in-out 3;
       }
       @keyframes mascot-tail-wag {
@@ -202,7 +120,50 @@ export function MascotStyles() {
         50% { transform: rotate(-16deg); }
       }
 
-      /* ---- Layout: the scene band (mouse/hole/cat during rare scenes) ---- */
+      /* ---- Layout: the cat lives beside the content (desktop/tablet
+             gutter) or in-flow at the end of it (mobile). Never a fixed
+             overlay, never inside a card. ---- */
+      .mascot-corner-gutter {
+        position: relative;
+        height: 0;
+        overflow: visible;
+      }
+      .mascot-corner-gutter-cat {
+        position: sticky;
+        top: 130px;
+        width: var(--mascot-cat-size);
+        height: var(--mascot-cat-size);
+        margin-left: 100%;
+        transform: translateX(28px);
+        transition: opacity 0.9s ease-in-out;
+      }
+      .mascot-corner-gutter-cat[data-visible="false"] {
+        opacity: 0;
+      }
+      .mascot-corner-gutter-cat svg {
+        width: 100%;
+        height: 100%;
+      }
+
+      .mascot-corner-strip {
+        display: flex;
+        justify-content: center;
+        padding: 16px 0 8px;
+      }
+      .mascot-corner-strip-cat {
+        width: var(--mascot-cat-size);
+        height: var(--mascot-cat-size);
+        transition: opacity 0.9s ease-in-out;
+      }
+      .mascot-corner-strip-cat[data-visible="false"] {
+        opacity: 0;
+      }
+      .mascot-corner-strip-cat svg {
+        width: 100%;
+        height: 100%;
+      }
+
+      /* ---- Layout: the scene band (mouse/hole/cheese -- currently paused) ---- */
       .mascot-scene-band {
         position: fixed;
         left: 0;
@@ -282,34 +243,42 @@ export function MascotStyles() {
         transform: translateX(-50%) scale(1);
       }
 
-      /* ---- Speech bubble ---- */
+      /* ---- Hand-drawn speech bubble ---- */
       .mascot-bubble-wrap {
         position: relative;
         display: inline-block;
       }
       .mascot-bubble {
         position: absolute;
-        bottom: calc(100% + 8px);
-        left: 0;
+        bottom: calc(100% + 12px);
+        left: 50%;
+        transform: translate(-50%, 4px);
         min-width: 160px;
-        max-width: 220px;
-        background: #ffffff;
-        border: 1px solid #DAD6CF;
-        border-radius: 12px;
-        padding: 8px 10px;
-        font-size: 12.5px;
-        line-height: 1.35;
-        color: #2B2B2B;
-        box-shadow: 0 4px 14px rgba(0,0,0,0.08);
-        transition: opacity 0.2s ease-in-out, transform 0.2s ease-in-out;
+        max-width: 230px;
+        padding: 18px 20px 30px;
+        font-size: 16px;
+        line-height: 1.4;
+        color: #16413f;
         opacity: 0;
-        transform: translateY(4px);
+        transition: opacity 0.2s ease-in-out, transform 0.2s ease-in-out;
         pointer-events: none;
+      }
+      .mascot-bubble[data-tail-side="right"] {
+        left: auto;
+        right: 50%;
       }
       .mascot-bubble[data-open="true"] {
         opacity: 1;
-        transform: translateY(0);
+        transform: translate(-50%, 0);
         pointer-events: auto;
+      }
+      .mascot-bubble[data-open="true"][data-tail-side="right"] {
+        transform: translate(50%, 0);
+      }
+      .mascot-bubble-text {
+        position: relative;
+        z-index: 1;
+        display: block;
       }
 
       @media (prefers-reduced-motion: reduce) {
@@ -324,13 +293,11 @@ export function MascotStyles() {
         .mascot-cat-walk-legs .mascot-cat-leg-front,
         .mascot-cat-walk-legs .mascot-cat-leg-back,
         .mascot-cat-walk-body,
-        .mascot-celebrate-wrap .mascot-cat-tail {
+        .mascot-corner--celebrate .mascot-cat-tail {
           animation: none !important;
         }
-        .mascot-peek-stage,
-        .mascot-peek-head,
-        .mascot-full-cat,
-        .mascot-celebrate-wrap,
+        .mascot-corner-gutter-cat,
+        .mascot-corner-strip-cat,
         .mascot-scene-item,
         .mascot-scene-cheese,
         .mascot-bubble {

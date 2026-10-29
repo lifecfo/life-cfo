@@ -6,7 +6,7 @@ import Link from "next/link";
 import { PageGlance } from "@/components/glance/PageGlance";
 import { useSampleMode } from "@/lib/demo/sampleMode";
 import { formatMoneyFromCents } from "@/lib/money/formatMoney";
-import { triggerMascotCelebration } from "@/components/mascot/MascotHost";
+import { triggerMascotCelebration } from "@/lib/mascot/celebrate";
 
 const LAST_UNASSIGNED_KEY = "lifecfo-mascot-last-unassigned";
 

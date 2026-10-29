@@ -9,7 +9,7 @@ import { Card, CardContent, Button, Chip, Badge, useToast } from "@/components/u
 import { AssistedSearch } from "@/components/AssistedSearch";
 import { useSampleMode } from "@/lib/demo/sampleMode";
 import { useMascotEnabled, usePrefersReducedMotion } from "@/lib/mascot/prefs";
-import { CatMascot } from "@/components/mascot/CatMascot";
+import { MascotCorner } from "@/components/mascot/MascotCorner";
 
 type LiveState = "connecting" | "live" | "offline";
 type Cadence = "weekly" | "fortnightly" | "monthly" | "yearly";
@@ -922,7 +922,6 @@ export default function BillsPage() {
 
   return (
     <Page title="Bills & renewals" subtitle="Dates and amounts entered for this household." right={right}>
-      <CatMascot variant="celebrate" enabled={mascotEnabled} reducedMotion={reducedMotion} celebrateKey={celebrateKey} />
       <div className="grid gap-4">
         <PageGlance page="bills" />
         {sampleOn ? (
@@ -1091,10 +1090,7 @@ export default function BillsPage() {
             <div className="grid gap-2">
               {visibleBills.length === 0 ? (
                 bills.length === 0 ? (
-                  <div className="flex items-center gap-3">
-                    <CatMascot variant="peek" enabled={mascotEnabled} reducedMotion={reducedMotion} />
-                    <div className="opacity-70 text-sm">No bills yet.</div>
-                  </div>
+                  <div className="opacity-70 text-sm">No bills yet.</div>
                 ) : (
                   <div className="opacity-70 text-sm">No bills match this filter.</div>
                 )
@@ -1300,6 +1296,10 @@ export default function BillsPage() {
           </>
         )}
       </div>
+      <MascotCorner mode="celebrate" contentMaxWidth={900} enabled={mascotEnabled} reducedMotion={reducedMotion} celebrateKey={celebrateKey} />
+      {!loading && bills.length === 0 ? (
+        <MascotCorner mode="static" contentMaxWidth={900} enabled={mascotEnabled} reducedMotion={reducedMotion} />
+      ) : null}
     </Page>
   );
 }

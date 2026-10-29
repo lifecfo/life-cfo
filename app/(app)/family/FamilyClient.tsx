@@ -7,7 +7,7 @@ import { Page } from "@/components/Page";
 import { Card, CardContent, Chip, useToast } from "@/components/ui";
 import { SampleStrip, useSampleMode } from "@/lib/demo/sampleMode";
 import { useMascotEnabled, usePrefersReducedMotion } from "@/lib/mascot/prefs";
-import { CatMascot } from "@/components/mascot/CatMascot";
+import { MascotCorner } from "@/components/mascot/MascotCorner";
 
 export const dynamic = "force-dynamic";
 
@@ -891,7 +891,6 @@ export default function FamilyClient() {
               </Card>
             ) : others.length === 0 ? (
               <div className="flex items-center gap-3">
-                <CatMascot variant="peek" enabled={mascotEnabled} reducedMotion={reducedMotion} />
                 <div className="space-y-1 text-sm text-zinc-600">
                   <div>No family added yet.</div>
                   <div className="text-xs text-zinc-500">
@@ -1290,6 +1289,9 @@ export default function FamilyClient() {
           </>
         )}
       </div>
+      {!addingFamily && others.length === 0 ? (
+        <MascotCorner mode="static" contentMaxWidth={760} enabled={mascotEnabled} reducedMotion={reducedMotion} />
+      ) : null}
     </Page>
   );
 }

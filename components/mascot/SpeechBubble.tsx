@@ -1,59 +1,61 @@
 "use client";
 
 import { useEffect, useId, useRef, useState } from "react";
-import { getRandomMascotLine } from "@/lib/mascot/lines";
+import { getStickyMascotLine } from "@/lib/mascot/lineMemory";
+import { BubbleShape } from "./BubbleShape";
+import { mascotHandwrittenFont } from "./mascotFont";
 
-const AUTO_CLOSE_MS = 6000;
+const HOVER_CLOSE_DELAY_MS = 300;
 
 type SpeechBubbleProps = {
   children: React.ReactNode;
   label: string;
+  tailSide?: "left" | "right";
   className?: string;
 };
 
 /**
- * Wraps the mascot SVG in a focusable button. Hover or click/tap shows a
- * speech bubble with one random line; it closes on tap-away, blur, or
- * after ~6 seconds. The trigger is a real <button>, and the bubble is
- * announced via aria-live so it's readable by screen readers when opened.
+ * Wraps the mascot SVG in a focusable button. Desktop: hover shows the
+ * bubble, moving away hides it after a short delay (so it doesn't
+ * flicker). Touch: tap toggles it. Keyboard: focus shows, blur hides.
+ * The line itself is sticky for 5 minutes (lib/mascot/lineMemory.ts) --
+ * repeated open/close never changes it mid-window.
  */
-export function SpeechBubble({ children, label, className }: SpeechBubbleProps) {
+export function SpeechBubble({ children, label, tailSide = "left", className }: SpeechBubbleProps) {
   const [open, setOpen] = useState(false);
   const [line, setLine] = useState("");
-  const pinnedRef = useRef(false);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const bubbleId = useId();
 
-  function clearTimer() {
-    if (timerRef.current) {
-      clearTimeout(timerRef.current);
-      timerRef.current = null;
+  function clearHideTimer() {
+    if (hideTimerRef.current) {
+      clearTimeout(hideTimerRef.current);
+      hideTimerRef.current = null;
     }
   }
 
-  function openBubble(pin: boolean) {
-    setLine(getRandomMascotLine());
+  function show() {
+    clearHideTimer();
+    setLine(getStickyMascotLine());
     setOpen(true);
-    pinnedRef.current = pin;
-    clearTimer();
-    timerRef.current = setTimeout(() => {
-      setOpen(false);
-      pinnedRef.current = false;
-    }, AUTO_CLOSE_MS);
   }
 
-  function closeBubble() {
+  function hideNow() {
+    clearHideTimer();
     setOpen(false);
-    pinnedRef.current = false;
-    clearTimer();
+  }
+
+  function hideAfterDelay() {
+    clearHideTimer();
+    hideTimerRef.current = setTimeout(() => setOpen(false), HOVER_CLOSE_DELAY_MS);
   }
 
   useEffect(() => {
     if (!open) return;
     function onDocPointerDown(event: MouseEvent | TouchEvent) {
       if (!wrapRef.current) return;
-      if (!wrapRef.current.contains(event.target as Node)) closeBubble();
+      if (!wrapRef.current.contains(event.target as Node)) hideNow();
     }
     document.addEventListener("mousedown", onDocPointerDown);
     document.addEventListener("touchstart", onDocPointerDown);
@@ -61,9 +63,10 @@ export function SpeechBubble({ children, label, className }: SpeechBubbleProps) 
       document.removeEventListener("mousedown", onDocPointerDown);
       document.removeEventListener("touchstart", onDocPointerDown);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
-  useEffect(() => clearTimer, []);
+  useEffect(() => clearHideTimer, []);
 
   return (
     <div ref={wrapRef} className={`mascot-bubble-wrap ${className ?? ""}`}>
@@ -72,27 +75,25 @@ export function SpeechBubble({ children, label, className }: SpeechBubbleProps) 
         aria-label={label}
         aria-expanded={open}
         aria-describedby={open ? bubbleId : undefined}
-        onClick={() => (open ? closeBubble() : openBubble(true))}
-        onMouseEnter={() => {
-          if (!open) openBubble(false);
-        }}
-        onMouseLeave={() => {
-          if (open && !pinnedRef.current) closeBubble();
-        }}
-        onBlur={() => closeBubble()}
-        style={{
-          background: "none",
-          border: "none",
-          padding: 0,
-          cursor: "pointer",
-          pointerEvents: "auto",
-          display: "block",
-        }}
+        onClick={() => (open ? hideNow() : show())}
+        onMouseEnter={show}
+        onMouseLeave={hideAfterDelay}
+        onFocus={show}
+        onBlur={hideNow}
+        style={{ background: "none", border: "none", padding: 0, cursor: "pointer", pointerEvents: "auto", display: "block" }}
       >
         {children}
       </button>
-      <div id={bubbleId} className="mascot-bubble" data-open={open} role="status" aria-live="polite">
-        {open ? line : ""}
+      <div
+        id={bubbleId}
+        className={`mascot-bubble ${mascotHandwrittenFont.className}`}
+        data-open={open}
+        data-tail-side={tailSide}
+        role="status"
+        aria-live="polite"
+      >
+        <BubbleShape tailSide={tailSide} />
+        <span className="mascot-bubble-text">{open ? line : ""}</span>
       </div>
     </div>
   );
