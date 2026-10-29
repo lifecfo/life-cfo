@@ -394,7 +394,7 @@ export function AppShell({ children }: AppShellProps) {
             {menuOpen ? (
               <div className="absolute right-0 top-full z-50 mt-2 w-[280px] rounded-2xl border border-zinc-200 bg-white p-2 shadow-lg">
                 <div className="grid gap-1">
-                  <div className="px-2 py-2 sm:hidden">
+                  <div className="px-2 py-2 md:hidden">
                     <div className="mb-3">
                       <Link
                         href="/lifecfo-home"
@@ -444,6 +444,8 @@ export function AppShell({ children }: AppShellProps) {
                       </div>
                     ) : null}
                   </div>
+
+                  <div className="my-1 border-t border-zinc-100 md:hidden" />
 
                   {needsHousehold ? (
                     <Link
