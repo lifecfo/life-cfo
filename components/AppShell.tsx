@@ -188,6 +188,31 @@ function navIcon(href: string) {
           <path d="M9.5 11h5M9.5 14.5h5" {...stroke} />
         </svg>
       );
+    case "/money/categories":
+      return (
+        <svg viewBox="0 0 24 24" fill="none" className={shared} aria-hidden="true">
+          <rect x="4" y="4" width="7" height="7" rx="1.2" {...stroke} />
+          <rect x="13" y="4" width="7" height="7" rx="1.2" {...stroke} />
+          <rect x="4" y="13" width="7" height="7" rx="1.2" {...stroke} />
+          <rect x="13" y="13" width="7" height="7" rx="1.2" {...stroke} />
+        </svg>
+      );
+    case "/money/rules":
+      return (
+        <svg viewBox="0 0 24 24" fill="none" className={shared} aria-hidden="true">
+          <path d="M6 4.5h9l3 3V19.5H6z" {...stroke} />
+          <path d="M9 10.5l1.5 1.5L14 8.5" {...stroke} />
+        </svg>
+      );
+    case "/family":
+      return (
+        <svg viewBox="0 0 24 24" fill="none" className={shared} aria-hidden="true">
+          <circle cx="8.5" cy="8" r="2.2" {...stroke} />
+          <circle cx="15.5" cy="8.6" r="1.7" {...stroke} />
+          <path d="M4.2 18.8c.6-2.6 2.2-3.9 4.3-3.9s3.7 1.3 4.3 3.9" {...stroke} />
+          <path d="M13 15.3c.7-.4 1.5-.6 2.4-.6 1.7 0 3 1 3.5 2.9" {...stroke} />
+        </svg>
+      );
     default:
       return (
         <svg viewBox="0 0 24 24" fill="none" className={shared} aria-hidden="true">
@@ -312,8 +337,8 @@ export function AppShell({ children }: AppShellProps) {
     };
   }, [pathname]);
 
-  const primaryLinks: NavLinkItem[] = useMemo(() => {
-    const items: NavLinkItem[] = [
+  const primaryLinks: Array<NavLinkItem | NavSectionItem> = useMemo(() => {
+    const items: Array<NavLinkItem | NavSectionItem> = [
       { href: "/lifecfo-home", label: "Home" },
       { href: "/start", label: "Add things" },
       { href: "/bills", label: "Bills & renewals" },
@@ -329,10 +354,16 @@ export function AppShell({ children }: AppShellProps) {
       );
     }
     items.push(
+      { label: "Spending setup", kind: "section" },
+      { href: "/money/categories", label: "Categories" },
+      { href: "/money/rules", label: "Rules" }
+    );
+    items.push(
       { href: "/money/year", label: "Year ahead" },
       { href: "/decisions", label: "Decision notes" },
       { href: "/documents", label: "Documents" },
-      { href: "/household", label: "Household" }
+      { href: "/household", label: "Household" },
+      { href: "/family", label: "Family & pets" }
     );
     return items;
   }, [showSpending]);

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Page } from "@/components/Page";
 import { Card, CardContent, Chip, useToast } from "@/components/ui";
+import { useSampleMode } from "@/lib/demo/sampleMode";
 
 type CategoryRow = {
   id: string;
@@ -50,6 +51,7 @@ async function fetchJson<T>(url: string): Promise<T> {
 export default function CategoriesClient() {
   const router = useRouter();
   const { showToast } = useToast();
+  const { on: sampleOn } = useSampleMode();
 
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<CategoriesResponse | null>(null);
@@ -95,7 +97,7 @@ export default function CategoriesClient() {
   const right = (
     <div className="flex items-center gap-2 flex-wrap">
       <Chip onClick={() => void load(false)}>Refresh</Chip>
-      <Chip onClick={() => router.push("/money")}>Back to Money</Chip>
+      <Chip onClick={() => router.push("/spending")}>Back to Spending</Chip>
     </div>
   );
 
@@ -106,6 +108,14 @@ export default function CategoriesClient() {
       right={right}
     >
       <div className="mx-auto w-full max-w-[860px] px-4 sm:px-6 space-y-4">
+        {sampleOn ? (
+          <Card className="border-zinc-200 bg-white">
+            <CardContent className="text-sm text-zinc-600">
+              You&apos;re viewing a sample household above. Turn off the sample to see and manage your own categories.
+            </CardContent>
+          </Card>
+        ) : (
+          <>
         <Card className="border-zinc-200 bg-white">
           <CardContent>
             <div className="grid gap-4 sm:grid-cols-3">
@@ -198,6 +208,8 @@ export default function CategoriesClient() {
             </div>
           </CardContent>
         </Card>
+          </>
+        )}
       </div>
     </Page>
   );

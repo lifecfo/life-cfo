@@ -1,5 +1,7 @@
-import { redirect } from "next/navigation";
+import RulesClient from "./RulesClient";
 
-export default function RulesRedirect() {
-  redirect("/spending");
+export const dynamic = "force-dynamic";
+
+export default function Page() {
+  return <RulesClient />;
 }
