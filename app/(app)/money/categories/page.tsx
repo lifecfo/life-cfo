@@ -1,5 +1,7 @@
-import { redirect } from "next/navigation";
+import CategoriesClient from "./CategoriesClient";
 
-export default function CategoriesRedirect() {
-  redirect("/spending");
+export const dynamic = "force-dynamic";
+
+export default function Page() {
+  return <CategoriesClient />;
 }

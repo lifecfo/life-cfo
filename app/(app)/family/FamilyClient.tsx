@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { Page } from "@/components/Page";
 import { Card, CardContent, Chip, useToast } from "@/components/ui";
+import { SampleStrip, useSampleMode } from "@/lib/demo/sampleMode";
 
 export const dynamic = "force-dynamic";
 
@@ -99,6 +100,7 @@ function isMe(m: FamilyMember) {
 
 export default function FamilyClient() {
   const { toast } = useToast();
+  const { on: sampleOn } = useSampleMode();
 
   const [loading, setLoading] = useState(true);
   const [statusLine, setStatusLine] = useState<string>("Loading…");
@@ -684,17 +686,26 @@ export default function FamilyClient() {
   };
 
   return (
-    <Page title="Family" subtitle="People and pets Life CFO can keep in mind.">
+    <Page title="Family" subtitle="People and pets Life CFO helps you keep track of.">
       <div className="mx-auto w-full max-w-[760px] space-y-6">
         <div className="text-xs text-zinc-500">{loading ? "Loading…" : statusLine}</div>
 
+        <SampleStrip />
+        {sampleOn ? (
+          <Card className="border-zinc-200 bg-white">
+            <CardContent className="text-sm text-zinc-600">
+              Sample household is on. Turn it off to see and manage your own family and pets.
+            </CardContent>
+          </Card>
+        ) : (
+          <>
         {/* Me */}
         <Card className="border-zinc-200 bg-white">
           <CardContent className="space-y-3">
             <div className="flex flex-wrap items-start justify-between gap-2">
               <div>
                 <div className="text-sm font-semibold text-zinc-900">Me</div>
-                <div className="text-xs text-zinc-500">Optional. Only what you want Life CFO to consider.</div>
+                <div className="text-xs text-zinc-500">Optional. Only what you want Life CFO to remember.</div>
               </div>
 
               {editingKey === "me" ? (
@@ -878,7 +889,7 @@ export default function FamilyClient() {
               <div className="space-y-1 text-sm text-zinc-600">
                 <div>No family added yet.</div>
                 <div className="text-xs text-zinc-500">
-                  Example: Partner, child, parent, or anyone Life CFO should keep in mind.
+                  Example: Partner, child, parent, or anyone you want Life CFO to keep track of.
                 </div>
               </div>
             ) : (
@@ -1269,6 +1280,8 @@ export default function FamilyClient() {
             </div>
           </div>
         ) : null}
+          </>
+        )}
       </div>
     </Page>
   );

@@ -188,6 +188,31 @@ function navIcon(href: string) {
           <path d="M9.5 11h5M9.5 14.5h5" {...stroke} />
         </svg>
       );
+    case "/money/categories":
+      return (
+        <svg viewBox="0 0 24 24" fill="none" className={shared} aria-hidden="true">
+          <rect x="4" y="4" width="7" height="7" rx="1.2" {...stroke} />
+          <rect x="13" y="4" width="7" height="7" rx="1.2" {...stroke} />
+          <rect x="4" y="13" width="7" height="7" rx="1.2" {...stroke} />
+          <rect x="13" y="13" width="7" height="7" rx="1.2" {...stroke} />
+        </svg>
+      );
+    case "/money/rules":
+      return (
+        <svg viewBox="0 0 24 24" fill="none" className={shared} aria-hidden="true">
+          <path d="M6 4.5h9l3 3V19.5H6z" {...stroke} />
+          <path d="M9 10.5l1.5 1.5L14 8.5" {...stroke} />
+        </svg>
+      );
+    case "/family":
+      return (
+        <svg viewBox="0 0 24 24" fill="none" className={shared} aria-hidden="true">
+          <circle cx="8.5" cy="8" r="2.2" {...stroke} />
+          <circle cx="15.5" cy="8.6" r="1.7" {...stroke} />
+          <path d="M4.2 18.8c.6-2.6 2.2-3.9 4.3-3.9s3.7 1.3 4.3 3.9" {...stroke} />
+          <path d="M13 15.3c.7-.4 1.5-.6 2.4-.6 1.7 0 3 1 3.5 2.9" {...stroke} />
+        </svg>
+      );
     default:
       return (
         <svg viewBox="0 0 24 24" fill="none" className={shared} aria-hidden="true">
@@ -312,8 +337,8 @@ export function AppShell({ children }: AppShellProps) {
     };
   }, [pathname]);
 
-  const primaryLinks: NavLinkItem[] = useMemo(() => {
-    const items: NavLinkItem[] = [
+  const primaryLinks: Array<NavLinkItem | NavSectionItem> = useMemo(() => {
+    const items: Array<NavLinkItem | NavSectionItem> = [
       { href: "/lifecfo-home", label: "Home" },
       { href: "/start", label: "Add things" },
       { href: "/bills", label: "Bills & renewals" },
@@ -329,10 +354,16 @@ export function AppShell({ children }: AppShellProps) {
       );
     }
     items.push(
+      { label: "Spending setup", kind: "section" },
+      { href: "/money/categories", label: "Categories" },
+      { href: "/money/rules", label: "Rules" }
+    );
+    items.push(
       { href: "/money/year", label: "Year ahead" },
       { href: "/decisions", label: "Decision notes" },
       { href: "/documents", label: "Documents" },
-      { href: "/household", label: "Household" }
+      { href: "/household", label: "Household" },
+      { href: "/family", label: "Family & pets" }
     );
     return items;
   }, [showSpending]);
@@ -412,76 +443,90 @@ export function AppShell({ children }: AppShellProps) {
             </Chip>
 
             {menuOpen ? (
-              <div className="absolute right-0 top-full z-50 mt-2 w-[280px] rounded-2xl border border-zinc-200 bg-white p-2 shadow-lg">
-                <div className="grid gap-1">
-                  <div className="px-2 py-2 md:hidden">
-                    <div className="mb-3">
-                      <Link
-                        href="/lifecfo-home"
-                        className="inline-flex items-center"
-                        onClick={() => setMenuOpen(false)}
-                      >
-                        <Image
-                          src="/brand/lifecfo-horizontal-transparent.svg"
-                          alt={PRODUCT_NAME}
-                          width={150}
-                          height={35}
-                          className="h-auto w-[150px]"
-                        />
-                      </Link>
+              <div className="absolute right-0 top-full z-50 mt-2 flex max-h-[85vh] w-[280px] flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-lg">
+                <div className="min-h-0 flex-1 overflow-y-auto p-2">
+                  <div className="grid gap-1">
+                    <div className="px-2 py-2 md:hidden">
+                      <div className="mb-3">
+                        <Link
+                          href="/lifecfo-home"
+                          className="inline-flex items-center"
+                          onClick={() => setMenuOpen(false)}
+                        >
+                          <Image
+                            src="/brand/lifecfo-horizontal-transparent.svg"
+                            alt={PRODUCT_NAME}
+                            width={150}
+                            height={35}
+                            className="h-auto w-[150px]"
+                          />
+                        </Link>
+                      </div>
+
+                      <nav className="grid gap-1" aria-label="Mobile navigation">
+                        {sidebarGroups.flatMap((group) =>
+                          group.items
+                            .filter((item): item is NavLinkItem => item.kind !== "section")
+                            .map((item) => {
+                              const active = isActivePath(pathname || "", item.href);
+                              return (
+                                <Link
+                                  key={item.href}
+                                  href={item.href}
+                                  className={`rounded-xl px-3 py-2 text-sm ${
+                                    active
+                                      ? "bg-zinc-100 font-medium text-zinc-900"
+                                      : "text-zinc-800 hover:bg-zinc-50"
+                                  }`}
+                                  onClick={() => setMenuOpen(false)}
+                                >
+                                  {item.label}
+                                </Link>
+                              );
+                            })
+                        )}
+                      </nav>
+
+                      {!needsHousehold && activeHouseholdName ? (
+                        <div className="mt-3 px-1">
+                          <div className="text-[11px] text-zinc-500">Active household</div>
+                          <div className="truncate text-sm font-medium text-zinc-900">
+                            {activeHouseholdName}
+                          </div>
+                        </div>
+                      ) : null}
                     </div>
 
-                    <nav className="grid max-h-[60vh] gap-1 overflow-y-auto" aria-label="Mobile navigation">
-                      {sidebarGroups.flatMap((group) =>
-                        group.items
-                          .filter((item): item is NavLinkItem => item.kind !== "section")
-                          .map((item) => {
-                            const active = isActivePath(pathname || "", item.href);
-                            return (
-                              <Link
-                                key={item.href}
-                                href={item.href}
-                                className={`rounded-xl px-3 py-2 text-sm ${
-                                  active
-                                    ? "bg-zinc-100 font-medium text-zinc-900"
-                                    : "text-zinc-800 hover:bg-zinc-50"
-                                }`}
-                                onClick={() => setMenuOpen(false)}
-                              >
-                                {item.label}
-                              </Link>
-                            );
-                          })
-                      )}
-                    </nav>
+                    <div className="my-1 border-t border-zinc-100 md:hidden" />
 
-                    {!needsHousehold && activeHouseholdName ? (
-                      <div className="mt-3 px-1">
-                        <div className="text-[11px] text-zinc-500">Active household</div>
-                        <div className="truncate text-sm font-medium text-zinc-900">
-                          {activeHouseholdName}
-                        </div>
-                      </div>
+                    {needsHousehold ? (
+                      <Link
+                        href="/household"
+                        className={menuItemActiveClass}
+                        onClick={() => setMenuOpen(false)}
+                      >
+                        Set up household
+                      </Link>
                     ) : null}
-                  </div>
 
-                  <div className="my-1 border-t border-zinc-100 md:hidden" />
-
-                  {needsHousehold ? (
-                    <Link
-                      href="/household"
-                      className={menuItemActiveClass}
-                      onClick={() => setMenuOpen(false)}
-                    >
-                      Set up household
+                    <Link href="/how-life-cfo-works" className={menuItemClass} onClick={() => setMenuOpen(false)}>
+                      How Life CFO works
                     </Link>
-                  ) : null}
+                    <Link href="/privacy" className={menuItemClass} onClick={() => setMenuOpen(false)}>
+                      Privacy
+                    </Link>
+                    <Link href="/terms" className={menuItemClass} onClick={() => setMenuOpen(false)}>
+                      Terms
+                    </Link>
+                    <Link href="/fine-print" className={menuItemClass} onClick={() => setMenuOpen(false)}>
+                      Important information
+                    </Link>
+                  </div>
+                </div>
 
+                <div className="grid shrink-0 gap-1 border-t border-zinc-100 p-2">
                   <Link href="/settings" className={menuItemClass} onClick={() => setMenuOpen(false)}>
                     Settings
-                  </Link>
-                  <Link href="/how-life-cfo-works" className={menuItemClass} onClick={() => setMenuOpen(false)}>
-                    How Life CFO works
                   </Link>
                   <Link
                     href={`/feedback?from=${encodeURIComponent(pathname || "/feedback")}`}
@@ -490,16 +535,6 @@ export function AppShell({ children }: AppShellProps) {
                   >
                     Feedback
                   </Link>
-                  <Link href="/privacy" className={menuItemClass} onClick={() => setMenuOpen(false)}>
-                    Privacy
-                  </Link>
-                  <Link href="/terms" className={menuItemClass} onClick={() => setMenuOpen(false)}>
-                    Terms
-                  </Link>
-                  <Link href="/fine-print" className={menuItemClass} onClick={() => setMenuOpen(false)}>
-                    Important information
-                  </Link>
-
                   <button
                     type="button"
                     onClick={() => void handleSignOut()}

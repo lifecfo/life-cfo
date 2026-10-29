@@ -58,8 +58,6 @@ export function isProtectedAppPath(pathname: string): boolean {
 const HIDDEN_BETA_DESTINATIONS: Array<{ path: string; destination: string; exact?: boolean }> = [
   { path: "/money/setup", destination: "/start" },
   { path: "/money/map", destination: "/lifecfo-home" },
-  { path: "/money/rules", destination: "/spending" },
-  { path: "/money/categories", destination: "/spending" },
   { path: "/money/in", destination: "/spending" },
   { path: "/money/saved", destination: "/lifecfo-home" },
   { path: "/money/planned", destination: "/lifecfo-home" },
@@ -71,7 +69,6 @@ const HIDDEN_BETA_DESTINATIONS: Array<{ path: string; destination: string; exact
   { path: "/chapters", destination: "/lifecfo-home" },
   { path: "/buffer", destination: "/lifecfo-home" },
   { path: "/planned-upgrades", destination: "/lifecfo-home" },
-  { path: "/family", destination: "/household" },
   { path: "/inbox", destination: "/lifecfo-home" },
 ];
 

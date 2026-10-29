@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Page } from "@/components/Page";
 import { Card, CardContent, Chip, useToast, Button } from "@/components/ui";
+import { SampleStrip, useSampleMode } from "@/lib/demo/sampleMode";
 
 type RuleRow = {
   id: string;
@@ -50,6 +51,7 @@ async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
 export default function RulesClient() {
   const router = useRouter();
   const { showToast } = useToast();
+  const { on: sampleOn } = useSampleMode();
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -150,7 +152,7 @@ export default function RulesClient() {
   const right = (
     <div className="flex items-center gap-2 flex-wrap">
       <Chip onClick={() => void load(false)}>Refresh</Chip>
-      <Chip onClick={() => router.push("/money")}>Back to Money</Chip>
+      <Chip onClick={() => router.push("/spending")}>Back to Spending</Chip>
     </div>
   );
 
@@ -161,6 +163,15 @@ export default function RulesClient() {
       right={right}
     >
       <div className="mx-auto w-full max-w-[860px] px-4 sm:px-6 space-y-4">
+        <SampleStrip />
+        {sampleOn ? (
+          <Card className="border-zinc-200 bg-white">
+            <CardContent className="text-sm text-zinc-600">
+              Sample household is on. Turn it off to see and manage your own rules.
+            </CardContent>
+          </Card>
+        ) : (
+          <>
         <Card className="border-zinc-200 bg-white">
           <CardContent>
             <div className="grid gap-4 sm:grid-cols-3">
@@ -347,6 +358,8 @@ export default function RulesClient() {
             </div>
           </CardContent>
         </Card>
+          </>
+        )}
       </div>
     </Page>
   );
