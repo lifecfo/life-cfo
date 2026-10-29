@@ -143,7 +143,6 @@ export function deriveBreathingRoom(
   if (!hasCurrentData) {
     return {
       version: 1,
-      status: "closer_look",
       label: "No accounts or transactions have been entered.",
       reasons: [
         dataCoverage.has_reference_only_sources
@@ -182,14 +181,7 @@ export function deriveBreathingRoom(
   const cashBelowOneMonth = recent.moneyOut > 0 && cash < recent.moneyOut;
   const cashBelowTwoMonths = recent.moneyOut > 0 && cash < recent.moneyOut * 2;
 
-  const status: BreathingRoomSummary["status"] =
-    cash <= 0 || (monthBehind && cashBelowOneMonth)
-      ? "tight"
-      : (incomeLower && !spendingLower) || spendingHigher || monthBehind || cashBelowTwoMonths
-        ? "watch"
-        : "okay";
   const label = `Money in ${money(month.moneyIn, currency)}. Money out ${money(month.moneyOut, currency)}.`;
-  void status;
 
   const reasons: string[] = [];
   if (incomeLower && spendingLower) {
@@ -221,7 +213,6 @@ export function deriveBreathingRoom(
 
   return {
     version: 1,
-    status,
     label,
     reasons: reasons.slice(0, 3),
     ask_prompt: "Which bills and income amounts are entered?",

@@ -10,8 +10,7 @@ import { logBlockedOutput, screenAiOutput } from "@/lib/ai/outputGuard";
 import { isAccountVisibleToUser } from "@/lib/server/access/accountVisibility";
 import { createClient } from "@supabase/supabase-js";
 import { maybeCrisisIntercept } from "@/lib/safety/guard";
-import { decideHomeTone, type HomeTone } from "@/lib/lifecfo/homeTone";
-import { decideVerdict } from "@/lib/lifecfo/verdictDecision";
+import type { HomeTone } from "@/lib/lifecfo/homeTone";
 import type { Verdict } from "@/lib/lifecfo/verdict";
 import { resolveHouseholdIdRoute } from "@/lib/households/resolveHouseholdIdRoute";
 import {
@@ -974,19 +973,15 @@ export async function POST(req: Request) {
 
       const answer = buildMemoAnswer({ headline, key_points, details, what_changes_this, assumptions });
 
-      const tone: HomeTone = decideHomeTone({
-        question,
-        suggested_next: "none",
-        action: "open_money",
-        facts: facts as any,
-      });
+      // Tone is no longer computed from financial signals -- a Red-line-adjacent
+      // affordability posture was deleted rather than left neutered. See
+      // docs/product/ai-boundaries.md.
+      const tone: HomeTone = "ok";
 
-      const verdict: Verdict = decideVerdict({
-        question,
-        suggested_next: "none",
-        action: "open_money",
-        facts: facts as any,
-      });
+      // Verdict is no longer computed -- an affordability/suitability verdict
+      // (decideVerdict) was deleted rather than left neutered. See
+      // docs/product/ai-boundaries.md.
+      const verdict: Verdict = "INSUFFICIENT_DATA";
 
       return NextResponse.json({
         answer,
@@ -1014,9 +1009,15 @@ export async function POST(req: Request) {
         const assumptions = ["Review items come from decisions with review_at set and reviewed_at still empty"];
         const answer = buildMemoAnswer({ headline, key_points: [], details: "", what_changes_this: [], assumptions });
 
-        const tone: HomeTone = decideHomeTone({ question, suggested_next: "none", action: "open_decisions", facts: facts as any });
+        // Tone is no longer computed from financial signals -- a Red-line-adjacent
+        // affordability posture was deleted rather than left neutered. See
+        // docs/product/ai-boundaries.md.
+        const tone: HomeTone = "ok";
 
-        const verdict: Verdict = decideVerdict({ question, suggested_next: "none", action: "open_decisions", facts: facts as any });
+        // Verdict is no longer computed -- an affordability/suitability verdict
+        // (decideVerdict) was deleted rather than left neutered. See
+        // docs/product/ai-boundaries.md.
+        const verdict: Verdict = "INSUFFICIENT_DATA";
 
         return NextResponse.json({
           answer,
@@ -1044,9 +1045,15 @@ export async function POST(req: Request) {
       const assumptions = ["Review items come from decisions with review_at set and reviewed_at still empty"];
       const answer = buildMemoAnswer({ headline, key_points: items, details: "", what_changes_this: [], assumptions });
 
-      const tone: HomeTone = decideHomeTone({ question, suggested_next: "none", action: "open_decisions", facts: facts as any });
+      // Tone is no longer computed from financial signals -- a Red-line-adjacent
+      // affordability posture was deleted rather than left neutered. See
+      // docs/product/ai-boundaries.md.
+      const tone: HomeTone = "ok";
 
-      const verdict: Verdict = decideVerdict({ question, suggested_next: "none", action: "open_decisions", facts: facts as any });
+      // Verdict is no longer computed -- an affordability/suitability verdict
+      // (decideVerdict) was deleted rather than left neutered. See
+      // docs/product/ai-boundaries.md.
+      const verdict: Verdict = "INSUFFICIENT_DATA";
 
       return NextResponse.json({
         answer,
@@ -1074,9 +1081,15 @@ export async function POST(req: Request) {
         const assumptions = ["Chapters are decisions marked as chapter or with chaptered_at set"];
         const answer = buildMemoAnswer({ headline, key_points: [], details: "", what_changes_this: [], assumptions });
 
-        const tone: HomeTone = decideHomeTone({ question, suggested_next: "none", action: "open_chapters", facts: facts as any });
+        // Tone is no longer computed from financial signals -- a Red-line-adjacent
+        // affordability posture was deleted rather than left neutered. See
+        // docs/product/ai-boundaries.md.
+        const tone: HomeTone = "ok";
 
-        const verdict: Verdict = decideVerdict({ question, suggested_next: "none", action: "open_chapters", facts: facts as any });
+        // Verdict is no longer computed -- an affordability/suitability verdict
+        // (decideVerdict) was deleted rather than left neutered. See
+        // docs/product/ai-boundaries.md.
+        const verdict: Verdict = "INSUFFICIENT_DATA";
 
         return NextResponse.json({
           answer,
@@ -1104,9 +1117,15 @@ export async function POST(req: Request) {
       const assumptions = ["Chapters are decisions marked as chapter or with chaptered_at set"];
       const answer = buildMemoAnswer({ headline, key_points: items, details: "", what_changes_this: [], assumptions });
 
-      const tone: HomeTone = decideHomeTone({ question, suggested_next: "none", action: "open_chapters", facts: facts as any });
+      // Tone is no longer computed from financial signals -- a Red-line-adjacent
+      // affordability posture was deleted rather than left neutered. See
+      // docs/product/ai-boundaries.md.
+      const tone: HomeTone = "ok";
 
-      const verdict: Verdict = decideVerdict({ question, suggested_next: "none", action: "open_chapters", facts: facts as any });
+      // Verdict is no longer computed -- an affordability/suitability verdict
+      // (decideVerdict) was deleted rather than left neutered. See
+      // docs/product/ai-boundaries.md.
+      const verdict: Verdict = "INSUFFICIENT_DATA";
 
       return NextResponse.json({
         answer,
@@ -1136,9 +1155,15 @@ export async function POST(req: Request) {
         const assumptions = ["Goals come from money_goals"];
         const answer = buildMemoAnswer({ headline, key_points: [], details: "", what_changes_this: [], assumptions });
 
-        const tone: HomeTone = decideHomeTone({ question, suggested_next: "none", action: "open_money", facts: facts as any });
+        // Tone is no longer computed from financial signals -- a Red-line-adjacent
+        // affordability posture was deleted rather than left neutered. See
+        // docs/product/ai-boundaries.md.
+        const tone: HomeTone = "ok";
 
-        const verdict: Verdict = decideVerdict({ question, suggested_next: "none", action: "open_money", facts: facts as any });
+        // Verdict is no longer computed -- an affordability/suitability verdict
+        // (decideVerdict) was deleted rather than left neutered. See
+        // docs/product/ai-boundaries.md.
+        const verdict: Verdict = "INSUFFICIENT_DATA";
 
         return NextResponse.json({
           answer,
@@ -1170,9 +1195,15 @@ export async function POST(req: Request) {
           const assumptions = ["Goals come from money_goals"];
           const answer = buildMemoAnswer({ headline, key_points, details: "", what_changes_this: [], assumptions });
 
-          const tone: HomeTone = decideHomeTone({ question, suggested_next: "none", action: "open_money", facts: facts as any });
+          // Tone is no longer computed from financial signals -- a Red-line-adjacent
+          // affordability posture was deleted rather than left neutered. See
+          // docs/product/ai-boundaries.md.
+          const tone: HomeTone = "ok";
 
-          const verdict: Verdict = decideVerdict({ question, suggested_next: "none", action: "open_money", facts: facts as any });
+          // Verdict is no longer computed -- an affordability/suitability verdict
+          // (decideVerdict) was deleted rather than left neutered. See
+          // docs/product/ai-boundaries.md.
+          const verdict: Verdict = "INSUFFICIENT_DATA";
 
           return NextResponse.json({
             answer,
@@ -1201,9 +1232,15 @@ export async function POST(req: Request) {
           const assumptions = ["Goal target must be set to calculate remaining and percent"];
           const answer = buildMemoAnswer({ headline, key_points, details: "", what_changes_this: [], assumptions });
 
-          const tone: HomeTone = decideHomeTone({ question, suggested_next: "none", action: "open_money", facts: facts as any });
+          // Tone is no longer computed from financial signals -- a Red-line-adjacent
+          // affordability posture was deleted rather than left neutered. See
+          // docs/product/ai-boundaries.md.
+          const tone: HomeTone = "ok";
 
-          const verdict: Verdict = decideVerdict({ question, suggested_next: "none", action: "open_money", facts: facts as any });
+          // Verdict is no longer computed -- an affordability/suitability verdict
+          // (decideVerdict) was deleted rather than left neutered. See
+          // docs/product/ai-boundaries.md.
+          const verdict: Verdict = "INSUFFICIENT_DATA";
 
           return NextResponse.json({
             answer,
@@ -1238,9 +1275,15 @@ export async function POST(req: Request) {
         const assumptions = ["Progress is based on the goal's current and target values in money_goals"];
         const answer = buildMemoAnswer({ headline, key_points, details: "", what_changes_this: [], assumptions });
 
-        const tone: HomeTone = decideHomeTone({ question, suggested_next: "none", action: "open_money", facts: facts as any });
+        // Tone is no longer computed from financial signals -- a Red-line-adjacent
+        // affordability posture was deleted rather than left neutered. See
+        // docs/product/ai-boundaries.md.
+        const tone: HomeTone = "ok";
 
-        const verdict: Verdict = decideVerdict({ question, suggested_next: "none", action: "open_money", facts: facts as any });
+        // Verdict is no longer computed -- an affordability/suitability verdict
+        // (decideVerdict) was deleted rather than left neutered. See
+        // docs/product/ai-boundaries.md.
+        const verdict: Verdict = "INSUFFICIENT_DATA";
 
         return NextResponse.json({
           answer,
@@ -1286,9 +1329,15 @@ export async function POST(req: Request) {
       const assumptions = ["Goals come from money_goals"];
       const answer = buildMemoAnswer({ headline, key_points, details: "", what_changes_this: [], assumptions });
 
-      const tone: HomeTone = decideHomeTone({ question, suggested_next: "none", action: "open_money", facts: facts as any });
+      // Tone is no longer computed from financial signals -- a Red-line-adjacent
+      // affordability posture was deleted rather than left neutered. See
+      // docs/product/ai-boundaries.md.
+      const tone: HomeTone = "ok";
 
-      const verdict: Verdict = decideVerdict({ question, suggested_next: "none", action: "open_money", facts: facts as any });
+      // Verdict is no longer computed -- an affordability/suitability verdict
+      // (decideVerdict) was deleted rather than left neutered. See
+      // docs/product/ai-boundaries.md.
+      const verdict: Verdict = "INSUFFICIENT_DATA";
 
       return NextResponse.json({
         answer,
@@ -1408,7 +1457,8 @@ export async function POST(req: Request) {
 
     // ✅ Canonical memo formatting (server owns presentation)
     const screenedAnswer = screenAiOutput(
-      [headline, ...key_points, details, ...what_changes_this, ...assumptions].join("\n")
+      [headline, ...key_points, details, ...what_changes_this, ...assumptions].join("\n"),
+      { purpose: "home_ask" }
     );
     if (!screenedAnswer.ok) {
       logBlockedOutput("home_ask", screenedAnswer);
@@ -1444,20 +1494,16 @@ export async function POST(req: Request) {
     });
 
     // ✅ Tone (Home check-in tone)
-    const tone: HomeTone = decideHomeTone({
-      question,
-      suggested_next,
-      action,
-      facts: facts as any,
-    });
+    // Tone is no longer computed from financial signals -- a Red-line-adjacent
+    // affordability posture was deleted rather than left neutered. See
+    // docs/product/ai-boundaries.md.
+    const tone: HomeTone = "ok";
 
     // ✅ Verdict (fine-grained, deterministic)
-    const verdict: Verdict = decideVerdict({
-      question,
-      suggested_next,
-      action,
-      facts: facts as any,
-    });
+    // Verdict is no longer computed -- an affordability/suitability verdict
+    // (decideVerdict) was deleted rather than left neutered. See
+    // docs/product/ai-boundaries.md.
+    const verdict: Verdict = "INSUFFICIENT_DATA";
 
     return NextResponse.json({
       answer,
