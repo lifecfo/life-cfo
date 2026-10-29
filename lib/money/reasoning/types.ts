@@ -294,7 +294,9 @@ export type MoneySetupStatus = {
 
 export type BreathingRoomSummary = {
   version: 1;
-  status: "okay" | "watch" | "tight" | "closer_look";
+  // A tight/watch/okay classification used to be computed here (a Red-line-
+  // adjacent financial-health verdict) and was deleted -- see
+  // docs/product/ai-boundaries.md. Confirmed no client ever read it.
   label: string;
   reasons: string[];
   ask_prompt: string;
