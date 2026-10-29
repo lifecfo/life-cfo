@@ -717,8 +717,11 @@ export default function HouseholdClient() {
                   className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800"
                   value={createName}
                   onChange={(e) => setCreateName(e.target.value)}
-                  placeholder="e.g. Em & Ryan"
+                  placeholder="e.g. Em & Ryan, The Smith Family, or Hannah"
                 />
+                <div className="text-xs text-zinc-500">
+                  Use whatever feels right: your names, a family name, or just your own.
+                </div>
               </div>
 
               <div>
@@ -897,8 +900,11 @@ export default function HouseholdClient() {
                   className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800"
                   value={nameDraft}
                   onChange={(e) => setNameDraft(e.target.value)}
-                  placeholder="e.g. Primary Household"
+                  placeholder="e.g. Em & Ryan, The Smith Family, or Hannah"
                 />
+                <div className="text-xs text-zinc-500">
+                  Use whatever feels right: your names, a family name, or just your own.
+                </div>
                 {!allowRename ? <div className="text-xs text-zinc-500">Only owners/editors can rename.</div> : null}
               </div>
             ) : (
