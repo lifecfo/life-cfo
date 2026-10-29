@@ -116,8 +116,19 @@ export default function LoginClient({
       }
 
       if (!data.session) {
+        // Supabase won't say an email is already registered (anti-enumeration:
+        // it returns this same "no session" shape either way), but when the
+        // email already has a confirmed account, the identities array comes
+        // back empty instead of containing the new identity -- the
+        // documented way to tell the two cases apart client-side. Only acts
+        // on a confident empty array; anything else (including no array at
+        // all) keeps the normal new-signup message, so a real new signup is
+        // never mistakenly told it already has an account.
+        const alreadyRegistered = Array.isArray(data.user?.identities) && data.user.identities.length === 0;
         setStatus(
-          "Account created ✅ Check your email to confirm, then come back and sign in."
+          alreadyRegistered
+            ? "This email already has an account. Try signing in, or use “Forgot password” if you don’t remember it."
+            : "Account created ✅ Check your email to confirm, then come back and sign in."
         );
         setMode("signin");
         setShowPassword(false);
