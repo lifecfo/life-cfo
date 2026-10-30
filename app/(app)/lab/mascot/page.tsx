@@ -2,81 +2,67 @@
 
 import { Page } from "@/components/Page";
 import { Card, CardContent } from "@/components/ui";
-import { CatSvg, type CatExpression, type CatPose } from "@/components/mascot/CatSvg";
+import { CatSvg } from "@/components/mascot/CatSvg";
 import { CatSvgCartoon } from "@/components/mascot/CatSvgCartoon";
 import { BubbleShape } from "@/components/mascot/BubbleShape";
+import {
+  ILLUSTRATED_POSE_VIEWBOX,
+  ILLUSTRATED_POSES,
+  ILLUSTRATED_REF_HEIGHT,
+  IllustratedCat,
+  type IllustratedPose,
+} from "@/components/mascot/IllustratedCat";
 import { mascotHandwrittenFont } from "@/components/mascot/mascotFont";
 import { MASCOT_MOUSE_ENABLED } from "@/lib/mascot/mouseFlag";
 
 export const dynamic = "force-dynamic";
 
-type PosePreview = {
-  label: string;
-  pose: CatPose;
-  expression: CatExpression;
-  note: string;
+/** Desktop production height. Phone size is 120px, the same scale. */
+const PRODUCTION_HEIGHT = 160;
+
+const POSE_COPY: Record<IllustratedPose, { label: string; note: string }> = {
+  content: { label: "Content", note: "Default. Sitting, looking aside." },
+  alert: { label: "Alert", note: "Hover, tap, or focus. Facing you." },
+  happy: { label: "Happy", note: "Eyes closed, smiling." },
+  curious: { label: "Curious", note: "Head tilted, looking up." },
+  dozing: { label: "Dozing", note: "Eyes closed, head lowered." },
+  grooming: { label: "Grooming", note: "Licking a paw." },
+  lookingback: { label: "Looking back", note: "Glancing over the shoulder." },
+  lying: { label: "Lying", note: "Loaf. Same scale, wider frame." },
+  stretch: { label: "Stretch", note: "Play-bow. Same scale, wider frame." },
+  walking: { label: "Walking", note: "Same scale, wider frame." },
 };
 
-const POSES: PosePreview[] = [
-  { label: "Sitting", pose: "sitting", expression: "content", note: "Default resting pose -- ambient idle, empty-state cat." },
-  { label: "Loaf (lying down)", pose: "loaf", expression: "content", note: "Rare pose change from sitting, soft cross-fade + squash." },
-  { label: "Crouch", pose: "crouch", expression: "alert", note: "Pounce wind-up -- paired with a brief bum wiggle." },
-  { label: "Mid-pounce", pose: "pounce", expression: "alert", note: "Short hop forward, then settles back to sitting." },
-  { label: "Sleepy", pose: "sitting", expression: "sleepy", note: "Closed downward-arc eye, floating z." },
-  { label: "Happy", pose: "sitting", expression: "happy", note: "Upside-down-U eye -- small-win celebration, paired with a tail wag." },
-];
-
-const EXPRESSIONS: { label: string; expression: CatExpression; note: string }[] = [
-  { label: "Content (default)", expression: "content", note: "Soft upward curve. Blinks to a closed line every 20-60s." },
-  { label: "Alert", expression: "alert", note: "Small filled dot -- reserved for mouse scenes (currently paused)." },
-  { label: "Sleepy", expression: "sleepy", note: "Closed downward arc, floating z." },
-  { label: "Happy", expression: "happy", note: "Upside-down U." },
-];
-
-function PoseCard({ preview }: { preview: PosePreview }) {
-  return (
-    <Card className="border-zinc-200 bg-white">
-      <CardContent className="flex flex-col items-center gap-3 text-center">
-        <div style={{ width: 120, height: 120 }}>
-          <CatSvg pose={preview.pose} expression={preview.expression} style={{ width: "100%", height: "100%" }} />
-        </div>
-        <div>
-          <div className="text-sm font-semibold text-zinc-900">{preview.label}</div>
-          <div className="mt-1 text-xs text-zinc-500">{preview.note}</div>
-        </div>
-      </CardContent>
-    </Card>
-  );
+function productionHeight(pose: IllustratedPose): number {
+  return Math.round((PRODUCTION_HEIGHT * ILLUSTRATED_POSE_VIEWBOX[pose].h) / ILLUSTRATED_REF_HEIGHT);
 }
 
 function BubbleDemo({ side }: { side: "left" | "right" }) {
   const bubble = (
-    <div className="mascot-bubble-slot" style={{ width: 170 }}>
+    <div className="mascot-bubble-slot" data-shown="true" style={{ width: 190 }}>
       <BubbleShape tailSide={side} />
       <span className={`mascot-bubble-text ${mascotHandwrittenFont.className}`}>Done is cosier than perfect.</span>
     </div>
   );
-  const cat = (
-    <div style={{ width: 96, height: 96 }}>
-      <CatSvg pose="sitting" expression="content" style={{ width: "100%", height: "100%" }} />
-    </div>
-  );
+  const cat = <IllustratedCat pose="content" height={PRODUCTION_HEIGHT} />;
 
   return (
     <div className="flex flex-col items-center gap-2">
-      <div className="mascot-bubble-row" style={{ alignItems: "flex-start" }}>
+      <div className="mascot-bubble-row">
         {side === "left" ? bubble : null}
         {cat}
         {side === "right" ? bubble : null}
       </div>
-      <div className="text-xs text-zinc-500">Bubble on the {side}, tail pointing {side === "left" ? "right" : "left"} at the cat</div>
+      <div className="text-xs text-zinc-500">
+        Bubble on the {side}, tail pointing {side === "left" ? "right" : "left"} at the cat
+      </div>
     </div>
   );
 }
 
 export default function MascotLabPage() {
   return (
-    <Page title="Mascot preview" subtitle="Developer-only. Line-art cat, new placement, hand-drawn bubble.">
+    <Page title="Mascot preview" subtitle="Developer-only. Illustrated cat, hand-drawn bubble.">
       <div className="mx-auto w-full max-w-[1100px] space-y-6 px-4 sm:px-6">
         {!MASCOT_MOUSE_ENABLED ? (
           <Card className="border-amber-200 bg-amber-50">
@@ -91,53 +77,21 @@ export default function MascotLabPage() {
 
         <Card className="border-zinc-200 bg-white">
           <CardContent>
-            <div className="text-sm font-semibold text-zinc-900">Poses</div>
+            <div className="text-sm font-semibold text-zinc-900">Illustrated poses</div>
             <div className="mt-1 text-xs text-zinc-500">
-              Rendered at 120px (production desktop size) -- mobile is 96px. &ldquo;Loaf&rdquo; is a rare pose change from
-              sitting; &ldquo;Crouch&rdquo; and &ldquo;Mid-pounce&rdquo; are steps in the occasional pounce sequence.
+              Desktop production size: the sitting cat is 160px tall (120px on a phone). Wider poses keep that scale
+              and share the ground line. Paws line up along the bottom.
             </div>
-            <div className="mt-4 grid gap-4 sm:grid-cols-3 lg:grid-cols-6">
-              {POSES.map((preview) => (
-                <PoseCard key={preview.label} preview={preview} />
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="border-zinc-200 bg-white">
-          <CardContent>
-            <div className="text-sm font-semibold text-zinc-900">Eye expressions</div>
-            <div className="mt-4 grid gap-4 sm:grid-cols-4">
-              {EXPRESSIONS.map((e) => (
-                <div key={e.label} className="flex flex-col items-center gap-2 text-center">
-                  <div style={{ width: 96, height: 96 }}>
-                    <CatSvg pose="sitting" expression={e.expression} style={{ width: "100%", height: "100%" }} />
+            <div className="mt-6 flex flex-wrap items-end gap-x-6 gap-y-8">
+              {ILLUSTRATED_POSES.map((pose) => (
+                <div key={pose} className="flex min-w-[7.5rem] flex-col items-center gap-2 text-center">
+                  <IllustratedCat pose={pose} height={productionHeight(pose)} />
+                  <div>
+                    <div className="text-sm font-semibold text-zinc-900">{POSE_COPY[pose].label}</div>
+                    <div className="mt-1 text-xs text-zinc-500">{POSE_COPY[pose].note}</div>
                   </div>
-                  <div className="text-xs font-medium text-zinc-700">{e.label}</div>
-                  <div className="text-xs text-zinc-500">{e.note}</div>
                 </div>
               ))}
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="border-zinc-200 bg-white">
-          <CardContent>
-            <div className="text-sm font-semibold text-zinc-900">Production size</div>
-            <div className="mt-1 text-xs text-zinc-500">120px (desktop) and 96px (mobile), side by side.</div>
-            <div className="mt-4 flex flex-wrap items-end gap-8">
-              <div className="flex flex-col items-center gap-2">
-                <div style={{ width: 120, height: 120 }}>
-                  <CatSvg pose="sitting" expression="content" style={{ width: "100%", height: "100%" }} />
-                </div>
-                <div className="text-xs text-zinc-500">120px</div>
-              </div>
-              <div className="flex flex-col items-center gap-2">
-                <div style={{ width: 96, height: 96 }}>
-                  <CatSvg pose="sitting" expression="content" style={{ width: "100%", height: "100%" }} />
-                </div>
-                <div className="text-xs text-zinc-500">96px</div>
-              </div>
             </div>
           </CardContent>
         </Card>
@@ -147,9 +101,9 @@ export default function MascotLabPage() {
             <div className="text-sm font-semibold text-zinc-900">Hand-drawn speech bubble, both sides</div>
             <div className="mt-1 text-xs text-zinc-500">
               Wobbly SVG outline (teal marker-pen stroke, cream fill), Patrick Hand font, the tail always points at
-              the cat. Beside the cat, level with its head -- never above it.
+              the cat. Beside the cat, level with its head.
             </div>
-            <div className="mt-6 flex flex-wrap gap-12 pb-4">
+            <div className="mt-6 flex flex-wrap items-end gap-12 pb-4">
               <BubbleDemo side="left" />
               <BubbleDemo side="right" />
             </div>
@@ -158,11 +112,33 @@ export default function MascotLabPage() {
 
         <Card className="border-zinc-200 bg-zinc-50">
           <CardContent>
-            <div className="text-sm font-semibold text-zinc-900">Previous style (for comparison)</div>
+            <div className="text-sm font-semibold text-zinc-900">Previous styles</div>
             <div className="mt-1 text-xs text-zinc-500">
-              The filled flat-cartoon cat used before this pass. Not used anywhere live anymore.
+              The code-drawn cats this illustration replaced. Not used on any live page.
             </div>
-            <div className="mt-4 flex flex-wrap items-end gap-6">
+            <div className="mt-4 text-xs font-medium text-zinc-600">Line drawing</div>
+            <div className="mt-3 flex flex-wrap items-end gap-6">
+              <div className="flex flex-col items-center gap-2">
+                <div style={{ width: 120, height: 120 }}>
+                  <CatSvg pose="sitting" expression="content" style={{ width: "100%", height: "100%" }} />
+                </div>
+                <div className="text-xs text-zinc-500">Content</div>
+              </div>
+              <div className="flex flex-col items-center gap-2">
+                <div style={{ width: 120, height: 120 }}>
+                  <CatSvg pose="sitting" expression="sleepy" style={{ width: "100%", height: "100%" }} />
+                </div>
+                <div className="text-xs text-zinc-500">Sleepy</div>
+              </div>
+              <div className="flex flex-col items-center gap-2">
+                <div style={{ width: 120, height: 120 }}>
+                  <CatSvg pose="loaf" expression="content" style={{ width: "100%", height: "100%" }} />
+                </div>
+                <div className="text-xs text-zinc-500">Loaf</div>
+              </div>
+            </div>
+            <div className="mt-6 text-xs font-medium text-zinc-600">Flat cartoon</div>
+            <div className="mt-3 flex flex-wrap items-end gap-6">
               <div className="flex flex-col items-center gap-2">
                 <div style={{ width: 120, height: 120 }}>
                   <CatSvgCartoon pose="sitting" expression="open" style={{ width: "100%", height: "100%" }} />

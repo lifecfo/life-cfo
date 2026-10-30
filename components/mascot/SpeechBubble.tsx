@@ -6,6 +6,11 @@ import { BubbleShape } from "./BubbleShape";
 import { mascotHandwrittenFont } from "./mascotFont";
 
 const HOVER_CLOSE_DELAY_MS = 300;
+const BUBBLE_FADE_MS = 500;
+
+function prefersReducedMotion(): boolean {
+  return typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
 
 type SpeechBubbleProps = {
   children: React.ReactNode;
@@ -13,6 +18,8 @@ type SpeechBubbleProps = {
   /** Which side of the cat the bubble opens on -- real flex space, never absolutely overlaid, so it can't drift outside the strip. */
   side: "left" | "right";
   className?: string;
+  /** Fires when the bubble opens or starts to hide, so the cat can cross-fade with it. */
+  onOpenChange?: (open: boolean) => void;
 };
 
 /**
@@ -27,10 +34,14 @@ type SpeechBubbleProps = {
  * (lib/mascot/lineMemory.ts) -- repeated open/close never changes it
  * mid-window.
  */
-export function SpeechBubble({ children, label, side, className }: SpeechBubbleProps) {
+export function SpeechBubble({ children, label, side, className, onOpenChange }: SpeechBubbleProps) {
   const [open, setOpen] = useState(false);
+  const [mounted, setMounted] = useState(false);
+  const [visible, setVisible] = useState(false);
   const [line, setLine] = useState("");
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const unmountTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const openRef = useRef(false);
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const bubbleId = useId();
 
@@ -41,20 +52,49 @@ export function SpeechBubble({ children, label, side, className }: SpeechBubbleP
     }
   }
 
+  function clearUnmountTimer() {
+    if (unmountTimerRef.current) {
+      clearTimeout(unmountTimerRef.current);
+      unmountTimerRef.current = null;
+    }
+  }
+
   function show() {
     clearHideTimer();
+    clearUnmountTimer();
+    openRef.current = true;
     setLine(getStickyMascotLine());
+    setMounted(true);
     setOpen(true);
+    onOpenChange?.(true);
+    if (prefersReducedMotion()) {
+      setVisible(true);
+      return;
+    }
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        if (openRef.current) setVisible(true);
+      });
+    });
   }
 
   function hideNow() {
     clearHideTimer();
+    openRef.current = false;
     setOpen(false);
+    setVisible(false);
+    onOpenChange?.(false);
+    clearUnmountTimer();
+    if (prefersReducedMotion()) {
+      setMounted(false);
+      return;
+    }
+    unmountTimerRef.current = setTimeout(() => setMounted(false), BUBBLE_FADE_MS);
   }
 
   function hideAfterDelay() {
     clearHideTimer();
-    hideTimerRef.current = setTimeout(() => setOpen(false), HOVER_CLOSE_DELAY_MS);
+    hideTimerRef.current = setTimeout(() => hideNow(), HOVER_CLOSE_DELAY_MS);
   }
 
   useEffect(() => {
@@ -72,10 +112,24 @@ export function SpeechBubble({ children, label, side, className }: SpeechBubbleP
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
-  useEffect(() => clearHideTimer, []);
+  useEffect(() => {
+    const hideTimer = hideTimerRef;
+    const unmountTimer = unmountTimerRef;
+    return () => {
+      if (hideTimer.current) clearTimeout(hideTimer.current);
+      if (unmountTimer.current) clearTimeout(unmountTimer.current);
+    };
+  }, []);
 
-  const bubble = open ? (
-    <div id={bubbleId} className="mascot-bubble-slot" role="status" aria-live="polite">
+  const bubble = mounted ? (
+    <div
+      id={bubbleId}
+      className="mascot-bubble-slot"
+      data-shown={visible ? "true" : "false"}
+      role={open ? "status" : undefined}
+      aria-live={open ? "polite" : undefined}
+      aria-hidden={open ? undefined : true}
+    >
       <BubbleShape tailSide={side} />
       <span className={`mascot-bubble-text ${mascotHandwrittenFont.className}`}>{line}</span>
     </div>

@@ -55,13 +55,10 @@ function EyeShape({ expression }: { expression: CatExpression }) {
 }
 
 /**
- * An original minimalist single-line cat, sitting upright in profile --
- * brand teal, no fill, variable stroke weight (thicker along the back
- * and tail, thinner at the ears/chest/paws). Each anatomical piece is
- * its own SVG group so CSS (mascotStyles.tsx) can move it independently:
- * tail-tip flick, ear flick, blink, whisker twitch, a head tilt, and
- * pose changes (sitting/loaf/crouch/pounce) via transform + a soft
- * opacity dip rather than redrawn geometry.
+ * Previous line-art cat, kept only for the /lab/mascot "Previous styles"
+ * comparison. The live mascot is the illustrated drawing in
+ * public/brand/mascot. Each anatomical piece is its own SVG group so the
+ * old idle CSS can still move it on that lab page.
  */
 export function CatSvg({ pose = "sitting", expression = "content", wiggle = false, className, style }: CatSvgProps) {
   const round = { strokeLinecap: "round" as const, strokeLinejoin: "round" as const, fill: "none" as const };

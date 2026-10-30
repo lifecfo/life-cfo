@@ -41,8 +41,8 @@ function Eye({ cx, cy, expression }: { cx: number; cy: number; expression: CatCa
 
 /**
  * The previous (filled, flat-cartoon) cat design -- kept only for the
- * /lab/mascot "Previous style" comparison section. Not used anywhere in
- * the live app anymore; see CatSvg.tsx for the current line-art cat.
+ * /lab/mascot "Previous styles" comparison, next to the line-art cat.
+ * Not used on any live page.
  */
 export function CatSvgCartoon({ pose = "sitting", expression = "open", earsUp = false, className, style }: CatSvgCartoonProps) {
   const showBody = pose !== "peek-head";

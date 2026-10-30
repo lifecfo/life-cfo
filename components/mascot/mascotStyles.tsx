@@ -2,21 +2,22 @@
 
 /**
  * All mascot CSS lives here, injected once by MascotHost. Plain <style>
- * (not styled-jsx) so it works regardless of styled-jsx support. Idle
- * loops (blink/ear-flick/tail-tip-flick/whisker-twitch/head-tilt) are
- * long-cycle CSS keyframes, mostly static with brief motion every
- * 20-60s -- JS only decides pose/expression/wiggle, the motion itself is
- * native CSS.
+ * (not styled-jsx) so it works regardless of styled-jsx support.
+ * The live cat cross-fades between two illustrated poses and breathes
+ * with a very small vertical scale. The long-cycle idle loops below
+ * still belong to the previous line-art cat on /lab/mascot.
  */
 export function MascotStyles() {
   return (
     <style>{`
       :root {
-        --mascot-cat-size: 120px;
+        --mascot-cat-height: 160px;
+        --mascot-cat-size: 160px;
       }
-      @media (max-width: 640px) {
+      @media (max-width: 767px) {
         :root {
-          --mascot-cat-size: 96px;
+          --mascot-cat-height: 120px;
+          --mascot-cat-size: 120px;
         }
       }
 
@@ -129,7 +130,7 @@ export function MascotStyles() {
         display: flex;
         align-items: flex-start;
         justify-content: flex-end;
-        min-height: 140px;
+        min-height: calc(var(--mascot-cat-height) + 32px);
         padding: 16px 90px 16px 16px;
       }
       @media (max-width: 767px) {
@@ -140,19 +141,42 @@ export function MascotStyles() {
       }
 
       .mascot-strip-cat {
-        width: var(--mascot-cat-size);
-        height: var(--mascot-cat-size);
         flex-shrink: 0;
+        line-height: 0;
         opacity: 1;
-        transition: opacity 0.9s ease-in-out;
+        transition: opacity 500ms ease-in-out;
       }
       .mascot-strip-cat[data-visible="false"] {
         opacity: 0;
       }
-      .mascot-strip-cat svg {
+
+      /* Illustrated cat. Content and alert share one frame, so the
+         cross-fade does not move or resize the drawing. */
+      .mascot-cat-stage {
+        position: relative;
+        height: var(--mascot-cat-height);
+        aspect-ratio: 575 / 970;
+        transform-origin: center bottom;
+      }
+      .mascot-cat-stage[data-breathe="true"] {
+        animation: mascot-breathe 5.2s ease-in-out infinite;
+      }
+      @keyframes mascot-breathe {
+        0%, 100% { transform: scaleY(1); }
+        50% { transform: scaleY(1.015); }
+      }
+      .mascot-cat-layer {
+        position: absolute;
+        inset: 0;
         width: 100%;
         height: 100%;
-        display: block;
+        object-fit: contain;
+        object-position: center bottom;
+        opacity: 0;
+        transition: opacity 500ms ease-in-out;
+      }
+      .mascot-cat-layer[data-shown="true"] {
+        opacity: 1;
       }
 
       .mascot-cat-button {
@@ -162,8 +186,9 @@ export function MascotStyles() {
         margin: 0;
         cursor: pointer;
         display: block;
-        width: 100%;
-        height: 100%;
+        width: auto;
+        height: auto;
+        line-height: 0;
       }
 
       .mascot-corner--celebrate .mascot-cat-tail-tip {
@@ -194,10 +219,13 @@ export function MascotStyles() {
       .mascot-scene-item[data-shown="true"] {
         opacity: 1;
       }
-      .mascot-scene-item svg {
+      .mascot-scene-item svg,
+      .mascot-scene-item img {
         width: 100%;
         height: 100%;
         display: block;
+        object-fit: contain;
+        object-position: center bottom;
       }
       .mascot-scene-mouse {
         width: 26px;
@@ -270,6 +298,11 @@ export function MascotStyles() {
         font-size: 16px;
         line-height: 1.35;
         color: #16413f;
+        opacity: 0;
+        transition: opacity 500ms ease-in-out;
+      }
+      .mascot-bubble-slot[data-shown="true"] {
+        opacity: 1;
       }
       @media (max-width: 480px) {
         .mascot-bubble-slot {
@@ -301,8 +334,13 @@ export function MascotStyles() {
         .mascot-cat-pose,
         .mascot-strip-cat,
         .mascot-scene-item,
-        .mascot-scene-cheese {
+        .mascot-scene-cheese,
+        .mascot-cat-layer,
+        .mascot-bubble-slot {
           transition: none !important;
+        }
+        .mascot-cat-stage {
+          animation: none !important;
         }
       }
     `}</style>
