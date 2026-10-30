@@ -290,3 +290,122 @@ export function LineChart({
     </div>
   );
 }
+
+/**
+ * A single-series bar chart, same visual language and layout constants
+ * as LineChart above (hover tooltip, AUD-ready via formatValue). Bars
+ * never go negative here -- What if?'s projected totals are always
+ * >= the starting amount.
+ */
+export function BarChart({
+  labels,
+  values,
+  formatValue,
+  ariaLabel,
+  empty,
+  swatchClass = "fill-cfo",
+  maxLabels,
+}: {
+  labels: string[];
+  values: number[];
+  formatValue: (value: number) => string;
+  ariaLabel: string;
+  empty: string;
+  swatchClass?: string;
+  /** Thins rendered x-axis text labels to roughly this many (always keeps the last). Bars are unaffected. */
+  maxLabels?: number;
+}) {
+  const [active, setActive] = useState<number | null>(null);
+  const count = labels.length;
+  if (!count || !values.length || values.every((value) => value === 0)) {
+    return <ChartEmpty>{empty}</ChartEmpty>;
+  }
+  const labelStep = maxLabels && maxLabels > 0 ? Math.max(1, Math.ceil(count / maxLabels)) : 1;
+
+  const max = Math.max(0, ...values);
+  const plotLeft = CHART_LEFT;
+  const plotRight = CHART_WIDTH - CHART_RIGHT;
+  const plotTop = CHART_TOP;
+  const plotBottom = CHART_HEIGHT - CHART_BOTTOM;
+  const plotWidth = plotRight - plotLeft;
+  const plotHeight = plotBottom - plotTop;
+
+  const slot = plotWidth / count;
+  const barWidth = Math.max(4, slot * 0.6);
+
+  function barX(index: number): number {
+    return plotLeft + slot * index + (slot - barWidth) / 2;
+  }
+
+  function barHeight(value: number): number {
+    if (max <= 0) return 0;
+    return (value / max) * plotHeight;
+  }
+
+  function onMove(event: MouseEvent<SVGSVGElement>) {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const ratio = (event.clientX - rect.left) / rect.width;
+    const x = ratio * CHART_WIDTH;
+    const index = Math.min(count - 1, Math.max(0, Math.floor((x - plotLeft) / slot)));
+    setActive(index);
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="relative">
+        <svg
+          viewBox={`0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`}
+          className="h-auto w-full"
+          role="img"
+          aria-label={ariaLabel}
+          onMouseMove={onMove}
+          onMouseLeave={() => setActive(null)}
+        >
+          <line x1={plotLeft} x2={plotRight} y1={plotBottom} y2={plotBottom} stroke="#DAD6CF" strokeWidth="1" />
+          {values.map((value, index) => {
+            const h = barHeight(value);
+            return (
+              <rect
+                key={`${labels[index]}-${index}`}
+                x={barX(index)}
+                y={plotBottom - h}
+                width={barWidth}
+                height={Math.max(0, h)}
+                rx={3}
+                className={swatchClass}
+                opacity={active === index ? 1 : 0.85}
+              />
+            );
+          })}
+          {labels.map((label, index) => {
+            const showLabel = index % labelStep === 0 || index === count - 1;
+            if (!showLabel) return null;
+            return (
+              <text
+                key={`${label}-${index}`}
+                x={barX(index) + barWidth / 2}
+                y={CHART_HEIGHT - 12}
+                textAnchor="middle"
+                className="fill-neutral-text-2 text-[11px]"
+              >
+                {label}
+              </text>
+            );
+          })}
+          <text x={plotLeft - 8} y={plotTop + 4} textAnchor="end" className="fill-neutral-text-2 text-[11px]">
+            {formatValue(max)}
+          </text>
+          <text x={plotLeft - 8} y={plotBottom} textAnchor="end" className="fill-neutral-text-2 text-[11px]">
+            {formatValue(0)}
+          </text>
+        </svg>
+        {active != null ? (
+          <div className="pointer-events-none absolute left-3 top-3 rounded-xl border border-neutral-border bg-neutral-surface px-3 py-2 text-xs text-neutral-text shadow-sm">
+            <div className="font-medium">{labels[active]}</div>
+            <div className="mt-1">{formatValue(values[active] ?? 0)}</div>
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}

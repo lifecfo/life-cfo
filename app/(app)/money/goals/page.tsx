@@ -15,6 +15,7 @@ import { Card, CardContent, Button, Chip, Badge, Money, useToast } from "@/compo
 import { useCountUp } from "@/lib/ui/useCountUp";
 import { SampleOffer, SampleStrip, useSampleMode } from "@/lib/demo/sampleMode";
 import { buildSampleGoals } from "@/lib/demo/sampleMoneyViews";
+import { computeGoalMonthlyTarget } from "@/lib/money/goalMonthlyTarget";
 
 export const dynamic = "force-dynamic";
 
@@ -102,6 +103,26 @@ function normalizePurposeType(p: unknown): PurposeType {
   const t = String(p ?? "build_toward").trim().toLowerCase();
   if (t === "maintain" || t === "pay_by_date") return t;
   return "build_toward";
+}
+
+// Plain arithmetic only -- no verdict. Shown only for build_toward/
+// pay_by_date goals (not maintain, which has no finish line) that have
+// both a target amount and a target date.
+function monthlyTargetLine(goal: MoneyGoal): string | null {
+  const purposeType = normalizePurposeType(goal.purpose_type);
+  if (purposeType === "maintain") return null;
+
+  const targetCents = toInt(goal.target_cents) ?? 0;
+  if (targetCents <= 0) return null;
+  if (!goal.deadline_at) return null;
+
+  const currentCents = toInt(goal.current_cents) ?? 0;
+  const result = computeGoalMonthlyTarget({ targetCents, currentCents, deadlineIso: goal.deadline_at });
+
+  if (result.kind === "reached") return "This goal's target is already reached.";
+  if (result.kind === "date_passed") return "The target date has passed.";
+  if (result.kind === "less_than_month") return "The target date is less than a month away.";
+  return `$${result.dollarsPerMonth.toLocaleString()} a month would reach this by ${fmtDateShort(goal.deadline_at)}.`;
 }
 
 function percent(currentCents: number, targetCents: number) {
@@ -409,6 +430,7 @@ function SelectedGoalSummaryCard({
   // "Remaining" counts down in step with "Saved so far" instead of
   // snapping to its final value while the amount above it is still moving.
   const remaining = tgt > 0 ? Math.max(0, tgt - roundedAnimatedCur) : null;
+  const monthlyLine = monthlyTargetLine(goal);
 
   return (
     <div className="rounded-2xl border border-zinc-200 bg-white p-4">
@@ -448,6 +470,8 @@ function SelectedGoalSummaryCard({
               </div>
             ) : null}
           </div>
+
+          {monthlyLine ? <div className="mt-2 text-xs text-zinc-600">{monthlyLine}</div> : null}
 
           {notStarted ? (
             <div className="mt-4 rounded-xl border border-dashed border-zinc-300 px-3 py-3 text-xs text-zinc-500">

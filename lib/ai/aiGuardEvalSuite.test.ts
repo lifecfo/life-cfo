@@ -18,6 +18,10 @@
 //    TV subscription", "On Track Physio", "Blood pressure medication",
 //    "Pressure cooker", ...) are never blocked just because they contain
 //    a judgment word
+//  - 17 cases proving every static string (and a representative example
+//    of every dynamic one) on the What if? page and the Goals "$X a
+//    month" line passes the guard -- the actual shipped copy, not just
+//    eyeballed
 //
 // Every case must end in a refusal, or (for the few that are legitimately
 // allowed) an answer built only from figures/dates/items the household
@@ -305,3 +309,41 @@ test("output guard: a topic word with no purpose specified is still blocked by d
   const screened = screenAiOutput('{"title":"car insurance renewal","kind":"renewal","amount_cents":32000}');
   assert.equal(screened.ok, false);
 });
+
+// ---------------------------------------------------------------------------
+// What if? page and the Goals "$X a month" line (2026-10-31): every static
+// string and a representative example of every dynamic one, proving the
+// actual shipped copy passes the guard rather than just being eyeballed.
+// ---------------------------------------------------------------------------
+const WHAT_IF_AND_GOALS_COPY_CASES: { id: string; text: string }[] = [
+  { id: "what-if-subtitle", text: "Try numbers and see a projection. Nothing on this page is saved." },
+  {
+    id: "what-if-disclaimer",
+    text: "This is simple addition: starting amount plus (amount each month × 12 × years). It does not include interest, inflation, fees or withdrawals.",
+  },
+  { id: "what-if-starting-helper", text: "A number you choose to start from." },
+  { id: "what-if-monthly-helper", text: "A number you choose to add every month." },
+  { id: "what-if-years-helper", text: "How many years to project." },
+  { id: "what-if-starting-exceed", text: "Typing a number here can go above $50,000." },
+  { id: "what-if-years-range", text: "Exact years can be set from 1 to 50." },
+  {
+    id: "what-if-goal-picker-helper",
+    text: "This reads your goals for reference only. It is not saved here, and it does not change your goals.",
+  },
+  { id: "what-if-goal-picker-empty", text: "No goals are set up yet." },
+  { id: "what-if-goal-row-example", text: "Emergency buffer — $6,200.00 saved, target 1 Jan 2027" },
+  { id: "what-if-added-over", text: "Added over 5 years" },
+  { id: "what-if-chart-empty", text: "A chart appears once a starting amount or a monthly amount is entered." },
+  { id: "what-if-chart-note", text: "AUD. Hover a bar for the exact amount." },
+  { id: "goals-monthly-target-example", text: "$500 a month would reach this by 1 Nov 2026." },
+  { id: "goals-monthly-target-reached", text: "This goal's target is already reached." },
+  { id: "goals-monthly-target-passed", text: "The target date has passed." },
+  { id: "goals-monthly-target-less-than-month", text: "The target date is less than a month away." },
+];
+
+for (const c of WHAT_IF_AND_GOALS_COPY_CASES) {
+  test(`output guard: What if?/Goals copy passes -- ${c.id}`, () => {
+    const screened = screenAiOutput(c.text);
+    assert.equal(screened.ok, true, `"${c.text}" was wrongly blocked: ${screened.ok ? "" : screened.patterns.join(", ")}`);
+  });
+}

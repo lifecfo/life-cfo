@@ -163,6 +163,14 @@ function navIcon(href: string) {
           <circle cx="12" cy="12" r="3" {...stroke} />
         </svg>
       );
+    case "/money/what-if":
+      return (
+        <svg viewBox="0 0 24 24" fill="none" className={shared} aria-hidden="true">
+          <path d="M4 7.5h16M4 16.5h16" {...stroke} />
+          <circle cx="9" cy="7.5" r="2" {...stroke} />
+          <circle cx="15" cy="16.5" r="2" {...stroke} />
+        </svg>
+      );
     case "/decisions":
       return (
         <svg viewBox="0 0 24 24" fill="none" className={shared} aria-hidden="true">
@@ -350,6 +358,7 @@ export function AppShell({ children }: AppShellProps) {
       { href: "/income", label: "Income" },
       { href: "/budget", label: "Budget" },
       { href: "/money/goals", label: "Goals" },
+      { href: "/money/what-if", label: "What if?" },
     ];
     if (showSpending) {
       items.push(
