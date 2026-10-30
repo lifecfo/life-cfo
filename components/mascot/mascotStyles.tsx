@@ -166,11 +166,14 @@ export function MascotStyles() {
         opacity: 0;
       }
 
-      /* Both poses share this fixed box and sit on the same baseline. */
+      /* The stage is the sitting cat's box. Every pose is centred on it
+         and stood on its bottom edge, so a swap does not move the anchor.
+         Wider poses are allowed to spill sideways (max-width: none). */
       .mascot-cat-stage {
         position: relative;
         width: 100%;
         height: 100%;
+        overflow: visible;
       }
       .mascot-cat-breath {
         position: absolute;
@@ -178,7 +181,7 @@ export function MascotStyles() {
         transform-origin: center bottom;
       }
       .mascot-cat-breath[data-breathe="true"] {
-        animation: mascot-breathe 5.2s ease-in-out infinite;
+        animation: mascot-breathe 4s ease-in-out infinite;
       }
       @keyframes mascot-breathe {
         0%, 100% { transform: scaleY(1); }
@@ -186,16 +189,20 @@ export function MascotStyles() {
       }
       .mascot-cat-layer {
         position: absolute;
-        inset: 0;
-        width: 100%;
-        height: 100%;
-        object-fit: contain;
-        object-position: center bottom;
+        left: 50%;
+        bottom: 0;
+        max-width: none;
+        height: auto;
+        transform: translateX(-50%);
         opacity: 0;
-        transition: opacity 500ms ease-in-out;
+        pointer-events: none;
+        transition: opacity 600ms ease-in-out;
       }
       .mascot-cat-layer[data-shown="true"] {
         opacity: 1;
+      }
+      .mascot-cat-layer[data-overlay="true"] {
+        opacity: 0.5;
       }
 
       .mascot-cat-button {

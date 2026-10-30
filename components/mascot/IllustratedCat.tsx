@@ -65,38 +65,48 @@ export function IllustratedCat({ pose, height, className }: IllustratedCatProps)
   );
 }
 
-type IllustratedCatSwitchProps = {
-  /** Cross-fade to the alert drawing. */
-  alert: boolean;
-  /** Subtle vertical breathing. Off for reduced motion, which also keeps the content pose. */
-  breathe: boolean;
+type CatPoseStackProps = {
+  /** The pose at full opacity. */
+  pose: IllustratedPose;
+  /** When set, `pose` and this pose are both drawn at 50% so their anchors can be compared. */
+  overlay?: IllustratedPose | null;
+  /** Subtle vertical breathing. Only the sitting content pose uses it. */
+  breathe?: boolean;
 };
 
 /**
- * The live mascot: content by default, alert while the bubble is open.
- * Both drawings share a viewBox, so the cross-fade does not move the cat.
+ * Every pose is stacked in one box, bottom-aligned and centred, at the
+ * same scale. Wider drawings spill sideways from that centre. The box
+ * itself stays the sitting cat's size, so a swap never moves the anchor.
  */
-export function IllustratedCatSwitch({ alert, breathe }: IllustratedCatSwitchProps) {
+export function CatPoseStack({ pose, overlay = null, breathe = false }: CatPoseStackProps) {
+  const refH = ILLUSTRATED_REF_HEIGHT;
   return (
     <div className="mascot-cat-stage">
       <div className="mascot-cat-breath" data-breathe={breathe ? "true" : "false"}>
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={illustratedPoseSrc("content")}
-          alt=""
-          draggable={false}
-          className="mascot-cat-layer"
-          data-shown={alert ? "false" : "true"}
-        />
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={illustratedPoseSrc("alert")}
-          alt=""
-          draggable={false}
-          className="mascot-cat-layer"
-          data-pose="alert"
-          data-shown={alert ? "true" : "false"}
-        />
+        {ILLUSTRATED_POSES.map((name) => {
+          const frame = ILLUSTRATED_POSE_VIEWBOX[name];
+          const inOverlay = overlay != null && (name === pose || name === overlay);
+          const shown = overlay == null && name === pose;
+          return (
+            // Static brand SVGs. next/image would letterbox the wide poses into the sitting box.
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              key={name}
+              src={illustratedPoseSrc(name)}
+              alt=""
+              draggable={false}
+              className="mascot-cat-layer"
+              data-pose={name}
+              data-shown={shown ? "true" : "false"}
+              data-overlay={inOverlay ? "true" : "false"}
+              style={{
+                width: `calc(var(--mascot-cat-height) * ${frame.w} / ${refH})`,
+                height: `calc(var(--mascot-cat-height) * ${frame.h} / ${refH})`,
+              }}
+            />
+          );
+        })}
       </div>
     </div>
   );

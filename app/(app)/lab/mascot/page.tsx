@@ -7,16 +7,16 @@ import { CatSvg } from "@/components/mascot/CatSvg";
 import { CatSvgCartoon } from "@/components/mascot/CatSvgCartoon";
 import { BubbleShape } from "@/components/mascot/BubbleShape";
 import {
+  CatPoseStack,
   ILLUSTRATED_POSE_VIEWBOX,
   ILLUSTRATED_POSES,
   ILLUSTRATED_REF_HEIGHT,
   IllustratedCat,
-  IllustratedCatSwitch,
   type IllustratedPose,
 } from "@/components/mascot/IllustratedCat";
-import { SpeechBubble } from "@/components/mascot/SpeechBubble";
 import { mascotHandwrittenFont } from "@/components/mascot/mascotFont";
 import { MASCOT_MOUSE_ENABLED } from "@/lib/mascot/mouseFlag";
+import { MASCOT_SPEECH_ENABLED } from "@/lib/mascot/speechFlag";
 
 export const dynamic = "force-dynamic";
 
@@ -63,20 +63,60 @@ function BubbleDemo({ side }: { side: "left" | "right" }) {
   );
 }
 
-function LiveHover() {
-  const [open, setOpen] = useState(false);
+function PosePlayer() {
+  const [pose, setPose] = useState<IllustratedPose>("content");
+  const [overlayOn, setOverlayOn] = useState(false);
+  const [other, setOther] = useState<IllustratedPose>("alert");
+
   return (
-    <div className="mascot-strip" style={{ borderTop: "1px solid #f4f4f5" }}>
-      <SpeechBubble label="Life CFO's cat mascot" onOpenChange={setOpen}>
-        <IllustratedCatSwitch alert={open} breathe />
-      </SpeechBubble>
+    <div>
+      <div className="flex flex-wrap gap-2">
+        {ILLUSTRATED_POSES.map((name) => (
+          <button
+            key={name}
+            type="button"
+            onClick={() => setPose(name)}
+            className={[
+              "rounded-full border px-3 py-1 text-xs",
+              pose === name ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-300 text-zinc-700",
+            ].join(" ")}
+          >
+            {POSE_COPY[name].label}
+          </button>
+        ))}
+      </div>
+      <label className="mt-4 flex items-center gap-2 text-sm text-zinc-700">
+        <input type="checkbox" checked={overlayOn} onChange={(event) => setOverlayOn(event.target.checked)} />
+        Overlay check (both poses at 50% opacity)
+      </label>
+      {overlayOn ? (
+        <label className="mt-2 flex items-center gap-2 text-sm text-zinc-700">
+          Second pose
+          <select
+            className="rounded border border-zinc-300 px-2 py-1 text-sm"
+            value={other}
+            onChange={(event) => setOther(event.target.value as IllustratedPose)}
+          >
+            {ILLUSTRATED_POSES.map((name) => (
+              <option key={name} value={name}>
+                {POSE_COPY[name].label}
+              </option>
+            ))}
+          </select>
+        </label>
+      ) : null}
+      <div className="mascot-strip" style={{ justifyContent: "center" }}>
+        <div className="mascot-anchor" data-mascot-anchor="">
+          <CatPoseStack pose={pose} overlay={overlayOn ? other : null} breathe={pose === "content" && !overlayOn} />
+        </div>
+      </div>
     </div>
   );
 }
 
 export default function MascotLabPage() {
   return (
-    <Page title="Mascot preview" subtitle="Developer-only. Illustrated cat, hand-drawn bubble.">
+    <Page title="Mascot preview" subtitle="Developer-only. Illustrated cat, idle poses, speech paused.">
       <div className="mx-auto w-full max-w-[1100px] space-y-6 px-4 sm:px-6">
         {!MASCOT_MOUSE_ENABLED ? (
           <Card className="border-amber-200 bg-amber-50">
@@ -112,7 +152,25 @@ export default function MascotLabPage() {
 
         <Card className="border-zinc-200 bg-white">
           <CardContent>
+            <div className="text-sm font-semibold text-zinc-900">Play a pose</div>
+            <div className="mt-1 text-xs text-zinc-500">
+              Each pose stands on the same paws and the same centre. Wider ones grow sideways. On Home, add
+              ?mascotDemo=1 in dev or preview to cycle them every 5 seconds. That query does nothing in production.
+            </div>
+            <div className="mt-4">
+              <PosePlayer />
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="border-zinc-200 bg-white">
+          <CardContent>
             <div className="text-sm font-semibold text-zinc-900">Hand-drawn speech bubble, both sides</div>
+            <div className="mt-1 text-xs text-zinc-500">
+              {MASCOT_SPEECH_ENABLED
+                ? "Speech is on."
+                : "Speech is off (MASCOT_SPEECH_ENABLED). The bubble still lives here so it can come back."}
+            </div>
             <div className="mt-1 text-xs text-zinc-500">
               Wobbly SVG outline (teal marker-pen stroke, cream fill), Patrick Hand font, the tail always points at
               the cat. Beside the cat, level with its head.
@@ -121,8 +179,6 @@ export default function MascotLabPage() {
               <BubbleDemo side="left" />
               <BubbleDemo side="right" />
             </div>
-            <div className="mt-4 text-xs text-zinc-500">Hover the cat. The caption fades in beside it and the cat stays put.</div>
-            <LiveHover />
           </CardContent>
         </Card>
 
