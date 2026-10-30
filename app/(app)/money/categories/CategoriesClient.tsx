@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import { Page } from "@/components/Page";
 import { Button, Card, CardContent, Chip, useToast } from "@/components/ui";
 import { SampleStrip, useSampleMode } from "@/lib/demo/sampleMode";
+import { useMascotEnabled, usePrefersReducedMotion } from "@/lib/mascot/prefs";
+import { MascotCorner } from "@/components/mascot/MascotCorner";
 
 type CategoryRow = {
   id: string;
@@ -59,6 +61,8 @@ export default function CategoriesClient() {
   const router = useRouter();
   const { showToast } = useToast();
   const { on: sampleOn } = useSampleMode();
+  const { enabled: mascotEnabled } = useMascotEnabled();
+  const reducedMotion = usePrefersReducedMotion();
 
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<CategoriesResponse | null>(null);
@@ -376,6 +380,9 @@ export default function CategoriesClient() {
           </>
         )}
       </div>
+      {!loading && grouped.length === 0 ? (
+        <MascotCorner mode="static" enabled={mascotEnabled} reducedMotion={reducedMotion} />
+      ) : null}
     </Page>
   );
 }

@@ -6,6 +6,8 @@ import { HouseholdPicture } from "@/components/home/HouseholdPicture";
 import { Page } from "@/components/Page";
 import { PRODUCT_DESCRIPTOR } from "@/lib/brand";
 import { supabase } from "@/lib/supabaseClient";
+import { useMascotEnabled, usePrefersReducedMotion } from "@/lib/mascot/prefs";
+import { MascotCorner } from "@/components/mascot/MascotCorner";
 
 function firstNameOf(full: string) {
   const name = full.trim();
@@ -15,6 +17,8 @@ function firstNameOf(full: string) {
 
 export default function LifeCFOHomePage() {
   const [preferredName, setPreferredName] = useState("");
+  const { enabled: mascotEnabled } = useMascotEnabled();
+  const reducedMotion = usePrefersReducedMotion();
 
   useEffect(() => {
     let alive = true;
@@ -40,6 +44,7 @@ export default function LifeCFOHomePage() {
       <div className="mx-auto max-w-[980px]">
         <HouseholdPicture />
       </div>
+      <MascotCorner mode="ambient" enabled={mascotEnabled} reducedMotion={reducedMotion} />
     </Page>
   );
 }

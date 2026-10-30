@@ -6,6 +6,9 @@ import Link from "next/link";
 import { PageGlance } from "@/components/glance/PageGlance";
 import { useSampleMode } from "@/lib/demo/sampleMode";
 import { formatMoneyFromCents } from "@/lib/money/formatMoney";
+import { triggerMascotCelebration } from "@/lib/mascot/celebrate";
+
+const LAST_UNASSIGNED_KEY = "lifecfo-mascot-last-unassigned";
 
 type Member = { user_id: string; role: string; label: string };
 type Item = {
@@ -76,6 +79,25 @@ export function HouseholdPicture() {
     setPicture(json);
     setError(null);
   }, []);
+
+  // "All bills assigned" small win: every item (bill, renewal, ...) that
+  // had no one "looking after" it now does. Compares against the last
+  // known count so this only fires on the >0 -> 0 transition, not every
+  // time the household already has zero unassigned items.
+  useEffect(() => {
+    if (sampleOn || !picture || !picture.household_id) return;
+    const unassigned = picture.items.filter((item) => !item.assignee_user_id).length;
+    try {
+      const previousRaw = window.localStorage.getItem(LAST_UNASSIGNED_KEY);
+      const previous = previousRaw === null ? null : Number(previousRaw);
+      if (previous !== null && previous > 0 && unassigned === 0) {
+        triggerMascotCelebration();
+      }
+      window.localStorage.setItem(LAST_UNASSIGNED_KEY, String(unassigned));
+    } catch {
+      /* private mode */
+    }
+  }, [picture, sampleOn]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
