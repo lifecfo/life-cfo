@@ -1,26 +1,11 @@
 "use client";
 
-type BubbleShapeProps = {
-  /** Which side of the bubble the cat is on -- the tail points that way. */
-  tailSide: "left" | "right";
-};
-
 /**
- * The hand-drawn speech bubble outline -- a wobbly, irregular blob (not a
- * rounded rectangle) with a small tail pointing sideways at the cat's
- * head, cream fill and a marker-pen-style teal stroke. Rendered as an
- * absolute-positioned background that stretches (preserveAspectRatio=
- * "none") to fit whatever size the text content gives the bubble.
+ * Hand-drawn speech bubble. Both tails are drawn; the parent
+ * `[data-side]` shows the one that points at the cat. The shape is an
+ * absolute background, so swapping tails does not change layout.
  */
-export function BubbleShape({ tailSide }: BubbleShapeProps) {
-  // Tail protrudes from the edge nearest the cat and points toward it:
-  // bubble-on-the-cat's-left means the cat is to the bubble's right, so
-  // the tail comes off the right edge pointing right (and vice versa).
-  const tail =
-    tailSide === "left"
-      ? "M 203 32 L 220 40 L 201 50 Z"
-      : "M 17 32 L 0 40 L 19 50 Z";
-
+export function BubbleShape() {
   return (
     <svg
       viewBox="0 0 220 80"
@@ -36,7 +21,10 @@ export function BubbleShape({ tailSide }: BubbleShapeProps) {
         strokeLinejoin="round"
         strokeLinecap="round"
       />
-      <path d={tail} fill="#F6F4F1" stroke="#1F5E5C" strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
+      {/* Bubble on the cat's left: tail on the right edge, pointing at the cat. */}
+      <path className="mascot-bubble-tail" data-tail="left" d="M 203 32 L 220 40 L 201 50 Z" fill="#F6F4F1" stroke="#1F5E5C" strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
+      {/* Bubble on the cat's right: tail on the left edge. */}
+      <path className="mascot-bubble-tail" data-tail="right" d="M 17 32 L 0 40 L 19 50 Z" fill="#F6F4F1" stroke="#1F5E5C" strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
     </svg>
   );
 }

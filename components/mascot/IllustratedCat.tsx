@@ -78,17 +78,17 @@ type IllustratedCatSwitchProps = {
  */
 export function IllustratedCatSwitch({ alert, breathe }: IllustratedCatSwitchProps) {
   return (
-    <div className="mascot-cat-stage" data-breathe={breathe ? "true" : "false"}>
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        src={illustratedPoseSrc("content")}
-        alt=""
-        draggable={false}
-        className="mascot-cat-layer"
-        data-shown={alert ? "false" : "true"}
-      />
-      {breathe ? (
-        // eslint-disable-next-line @next/next/no-img-element
+    <div className="mascot-cat-stage">
+      <div className="mascot-cat-breath" data-breathe={breathe ? "true" : "false"}>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={illustratedPoseSrc("content")}
+          alt=""
+          draggable={false}
+          className="mascot-cat-layer"
+          data-shown={alert ? "false" : "true"}
+        />
+        {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           src={illustratedPoseSrc("alert")}
           alt=""
@@ -97,7 +97,7 @@ export function IllustratedCatSwitch({ alert, breathe }: IllustratedCatSwitchPro
           data-pose="alert"
           data-shown={alert ? "true" : "false"}
         />
-      ) : null}
+      </div>
     </div>
   );
 }

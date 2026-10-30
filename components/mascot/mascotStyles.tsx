@@ -12,11 +12,13 @@ export function MascotStyles() {
     <style>{`
       :root {
         --mascot-cat-height: 160px;
+        --mascot-cat-width: calc(160px * 575 / 970);
         --mascot-cat-size: 160px;
       }
       @media (max-width: 767px) {
         :root {
           --mascot-cat-height: 120px;
+          --mascot-cat-width: calc(120px * 575 / 970);
           --mascot-cat-size: 120px;
         }
       }
@@ -130,8 +132,13 @@ export function MascotStyles() {
         display: flex;
         align-items: flex-start;
         justify-content: flex-end;
-        min-height: calc(var(--mascot-cat-height) + 32px);
+        position: relative;
+        /* Tall enough for the cat plus the caption beside its head.
+           The caption is absolute, so this min-height is what keeps it
+           inside the strip instead of covering the section above. */
+        min-height: calc(var(--mascot-cat-height) + 48px);
         padding: 16px 90px 16px 16px;
+        overflow: clip;
       }
       @media (max-width: 767px) {
         .mascot-strip {
@@ -140,8 +147,17 @@ export function MascotStyles() {
         }
       }
 
+      /* Fixed anchor. Its box never changes when the caption shows. */
+      .mascot-anchor {
+        position: relative;
+        width: var(--mascot-cat-width);
+        height: var(--mascot-cat-height);
+        flex: none;
+      }
+
       .mascot-strip-cat {
-        flex-shrink: 0;
+        width: 100%;
+        height: 100%;
         line-height: 0;
         opacity: 1;
         transition: opacity 500ms ease-in-out;
@@ -150,15 +166,18 @@ export function MascotStyles() {
         opacity: 0;
       }
 
-      /* Illustrated cat. Content and alert share one frame, so the
-         cross-fade does not move or resize the drawing. */
+      /* Both poses share this fixed box and sit on the same baseline. */
       .mascot-cat-stage {
         position: relative;
-        height: var(--mascot-cat-height);
-        aspect-ratio: 575 / 970;
+        width: 100%;
+        height: 100%;
+      }
+      .mascot-cat-breath {
+        position: absolute;
+        inset: 0;
         transform-origin: center bottom;
       }
-      .mascot-cat-stage[data-breathe="true"] {
+      .mascot-cat-breath[data-breathe="true"] {
         animation: mascot-breathe 5.2s ease-in-out infinite;
       }
       @keyframes mascot-breathe {
@@ -186,8 +205,8 @@ export function MascotStyles() {
         margin: 0;
         cursor: pointer;
         display: block;
-        width: auto;
-        height: auto;
+        width: 100%;
+        height: 100%;
         line-height: 0;
       }
 
@@ -282,38 +301,62 @@ export function MascotStyles() {
         transform: translateX(-50%) scale(1);
       }
 
-      /* ---- Hand-drawn speech bubble: a real flex sibling of the cat,
-             not an absolute overlay, so it's physically contained by the
-             strip and can never drift above it into page content. ---- */
-      .mascot-bubble-row {
-        display: flex;
-        align-items: flex-start;
-        gap: 12px;
-      }
+      /* Caption is taken out of the flex layout. It fades beside the
+         cat's head and never moves the anchor. */
       .mascot-bubble-slot {
-        position: relative;
-        width: 190px;
+        position: absolute;
+        top: 0;
+        z-index: 1;
+        width: min(190px, var(--mascot-bubble-room, 190px));
         min-height: 70px;
-        padding: 16px 18px 26px;
+        padding: 16px 18px 22px;
         font-size: 16px;
         line-height: 1.35;
         color: #16413f;
         opacity: 0;
-        transition: opacity 500ms ease-in-out;
+        pointer-events: none;
+        transition: opacity 300ms ease-in-out;
+      }
+      .mascot-anchor[data-side="left"] .mascot-bubble-slot {
+        right: calc(100% + 10px);
+        left: auto;
+      }
+      .mascot-anchor[data-side="right"] .mascot-bubble-slot {
+        left: calc(100% + 10px);
+        right: auto;
       }
       .mascot-bubble-slot[data-shown="true"] {
         opacity: 1;
+        pointer-events: auto;
       }
-      @media (max-width: 480px) {
-        .mascot-bubble-slot {
-          width: 130px;
-          font-size: 15px;
-        }
+      .mascot-bubble-tail {
+        opacity: 0;
+      }
+      .mascot-anchor[data-side="left"] .mascot-bubble-tail[data-tail="left"],
+      .mascot-bubble-slot[data-side="left"] .mascot-bubble-tail[data-tail="left"] {
+        opacity: 1;
+      }
+      .mascot-anchor[data-side="right"] .mascot-bubble-tail[data-tail="right"],
+      .mascot-bubble-slot[data-side="right"] .mascot-bubble-tail[data-tail="right"] {
+        opacity: 1;
       }
       .mascot-bubble-text {
         position: relative;
         z-index: 1;
         display: block;
+      }
+      @media (max-width: 767px) {
+        .mascot-bubble-slot {
+          width: min(160px, var(--mascot-bubble-room, 140px));
+          font-size: 15px;
+        }
+        .mascot-bubble-text {
+          display: -webkit-box;
+          -webkit-box-orient: vertical;
+          -webkit-line-clamp: 3;
+          line-clamp: 3;
+          overflow: hidden;
+        }
       }
 
       @media (prefers-reduced-motion: reduce) {
@@ -339,7 +382,7 @@ export function MascotStyles() {
         .mascot-bubble-slot {
           transition: none !important;
         }
-        .mascot-cat-stage {
+        .mascot-cat-breath {
           animation: none !important;
         }
       }

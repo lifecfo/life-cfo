@@ -1,12 +1,11 @@
 "use client";
 
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { getStickyMascotLine } from "@/lib/mascot/lineMemory";
 import { BubbleShape } from "./BubbleShape";
 import { mascotHandwrittenFont } from "./mascotFont";
 
 const HOVER_CLOSE_DELAY_MS = 300;
-const BUBBLE_FADE_MS = 500;
 
 function prefersReducedMotion(): boolean {
   return typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -15,34 +14,33 @@ function prefersReducedMotion(): boolean {
 type SpeechBubbleProps = {
   children: React.ReactNode;
   label: string;
-  /** Which side of the cat the bubble opens on -- real flex space, never absolutely overlaid, so it can't drift outside the strip. */
-  side: "left" | "right";
+  /**
+   * Which side of the cat the caption sits on. Omit to pick the side with
+   * more room inside the strip (left unless the right side is clearly wider).
+   */
+  side?: "left" | "right";
   className?: string;
-  /** Fires when the bubble opens or starts to hide, so the cat can cross-fade with it. */
+  /** Fires when the caption opens or starts to hide, so the pose can cross-fade with it. */
   onOpenChange?: (open: boolean) => void;
 };
 
 /**
- * Wraps the mascot SVG in a focusable button, with the speech bubble as
- * a real flex sibling (not an absolute overlay) so it's physically
- * contained by whatever row it's laid out in -- it can only ever be as
- * tall as that row allows, never drifting above it into page content.
- *
- * Desktop: hover shows the bubble, moving away hides it after a short
- * delay (so it doesn't flicker). Touch: tap toggles it. Keyboard: focus
- * shows, blur hides. The line itself is sticky for 5 minutes
- * (lib/mascot/lineMemory.ts) -- repeated open/close never changes it
- * mid-window.
+ * Fixed-size anchor for the cat. The caption is position:absolute, so
+ * showing it never changes the cat's box. Desktop: hover shows it, moving
+ * away hides it after a short delay. Touch: tap toggles. Keyboard: focus
+ * shows, blur hides. The line is sticky for 5 minutes.
  */
 export function SpeechBubble({ children, label, side, className, onOpenChange }: SpeechBubbleProps) {
   const [open, setOpen] = useState(false);
-  const [mounted, setMounted] = useState(false);
   const [visible, setVisible] = useState(false);
   const [line, setLine] = useState("");
+  const [placedSide, setPlacedSide] = useState<"left" | "right">(side ?? "left");
+  const [room, setRoom] = useState(190);
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const unmountTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const openRef = useRef(false);
   const wrapRef = useRef<HTMLDivElement | null>(null);
+  const sidePropRef = useRef(side);
+  sidePropRef.current = side;
   const bubbleId = useId();
 
   function clearHideTimer() {
@@ -52,19 +50,10 @@ export function SpeechBubble({ children, label, side, className, onOpenChange }:
     }
   }
 
-  function clearUnmountTimer() {
-    if (unmountTimerRef.current) {
-      clearTimeout(unmountTimerRef.current);
-      unmountTimerRef.current = null;
-    }
-  }
-
   function show() {
     clearHideTimer();
-    clearUnmountTimer();
     openRef.current = true;
     setLine(getStickyMascotLine());
-    setMounted(true);
     setOpen(true);
     onOpenChange?.(true);
     if (prefersReducedMotion()) {
@@ -84,18 +73,45 @@ export function SpeechBubble({ children, label, side, className, onOpenChange }:
     setOpen(false);
     setVisible(false);
     onOpenChange?.(false);
-    clearUnmountTimer();
-    if (prefersReducedMotion()) {
-      setMounted(false);
-      return;
-    }
-    unmountTimerRef.current = setTimeout(() => setMounted(false), BUBBLE_FADE_MS);
   }
 
   function hideAfterDelay() {
     clearHideTimer();
     hideTimerRef.current = setTimeout(() => hideNow(), HOVER_CLOSE_DELAY_MS);
   }
+
+  useLayoutEffect(() => {
+    const anchor = wrapRef.current;
+    if (!anchor) return;
+
+    function place() {
+      const node = wrapRef.current;
+      if (!node) return;
+      const strip = node.closest(".mascot-strip");
+      const bounds = strip ?? node.parentElement;
+      if (!bounds) return;
+      const anchorBox = node.getBoundingClientRect();
+      const stripBox = bounds.getBoundingClientRect();
+      const leftRoom = anchorBox.left - stripBox.left;
+      const rightRoom = stripBox.right - anchorBox.right;
+      const forced = sidePropRef.current;
+      const next = forced ?? (rightRoom > leftRoom + 8 ? "right" : "left");
+      const nextRoom = Math.min(190, Math.max(0, Math.floor((next === "left" ? leftRoom : rightRoom) - 14)));
+      setPlacedSide((prev) => (prev === next ? prev : next));
+      setRoom((prev) => (prev === nextRoom ? prev : nextRoom));
+    }
+
+    place();
+    const observed = anchor.closest(".mascot-strip") ?? anchor.parentElement;
+    const observer = new ResizeObserver(place);
+    observer.observe(anchor);
+    if (observed) observer.observe(observed);
+    window.addEventListener("resize", place);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", place);
+    };
+  }, []);
 
   useEffect(() => {
     if (!open) return;
@@ -114,49 +130,44 @@ export function SpeechBubble({ children, label, side, className, onOpenChange }:
 
   useEffect(() => {
     const hideTimer = hideTimerRef;
-    const unmountTimer = unmountTimerRef;
     return () => {
       if (hideTimer.current) clearTimeout(hideTimer.current);
-      if (unmountTimer.current) clearTimeout(unmountTimer.current);
     };
   }, []);
 
-  const bubble = mounted ? (
+  return (
     <div
-      id={bubbleId}
-      className="mascot-bubble-slot"
-      data-shown={visible ? "true" : "false"}
-      role={open ? "status" : undefined}
-      aria-live={open ? "polite" : undefined}
-      aria-hidden={open ? undefined : true}
-    >
-      <BubbleShape tailSide={side} />
-      <span className={`mascot-bubble-text ${mascotHandwrittenFont.className}`}>{line}</span>
-    </div>
-  ) : null;
-
-  const button = (
-    <button
-      type="button"
-      aria-label={label}
-      aria-expanded={open}
-      aria-describedby={open ? bubbleId : undefined}
-      onClick={() => (open ? hideNow() : show())}
+      ref={wrapRef}
+      className={`mascot-anchor ${className ?? ""}`}
+      data-side={placedSide}
+      data-mascot-anchor=""
+      style={{ ["--mascot-bubble-room" as string]: `${room}px` }}
       onMouseEnter={show}
       onMouseLeave={hideAfterDelay}
-      onFocus={show}
-      onBlur={hideNow}
-      className="mascot-cat-button"
     >
-      {children}
-    </button>
-  );
-
-  return (
-    <div ref={wrapRef} className={`mascot-bubble-row ${className ?? ""}`}>
-      {side === "left" ? bubble : null}
-      {button}
-      {side === "right" ? bubble : null}
+      <div
+        id={bubbleId}
+        className="mascot-bubble-slot"
+        data-shown={visible ? "true" : "false"}
+        role={open ? "status" : undefined}
+        aria-live={open ? "polite" : undefined}
+        aria-hidden={open ? undefined : true}
+      >
+        <BubbleShape />
+        <span className={`mascot-bubble-text ${mascotHandwrittenFont.className}`}>{line}</span>
+      </div>
+      <button
+        type="button"
+        aria-label={label}
+        aria-expanded={open}
+        aria-describedby={open ? bubbleId : undefined}
+        onClick={() => (open ? hideNow() : show())}
+        onFocus={show}
+        onBlur={hideNow}
+        className="mascot-cat-button"
+      >
+        {children}
+      </button>
     </div>
   );
 }

@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { Page } from "@/components/Page";
 import { Card, CardContent } from "@/components/ui";
 import { CatSvg } from "@/components/mascot/CatSvg";
@@ -10,8 +11,10 @@ import {
   ILLUSTRATED_POSES,
   ILLUSTRATED_REF_HEIGHT,
   IllustratedCat,
+  IllustratedCatSwitch,
   type IllustratedPose,
 } from "@/components/mascot/IllustratedCat";
+import { SpeechBubble } from "@/components/mascot/SpeechBubble";
 import { mascotHandwrittenFont } from "@/components/mascot/mascotFont";
 import { MASCOT_MOUSE_ENABLED } from "@/lib/mascot/mouseFlag";
 
@@ -38,24 +41,35 @@ function productionHeight(pose: IllustratedPose): number {
 }
 
 function BubbleDemo({ side }: { side: "left" | "right" }) {
-  const bubble = (
-    <div className="mascot-bubble-slot" data-shown="true" style={{ width: 190 }}>
-      <BubbleShape tailSide={side} />
-      <span className={`mascot-bubble-text ${mascotHandwrittenFont.className}`}>Done is cosier than perfect.</span>
-    </div>
-  );
-  const cat = <IllustratedCat pose="content" height={PRODUCTION_HEIGHT} />;
-
   return (
     <div className="flex flex-col items-center gap-2">
-      <div className="mascot-bubble-row">
-        {side === "left" ? bubble : null}
-        {cat}
-        {side === "right" ? bubble : null}
+      <div style={{ paddingLeft: side === "left" ? 210 : 8, paddingRight: side === "right" ? 210 : 8 }}>
+        <div
+          className="mascot-anchor"
+          data-side={side}
+          style={{ width: 95, height: 160, ["--mascot-bubble-room" as string]: "190px" }}
+        >
+          <div className="mascot-bubble-slot" data-shown="true">
+            <BubbleShape />
+            <span className={`mascot-bubble-text ${mascotHandwrittenFont.className}`}>Done is cosier than perfect.</span>
+          </div>
+          <IllustratedCat pose="content" height={PRODUCTION_HEIGHT} />
+        </div>
       </div>
       <div className="text-xs text-zinc-500">
         Bubble on the {side}, tail pointing {side === "left" ? "right" : "left"} at the cat
       </div>
+    </div>
+  );
+}
+
+function LiveHover() {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="mascot-strip" style={{ borderTop: "1px solid #f4f4f5" }}>
+      <SpeechBubble label="Life CFO's cat mascot" onOpenChange={setOpen}>
+        <IllustratedCatSwitch alert={open} breathe />
+      </SpeechBubble>
     </div>
   );
 }
@@ -107,6 +121,8 @@ export default function MascotLabPage() {
               <BubbleDemo side="left" />
               <BubbleDemo side="right" />
             </div>
+            <div className="mt-4 text-xs text-zinc-500">Hover the cat. The caption fades in beside it and the cat stays put.</div>
+            <LiveHover />
           </CardContent>
         </Card>
 

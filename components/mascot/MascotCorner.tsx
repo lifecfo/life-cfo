@@ -49,7 +49,7 @@ export function MascotCorner({ mode, enabled, reducedMotion, celebrateKey = 0 }:
 
   return (
     <div className="mascot-strip">
-      <SpeechBubble label="Life CFO's cat mascot" side="left" onOpenChange={setBubbleOpen}>
+      <SpeechBubble label="Life CFO's cat mascot" onOpenChange={setBubbleOpen}>
         <div className="mascot-strip-cat" data-visible={visible ? "true" : "false"}>
           <IllustratedCatSwitch alert={showAlert} breathe={!reducedMotion} />
         </div>
