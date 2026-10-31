@@ -9,6 +9,7 @@ import { SampleStrip, useSampleMode } from "@/lib/demo/sampleMode";
 import { buildSampleGoals } from "@/lib/demo/sampleMoneyViews";
 import { supabase } from "@/lib/supabaseClient";
 import { resolveActiveHouseholdIdClient } from "@/lib/households/resolveActiveHouseholdClient";
+import { formatDate, parseDateOnly } from "@/lib/format/dates";
 
 const STARTING_SLIDER_MAX = 50000;
 const STARTING_STEP = 1000;
@@ -54,9 +55,12 @@ function pluralYears(n: number): string {
 
 function fmtDateShort(iso: string | null): string {
   if (!iso) return "";
-  const ms = Date.parse(iso);
-  if (Number.isNaN(ms)) return "";
-  return new Date(ms).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
+  const d = parseDateOnly(iso);
+  return d ? formatDate(d) : "";
+}
+
+function fmtInt(n: number): string {
+  return new Intl.NumberFormat("en-AU").format(n);
 }
 
 function yearsUntil(iso: string | null): number | null {
@@ -103,11 +107,11 @@ function AmountField({
         value={sliderValue}
         onChange={(event) => onTextChange(event.target.value)}
         className="w-full accent-cfo"
-        aria-label={`${label} slider, $0 to $${sliderMax.toLocaleString()}`}
+        aria-label={`${label} slider, $0 to $${fmtInt(sliderMax)}`}
       />
       <div className="flex items-center justify-between text-[11px] text-zinc-500">
         <span>$0</span>
-        <span>${sliderMax.toLocaleString()}</span>
+        <span>${fmtInt(sliderMax)}</span>
       </div>
       <div className="flex items-center gap-2">
         <div className="text-xs text-zinc-500">Exact amount</div>
@@ -124,7 +128,7 @@ function AmountField({
           />
         </div>
       </div>
-      <div className="text-[11px] text-zinc-500">Typing a number here can go above ${sliderMax.toLocaleString()}.</div>
+      <div className="text-[11px] text-zinc-500">Typing a number here can go above ${fmtInt(sliderMax)}.</div>
     </div>
   );
 }

@@ -4,11 +4,11 @@
 import { useRouter } from "next/navigation";
 import { Card, CardContent, Chip } from "@/components/ui";
 import ImportantInformationContent from "./ImportantInformationContent";
+import { formatDateTime } from "@/lib/format/dates";
 
 function formatWhen(iso: string) {
   if (!iso) return "—";
-  const d = new Date(iso);
-  return d.toLocaleString();
+  return formatDateTime(iso);
 }
 
 export default function FinePrintReadOnly({

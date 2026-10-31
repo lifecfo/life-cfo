@@ -335,7 +335,7 @@ const WHAT_IF_AND_GOALS_COPY_CASES: { id: string; text: string }[] = [
   { id: "what-if-added-over", text: "Added over 5 years" },
   { id: "what-if-chart-empty", text: "A chart appears once a starting amount or a monthly amount is entered." },
   { id: "what-if-chart-note", text: "AUD. Hover a bar for the exact amount." },
-  { id: "goals-monthly-target-example", text: "$500 a month would reach this by 1 Nov 2026." },
+  { id: "goals-monthly-target-example", text: "$500 a month would reach this by Sun 1 Nov 2026." },
   { id: "goals-monthly-target-reached", text: "This goal's target is already reached." },
   { id: "goals-monthly-target-passed", text: "The target date has passed." },
   { id: "goals-monthly-target-less-than-month", text: "The target date is less than a month away." },

@@ -10,6 +10,7 @@ import { Page } from "@/components/Page";
 import { Chip, useToast } from "@/components/ui";
 import { ConversationPanel } from "./ConversationPanel";
 import { AttachmentsBlock } from "@/components/AttachmentsBlock";
+import { formatDate, formatDateTime } from "@/lib/format/dates";
 
 export const dynamic = "force-dynamic";
 
@@ -101,19 +102,13 @@ function safeMs(iso: string | null | undefined) {
 function softWhen(iso: string | null | undefined) {
   const ms = safeMs(iso);
   if (!ms) return "";
-  return new Date(ms).toLocaleDateString();
+  return formatDate(ms);
 }
 
 function softWhenDateTime(iso: string | null | undefined) {
   const ms = safeMs(iso);
   if (!ms) return "";
-  return new Date(ms).toLocaleString(undefined, {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  return formatDateTime(ms);
 }
 
 function isoFromDateInput(dateStr: string) {

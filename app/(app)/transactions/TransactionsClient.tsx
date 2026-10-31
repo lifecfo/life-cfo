@@ -9,6 +9,7 @@ import { AssistedSearch } from "@/components/AssistedSearch";
 import { formatMoneyFromCents as formatMoneyFromCentsShared } from "@/lib/money/formatMoney";
 import { SampleOffer, SampleStrip, useSampleMode } from "@/lib/demo/sampleMode";
 import { buildSampleAccounts, buildSampleTransactions } from "@/lib/demo/sampleMoneyViews";
+import { formatDate, parseDateOnly } from "@/lib/format/dates";
 
 type Tx = {
   id: string;
@@ -43,9 +44,8 @@ function safeDate(iso: string | null | undefined) {
 }
 
 function softWhen(iso: string | null | undefined) {
-  const d = safeDate(iso);
-  if (!d) return "";
-  return d.toLocaleDateString();
+  const d = parseDateOnly(iso ?? "");
+  return d ? formatDate(d) : "";
 }
 
 function formatMoneyFromCents(c: number, currency = "AUD") {

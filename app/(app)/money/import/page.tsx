@@ -9,6 +9,7 @@ import type {
   BankCsvDetectedColumns,
   BankCsvSampleRow,
 } from "@/lib/money/import/parseBankCsv";
+import { formatDate, parseDateOnly } from "@/lib/format/dates";
 
 type AccountChoice = {
   id: string;
@@ -43,14 +44,8 @@ type ImportResponse = {
 };
 
 function displayDate(value: string) {
-  const time = Date.parse(`${value}T00:00:00Z`);
-  if (!Number.isFinite(time)) return value;
-  return new Date(time).toLocaleDateString(undefined, {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-    timeZone: "UTC",
-  });
+  const d = parseDateOnly(value);
+  return d ? formatDate(d) : value;
 }
 
 function displayAmount(value: number | null) {

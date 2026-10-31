@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { cn } from "@/lib/cn";
 import { Chip } from "@/components/ui";
+import { formatDate, parseDateOnly } from "@/lib/format/dates";
 
 export type Scope =
   | "money"
@@ -27,16 +28,10 @@ function safeStr(v: unknown) {
   return typeof v === "string" ? v : "";
 }
 
-function safeMs(iso: unknown) {
-  if (typeof iso !== "string") return null;
-  const ms = Date.parse(iso);
-  return Number.isNaN(ms) ? null : ms;
-}
-
 function softDate(iso: unknown) {
-  const ms = safeMs(iso);
-  if (!ms) return "";
-  return new Date(ms).toLocaleDateString();
+  if (typeof iso !== "string") return "";
+  const d = parseDateOnly(iso);
+  return d ? formatDate(d) : "";
 }
 
 /**

@@ -1,5 +1,6 @@
 // lib/ask/resolveHomeAsk.ts
 import { createClient } from "@supabase/supabase-js";
+import { formatDate, parseDateOnly } from "@/lib/format/dates";
 
 /**
  * ============================
@@ -68,12 +69,6 @@ function moneyFmt(cents: number, currency: string) {
   } catch {
     return `${(currency || "AUD").toUpperCase()} ${(cents / 100).toFixed(2)}`;
   }
-}
-
-function fmtDateShort(iso: string) {
-  const ms = Date.parse(iso);
-  if (Number.isNaN(ms)) return iso;
-  return new Date(ms).toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short", year: "numeric" });
 }
 
 /**
@@ -210,13 +205,14 @@ export async function resolveHomeAsk(args: { userId: string; question: string })
 
     const lines = bills.map((b: any) => {
       const amt = typeof b.amount_cents === "number" ? moneyFmt(b.amount_cents, (b.currency || "AUD").toUpperCase()) : "—";
-      const due = b.next_due_at ? new Date(b.next_due_at).toLocaleDateString() : "—";
+      const dueDate = b.next_due_at ? parseDateOnly(b.next_due_at) : null;
+      const due = dueDate ? formatDate(dueDate) : "—";
       const name = String(b.name ?? "Bill").trim() || "Bill";
       return `• ${name} — ${due} — ${amt}${b.autopay ? " (autopay)" : ""}`;
     });
 
     return {
-      answer: `In the next 30 days (until ${end.toLocaleDateString()}), you have:\n\n${lines.join("\n")}`,
+      answer: `In the next 30 days (until ${formatDate(end)}), you have:\n\n${lines.join("\n")}`,
       action: "open_money",
     };
   }

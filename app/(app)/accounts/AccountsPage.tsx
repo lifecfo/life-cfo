@@ -9,6 +9,7 @@ import { AssistedSearch } from "@/components/AssistedSearch";
 import { formatMoneyFromCents } from "@/lib/money/formatMoney";
 import { SampleOffer, SampleStrip, useSampleMode } from "@/lib/demo/sampleMode";
 import { buildSampleAccounts } from "@/lib/demo/sampleMoneyViews";
+import { formatDate } from "@/lib/format/dates";
 
 type AccountRow = {
   id: string;
@@ -46,13 +47,7 @@ function moneyFromCents(cents: number, currency: string) {
 
 function softDate(isoOrDate: string | null | undefined) {
   if (!isoOrDate) return "";
-  const ms = Date.parse(isoOrDate);
-  if (!Number.isFinite(ms)) {
-    const ms2 = Date.parse(isoOrDate + "T00:00:00Z");
-    if (!Number.isFinite(ms2)) return "";
-    return new Date(ms2).toLocaleDateString();
-  }
-  return new Date(ms).toLocaleDateString();
+  return formatDate(isoOrDate);
 }
 
 async function fetchJson<T>(url: string): Promise<T> {

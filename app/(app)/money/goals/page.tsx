@@ -16,6 +16,7 @@ import { useCountUp } from "@/lib/ui/useCountUp";
 import { SampleOffer, SampleStrip, useSampleMode } from "@/lib/demo/sampleMode";
 import { buildSampleGoals } from "@/lib/demo/sampleMoneyViews";
 import { computeGoalMonthlyTarget } from "@/lib/money/goalMonthlyTarget";
+import { formatDateWithDay, parseDateOnly } from "@/lib/format/dates";
 
 export const dynamic = "force-dynamic";
 
@@ -88,9 +89,8 @@ function moneyFromCents(cents: number | null | undefined, currency: string | nul
 
 function fmtDateShort(iso: string | null | undefined) {
   if (!iso) return "";
-  const ms = Date.parse(iso);
-  if (Number.isNaN(ms)) return iso;
-  return new Date(ms).toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short", year: "numeric" });
+  const d = parseDateOnly(iso);
+  return d ? formatDateWithDay(d) : iso;
 }
 
 function normalizeStatus(s: unknown): GoalStatus {
@@ -122,7 +122,7 @@ function monthlyTargetLine(goal: MoneyGoal): string | null {
   if (result.kind === "reached") return "This goal's target is already reached.";
   if (result.kind === "date_passed") return "The target date has passed.";
   if (result.kind === "less_than_month") return "The target date is less than a month away.";
-  return `$${result.dollarsPerMonth.toLocaleString()} a month would reach this by ${fmtDateShort(goal.deadline_at)}.`;
+  return `$${new Intl.NumberFormat("en-AU").format(result.dollarsPerMonth)} a month would reach this by ${fmtDateShort(goal.deadline_at)}.`;
 }
 
 function percent(currentCents: number, targetCents: number) {

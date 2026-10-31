@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars */
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { formatDate, parseDateOnly } from "@/lib/format/dates";
 
 type Cadence = "weekly" | "fortnightly" | "monthly" | "yearly";
 
@@ -50,11 +51,8 @@ function formatMoneyFromCents(cents: number, currency = "AUD") {
 }
 
 function fmtDateTime(iso: string) {
-  try {
-    return new Date(iso).toLocaleString();
-  } catch {
-    return iso;
-  }
+  const d = parseDateOnly(iso);
+  return d ? formatDate(d) : iso;
 }
 
 function daysFromNow(n: number) {

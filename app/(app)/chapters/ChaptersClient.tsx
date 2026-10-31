@@ -11,6 +11,7 @@ import { createSignedUrl, normalizeAttachments, softKB, type AttachmentMeta } fr
 // ✅ Assisted retrieval + tiles
 import { AssistedSearch } from "@/components/AssistedSearch";
 import { TilesRow } from "@/components/TilesRow";
+import { formatDate } from "@/lib/format/dates";
 
 export const dynamic = "force-dynamic";
 
@@ -58,7 +59,7 @@ function safeMs(iso: string | null | undefined) {
 function softDate(iso: string | null) {
   const ms = safeMs(iso);
   if (!ms) return "";
-  return new Date(ms).toLocaleDateString();
+  return formatDate(ms);
 }
 
 function sortByName<T extends { name: string; sort_order?: number | null }>(items: T[]): T[] {

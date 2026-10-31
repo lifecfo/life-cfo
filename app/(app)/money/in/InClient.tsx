@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { Page } from "@/components/Page";
 import { Card, CardContent, Chip, useToast } from "@/components/ui";
 import type { MoneyDataCoverage } from "@/lib/money/reasoning/types";
+import { formatDate, parseDateOnly } from "@/lib/format/dates";
 
 type FinancialSnapshot = {
   asOf: string;
@@ -38,13 +39,8 @@ function formatMoneyRows(rows: MoneyDataCoverage["current_month_money_in"]) {
 
 function softDate(isoOrDate: string | null | undefined) {
   if (!isoOrDate) return "";
-  const ms = Date.parse(isoOrDate);
-  if (!Number.isFinite(ms)) {
-    const ms2 = Date.parse(`${isoOrDate}T00:00:00Z`);
-    if (!Number.isFinite(ms2)) return "";
-    return new Date(ms2).toLocaleDateString();
-  }
-  return new Date(ms).toLocaleDateString();
+  const d = parseDateOnly(isoOrDate);
+  return d ? formatDate(d) : "";
 }
 
 async function fetchJson<T>(url: string): Promise<T> {

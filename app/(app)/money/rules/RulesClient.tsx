@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Page } from "@/components/Page";
 import { Card, CardContent, Chip, useToast, Button } from "@/components/ui";
 import { SampleStrip, useSampleMode } from "@/lib/demo/sampleMode";
+import { formatDate } from "@/lib/format/dates";
 
 type RuleRow = {
   id: string;
@@ -28,9 +29,7 @@ function safeStr(v: unknown) {
 
 function softDate(iso: string | null | undefined) {
   if (!iso) return "";
-  const ms = Date.parse(iso);
-  if (!Number.isFinite(ms)) return "";
-  return new Date(ms).toLocaleDateString();
+  return formatDate(iso);
 }
 
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {

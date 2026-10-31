@@ -4,6 +4,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { Card, CardContent, Chip, useToast } from "@/components/ui";
+import { formatDate } from "@/lib/format/dates";
 
 export type DecisionNotesKind = "thinking" | "decisions" | "revisit" | "chapters";
 
@@ -22,9 +23,7 @@ function safeStr(v: unknown) {
 
 function softWhen(iso: string | null | undefined) {
   if (!iso) return "";
-  const ms = Date.parse(iso);
-  if (Number.isNaN(ms)) return "";
-  return new Date(ms).toLocaleDateString();
+  return formatDate(iso);
 }
 
 export function DecisionNotes(props: {

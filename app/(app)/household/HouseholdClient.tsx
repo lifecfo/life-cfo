@@ -8,6 +8,7 @@ import { Button, Card, CardContent, Chip, useToast } from "@/components/ui";
 import { notifyActiveHouseholdChanged } from "@/lib/households/resolveActiveHouseholdClient";
 import { useLifeCfoAccess } from "@/lib/access/useLifeCfoAccess";
 import { markMascotCelebrateOnNextHome } from "@/lib/mascot/celebrate";
+import { formatDate } from "@/lib/format/dates";
 
 type HouseholdItem = { id: string; name: string; role: string };
 
@@ -75,9 +76,7 @@ function canInvite(role: string | null) {
 
 function formatInviteAge(createdAt: string) {
   if (!createdAt) return "";
-  const d = new Date(createdAt);
-  if (Number.isNaN(d.getTime())) return "";
-  return d.toLocaleDateString();
+  return formatDate(createdAt);
 }
 
 export default function HouseholdClient() {

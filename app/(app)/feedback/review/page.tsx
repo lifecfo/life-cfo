@@ -4,6 +4,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Page } from "@/components/Page";
 import { Card, CardContent, Chip } from "@/components/ui";
+import { formatDateTime } from "@/lib/format/dates";
 
 type FeedbackRow = {
   id: string;
@@ -18,7 +19,7 @@ type TypeFilter = "all" | "yes" | "not_quite" | "detailed";
 function softDate(iso: string): string {
   const ms = Date.parse(iso);
   if (!Number.isFinite(ms)) return iso;
-  return new Date(ms).toLocaleString("en-AU", { dateStyle: "medium", timeStyle: "short" });
+  return formatDateTime(ms);
 }
 
 // The inline page prompt only ever sends exactly "Yes" or "Not quite" /

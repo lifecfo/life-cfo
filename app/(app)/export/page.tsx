@@ -8,14 +8,14 @@ import { formatMoneyFromCents } from "@/lib/money/formatMoney";
 import { buildExportPack } from "@/lib/picture/exportPack";
 import { resolveHouseholdIdRoute } from "@/lib/households/resolveHouseholdIdRoute";
 import { supabaseRoute } from "@/lib/supabaseRoute";
+import { formatDateShort, parseDateOnly } from "@/lib/format/dates";
 
 export const dynamic = "force-dynamic";
 
 function auDate(iso: string | null): string {
   if (!iso) return "";
-  const [year, month, day] = iso.split("-");
-  if (!year || !month || !day) return iso;
-  return `${day}/${month}/${year}`;
+  const d = parseDateOnly(iso);
+  return d ? formatDateShort(d) : iso;
 }
 
 export default async function ExportPage() {

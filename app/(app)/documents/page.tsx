@@ -6,6 +6,7 @@ import { supabase } from "@/lib/supabaseClient";
 import { Page } from "@/components/Page";
 import { Card, CardContent, Chip, Badge, useToast } from "@/components/ui";
 import { formatMoneyFromCents } from "@/lib/money/formatMoney";
+import { formatDate } from "@/lib/format/dates";
 
 const RECEIPT_BUCKET = "household-receipts";
 const DECISIONS_BUCKET = "captures";
@@ -67,14 +68,6 @@ async function resolveActiveHouseholdId(userId: string): Promise<string | null> 
 function softKB(bytes: number): string {
   if (!bytes || bytes <= 0) return "";
   return `${Math.max(1, Math.round(bytes / 1024))} KB`;
-}
-
-function formatDate(iso: string): string {
-  try {
-    return new Date(iso).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
-  } catch {
-    return iso;
-  }
 }
 
 export default function DocumentsPage() {

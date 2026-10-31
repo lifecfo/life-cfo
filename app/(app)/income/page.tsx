@@ -6,6 +6,7 @@ import { PageGlance } from "@/components/glance/PageGlance";
 import { Page } from "@/components/Page";
 import { Card, CardContent, Button, Chip, Badge, useToast } from "@/components/ui";
 import { useSampleMode } from "@/lib/demo/sampleMode";
+import { formatDate, parseDateOnly } from "@/lib/format/dates";
 
 type Cadence = "weekly" | "fortnightly" | "monthly" | "yearly";
 
@@ -41,6 +42,11 @@ function formatMoneyFromCents(cents: number, currency = "AUD") {
   } catch {
     return `${currency} ${value.toFixed(2)}`;
   }
+}
+
+function nextPayDate(iso: string): string {
+  const d = parseDateOnly(iso);
+  return d ? formatDate(d) : iso;
 }
 
 function centsFromInput(input: string): number {
@@ -401,7 +407,7 @@ export default function IncomePage() {
                       <Chip>{cadenceLabel(i.cadence)}</Chip>
                     </div>
                     <div className="text-sm opacity-75">
-                      <span className="tabular-nums">{formatMoneyFromCents(i.amount_cents)}</span> • Next {new Date(i.next_pay_at).toLocaleString()}
+                      <span className="tabular-nums">{formatMoneyFromCents(i.amount_cents)}</span> • Next {nextPayDate(i.next_pay_at)}
                     </div>
                   </div>
 

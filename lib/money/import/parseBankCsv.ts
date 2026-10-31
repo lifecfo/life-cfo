@@ -233,7 +233,7 @@ function parseBankCsvInternal(text: string): BankCsvImportParse {
   const headers = records[0].map((header) => String(header || "").replace(/^\uFEFF/, "").trim());
   const rows = records.slice(1);
   if (rows.length > BANK_CSV_MAX_ROWS) {
-    issues.push(`This file has more than ${BANK_CSV_MAX_ROWS.toLocaleString()} rows.`);
+    issues.push(`This file has more than ${new Intl.NumberFormat("en-AU").format(BANK_CSV_MAX_ROWS)} rows.`);
   }
 
   const indexes = {

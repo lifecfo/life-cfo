@@ -10,6 +10,7 @@ import { AssistedSearch } from "@/components/AssistedSearch";
 import { useSampleMode } from "@/lib/demo/sampleMode";
 import { useMascotEnabled, usePrefersReducedMotion } from "@/lib/mascot/prefs";
 import { MascotCorner } from "@/components/mascot/MascotCorner";
+import { formatDate, parseDateOnly } from "@/lib/format/dates";
 
 type LiveState = "connecting" | "live" | "offline";
 type Cadence = "weekly" | "fortnightly" | "monthly" | "yearly";
@@ -120,11 +121,8 @@ function fromLocalInputValue(localValue: string) {
 }
 
 function fmtDateTime(iso: string) {
-  try {
-    return new Date(iso).toLocaleString();
-  } catch {
-    return iso;
-  }
+  const d = parseDateOnly(iso);
+  return d ? formatDate(d) : iso;
 }
 
 /**

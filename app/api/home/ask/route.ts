@@ -1,5 +1,6 @@
 // app/api/home/ask/route.ts
 import { NextResponse } from "next/server";
+import { formatDateWithDay, parseDateOnly } from "@/lib/format/dates";
 import { AiDisabledError, AiOutputBlockedError, generateAiStructured } from "@/lib/ai/provider";
 import { AiDailyLimitError, AiUsageUnavailableError } from "@/lib/ai/usageLimit";
 import { isAiEnabled } from "@/lib/ai/aiFlag";
@@ -112,14 +113,8 @@ function isGoalsIntent(q: string) {
 }
 
 function formatDateShort(iso: string) {
-  const ms = Date.parse(iso);
-  if (Number.isNaN(ms)) return iso;
-  return new Date(ms).toLocaleDateString(undefined, {
-    weekday: "short",
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  });
+  const d = parseDateOnly(iso);
+  return d ? formatDateWithDay(d) : iso;
 }
 
 /* ---------------- facts pack ---------------- */

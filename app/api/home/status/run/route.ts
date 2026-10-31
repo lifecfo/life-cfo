@@ -5,6 +5,7 @@ import {
   readLimitedJson,
   requireAuthenticatedAiUser,
 } from "@/lib/ai/routeSecurity";
+import { formatDateWithDay, parseDateOnly } from "@/lib/format/dates";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -56,9 +57,8 @@ function sumByCurrency(rows: Array<{ currency: string; cents: number }>) {
 }
 
 function isoDay(iso: string) {
-  const ms = Date.parse(iso);
-  if (Number.isNaN(ms)) return iso;
-  return new Date(ms).toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" });
+  const d = parseDateOnly(iso);
+  return d ? formatDateWithDay(d) : iso;
 }
 
 // Deterministic monitor rules (V1)

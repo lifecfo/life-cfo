@@ -11,6 +11,7 @@ import { categoryColorSlot, categoryColorClasses } from "@/lib/ui/categoryColorS
 import type { MoneyDataCoverage } from "@/lib/money/reasoning/types";
 import { SampleOffer, SampleStrip, useSampleMode } from "@/lib/demo/sampleMode";
 import { buildSampleOutResponse } from "@/lib/demo/sampleMoneyViews";
+import { formatDate, parseDateOnly } from "@/lib/format/dates";
 
 type MoneyRow = {
   currency: string;
@@ -81,13 +82,8 @@ function renderMoneyRows(rows: MoneyRow[]) {
 
 function softDate(isoOrDate: string | null | undefined) {
   if (!isoOrDate) return "";
-  const ms = Date.parse(isoOrDate);
-  if (!Number.isFinite(ms)) {
-    const ms2 = Date.parse(`${isoOrDate}T00:00:00Z`);
-    if (!Number.isFinite(ms2)) return "";
-    return new Date(ms2).toLocaleDateString();
-  }
-  return new Date(ms).toLocaleDateString();
+  const d = parseDateOnly(isoOrDate);
+  return d ? formatDate(d) : "";
 }
 
 async function fetchJson<T>(url: string): Promise<T> {

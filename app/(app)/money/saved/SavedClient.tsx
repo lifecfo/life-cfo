@@ -9,6 +9,7 @@ import type {
   MoneyBucketsSummary,
   MoneyDataCoverage,
 } from "@/lib/money/reasoning/types";
+import { formatDate, parseDateOnly } from "@/lib/format/dates";
 
 type FinancialSnapshot = {
   asOf: string;
@@ -44,13 +45,8 @@ function formatMoney(cents: number | undefined | null, currency = "AUD") {
 
 function softDate(isoOrDate: string | null | undefined) {
   if (!isoOrDate) return "";
-  const ms = Date.parse(isoOrDate);
-  if (!Number.isFinite(ms)) {
-    const ms2 = Date.parse(`${isoOrDate}T00:00:00Z`);
-    if (!Number.isFinite(ms2)) return "";
-    return new Date(ms2).toLocaleDateString();
-  }
-  return new Date(ms).toLocaleDateString();
+  const d = parseDateOnly(isoOrDate);
+  return d ? formatDate(d) : "";
 }
 
 function monthName(monthKey: string): string {

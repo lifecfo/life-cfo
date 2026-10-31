@@ -15,6 +15,7 @@ import type {
   MoneyYearSummary,
   MoneyYearTimingNeededItem,
 } from "./types";
+import { formatMonthYear, parseDateOnly } from "@/lib/format/dates";
 
 function monthStart(date: Date): Date {
   return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1));
@@ -24,12 +25,13 @@ function monthKey(date: Date): string {
   return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
 }
 
+// `date` is always a UTC month-start (see monthStart above), so its UTC
+// calendar fields are the ones that matter -- parseDateOnly(toISOString())
+// reads those literal digits rather than the runtime's local timezone,
+// keeping this label stable regardless of where it renders.
 function monthLabel(date: Date): string {
-  return new Intl.DateTimeFormat("en-AU", {
-    month: "short",
-    year: "numeric",
-    timeZone: "UTC",
-  }).format(date);
+  const d = parseDateOnly(date.toISOString());
+  return d ? formatMonthYear(d) : "";
 }
 
 function projectItem(

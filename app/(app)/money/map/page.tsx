@@ -12,6 +12,7 @@ import type {
   MoneyMapPlannedItem,
   MoneyMapSummary,
 } from "@/lib/money/reasoning/types";
+import { formatDate, formatMonthYear, parseDateOnly } from "@/lib/format/dates";
 
 type MoneyMapResponse = {
   ok?: boolean;
@@ -39,23 +40,14 @@ function cashPlanStatusLabel(status: CashPlanBucket["backing_status"]): string {
 }
 
 function displayDate(value: string | null): string | null {
-  const parsed = Date.parse(value || "");
-  if (!Number.isFinite(parsed)) return null;
-  return new Intl.DateTimeFormat("en-AU", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  }).format(new Date(parsed));
+  if (!value) return null;
+  const d = parseDateOnly(value);
+  return d ? formatDate(d) : null;
 }
 
 function monthName(monthKey: string): string {
-  const parsed = Date.parse(`${monthKey}-01T00:00:00.000Z`);
-  if (!Number.isFinite(parsed)) return monthKey;
-  return new Intl.DateTimeFormat("en-AU", {
-    month: "short",
-    year: "numeric",
-    timeZone: "UTC",
-  }).format(new Date(parsed));
+  const d = parseDateOnly(`${monthKey}-01`);
+  return d ? formatMonthYear(d) : monthKey;
 }
 
 // No existing relative-time helper fit: Goals' relativeDayLabel() only
