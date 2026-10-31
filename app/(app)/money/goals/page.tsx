@@ -299,7 +299,7 @@ function GoalRow({
             {pill}
           </div>
 
-          <div className="mt-1 text-xs text-zinc-600">
+          <div className="mt-1 text-xs text-zinc-600 break-words">
             {tgt > 0 ? (
               <>
                 <Money cents={Math.round(animatedCur)} currency={g.currency} /> /{" "}
@@ -440,7 +440,7 @@ function SelectedGoalSummaryCard({
             {String(goal.title ?? "Goal").trim() || "Goal"}
           </div>
 
-          <div className="mt-1 text-xs text-zinc-600">
+          <div className="mt-1 text-xs text-zinc-600 break-words">
             {status}
             {goal.deadline_at ? <span> • target by {fmtDateShort(goal.deadline_at)}</span> : null}
             {isPrimary ? <span> • primary</span> : null}
@@ -471,7 +471,7 @@ function SelectedGoalSummaryCard({
             ) : null}
           </div>
 
-          {monthlyLine ? <div className="mt-2 text-xs text-zinc-600">{monthlyLine}</div> : null}
+          {monthlyLine ? <div className="mt-2 text-xs text-zinc-600 break-words">{monthlyLine}</div> : null}
 
           {notStarted ? (
             <div className="mt-4 rounded-xl border border-dashed border-zinc-300 px-3 py-3 text-xs text-zinc-500">
@@ -1307,9 +1307,9 @@ export default function GoalsPage() {
         )}
 
         {/* Two-column layout */}
-        <div className="grid gap-4 md:grid-cols-12">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-12">
           {/* Goals list */}
-          <div className="md:col-span-5">
+          <div className="min-w-0 md:col-span-5">
             <Card className="border-zinc-200 bg-white shadow-none">
               <CardContent className="p-0">
                 <div className="px-6 py-5">
@@ -1402,7 +1402,7 @@ export default function GoalsPage() {
           </div>
 
           {/* Selected goal detail */}
-          <div className="md:col-span-7">
+          <div className="min-w-0 md:col-span-7">
             <Card className="border-zinc-200 bg-white shadow-none">
               <CardContent className="p-0">
                 <div className="px-6 py-5">
@@ -1476,8 +1476,8 @@ export default function GoalsPage() {
                               </Chip>
                             </div>
 
-                            <div className="mt-3 grid gap-3 md:grid-cols-12">
-                              <div className="md:col-span-4">
+                            <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-12">
+                              <div className="min-w-0 md:col-span-4">
                                 <div className="text-xs text-zinc-600 mb-1">Amount</div>
                                 <input
                                   ref={deltaRef}
@@ -1494,7 +1494,7 @@ export default function GoalsPage() {
                                 />
                               </div>
 
-                              <div className="md:col-span-8">
+                              <div className="min-w-0 md:col-span-8">
                                 <div className="text-xs text-zinc-600 mb-1">Note (optional)</div>
                                 <input
                                   className="w-full rounded-2xl border border-zinc-200 px-4 py-2 bg-white outline-none focus:ring-2 focus:ring-zinc-200"
